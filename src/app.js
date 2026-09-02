@@ -1071,7 +1071,23 @@
         return C.suggestion(m, s.q, i === s.cursor, { recent: s.mode === 'recent' });
       }).join('') +
       '</div>';
+    fitSuggest(box);
   }
+  /* Cap the panel to the space actually left on screen, reserving the fixed
+     bottom tab bar on mobile so the last result is never hidden under it. */
+  function fitSuggest(box) {
+    var panel = box && box.querySelector('.suggest');
+    if (!panel) return;
+    /* the tab bar is position:fixed, so offsetParent is always null on it —
+       check computed display instead */
+    var tabbar = document.getElementById('tabbar');
+    var reserve = (tabbar && getComputedStyle(tabbar).display !== 'none')
+      ? tabbar.getBoundingClientRect().height + 12
+      : 16;
+    var top = panel.getBoundingClientRect().top;
+    panel.style.maxHeight = Math.max(180, Math.round(window.innerHeight - top - reserve)) + 'px';
+  }
+
   function closeSuggest() {
     state.suggest.open = false;
     document.querySelectorAll('.suggest-slot').forEach(function (el) { el.innerHTML = ''; });
