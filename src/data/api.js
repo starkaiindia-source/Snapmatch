@@ -175,110 +175,182 @@
   SM.api = api;
 
   /* ==========================================================================
-     Session + subscription — MOCK ONLY.
-     No auth provider, no payment gateway, no server validation. State is held
-     in memory and mirrored to localStorage so a refresh keeps the demo intact.
+     Session + subscription.
+
+     The session is DERIVED, never stored as a status. Only the signed-in
+     Google `sub` is persisted; everything the UI shows is recomputed from the
+     stored profile each time, so the account state is always correct:
+
+        no signed-in identity           -> guest
+        identity, no subscription       -> free
+        identity, subscription running  -> pro
+        identity, subscription lapsed   -> expired
+
+     Because the derivation reads the clock, expiry happens on its own — there
+     is no state for anyone to flip by hand.
      ========================================================================== */
-  var KEY = 'snapmatch.session.v1';
-  var DEFAULT = {
-    status: 'guest', name: '', email: '', plan: null, renewsOn: null, since: null,
-    sub: null, picture: '', profile: null
-  };
+  var SESSION_KEY = 'snapmatch.session.v2';
+  var DAY = 86400000;
+  var PLAN_DAYS = { monthly: 30, yearly: 365 };
 
-  function read() {
+  function readSub() {
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); }
+    catch (e) { return null; }
+  }
+  function writeSub(sub) {
     try {
-      var raw = localStorage.getItem(KEY);
-      if (!raw) return Object.assign({}, DEFAULT);
-      return Object.assign({}, DEFAULT, JSON.parse(raw));
-    } catch (e) { return Object.assign({}, DEFAULT); }
-  }
-  function write(s) {
-    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { /* private mode */ }
-  }
-
-  var current = read();
-  var listeners = [];
-
-  function emit() { listeners.forEach(function (fn) { fn(current); }); }
-  function set(patch) {
-    current = Object.assign({}, current, patch);
-    write(current);
-    emit();
-    return current;
+      if (sub) localStorage.setItem(SESSION_KEY, JSON.stringify(sub));
+      else localStorage.removeItem(SESSION_KEY);
+    } catch (e) { /* private mode */ }
   }
   function fmtDate(d) {
     var mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return d.getDate() + ' ' + mo[d.getMonth()] + ' ' + d.getFullYear();
   }
 
+  /* the single source of truth for what state an account is in */
+  function deriveStatus(profile) {
+    if (!profile) return 'guest';
+    var s = profile.subscription;
+    if (!s || !s.expiresAt) return 'free';
+    return Date.now() < s.expiresAt ? 'pro' : 'expired';
+  }
+
+  var GUEST = { status: 'guest', signedIn: false, name: '', email: '', profile: null, sub: null, subscription: null };
+
+  function buildSession() {
+    var sub = readSub();
+    var profile = sub ? SM.auth.findProfile(sub) : null;
+    if (!profile) return Object.assign({}, GUEST);
+
+    var s = profile.subscription || null;
+    var view = {
+      status: deriveStatus(profile), signedIn: true, sub: sub, profile: profile,
+      name: profile.shopName || profile.googleName || 'My shop',
+      shopName: profile.shopName || '',
+      proprietor: profile.proprietor || '',
+      email: profile.email || '',
+      picture: profile.picture || '',
+      photo: profile.photo || '',
+      mobile: profile.mobile ? ((profile.dial || '') + ' ' + profile.mobile) : '',
+      since: profile.createdAt ? fmtDate(new Date(profile.createdAt)) : '',
+      subscription: null, plan: null, renewsOn: null
+    };
+    if (s && s.expiresAt) {
+      var total = Math.max(1, s.expiresAt - s.startedAt);
+      var left = s.expiresAt - Date.now();
+      view.plan = s.plan;
+      view.subscription = {
+        plan: s.plan,
+        startedAt: s.startedAt, expiresAt: s.expiresAt,
+        cancelledAt: s.cancelledAt || null,
+        startLabel: fmtDate(new Date(s.startedAt)),
+        endLabel: fmtDate(new Date(s.expiresAt)),
+        daysLeft: Math.max(0, Math.ceil(left / DAY)),
+        daysTotal: Math.round(total / DAY),
+        pctLeft: Math.max(0, Math.min(100, (left / total) * 100)),
+        active: left > 0,
+        willRenew: !s.cancelledAt
+      };
+      view.renewsOn = view.subscription.endLabel;
+    }
+    return view;
+  }
+
+  var current = buildSession();
+  var listeners = [];
+  function emit() { listeners.forEach(function (fn) { fn(current); }); }
+  function refresh() { current = buildSession(); emit(); return current; }
+
+  /* keep the derived state honest while the tab stays open */
+  setInterval(function () {
+    var was = current.status;
+    var now = buildSession();
+    if (now.status !== was) { current = now; emit(); }
+  }, 30000);
+
   SM.session = {
     get: function () { return current; },
+    refresh: refresh,
     isPro: function () { return current.status === 'pro'; },
+    canSubscribe: function () { return current.signedIn; },
     onChange: function (fn) { listeners.push(fn); return function () { listeners = listeners.filter(function (f) { return f !== fn; }); }; },
 
-    /* Signs in an authenticated Google identity.
-       Existing profile  -> restores it (plan, status, shop details).
-       New identity      -> reports needsRegistration so the caller can collect
-                            the shop details; nothing is written until then,
-                            which also prevents duplicate accounts. */
+    /* Known identity -> restores the profile and whatever subscription it
+       holds, re-derived against the clock.
+       New identity   -> reports needsRegistration; nothing is written until
+       the profile is completed, so one Google account can never end up with
+       two records. */
     signInWithGoogle: function (identity, registration) {
       var existing = SM.auth.findProfile(identity.sub);
       if (!existing && !registration) {
         return respond({ needsRegistration: true, identity: identity }, LAT.normal);
       }
-      var profile = existing || SM.auth.saveProfile(identity.sub, Object.assign({
-        email: identity.email,
-        googleName: identity.name,
-        picture: identity.picture,
-        createdAt: Date.now(),
-        status: 'free', plan: null, renewsOn: null,
-        since: fmtDate(new Date())
-      }, registration || {}));
-
-      set({
-        status: profile.status || 'free',
-        plan: profile.plan || null,
-        renewsOn: profile.renewsOn || null,
-        email: profile.email || identity.email,
-        name: profile.shopName || profile.googleName || identity.name || 'My Shop',
-        since: profile.since || fmtDate(new Date()),
-        sub: identity.sub,
-        picture: identity.picture || '',
-        profile: profile
-      });
-      return respond({ profile: profile, session: current, isNew: !existing }, LAT.normal);
+      if (!existing) {
+        SM.auth.saveProfile(identity.sub, Object.assign({
+          email: identity.email, googleName: identity.name, picture: identity.picture,
+          createdAt: Date.now(), subscription: null
+        }, registration));
+      } else if (identity.email && existing.email !== identity.email) {
+        SM.auth.saveProfile(identity.sub, { email: identity.email });
+      }
+      writeSub(identity.sub);
+      refresh();
+      return respond({
+        session: current, isNew: !existing,
+        restored: !!(existing && existing.subscription)
+      }, LAT.normal);
     },
-    signOut: function () { return respond(set(Object.assign({}, DEFAULT)), LAT.fast); },
 
-    /* A subscription always belongs to a signed-in identity, never to the
-       device — callers must send the user through sign-in first. */
-    canSubscribe: function () { return current.status !== 'guest'; },
+    signOut: function () { writeSub(null); refresh(); return respond(current, LAT.fast); },
 
-    /* no payment gateway is connected — this only records the plan locally */
+    updateProfile: function (patch) {
+      if (!current.sub) return respond({ error: 'not-signed-in' }, LAT.fast);
+      SM.auth.saveProfile(current.sub, patch);
+      refresh();
+      return respond({ ok: true, session: current }, LAT.normal);
+    },
+
+    /* No payment gateway is connected: this records the purchase against the
+       signed-in identity with real start and expiry dates. */
     subscribe: function (planId) {
-      if (current.status === 'guest') {
-        return respond({ error: 'signin-required' }, LAT.fast);
-      }
-      var d = new Date();
-      d.setDate(d.getDate() + (planId === 'yearly' ? 365 : 30));
-      set({ status: 'pro', plan: planId, renewsOn: fmtDate(d) });
-      if (current.sub) {
-        SM.auth.saveProfile(current.sub, { status: 'pro', plan: planId, renewsOn: current.renewsOn });
-      }
+      if (!current.signedIn) return respond({ error: 'signin-required' }, LAT.fast);
+      var days = PLAN_DAYS[planId] || 30;
+      var now = Date.now();
+      SM.auth.saveProfile(current.sub, {
+        subscription: { plan: planId, startedAt: now, expiresAt: now + days * DAY, cancelledAt: null }
+      });
+      refresh();
       return respond({ ok: true, session: current }, LAT.slow);
     },
-    cancel: function () { return respond(set({ status: 'expired' }), LAT.normal); },
 
-    /* demo switch used by the review panel to jump between access states */
-    setState: function (status) {
-      var d = new Date(); d.setDate(d.getDate() + 30);
-      if (status === 'guest') return set(Object.assign({}, DEFAULT));
-      if (status === 'free') return set({ status: 'free', plan: null, renewsOn: null, email: current.email || 'demo@proglide.app', name: current.name || 'Demo Shop', since: current.since || fmtDate(new Date()) });
-      if (status === 'pro') return set({ status: 'pro', plan: current.plan || 'monthly', renewsOn: fmtDate(d), email: current.email || 'demo@proglide.app', name: current.name || 'Demo Shop', since: current.since || fmtDate(new Date()) });
-      if (status === 'expired') return set({ status: 'expired', renewsOn: null, email: current.email || 'demo@proglide.app', name: current.name || 'Demo Shop' });
-      return current;
+    /* Cancelling stops the renewal; access runs to the paid-for expiry date
+       and the state flips to expired on its own after that. */
+    cancel: function () {
+      if (!current.sub || !current.subscription) return respond({ error: 'no-subscription' }, LAT.fast);
+      var s = current.profile.subscription;
+      SM.auth.saveProfile(current.sub, {
+        subscription: Object.assign({}, s, { cancelledAt: Date.now() })
+      });
+      refresh();
+      return respond({ ok: true, session: current }, LAT.normal);
+    },
+
+    /* developer helper, deliberately not exposed in the UI — run
+       SM.session.__expireNow() in the console to exercise the expired state */
+    __expireNow: function () {
+      if (!current.sub || !current.profile.subscription) return 'no subscription';
+      var s = current.profile.subscription;
+      SM.auth.saveProfile(current.sub, {
+        subscription: Object.assign({}, s, {
+          startedAt: Date.now() - 31 * DAY, expiresAt: Date.now() - DAY
+        })
+      });
+      refresh();
+      return current.status;
     }
   };
+
 
   SM.PLANS = [
     {

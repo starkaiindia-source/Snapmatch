@@ -638,6 +638,64 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .crow__name{ font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .crow__dial{ margin-left:auto; font-family:var(--f-mono); font-size:12.5px; color:var(--ink-3); flex:none; }
 
+/* ---------------- account: access list, plans, meter, profile edit ------- */
+.acclist{ display:flex; flex-direction:column; gap:9px; }
+.acclist li{ display:flex; gap:10px; align-items:flex-start; font-size:14px; font-weight:600; }
+.acclist svg{ width:17px; height:17px; flex:none; margin-top:2px; }
+.acclist__on svg{ color:var(--ok); }
+.acclist__off{ color:var(--ink-3); }
+.acclist__off svg{ color:var(--ink-3); }
+.acclist__tag{
+  margin-left:auto; flex:none; font-size:10px; font-weight:800; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--amber-700); background:var(--amber-050);
+  border:1px solid var(--amber-100); border-radius:var(--r-pill); padding:2px 8px;
+}
+
+.planpick{ display:grid; gap:12px; grid-template-columns:1fr; }
+@media (min-width:560px){ .planpick{ grid-template-columns:1fr 1fr; } }
+.planpick__item{
+  position:relative; border:1px solid var(--line); border-radius:var(--r);
+  background:var(--surface-2); padding:14px 13px 13px;
+}
+.planpick__item--best{
+  border-color:var(--amber-100); background:var(--amber-050);
+  box-shadow:0 0 0 1px var(--amber-100) inset;
+}
+.planpick__item.is-current{ border-color:var(--teal-500); background:var(--teal-050); }
+.planpick__tag{
+  position:absolute; top:-9px; right:12px; height:20px; padding:0 9px; border-radius:var(--r-pill);
+  background:var(--grad-amber); color:#2A1405; font-size:10px; font-weight:800;
+  letter-spacing:.05em; text-transform:uppercase; display:inline-flex; align-items:center;
+}
+.planpick__top{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.planpick__name{ font-family:var(--f-display); font-size:16px; font-weight:700; letter-spacing:-.02em; }
+.planpick__price b{ font-family:var(--f-display); font-size:22px; font-weight:800; letter-spacing:-.04em; }
+.planpick__price span{ font-size:11.5px; color:var(--ink-3); font-weight:700; }
+.planpick__note{ font-size:12px; color:var(--ink-2); margin:6px 0 12px; }
+
+.submeter{ margin-top:14px; }
+.submeter__bar{ height:9px; border-radius:99px; background:var(--surface-3); overflow:hidden; }
+.submeter__bar i{ display:block; height:100%; border-radius:99px; background:var(--grad-brand); transition:width .4s ease; }
+.submeter__row{
+  display:flex; justify-content:space-between; gap:10px; margin-top:7px;
+  font-size:12.5px; font-weight:600; color:var(--ink-2);
+}
+.submeter__row b{ color:var(--ink); font-size:14px; }
+
+.avatar--img{ padding:0; overflow:hidden; background:var(--surface-3); }
+.avatar--img img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+.editform{ display:flex; flex-direction:column; gap:12px; }
+.phrow{ display:flex; gap:14px; align-items:flex-start; }
+.locbox{
+  border:1px dashed var(--line); border-radius:var(--r);
+  background:var(--surface-2); padding:12px;
+}
+.locpin{ display:flex; gap:10px; align-items:center; font-size:13.5px; }
+.locpin svg{ width:18px; height:18px; flex:none; color:var(--ok); }
+.locpin b{ display:block; font-size:13.5px; }
+.locpin .mono{ font-size:11.5px; color:var(--ink-3); }
+
 /* ---------------- account ---------------- */
 .acct{ display:grid; gap:16px; grid-template-columns:1fr; }
 @media (min-width:900px){ .acct{ grid-template-columns:1.05fr .95fr; align-items:start; } }

@@ -1211,6 +1211,64 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .crow__name{ font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .crow__dial{ margin-left:auto; font-family:var(--f-mono); font-size:12.5px; color:var(--ink-3); flex:none; }
 
+/* ---------------- account: access list, plans, meter, profile edit ------- */
+.acclist{ display:flex; flex-direction:column; gap:9px; }
+.acclist li{ display:flex; gap:10px; align-items:flex-start; font-size:14px; font-weight:600; }
+.acclist svg{ width:17px; height:17px; flex:none; margin-top:2px; }
+.acclist__on svg{ color:var(--ok); }
+.acclist__off{ color:var(--ink-3); }
+.acclist__off svg{ color:var(--ink-3); }
+.acclist__tag{
+  margin-left:auto; flex:none; font-size:10px; font-weight:800; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--amber-700); background:var(--amber-050);
+  border:1px solid var(--amber-100); border-radius:var(--r-pill); padding:2px 8px;
+}
+
+.planpick{ display:grid; gap:12px; grid-template-columns:1fr; }
+@media (min-width:560px){ .planpick{ grid-template-columns:1fr 1fr; } }
+.planpick__item{
+  position:relative; border:1px solid var(--line); border-radius:var(--r);
+  background:var(--surface-2); padding:14px 13px 13px;
+}
+.planpick__item--best{
+  border-color:var(--amber-100); background:var(--amber-050);
+  box-shadow:0 0 0 1px var(--amber-100) inset;
+}
+.planpick__item.is-current{ border-color:var(--teal-500); background:var(--teal-050); }
+.planpick__tag{
+  position:absolute; top:-9px; right:12px; height:20px; padding:0 9px; border-radius:var(--r-pill);
+  background:var(--grad-amber); color:#2A1405; font-size:10px; font-weight:800;
+  letter-spacing:.05em; text-transform:uppercase; display:inline-flex; align-items:center;
+}
+.planpick__top{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.planpick__name{ font-family:var(--f-display); font-size:16px; font-weight:700; letter-spacing:-.02em; }
+.planpick__price b{ font-family:var(--f-display); font-size:22px; font-weight:800; letter-spacing:-.04em; }
+.planpick__price span{ font-size:11.5px; color:var(--ink-3); font-weight:700; }
+.planpick__note{ font-size:12px; color:var(--ink-2); margin:6px 0 12px; }
+
+.submeter{ margin-top:14px; }
+.submeter__bar{ height:9px; border-radius:99px; background:var(--surface-3); overflow:hidden; }
+.submeter__bar i{ display:block; height:100%; border-radius:99px; background:var(--grad-brand); transition:width .4s ease; }
+.submeter__row{
+  display:flex; justify-content:space-between; gap:10px; margin-top:7px;
+  font-size:12.5px; font-weight:600; color:var(--ink-2);
+}
+.submeter__row b{ color:var(--ink); font-size:14px; }
+
+.avatar--img{ padding:0; overflow:hidden; background:var(--surface-3); }
+.avatar--img img{ width:100%; height:100%; object-fit:cover; display:block; }
+
+.editform{ display:flex; flex-direction:column; gap:12px; }
+.phrow{ display:flex; gap:14px; align-items:flex-start; }
+.locbox{
+  border:1px dashed var(--line); border-radius:var(--r);
+  background:var(--surface-2); padding:12px;
+}
+.locpin{ display:flex; gap:10px; align-items:center; font-size:13.5px; }
+.locpin svg{ width:18px; height:18px; flex:none; color:var(--ok); }
+.locpin b{ display:block; font-size:13.5px; }
+.locpin .mono{ font-size:11.5px; color:var(--ink-3); }
+
 /* ---------------- account ---------------- */
 .acct{ display:grid; gap:16px; grid-template-columns:1fr; }
 @media (min-width:900px){ .acct{ grid-template-columns:1.05fr .95fr; align-items:start; } }
@@ -2148,110 +2206,182 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   SM.api = api;
 
   /* ==========================================================================
-     Session + subscription — MOCK ONLY.
-     No auth provider, no payment gateway, no server validation. State is held
-     in memory and mirrored to localStorage so a refresh keeps the demo intact.
+     Session + subscription.
+
+     The session is DERIVED, never stored as a status. Only the signed-in
+     Google `sub` is persisted; everything the UI shows is recomputed from the
+     stored profile each time, so the account state is always correct:
+
+        no signed-in identity           -> guest
+        identity, no subscription       -> free
+        identity, subscription running  -> pro
+        identity, subscription lapsed   -> expired
+
+     Because the derivation reads the clock, expiry happens on its own — there
+     is no state for anyone to flip by hand.
      ========================================================================== */
-  var KEY = 'snapmatch.session.v1';
-  var DEFAULT = {
-    status: 'guest', name: '', email: '', plan: null, renewsOn: null, since: null,
-    sub: null, picture: '', profile: null
-  };
+  var SESSION_KEY = 'snapmatch.session.v2';
+  var DAY = 86400000;
+  var PLAN_DAYS = { monthly: 30, yearly: 365 };
 
-  function read() {
+  function readSub() {
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); }
+    catch (e) { return null; }
+  }
+  function writeSub(sub) {
     try {
-      var raw = localStorage.getItem(KEY);
-      if (!raw) return Object.assign({}, DEFAULT);
-      return Object.assign({}, DEFAULT, JSON.parse(raw));
-    } catch (e) { return Object.assign({}, DEFAULT); }
-  }
-  function write(s) {
-    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { /* private mode */ }
-  }
-
-  var current = read();
-  var listeners = [];
-
-  function emit() { listeners.forEach(function (fn) { fn(current); }); }
-  function set(patch) {
-    current = Object.assign({}, current, patch);
-    write(current);
-    emit();
-    return current;
+      if (sub) localStorage.setItem(SESSION_KEY, JSON.stringify(sub));
+      else localStorage.removeItem(SESSION_KEY);
+    } catch (e) { /* private mode */ }
   }
   function fmtDate(d) {
     var mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return d.getDate() + ' ' + mo[d.getMonth()] + ' ' + d.getFullYear();
   }
 
+  /* the single source of truth for what state an account is in */
+  function deriveStatus(profile) {
+    if (!profile) return 'guest';
+    var s = profile.subscription;
+    if (!s || !s.expiresAt) return 'free';
+    return Date.now() < s.expiresAt ? 'pro' : 'expired';
+  }
+
+  var GUEST = { status: 'guest', signedIn: false, name: '', email: '', profile: null, sub: null, subscription: null };
+
+  function buildSession() {
+    var sub = readSub();
+    var profile = sub ? SM.auth.findProfile(sub) : null;
+    if (!profile) return Object.assign({}, GUEST);
+
+    var s = profile.subscription || null;
+    var view = {
+      status: deriveStatus(profile), signedIn: true, sub: sub, profile: profile,
+      name: profile.shopName || profile.googleName || 'My shop',
+      shopName: profile.shopName || '',
+      proprietor: profile.proprietor || '',
+      email: profile.email || '',
+      picture: profile.picture || '',
+      photo: profile.photo || '',
+      mobile: profile.mobile ? ((profile.dial || '') + ' ' + profile.mobile) : '',
+      since: profile.createdAt ? fmtDate(new Date(profile.createdAt)) : '',
+      subscription: null, plan: null, renewsOn: null
+    };
+    if (s && s.expiresAt) {
+      var total = Math.max(1, s.expiresAt - s.startedAt);
+      var left = s.expiresAt - Date.now();
+      view.plan = s.plan;
+      view.subscription = {
+        plan: s.plan,
+        startedAt: s.startedAt, expiresAt: s.expiresAt,
+        cancelledAt: s.cancelledAt || null,
+        startLabel: fmtDate(new Date(s.startedAt)),
+        endLabel: fmtDate(new Date(s.expiresAt)),
+        daysLeft: Math.max(0, Math.ceil(left / DAY)),
+        daysTotal: Math.round(total / DAY),
+        pctLeft: Math.max(0, Math.min(100, (left / total) * 100)),
+        active: left > 0,
+        willRenew: !s.cancelledAt
+      };
+      view.renewsOn = view.subscription.endLabel;
+    }
+    return view;
+  }
+
+  var current = buildSession();
+  var listeners = [];
+  function emit() { listeners.forEach(function (fn) { fn(current); }); }
+  function refresh() { current = buildSession(); emit(); return current; }
+
+  /* keep the derived state honest while the tab stays open */
+  setInterval(function () {
+    var was = current.status;
+    var now = buildSession();
+    if (now.status !== was) { current = now; emit(); }
+  }, 30000);
+
   SM.session = {
     get: function () { return current; },
+    refresh: refresh,
     isPro: function () { return current.status === 'pro'; },
+    canSubscribe: function () { return current.signedIn; },
     onChange: function (fn) { listeners.push(fn); return function () { listeners = listeners.filter(function (f) { return f !== fn; }); }; },
 
-    /* Signs in an authenticated Google identity.
-       Existing profile  -> restores it (plan, status, shop details).
-       New identity      -> reports needsRegistration so the caller can collect
-                            the shop details; nothing is written until then,
-                            which also prevents duplicate accounts. */
+    /* Known identity -> restores the profile and whatever subscription it
+       holds, re-derived against the clock.
+       New identity   -> reports needsRegistration; nothing is written until
+       the profile is completed, so one Google account can never end up with
+       two records. */
     signInWithGoogle: function (identity, registration) {
       var existing = SM.auth.findProfile(identity.sub);
       if (!existing && !registration) {
         return respond({ needsRegistration: true, identity: identity }, LAT.normal);
       }
-      var profile = existing || SM.auth.saveProfile(identity.sub, Object.assign({
-        email: identity.email,
-        googleName: identity.name,
-        picture: identity.picture,
-        createdAt: Date.now(),
-        status: 'free', plan: null, renewsOn: null,
-        since: fmtDate(new Date())
-      }, registration || {}));
-
-      set({
-        status: profile.status || 'free',
-        plan: profile.plan || null,
-        renewsOn: profile.renewsOn || null,
-        email: profile.email || identity.email,
-        name: profile.shopName || profile.googleName || identity.name || 'My Shop',
-        since: profile.since || fmtDate(new Date()),
-        sub: identity.sub,
-        picture: identity.picture || '',
-        profile: profile
-      });
-      return respond({ profile: profile, session: current, isNew: !existing }, LAT.normal);
+      if (!existing) {
+        SM.auth.saveProfile(identity.sub, Object.assign({
+          email: identity.email, googleName: identity.name, picture: identity.picture,
+          createdAt: Date.now(), subscription: null
+        }, registration));
+      } else if (identity.email && existing.email !== identity.email) {
+        SM.auth.saveProfile(identity.sub, { email: identity.email });
+      }
+      writeSub(identity.sub);
+      refresh();
+      return respond({
+        session: current, isNew: !existing,
+        restored: !!(existing && existing.subscription)
+      }, LAT.normal);
     },
-    signOut: function () { return respond(set(Object.assign({}, DEFAULT)), LAT.fast); },
 
-    /* A subscription always belongs to a signed-in identity, never to the
-       device — callers must send the user through sign-in first. */
-    canSubscribe: function () { return current.status !== 'guest'; },
+    signOut: function () { writeSub(null); refresh(); return respond(current, LAT.fast); },
 
-    /* no payment gateway is connected — this only records the plan locally */
+    updateProfile: function (patch) {
+      if (!current.sub) return respond({ error: 'not-signed-in' }, LAT.fast);
+      SM.auth.saveProfile(current.sub, patch);
+      refresh();
+      return respond({ ok: true, session: current }, LAT.normal);
+    },
+
+    /* No payment gateway is connected: this records the purchase against the
+       signed-in identity with real start and expiry dates. */
     subscribe: function (planId) {
-      if (current.status === 'guest') {
-        return respond({ error: 'signin-required' }, LAT.fast);
-      }
-      var d = new Date();
-      d.setDate(d.getDate() + (planId === 'yearly' ? 365 : 30));
-      set({ status: 'pro', plan: planId, renewsOn: fmtDate(d) });
-      if (current.sub) {
-        SM.auth.saveProfile(current.sub, { status: 'pro', plan: planId, renewsOn: current.renewsOn });
-      }
+      if (!current.signedIn) return respond({ error: 'signin-required' }, LAT.fast);
+      var days = PLAN_DAYS[planId] || 30;
+      var now = Date.now();
+      SM.auth.saveProfile(current.sub, {
+        subscription: { plan: planId, startedAt: now, expiresAt: now + days * DAY, cancelledAt: null }
+      });
+      refresh();
       return respond({ ok: true, session: current }, LAT.slow);
     },
-    cancel: function () { return respond(set({ status: 'expired' }), LAT.normal); },
 
-    /* demo switch used by the review panel to jump between access states */
-    setState: function (status) {
-      var d = new Date(); d.setDate(d.getDate() + 30);
-      if (status === 'guest') return set(Object.assign({}, DEFAULT));
-      if (status === 'free') return set({ status: 'free', plan: null, renewsOn: null, email: current.email || 'demo@proglide.app', name: current.name || 'Demo Shop', since: current.since || fmtDate(new Date()) });
-      if (status === 'pro') return set({ status: 'pro', plan: current.plan || 'monthly', renewsOn: fmtDate(d), email: current.email || 'demo@proglide.app', name: current.name || 'Demo Shop', since: current.since || fmtDate(new Date()) });
-      if (status === 'expired') return set({ status: 'expired', renewsOn: null, email: current.email || 'demo@proglide.app', name: current.name || 'Demo Shop' });
-      return current;
+    /* Cancelling stops the renewal; access runs to the paid-for expiry date
+       and the state flips to expired on its own after that. */
+    cancel: function () {
+      if (!current.sub || !current.subscription) return respond({ error: 'no-subscription' }, LAT.fast);
+      var s = current.profile.subscription;
+      SM.auth.saveProfile(current.sub, {
+        subscription: Object.assign({}, s, { cancelledAt: Date.now() })
+      });
+      refresh();
+      return respond({ ok: true, session: current }, LAT.normal);
+    },
+
+    /* developer helper, deliberately not exposed in the UI — run
+       SM.session.__expireNow() in the console to exercise the expired state */
+    __expireNow: function () {
+      if (!current.sub || !current.profile.subscription) return 'no subscription';
+      var s = current.profile.subscription;
+      SM.auth.saveProfile(current.sub, {
+        subscription: Object.assign({}, s, {
+          startedAt: Date.now() - 31 * DAY, expiresAt: Date.now() - DAY
+        })
+      });
+      refresh();
+      return current.status;
     }
   };
+
 
   SM.PLANS = [
     {
@@ -2870,7 +3000,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '<p>' + esc(o.text || 'Browsing every phone model stays free forever. Matching a model to its compatibility group, part code and full fitment list needs an active plan.') + '</p>' +
       '<div class="paywall__acts">' +
       '<button class="btn btn--amber" data-act="go-plans">' + icon('crown') + 'See plans from ₹99</button>' +
-      '<button class="btn btn--ghost" style="color:#FFE7CE" data-act="demo-pro">' + icon('bolt') + 'Preview as subscriber</button>' +
       '</div></div>';
   };
 
@@ -3790,13 +3919,15 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     country: 'IN', mobile: '', shopName: '', proprietor: '',
     flat: '', area: '', city: '', district: '', stateName: '', touched: {}
   };
+  /* mandatory only — the address is optional and must never block sign-up */
   var REG_FIELDS = [
-    { k: 'mobile', label: 'Mobile number' }, { k: 'shopName', label: 'Shop name' },
-    { k: 'proprietor', label: 'Proprietor name' }, { k: 'flat', label: 'Flat / building number' },
-    { k: 'area', label: 'Area / colony' }, { k: 'city', label: 'City' },
-    { k: 'district', label: 'District' }, { k: 'stateName', label: 'State' }
+    { k: 'mobile', label: 'Mobile number' },
+    { k: 'shopName', label: 'Shop name' },
+    { k: 'proprietor', label: 'Proprietor name' }
   ];
+  var ADDRESS_FIELDS = ['flat', 'area', 'city', 'district', 'stateName'];
   function regError(k) {
+    if (ADDRESS_FIELDS.indexOf(k) > -1) return '';   /* optional */
     var v = String(reg[k] || '').trim();
     if (k === 'mobile') {
       if (!v) return 'Enter your mobile number';
@@ -3853,8 +3984,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       ['Keep your plan on every device at the counter', 'Your searches stay on your account', 'Staff logins and part-code export are next on the roadmap']
         .map(function (t) { return '<li>' + icon('checkCircle') + '<span>' + esc(t) + '</span></li>'; }).join('') +
       '</ul>' +
-      '<hr class="divider" style="margin:16px 0" />' +
-      demoPanelHTML() +
       '</div></div>';
   }
 
@@ -3894,7 +4023,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       field('proprietor', 'Proprietor name (full name)', { ph: 'Rajesh Kumar Sharma' }) +
 
       '<div class="regform__sub"><span class="t-lab">Shop address</span>' +
-      '<span class="t-xs muted">in ' + esc(c ? c.name : '—') + '</span></div>' +
+      '<span class="t-xs muted">optional · ' + esc(c ? c.name : '—') + '</span></div>' +
       field('flat', 'Flat / building number', { ph: '12B, Ganesh Complex' }) +
       field('area', 'Area / colony', { ph: 'Gandhi Nagar' }) +
       '<div class="ffield--pair">' + field('city', 'City', { ph: 'Coimbatore' }) +
@@ -3919,69 +4048,326 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     if (state.route.name === 'account' && S.get().status === 'guest') renderAccount(page);
   }
 
-  function profileHTML(s) {
-    var plan = s.plan ? SM.PLANS.filter(function (p) { return p.id === s.plan; })[0] : null;
-    var badge = s.status === 'pro' ? '<span class="pill pill--ok">' + icon('checkCircle') + 'Active</span>'
-      : s.status === 'expired' ? '<span class="pill pill--bad">' + icon('alert') + 'Expired</span>'
-        : '<span class="pill">' + icon('user') + 'Free account</span>';
+  /* ----------------------------------------------------- profile editing -- */
+  var edit = {};
 
+  function editSheetHTML() {
+    var c = SM.countries.byCode(edit.country);
+    var loc = edit.location;
+    return '<div class="editform">' +
+
+      /* photo */
+      '<div class="phrow">' +
+      (edit.photo
+        ? '<span class="avatar avatar--lg avatar--img"><img src="' + esc(edit.photo) + '" alt="" /></span>'
+        : '<span class="avatar avatar--lg">' + esc(initials(edit.shopName || 'Shop')) + '</span>') +
+      '<div class="grow">' +
+      '<span class="t-lab">Shop photo</span>' +
+      '<div class="row wrap" style="gap:8px;margin-top:6px">' +
+      '<label class="btn btn--outline btn--sm" style="cursor:pointer">' + icon('plus') +
+      (edit.photo ? 'Replace' : 'Upload') +
+      '<input type="file" id="photoInput" accept="image/*" style="display:none" /></label>' +
+      (edit.photo ? '<button class="btn btn--ghost btn--sm" data-act="clear-photo">' + icon('close') + 'Remove</button>' : '') +
+      '</div>' +
+      '<p class="t-xs muted" style="margin-top:6px">Stored on this device with your profile. Resized to 256px.</p>' +
+      '</div></div>' +
+
+      '<div class="ffield"><label class="t-lab" for="ed_shopName">Shop name</label>' +
+      '<input class="input" id="ed_shopName" data-edit="shopName" value="' + esc(edit.shopName) + '" /></div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_proprietor">Proprietor name (full name)</label>' +
+      '<input class="input" id="ed_proprietor" data-edit="proprietor" value="' + esc(edit.proprietor) + '" /></div>' +
+
+      '<div class="ffield"><label class="t-lab">Country &amp; mobile number</label>' +
+      '<div class="phonerow">' +
+      '<button type="button" class="ccpick" data-act="pick-edit-country">' +
+      '<span class="ccpick__flag">' + (c ? c.flag : '🌐') + '</span>' +
+      '<span class="ccpick__name">' + esc(c ? c.name : 'Select') + '</span>' +
+      '<span class="ccpick__dial">' + esc(c ? c.dial : '') + '</span>' + icon('chevronDown') + '</button>' +
+      '<input class="input" data-edit="mobile" type="tel" inputmode="tel" value="' + esc(edit.mobile) + '" aria-label="Mobile number" />' +
+      '</div></div>' +
+
+      '<div class="regform__sub"><span class="t-lab">Shop address</span>' +
+      '<span class="t-xs muted">optional</span></div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_flat">Flat / building number</label>' +
+      '<input class="input" id="ed_flat" data-edit="flat" value="' + esc(edit.flat) + '" /></div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_area">Area / colony</label>' +
+      '<input class="input" id="ed_area" data-edit="area" value="' + esc(edit.area) + '" /></div>' +
+      '<div class="ffield--pair">' +
+      '<div class="ffield"><label class="t-lab" for="ed_city">City</label>' +
+      '<input class="input" id="ed_city" data-edit="city" value="' + esc(edit.city) + '" /></div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_district">District</label>' +
+      '<input class="input" id="ed_district" data-edit="district" value="' + esc(edit.district) + '" /></div>' +
+      '</div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_state">State</label>' +
+      '<input class="input" id="ed_state" data-edit="stateName" value="' + esc(edit.stateName) + '" /></div>' +
+
+      /* map location */
+      '<div class="regform__sub"><span class="t-lab">Shop location</span>' +
+      '<span class="t-xs muted">optional</span></div>' +
+      '<div class="locbox" id="locBox">' + locationHTML() + '</div>' +
+      '</div>';
+  }
+
+  function locationHTML() {
+    var loc = edit.location;
+    if (!loc) {
+      return '<button class="btn btn--outline btn--block" data-act="use-location">' +
+        icon('phone') + 'Use my current location</button>' +
+        '<p class="t-xs muted" style="margin-top:8px">Pins your shop on Google Maps so customers and couriers can find it.</p>';
+    }
+    var q = loc.lat.toFixed(6) + ',' + loc.lng.toFixed(6);
+    return '<div class="locpin">' + icon('checkCircle') +
+      '<div class="grow"><b>Location saved</b>' +
+      '<span class="mono">' + esc(q) + '</span></div></div>' +
+      '<div class="row wrap" style="gap:8px;margin-top:10px">' +
+      '<a class="btn btn--outline btn--sm" target="_blank" rel="noopener noreferrer" ' +
+      'href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) + '">' +
+      icon('linkOut') + 'Open in Google Maps</a>' +
+      '<button class="btn btn--ghost btn--sm" data-act="use-location">' + icon('refresh') + 'Update</button>' +
+      '<button class="btn btn--ghost btn--sm" data-act="clear-location">' + icon('close') + 'Remove</button>' +
+      '</div>';
+  }
+
+  function captureLocation() {
+    if (!navigator.geolocation) { toast('This browser cannot share a location', 'alert'); return; }
+    var box = document.getElementById('locBox');
+    if (box) box.innerHTML = '<div class="locpin">' + icon('refresh') + '<span>Getting your location…</span></div>';
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      edit.location = {
+        lat: pos.coords.latitude, lng: pos.coords.longitude,
+        accuracy: Math.round(pos.coords.accuracy), at: Date.now()
+      };
+      var b = document.getElementById('locBox');
+      if (b) b.innerHTML = locationHTML();
+      toast('Location captured');
+    }, function (err) {
+      var b = document.getElementById('locBox');
+      if (b) b.innerHTML = locationHTML();
+      toast(err && err.code === 1 ? 'Location permission denied' : 'Could not get your location', 'alert');
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+  }
+
+  /* downscale before storing — a raw camera photo would blow the quota */
+  function readPhoto(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file) return reject();
+      if (!/^image\//.test(file.type)) return reject(new Error('That file is not an image.'));
+      var fr = new FileReader();
+      fr.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          var max = 256;
+          var scale = Math.min(1, max / Math.max(img.width, img.height));
+          var w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+          var cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', 0.82));
+        };
+        img.onerror = function () { reject(new Error('That image could not be read.')); };
+        img.src = fr.result;
+      };
+      fr.onerror = function () { reject(new Error('That image could not be read.')); };
+      fr.readAsDataURL(file);
+    });
+  }
+
+  function saveProfile() {
+    if (!edit.shopName.trim() || !edit.proprietor.trim()) {
+      toast('Shop name and proprietor name are required', 'alert'); return;
+    }
+    var c = SM.countries.byCode(edit.country);
+    S.updateProfile({
+      shopName: edit.shopName.trim(), proprietor: edit.proprietor.trim(),
+      country: edit.country, countryName: c && c.name, dial: c && c.dial,
+      mobile: edit.mobile.trim(), photo: edit.photo || '',
+      location: edit.location || null,
+      address: {
+        flat: edit.flat.trim(), area: edit.area.trim(), city: edit.city.trim(),
+        district: edit.district.trim(), state: edit.stateName.trim(),
+        country: c && c.name
+      }
+    }).then(function () {
+      state.sheet = null; renderSheet();
+      renderShellBits();
+      renderAccount(document.getElementById('page'));
+      toast('Profile updated');
+    });
+  }
+
+  function planById(id) {
+    return SM.PLANS.filter(function (p) { return p.id === id; })[0] || null;
+  }
+
+  function avatarHTML(s, cls) {
+    var img = s.photo || s.picture;
+    if (img) return '<span class="avatar ' + (cls || '') + ' avatar--img"><img src="' + esc(img) + '" alt="" /></span>';
+    return '<span class="avatar ' + (cls || '') + '">' + esc(initials(s.name)) + '</span>';
+  }
+
+  /* identity block, shared by every signed-in state */
+  function identityHTML(s) {
+    var badge = s.status === 'pro'
+      ? '<span class="pill pill--ok">' + icon('checkCircle') + 'Active</span>'
+      : s.status === 'expired'
+        ? '<span class="pill pill--bad">' + icon('alert') + 'Expired</span>'
+        : '<span class="pill">' + icon('user') + 'Free account</span>';
+    return '<div class="row" style="gap:14px;align-items:flex-start">' +
+      avatarHTML(s, 'avatar--lg') +
+      '<div class="grow" style="min-width:0">' +
+      '<h2 class="t-h1" style="word-break:break-word">' + esc(s.shopName || s.name) + '</h2>' +
+      (s.proprietor ? '<p class="t-xs" style="margin-top:2px">' + esc(s.proprietor) + '</p>' : '') +
+      '<p class="t-xs muted" style="word-break:break-all">' + esc(s.email) + '</p>' +
+      (s.mobile ? '<p class="t-xs muted">' + esc(s.mobile) + '</p>' : '') +
+      '<div style="margin-top:8px">' + badge + '</div>' +
+      '</div>' +
+      '<button class="btn btn--outline btn--sm" data-act="edit-profile">' + icon('sliders') + 'Edit</button>' +
+      '</div>';
+  }
+
+  /* plan cards the user can buy straight from Account */
+  function planPickerHTML(s, opts) {
+    opts = opts || {};
+    return '<div class="planpick">' + SM.PLANS.map(function (p) {
+      var isCurrent = s.status === 'pro' && s.plan === p.id;
+      var best = p.id === 'yearly';
+      return '<div class="planpick__item' + (best ? ' planpick__item--best' : '') + (isCurrent ? ' is-current' : '') + '">' +
+        (p.badge ? '<span class="planpick__tag">' + esc(p.badge) + '</span>' : '') +
+        '<div class="planpick__top">' +
+        '<span class="planpick__name">' + esc(p.name) + '</span>' +
+        '<span class="planpick__price"><b>₹' + p.price + '</b><span>/ ' + esc(p.per) + '</span></span>' +
+        '</div>' +
+        '<p class="planpick__note">' + esc(p.note) + '</p>' +
+        (isCurrent
+          ? '<button class="btn btn--sm btn--block btn--soft" disabled>' + icon('check') + 'Current plan</button>'
+          : '<button class="btn btn--sm btn--block ' + (best ? 'btn--amber' : 'btn--primary') + '" ' +
+          'data-act="subscribe" data-id="' + p.id + '">' + icon('bolt') + (opts.cta || 'Choose') + ' ' + esc(p.name) + '</button>') +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  var FREE_INCLUDED = [
+    'Browse all ' + nf(db.stats.models) + ' phone models and their specs',
+    'Browse every compatibility group in the catalogue',
+    'Search by model, part code or group number'
+  ];
+  var PRO_ONLY = [
+    'Match a model to its compatibility group',
+    'Full compatible-device list for every group',
+    'Part code, serial number and group number',
+    'Group sheets you can show a customer'
+  ];
+
+  function accessHTML() {
+    return '<span class="t-lab">What your account can do</span>' +
+      '<ul class="acclist" style="margin-top:10px">' +
+      FREE_INCLUDED.map(function (t) {
+        return '<li class="acclist__on">' + icon('checkCircle') + '<span>' + esc(t) + '</span></li>';
+      }).join('') +
+      PRO_ONLY.map(function (t) {
+        return '<li class="acclist__off">' + icon('lock') + '<span>' + esc(t) + '</span>' +
+          '<span class="acclist__tag">Plan</span></li>';
+      }).join('') +
+      '</ul>';
+  }
+
+  function profileHTML(s) {
+    if (s.status === 'pro') return proHTML(s);
+    if (s.status === 'expired') return expiredHTML(s);
+    return freeHTML(s);
+  }
+
+  /* ---------------------------------------------------------- FREE USER --- */
+  function freeHTML(s) {
     return '<div class="acct">' +
       '<div class="card card--pad">' +
-      '<div class="row" style="gap:14px">' +
-      '<span class="avatar avatar--lg">' + esc(initials(s.name)) + '</span>' +
-      '<div class="grow"><h2 class="t-h1">' + esc(s.name || 'Demo Shop') + '</h2>' +
-      '<p class="t-xs">' + esc(s.email) + '</p>' +
-      '<div style="margin-top:8px">' + badge + '</div></div></div>' +
+      identityHTML(s) +
+      '<hr class="divider" style="margin:18px 0" />' +
+      accessHTML() +
+      '<hr class="divider" style="margin:18px 0" />' +
+      '<button class="btn btn--ghost btn--sm" data-act="signout">' + icon('logout') + 'Sign out</button>' +
+      '</div>' +
+
+      '<div class="card card--pad">' +
+      '<span class="t-lab">Unlock the Device Finder</span>' +
+      '<p class="t-sub" style="margin:6px 0 14px">Pick a plan to match any model to its group and see every fitment.</p>' +
+      planPickerHTML(s) +
+      '</div></div>';
+  }
+
+  /* ----------------------------------------------------- ACTIVE SUBSCRIBER */
+  function proHTML(s) {
+    var sub = s.subscription;
+    var p = planById(sub.plan) || SM.PLANS[0];
+    return '<div class="acct">' +
+      '<div class="card card--pad">' +
+      identityHTML(s) +
       '<hr class="divider" style="margin:18px 0" />' +
 
-      (s.status === 'pro'
-        ? '<span class="t-lab">Current plan</span>' +
-        '<div class="row" style="gap:10px;margin-top:8px;align-items:baseline">' +
-        '<span class="t-h1">' + esc(plan ? plan.name : 'Monthly') + '</span>' +
-        '<span class="muted">₹' + (plan ? plan.price : 99) + ' / ' + (plan ? plan.per : 'month') + '</span></div>' +
-        '<p class="t-xs" style="margin-top:6px">Renews on ' + esc(s.renewsOn) + '</p>' +
-        '<div class="statusbar" style="margin-top:12px"><i style="width:62%"></i></div>' +
-        '<div class="row wrap" style="gap:8px;margin-top:16px">' +
-        '<button class="btn btn--outline btn--sm" data-act="nav" data-href="#/plans">' + icon('crown') + 'Change plan</button>' +
-        '<button class="btn btn--ghost btn--sm" data-act="cancel-sub">Cancel subscription</button>' +
-        '</div>'
+      '<span class="t-lab">Current plan</span>' +
+      '<div class="row" style="gap:10px;margin-top:8px;align-items:baseline;flex-wrap:wrap">' +
+      '<span class="t-h1">' + esc(p.name) + '</span>' +
+      '<span class="muted">₹' + p.price + ' / ' + esc(p.per) + '</span></div>' +
 
-        : s.status === 'expired'
-          ? '<div class="notice notice--amber">' + icon('alert') +
-          '<span><b>Subscription expired.</b> Device Finder matching is locked. All Mobile Models is still completely free to browse.</span></div>' +
-          '<button class="btn btn--amber btn--block btn--lg" style="margin-top:14px" data-act="nav" data-href="#/plans">' +
-          icon('bolt') + 'Renew from ₹99</button>'
+      '<div class="submeter">' +
+      '<div class="submeter__bar"><i style="width:' + sub.pctLeft.toFixed(1) + '%"></i></div>' +
+      '<div class="submeter__row">' +
+      '<span><b>' + sub.daysLeft + '</b> ' + (sub.daysLeft === 1 ? 'day' : 'days') + ' remaining</span>' +
+      '<span class="muted">' + sub.daysTotal + '-day term</span>' +
+      '</div></div>' +
 
-          : '<div class="notice notice--brand">' + icon('info') +
-          '<span><b>You are on the free tier.</b> Browse every model and every group. Add a plan to match a model to its group and see full fitment lists.</span></div>' +
-          '<button class="btn btn--primary btn--block btn--lg" style="margin-top:14px" data-act="nav" data-href="#/plans">' +
-          icon('crown') + 'See plans from ₹99</button>') +
+      '<div class="idgrid" style="margin-top:14px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
+      '<div class="idcell"><span>Started</span><b style="font-family:var(--f-ui);font-size:14px">' + esc(sub.startLabel) + '</b></div>' +
+      '<div class="idcell"><span>' + (sub.willRenew ? 'Renews on' : 'Access until') + '</span>' +
+      '<b style="font-family:var(--f-ui);font-size:14px">' + esc(sub.endLabel) + '</b></div>' +
+      '</div>' +
+
+      (sub.willRenew ? '' :
+        '<div class="notice notice--amber" style="margin-top:12px">' + icon('info') +
+        '<span>Renewal is off. Your plan stays active until ' + esc(sub.endLabel) + ', then the account moves to Expired.</span></div>') +
+
+      '<div class="row wrap" style="gap:8px;margin-top:16px">' +
+      '<button class="btn btn--outline btn--sm" data-act="nav" data-href="#/plans">' + icon('crown') + 'Change plan</button>' +
+      (sub.willRenew
+        ? '<button class="btn btn--ghost btn--sm" data-act="cancel-sub">Cancel subscription</button>'
+        : '<button class="btn btn--ghost btn--sm" data-act="resume-sub">Resume renewal</button>') +
+      '</div>' +
+
+      '<hr class="divider" style="margin:18px 0" />' +
+      '<button class="btn btn--ghost btn--sm" data-act="signout">' + icon('logout') + 'Sign out</button>' +
+      '</div>' +
+
+      '<div class="card card--pad">' + accessHTML() + '</div></div>';
+  }
+
+  /* ------------------------------------------------------------- EXPIRED -- */
+  function expiredHTML(s) {
+    var sub = s.subscription;
+    var p = sub ? planById(sub.plan) : null;
+    return '<div class="acct">' +
+      '<div class="card card--pad">' +
+      identityHTML(s) +
+      '<hr class="divider" style="margin:18px 0" />' +
+      '<div class="notice notice--amber">' + icon('alert') +
+      '<span><b>Your ' + esc(p ? p.name.toLowerCase() : '') + ' plan expired on ' + esc(sub ? sub.endLabel : '') + '.</b> ' +
+      'Device Finder matching, full fitment lists and part codes are no longer active. ' +
+      'Browsing models and groups stays free.</span></div>' +
+
+      (sub ? '<div class="idgrid" style="margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
+        '<div class="idcell"><span>Previous plan</span><b style="font-family:var(--f-ui);font-size:14px">' +
+        esc(p ? p.name + ' · ₹' + p.price : '—') + '</b></div>' +
+        '<div class="idcell"><span>Expired on</span><b style="font-family:var(--f-ui);font-size:14px">' +
+        esc(sub.endLabel) + '</b></div></div>' : '') +
 
       '<hr class="divider" style="margin:18px 0" />' +
       '<button class="btn btn--ghost btn--sm" data-act="signout">' + icon('logout') + 'Sign out</button>' +
       '</div>' +
 
       '<div class="card card--pad">' +
-      '<span class="t-lab">Your shop at a glance</span>' +
-      '<div class="idgrid" style="margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
-      '<div class="idcell"><span>Models available</span><b style="font-family:var(--f-ui);font-size:17px">' + nf(db.stats.models) + '</b></div>' +
-      '<div class="idcell"><span>Groups available</span><b style="font-family:var(--f-ui);font-size:17px">' + nf(db.stats.groups) + '</b></div>' +
-      '<div class="idcell"><span>Part categories</span><b style="font-family:var(--f-ui);font-size:17px">' + db.stats.categories + '</b></div>' +
-      '<div class="idcell"><span>Member since</span><b style="font-family:var(--f-ui);font-size:17px">' + esc(s.since || '—') + '</b></div>' +
-      '</div>' +
-      '<hr class="divider" style="margin:18px 0" />' +
-      demoPanelHTML() +
+      '<span class="t-lab">Pick up where you left off</span>' +
+      '<p class="t-sub" style="margin:6px 0 14px">The yearly plan works out cheapest per month.</p>' +
+      planPickerHTML(s, { cta: 'Renew' }) +
       '</div></div>';
-  }
-
-  function demoPanelHTML() {
-    var s = S.get();
-    var opts = [['guest', 'Guest'], ['free', 'Free user'], ['pro', 'Active subscriber'], ['expired', 'Expired']];
-    return '<span class="t-lab">Prototype access states</span>' +
-      '<p class="t-xs" style="margin:6px 0 10px">Switch the mock account state to review every screen. Nothing here talks to a server.</p>' +
-      '<div class="segmented" style="flex-wrap:wrap">' + opts.map(function (o) {
-        return '<button class="' + (s.status === o[0] ? 'is-on' : '') + '" data-act="set-state" data-id="' + o[0] + '" style="min-width:88px">' + esc(o[1]) + '</button>';
-      }).join('') + '</div>';
   }
 
   /* ==========================================================================
@@ -3996,6 +4382,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     if (s.type === 'filters') return paintSheet(host, 'Filter groups', categoryPanelHTML() + brandPanelHTML(),
       '<button class="btn btn--outline grow" data-act="reset-filters">Reset</button>' +
       '<button class="btn btn--primary grow" data-act="close-sheet">Show ' + nf(state.finder.total) + ' groups</button>');
+
+    if (s.type === 'editprofile') {
+      return paintSheet(host, 'Edit shop profile', editSheetHTML(),
+        '<button class="btn btn--outline" data-act="close-sheet">Cancel</button>' +
+        '<button class="btn btn--primary grow" data-act="save-profile">' + icon('check') + 'Save changes</button>');
+    }
 
     if (s.type === 'country') {
       paintSheet(host, 'Select country',
@@ -4029,11 +4421,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         }).join('') + '</div>',
         '<button class="btn btn--outline btn--block" data-act="close-sheet">Cancel</button>');
     }
-
-    if (s.type === 'demo') return paintSheet(host, 'Prototype access states', demoPanelHTML() +
-      '<div class="notice" style="margin-top:14px">' + icon('info') +
-      '<span>This switch exists only so the UI can be reviewed end to end. In production the state comes from the ProGlide backend.</span></div>',
-      '<button class="btn btn--primary btn--block" data-act="close-sheet">Done</button>');
 
     if (s.type === 'model') {
       host.innerHTML = '<div class="scrim" data-act="close-sheet"></div><div class="sheet"><div class="sheet__grab"></div>' +
@@ -4273,7 +4660,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   var authMode = 'signin';
   /* sheets that live in memory rather than in the URL */
-  var LOCAL_SHEETS = ['filters', 'demo', 'country', 'gdemo'];
+  var LOCAL_SHEETS = ['filters', 'country', 'gdemo', 'editprofile'];
 
   /* leave the result view and restore the normal Finder home page */
   function exitResult() {
@@ -4305,7 +4692,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
     switch (act) {
       case 'theme': cycleTheme(); break;
-      case 'demo': state.sheet = { type: 'demo' }; renderSheet(); break;
       case 'nav': go(t.getAttribute('data-href')); break;
       case 'close-sheet':
         if (state.sheet && LOCAL_SHEETS.indexOf(state.sheet.type) > -1) {
@@ -4434,11 +4820,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
       /* plans + account */
       case 'go-plans': go('#/plans'); break;
-      case 'demo-pro':
-        S.setState('pro'); renderShellBits();
-        toast('Previewing as an active subscriber');
-        rerenderCurrent();
-        break;
       case 'subscribe':
         /* a plan belongs to a signed-in identity, so sign in first */
         if (!S.canSubscribe()) {
@@ -4452,18 +4833,41 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         t.innerHTML = icon('refresh') + 'Activating…';
         S.subscribe(id).then(function () {
           renderShellBits();
-          toast('Prototype plan active — no payment was taken');
-          go('#/account');
+          toast('Plan active — no payment was taken');
+          /* the hash may already be #/account, which would not re-render */
+          if (location.hash.indexOf('#/account') === 0) renderAccount(document.getElementById('page'));
+          else go('#/account');
         });
         break;
+      case 'edit-profile': {
+        var ps = S.get().profile || {};
+        edit = {
+          shopName: ps.shopName || '', proprietor: ps.proprietor || '',
+          country: ps.country || 'IN', mobile: ps.mobile || '',
+          flat: (ps.address || {}).flat || '', area: (ps.address || {}).area || '',
+          city: (ps.address || {}).city || '', district: (ps.address || {}).district || '',
+          stateName: (ps.address || {}).state || '',
+          photo: ps.photo || '', location: ps.location || null
+        };
+        state.sheet = { type: 'editprofile' }; renderSheet();
+        break;
+      }
+      case 'pick-edit-country': state.sheet = { type: 'country', forEdit: true }; renderSheet(); break;
+      case 'clear-photo': edit.photo = ''; state.sheet = { type: 'editprofile' }; renderSheet(); break;
+      case 'use-location': captureLocation(); break;
+      case 'clear-location': edit.location = null; renderSheet(); break;
+      case 'save-profile': saveProfile(); break;
+
+      case 'resume-sub':
+        S.updateProfile({
+          subscription: Object.assign({}, S.get().profile.subscription, { cancelledAt: null })
+        }).then(function () {
+          renderShellBits(); renderAccount(document.getElementById('page')); toast('Renewal turned back on');
+        });
+        break;
+
       case 'cancel-sub':
         S.cancel().then(function () { renderShellBits(); toast('Subscription marked expired', 'alert'); renderAccount(document.getElementById('page')); });
-        break;
-      case 'set-state':
-        S.setState(id); renderShellBits();
-        if (state.sheet) { state.sheet = null; renderSheet(); }
-        toast('Access state: ' + id);
-        rerenderCurrent();
         break;
       case 'signout':
         S.signOut().then(function () {
@@ -4476,9 +4880,14 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
       case 'open-country': state.sheet = { type: 'country' }; renderSheet(); break;
       case 'pick-country':
-        reg.country = id;
-        state.sheet = null; renderSheet();
-        repaintAuth();
+        if (state.sheet && state.sheet.forEdit) {
+          edit.country = id;
+          state.sheet = { type: 'editprofile' }; renderSheet();
+        } else {
+          reg.country = id;
+          state.sheet = null; renderSheet();
+          repaintAuth();
+        }
         break;
 
       case 'google-signin': startGoogle(false); break;
@@ -4557,6 +4966,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       }
       return;
     }
+    if (el.hasAttribute && el.hasAttribute('data-edit')) { edit[el.getAttribute('data-edit')] = el.value; return; }
     if (el.id === 'countryq') { paintCountryRows(el.value); return; }
 
     /* brand filter is local data — filter instantly, no debounce, no reload */
@@ -4595,6 +5005,15 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   }
 
   document.addEventListener('change', function (e) {
+    if (e.target.id === 'photoInput') {
+      var f = e.target.files && e.target.files[0];
+      readPhoto(f).then(function (dataUrl) {
+        edit.photo = dataUrl;
+        state.sheet = { type: 'editprofile' }; renderSheet();
+      }, function (err) { toast((err && err.message) || 'Could not read that image', 'alert'); });
+      return;
+    }
+
     if (e.target.id === 'sortSel') { state.finder.filters.sort = e.target.value; loadGroups(true); }
   });
 

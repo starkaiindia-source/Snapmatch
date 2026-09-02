@@ -889,13 +889,15 @@
     country: 'IN', mobile: '', shopName: '', proprietor: '',
     flat: '', area: '', city: '', district: '', stateName: '', touched: {}
   };
+  /* mandatory only — the address is optional and must never block sign-up */
   var REG_FIELDS = [
-    { k: 'mobile', label: 'Mobile number' }, { k: 'shopName', label: 'Shop name' },
-    { k: 'proprietor', label: 'Proprietor name' }, { k: 'flat', label: 'Flat / building number' },
-    { k: 'area', label: 'Area / colony' }, { k: 'city', label: 'City' },
-    { k: 'district', label: 'District' }, { k: 'stateName', label: 'State' }
+    { k: 'mobile', label: 'Mobile number' },
+    { k: 'shopName', label: 'Shop name' },
+    { k: 'proprietor', label: 'Proprietor name' }
   ];
+  var ADDRESS_FIELDS = ['flat', 'area', 'city', 'district', 'stateName'];
   function regError(k) {
+    if (ADDRESS_FIELDS.indexOf(k) > -1) return '';   /* optional */
     var v = String(reg[k] || '').trim();
     if (k === 'mobile') {
       if (!v) return 'Enter your mobile number';
@@ -952,8 +954,6 @@
       ['Keep your plan on every device at the counter', 'Your searches stay on your account', 'Staff logins and part-code export are next on the roadmap']
         .map(function (t) { return '<li>' + icon('checkCircle') + '<span>' + esc(t) + '</span></li>'; }).join('') +
       '</ul>' +
-      '<hr class="divider" style="margin:16px 0" />' +
-      demoPanelHTML() +
       '</div></div>';
   }
 
@@ -993,7 +993,7 @@
       field('proprietor', 'Proprietor name (full name)', { ph: 'Rajesh Kumar Sharma' }) +
 
       '<div class="regform__sub"><span class="t-lab">Shop address</span>' +
-      '<span class="t-xs muted">in ' + esc(c ? c.name : '—') + '</span></div>' +
+      '<span class="t-xs muted">optional · ' + esc(c ? c.name : '—') + '</span></div>' +
       field('flat', 'Flat / building number', { ph: '12B, Ganesh Complex' }) +
       field('area', 'Area / colony', { ph: 'Gandhi Nagar' }) +
       '<div class="ffield--pair">' + field('city', 'City', { ph: 'Coimbatore' }) +
@@ -1018,69 +1018,326 @@
     if (state.route.name === 'account' && S.get().status === 'guest') renderAccount(page);
   }
 
-  function profileHTML(s) {
-    var plan = s.plan ? SM.PLANS.filter(function (p) { return p.id === s.plan; })[0] : null;
-    var badge = s.status === 'pro' ? '<span class="pill pill--ok">' + icon('checkCircle') + 'Active</span>'
-      : s.status === 'expired' ? '<span class="pill pill--bad">' + icon('alert') + 'Expired</span>'
-        : '<span class="pill">' + icon('user') + 'Free account</span>';
+  /* ----------------------------------------------------- profile editing -- */
+  var edit = {};
 
+  function editSheetHTML() {
+    var c = SM.countries.byCode(edit.country);
+    var loc = edit.location;
+    return '<div class="editform">' +
+
+      /* photo */
+      '<div class="phrow">' +
+      (edit.photo
+        ? '<span class="avatar avatar--lg avatar--img"><img src="' + esc(edit.photo) + '" alt="" /></span>'
+        : '<span class="avatar avatar--lg">' + esc(initials(edit.shopName || 'Shop')) + '</span>') +
+      '<div class="grow">' +
+      '<span class="t-lab">Shop photo</span>' +
+      '<div class="row wrap" style="gap:8px;margin-top:6px">' +
+      '<label class="btn btn--outline btn--sm" style="cursor:pointer">' + icon('plus') +
+      (edit.photo ? 'Replace' : 'Upload') +
+      '<input type="file" id="photoInput" accept="image/*" style="display:none" /></label>' +
+      (edit.photo ? '<button class="btn btn--ghost btn--sm" data-act="clear-photo">' + icon('close') + 'Remove</button>' : '') +
+      '</div>' +
+      '<p class="t-xs muted" style="margin-top:6px">Stored on this device with your profile. Resized to 256px.</p>' +
+      '</div></div>' +
+
+      '<div class="ffield"><label class="t-lab" for="ed_shopName">Shop name</label>' +
+      '<input class="input" id="ed_shopName" data-edit="shopName" value="' + esc(edit.shopName) + '" /></div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_proprietor">Proprietor name (full name)</label>' +
+      '<input class="input" id="ed_proprietor" data-edit="proprietor" value="' + esc(edit.proprietor) + '" /></div>' +
+
+      '<div class="ffield"><label class="t-lab">Country &amp; mobile number</label>' +
+      '<div class="phonerow">' +
+      '<button type="button" class="ccpick" data-act="pick-edit-country">' +
+      '<span class="ccpick__flag">' + (c ? c.flag : '🌐') + '</span>' +
+      '<span class="ccpick__name">' + esc(c ? c.name : 'Select') + '</span>' +
+      '<span class="ccpick__dial">' + esc(c ? c.dial : '') + '</span>' + icon('chevronDown') + '</button>' +
+      '<input class="input" data-edit="mobile" type="tel" inputmode="tel" value="' + esc(edit.mobile) + '" aria-label="Mobile number" />' +
+      '</div></div>' +
+
+      '<div class="regform__sub"><span class="t-lab">Shop address</span>' +
+      '<span class="t-xs muted">optional</span></div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_flat">Flat / building number</label>' +
+      '<input class="input" id="ed_flat" data-edit="flat" value="' + esc(edit.flat) + '" /></div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_area">Area / colony</label>' +
+      '<input class="input" id="ed_area" data-edit="area" value="' + esc(edit.area) + '" /></div>' +
+      '<div class="ffield--pair">' +
+      '<div class="ffield"><label class="t-lab" for="ed_city">City</label>' +
+      '<input class="input" id="ed_city" data-edit="city" value="' + esc(edit.city) + '" /></div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_district">District</label>' +
+      '<input class="input" id="ed_district" data-edit="district" value="' + esc(edit.district) + '" /></div>' +
+      '</div>' +
+      '<div class="ffield"><label class="t-lab" for="ed_state">State</label>' +
+      '<input class="input" id="ed_state" data-edit="stateName" value="' + esc(edit.stateName) + '" /></div>' +
+
+      /* map location */
+      '<div class="regform__sub"><span class="t-lab">Shop location</span>' +
+      '<span class="t-xs muted">optional</span></div>' +
+      '<div class="locbox" id="locBox">' + locationHTML() + '</div>' +
+      '</div>';
+  }
+
+  function locationHTML() {
+    var loc = edit.location;
+    if (!loc) {
+      return '<button class="btn btn--outline btn--block" data-act="use-location">' +
+        icon('phone') + 'Use my current location</button>' +
+        '<p class="t-xs muted" style="margin-top:8px">Pins your shop on Google Maps so customers and couriers can find it.</p>';
+    }
+    var q = loc.lat.toFixed(6) + ',' + loc.lng.toFixed(6);
+    return '<div class="locpin">' + icon('checkCircle') +
+      '<div class="grow"><b>Location saved</b>' +
+      '<span class="mono">' + esc(q) + '</span></div></div>' +
+      '<div class="row wrap" style="gap:8px;margin-top:10px">' +
+      '<a class="btn btn--outline btn--sm" target="_blank" rel="noopener noreferrer" ' +
+      'href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q) + '">' +
+      icon('linkOut') + 'Open in Google Maps</a>' +
+      '<button class="btn btn--ghost btn--sm" data-act="use-location">' + icon('refresh') + 'Update</button>' +
+      '<button class="btn btn--ghost btn--sm" data-act="clear-location">' + icon('close') + 'Remove</button>' +
+      '</div>';
+  }
+
+  function captureLocation() {
+    if (!navigator.geolocation) { toast('This browser cannot share a location', 'alert'); return; }
+    var box = document.getElementById('locBox');
+    if (box) box.innerHTML = '<div class="locpin">' + icon('refresh') + '<span>Getting your location…</span></div>';
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      edit.location = {
+        lat: pos.coords.latitude, lng: pos.coords.longitude,
+        accuracy: Math.round(pos.coords.accuracy), at: Date.now()
+      };
+      var b = document.getElementById('locBox');
+      if (b) b.innerHTML = locationHTML();
+      toast('Location captured');
+    }, function (err) {
+      var b = document.getElementById('locBox');
+      if (b) b.innerHTML = locationHTML();
+      toast(err && err.code === 1 ? 'Location permission denied' : 'Could not get your location', 'alert');
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+  }
+
+  /* downscale before storing — a raw camera photo would blow the quota */
+  function readPhoto(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file) return reject();
+      if (!/^image\//.test(file.type)) return reject(new Error('That file is not an image.'));
+      var fr = new FileReader();
+      fr.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          var max = 256;
+          var scale = Math.min(1, max / Math.max(img.width, img.height));
+          var w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+          var cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', 0.82));
+        };
+        img.onerror = function () { reject(new Error('That image could not be read.')); };
+        img.src = fr.result;
+      };
+      fr.onerror = function () { reject(new Error('That image could not be read.')); };
+      fr.readAsDataURL(file);
+    });
+  }
+
+  function saveProfile() {
+    if (!edit.shopName.trim() || !edit.proprietor.trim()) {
+      toast('Shop name and proprietor name are required', 'alert'); return;
+    }
+    var c = SM.countries.byCode(edit.country);
+    S.updateProfile({
+      shopName: edit.shopName.trim(), proprietor: edit.proprietor.trim(),
+      country: edit.country, countryName: c && c.name, dial: c && c.dial,
+      mobile: edit.mobile.trim(), photo: edit.photo || '',
+      location: edit.location || null,
+      address: {
+        flat: edit.flat.trim(), area: edit.area.trim(), city: edit.city.trim(),
+        district: edit.district.trim(), state: edit.stateName.trim(),
+        country: c && c.name
+      }
+    }).then(function () {
+      state.sheet = null; renderSheet();
+      renderShellBits();
+      renderAccount(document.getElementById('page'));
+      toast('Profile updated');
+    });
+  }
+
+  function planById(id) {
+    return SM.PLANS.filter(function (p) { return p.id === id; })[0] || null;
+  }
+
+  function avatarHTML(s, cls) {
+    var img = s.photo || s.picture;
+    if (img) return '<span class="avatar ' + (cls || '') + ' avatar--img"><img src="' + esc(img) + '" alt="" /></span>';
+    return '<span class="avatar ' + (cls || '') + '">' + esc(initials(s.name)) + '</span>';
+  }
+
+  /* identity block, shared by every signed-in state */
+  function identityHTML(s) {
+    var badge = s.status === 'pro'
+      ? '<span class="pill pill--ok">' + icon('checkCircle') + 'Active</span>'
+      : s.status === 'expired'
+        ? '<span class="pill pill--bad">' + icon('alert') + 'Expired</span>'
+        : '<span class="pill">' + icon('user') + 'Free account</span>';
+    return '<div class="row" style="gap:14px;align-items:flex-start">' +
+      avatarHTML(s, 'avatar--lg') +
+      '<div class="grow" style="min-width:0">' +
+      '<h2 class="t-h1" style="word-break:break-word">' + esc(s.shopName || s.name) + '</h2>' +
+      (s.proprietor ? '<p class="t-xs" style="margin-top:2px">' + esc(s.proprietor) + '</p>' : '') +
+      '<p class="t-xs muted" style="word-break:break-all">' + esc(s.email) + '</p>' +
+      (s.mobile ? '<p class="t-xs muted">' + esc(s.mobile) + '</p>' : '') +
+      '<div style="margin-top:8px">' + badge + '</div>' +
+      '</div>' +
+      '<button class="btn btn--outline btn--sm" data-act="edit-profile">' + icon('sliders') + 'Edit</button>' +
+      '</div>';
+  }
+
+  /* plan cards the user can buy straight from Account */
+  function planPickerHTML(s, opts) {
+    opts = opts || {};
+    return '<div class="planpick">' + SM.PLANS.map(function (p) {
+      var isCurrent = s.status === 'pro' && s.plan === p.id;
+      var best = p.id === 'yearly';
+      return '<div class="planpick__item' + (best ? ' planpick__item--best' : '') + (isCurrent ? ' is-current' : '') + '">' +
+        (p.badge ? '<span class="planpick__tag">' + esc(p.badge) + '</span>' : '') +
+        '<div class="planpick__top">' +
+        '<span class="planpick__name">' + esc(p.name) + '</span>' +
+        '<span class="planpick__price"><b>₹' + p.price + '</b><span>/ ' + esc(p.per) + '</span></span>' +
+        '</div>' +
+        '<p class="planpick__note">' + esc(p.note) + '</p>' +
+        (isCurrent
+          ? '<button class="btn btn--sm btn--block btn--soft" disabled>' + icon('check') + 'Current plan</button>'
+          : '<button class="btn btn--sm btn--block ' + (best ? 'btn--amber' : 'btn--primary') + '" ' +
+          'data-act="subscribe" data-id="' + p.id + '">' + icon('bolt') + (opts.cta || 'Choose') + ' ' + esc(p.name) + '</button>') +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  var FREE_INCLUDED = [
+    'Browse all ' + nf(db.stats.models) + ' phone models and their specs',
+    'Browse every compatibility group in the catalogue',
+    'Search by model, part code or group number'
+  ];
+  var PRO_ONLY = [
+    'Match a model to its compatibility group',
+    'Full compatible-device list for every group',
+    'Part code, serial number and group number',
+    'Group sheets you can show a customer'
+  ];
+
+  function accessHTML() {
+    return '<span class="t-lab">What your account can do</span>' +
+      '<ul class="acclist" style="margin-top:10px">' +
+      FREE_INCLUDED.map(function (t) {
+        return '<li class="acclist__on">' + icon('checkCircle') + '<span>' + esc(t) + '</span></li>';
+      }).join('') +
+      PRO_ONLY.map(function (t) {
+        return '<li class="acclist__off">' + icon('lock') + '<span>' + esc(t) + '</span>' +
+          '<span class="acclist__tag">Plan</span></li>';
+      }).join('') +
+      '</ul>';
+  }
+
+  function profileHTML(s) {
+    if (s.status === 'pro') return proHTML(s);
+    if (s.status === 'expired') return expiredHTML(s);
+    return freeHTML(s);
+  }
+
+  /* ---------------------------------------------------------- FREE USER --- */
+  function freeHTML(s) {
     return '<div class="acct">' +
       '<div class="card card--pad">' +
-      '<div class="row" style="gap:14px">' +
-      '<span class="avatar avatar--lg">' + esc(initials(s.name)) + '</span>' +
-      '<div class="grow"><h2 class="t-h1">' + esc(s.name || 'Demo Shop') + '</h2>' +
-      '<p class="t-xs">' + esc(s.email) + '</p>' +
-      '<div style="margin-top:8px">' + badge + '</div></div></div>' +
+      identityHTML(s) +
+      '<hr class="divider" style="margin:18px 0" />' +
+      accessHTML() +
+      '<hr class="divider" style="margin:18px 0" />' +
+      '<button class="btn btn--ghost btn--sm" data-act="signout">' + icon('logout') + 'Sign out</button>' +
+      '</div>' +
+
+      '<div class="card card--pad">' +
+      '<span class="t-lab">Unlock the Device Finder</span>' +
+      '<p class="t-sub" style="margin:6px 0 14px">Pick a plan to match any model to its group and see every fitment.</p>' +
+      planPickerHTML(s) +
+      '</div></div>';
+  }
+
+  /* ----------------------------------------------------- ACTIVE SUBSCRIBER */
+  function proHTML(s) {
+    var sub = s.subscription;
+    var p = planById(sub.plan) || SM.PLANS[0];
+    return '<div class="acct">' +
+      '<div class="card card--pad">' +
+      identityHTML(s) +
       '<hr class="divider" style="margin:18px 0" />' +
 
-      (s.status === 'pro'
-        ? '<span class="t-lab">Current plan</span>' +
-        '<div class="row" style="gap:10px;margin-top:8px;align-items:baseline">' +
-        '<span class="t-h1">' + esc(plan ? plan.name : 'Monthly') + '</span>' +
-        '<span class="muted">₹' + (plan ? plan.price : 99) + ' / ' + (plan ? plan.per : 'month') + '</span></div>' +
-        '<p class="t-xs" style="margin-top:6px">Renews on ' + esc(s.renewsOn) + '</p>' +
-        '<div class="statusbar" style="margin-top:12px"><i style="width:62%"></i></div>' +
-        '<div class="row wrap" style="gap:8px;margin-top:16px">' +
-        '<button class="btn btn--outline btn--sm" data-act="nav" data-href="#/plans">' + icon('crown') + 'Change plan</button>' +
-        '<button class="btn btn--ghost btn--sm" data-act="cancel-sub">Cancel subscription</button>' +
-        '</div>'
+      '<span class="t-lab">Current plan</span>' +
+      '<div class="row" style="gap:10px;margin-top:8px;align-items:baseline;flex-wrap:wrap">' +
+      '<span class="t-h1">' + esc(p.name) + '</span>' +
+      '<span class="muted">₹' + p.price + ' / ' + esc(p.per) + '</span></div>' +
 
-        : s.status === 'expired'
-          ? '<div class="notice notice--amber">' + icon('alert') +
-          '<span><b>Subscription expired.</b> Device Finder matching is locked. All Mobile Models is still completely free to browse.</span></div>' +
-          '<button class="btn btn--amber btn--block btn--lg" style="margin-top:14px" data-act="nav" data-href="#/plans">' +
-          icon('bolt') + 'Renew from ₹99</button>'
+      '<div class="submeter">' +
+      '<div class="submeter__bar"><i style="width:' + sub.pctLeft.toFixed(1) + '%"></i></div>' +
+      '<div class="submeter__row">' +
+      '<span><b>' + sub.daysLeft + '</b> ' + (sub.daysLeft === 1 ? 'day' : 'days') + ' remaining</span>' +
+      '<span class="muted">' + sub.daysTotal + '-day term</span>' +
+      '</div></div>' +
 
-          : '<div class="notice notice--brand">' + icon('info') +
-          '<span><b>You are on the free tier.</b> Browse every model and every group. Add a plan to match a model to its group and see full fitment lists.</span></div>' +
-          '<button class="btn btn--primary btn--block btn--lg" style="margin-top:14px" data-act="nav" data-href="#/plans">' +
-          icon('crown') + 'See plans from ₹99</button>') +
+      '<div class="idgrid" style="margin-top:14px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
+      '<div class="idcell"><span>Started</span><b style="font-family:var(--f-ui);font-size:14px">' + esc(sub.startLabel) + '</b></div>' +
+      '<div class="idcell"><span>' + (sub.willRenew ? 'Renews on' : 'Access until') + '</span>' +
+      '<b style="font-family:var(--f-ui);font-size:14px">' + esc(sub.endLabel) + '</b></div>' +
+      '</div>' +
+
+      (sub.willRenew ? '' :
+        '<div class="notice notice--amber" style="margin-top:12px">' + icon('info') +
+        '<span>Renewal is off. Your plan stays active until ' + esc(sub.endLabel) + ', then the account moves to Expired.</span></div>') +
+
+      '<div class="row wrap" style="gap:8px;margin-top:16px">' +
+      '<button class="btn btn--outline btn--sm" data-act="nav" data-href="#/plans">' + icon('crown') + 'Change plan</button>' +
+      (sub.willRenew
+        ? '<button class="btn btn--ghost btn--sm" data-act="cancel-sub">Cancel subscription</button>'
+        : '<button class="btn btn--ghost btn--sm" data-act="resume-sub">Resume renewal</button>') +
+      '</div>' +
+
+      '<hr class="divider" style="margin:18px 0" />' +
+      '<button class="btn btn--ghost btn--sm" data-act="signout">' + icon('logout') + 'Sign out</button>' +
+      '</div>' +
+
+      '<div class="card card--pad">' + accessHTML() + '</div></div>';
+  }
+
+  /* ------------------------------------------------------------- EXPIRED -- */
+  function expiredHTML(s) {
+    var sub = s.subscription;
+    var p = sub ? planById(sub.plan) : null;
+    return '<div class="acct">' +
+      '<div class="card card--pad">' +
+      identityHTML(s) +
+      '<hr class="divider" style="margin:18px 0" />' +
+      '<div class="notice notice--amber">' + icon('alert') +
+      '<span><b>Your ' + esc(p ? p.name.toLowerCase() : '') + ' plan expired on ' + esc(sub ? sub.endLabel : '') + '.</b> ' +
+      'Device Finder matching, full fitment lists and part codes are no longer active. ' +
+      'Browsing models and groups stays free.</span></div>' +
+
+      (sub ? '<div class="idgrid" style="margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
+        '<div class="idcell"><span>Previous plan</span><b style="font-family:var(--f-ui);font-size:14px">' +
+        esc(p ? p.name + ' · ₹' + p.price : '—') + '</b></div>' +
+        '<div class="idcell"><span>Expired on</span><b style="font-family:var(--f-ui);font-size:14px">' +
+        esc(sub.endLabel) + '</b></div></div>' : '') +
 
       '<hr class="divider" style="margin:18px 0" />' +
       '<button class="btn btn--ghost btn--sm" data-act="signout">' + icon('logout') + 'Sign out</button>' +
       '</div>' +
 
       '<div class="card card--pad">' +
-      '<span class="t-lab">Your shop at a glance</span>' +
-      '<div class="idgrid" style="margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
-      '<div class="idcell"><span>Models available</span><b style="font-family:var(--f-ui);font-size:17px">' + nf(db.stats.models) + '</b></div>' +
-      '<div class="idcell"><span>Groups available</span><b style="font-family:var(--f-ui);font-size:17px">' + nf(db.stats.groups) + '</b></div>' +
-      '<div class="idcell"><span>Part categories</span><b style="font-family:var(--f-ui);font-size:17px">' + db.stats.categories + '</b></div>' +
-      '<div class="idcell"><span>Member since</span><b style="font-family:var(--f-ui);font-size:17px">' + esc(s.since || '—') + '</b></div>' +
-      '</div>' +
-      '<hr class="divider" style="margin:18px 0" />' +
-      demoPanelHTML() +
+      '<span class="t-lab">Pick up where you left off</span>' +
+      '<p class="t-sub" style="margin:6px 0 14px">The yearly plan works out cheapest per month.</p>' +
+      planPickerHTML(s, { cta: 'Renew' }) +
       '</div></div>';
-  }
-
-  function demoPanelHTML() {
-    var s = S.get();
-    var opts = [['guest', 'Guest'], ['free', 'Free user'], ['pro', 'Active subscriber'], ['expired', 'Expired']];
-    return '<span class="t-lab">Prototype access states</span>' +
-      '<p class="t-xs" style="margin:6px 0 10px">Switch the mock account state to review every screen. Nothing here talks to a server.</p>' +
-      '<div class="segmented" style="flex-wrap:wrap">' + opts.map(function (o) {
-        return '<button class="' + (s.status === o[0] ? 'is-on' : '') + '" data-act="set-state" data-id="' + o[0] + '" style="min-width:88px">' + esc(o[1]) + '</button>';
-      }).join('') + '</div>';
   }
 
   /* ==========================================================================
@@ -1095,6 +1352,12 @@
     if (s.type === 'filters') return paintSheet(host, 'Filter groups', categoryPanelHTML() + brandPanelHTML(),
       '<button class="btn btn--outline grow" data-act="reset-filters">Reset</button>' +
       '<button class="btn btn--primary grow" data-act="close-sheet">Show ' + nf(state.finder.total) + ' groups</button>');
+
+    if (s.type === 'editprofile') {
+      return paintSheet(host, 'Edit shop profile', editSheetHTML(),
+        '<button class="btn btn--outline" data-act="close-sheet">Cancel</button>' +
+        '<button class="btn btn--primary grow" data-act="save-profile">' + icon('check') + 'Save changes</button>');
+    }
 
     if (s.type === 'country') {
       paintSheet(host, 'Select country',
@@ -1128,11 +1391,6 @@
         }).join('') + '</div>',
         '<button class="btn btn--outline btn--block" data-act="close-sheet">Cancel</button>');
     }
-
-    if (s.type === 'demo') return paintSheet(host, 'Prototype access states', demoPanelHTML() +
-      '<div class="notice" style="margin-top:14px">' + icon('info') +
-      '<span>This switch exists only so the UI can be reviewed end to end. In production the state comes from the ProGlide backend.</span></div>',
-      '<button class="btn btn--primary btn--block" data-act="close-sheet">Done</button>');
 
     if (s.type === 'model') {
       host.innerHTML = '<div class="scrim" data-act="close-sheet"></div><div class="sheet"><div class="sheet__grab"></div>' +
@@ -1372,7 +1630,7 @@
 
   var authMode = 'signin';
   /* sheets that live in memory rather than in the URL */
-  var LOCAL_SHEETS = ['filters', 'demo', 'country', 'gdemo'];
+  var LOCAL_SHEETS = ['filters', 'country', 'gdemo', 'editprofile'];
 
   /* leave the result view and restore the normal Finder home page */
   function exitResult() {
@@ -1404,7 +1662,6 @@
 
     switch (act) {
       case 'theme': cycleTheme(); break;
-      case 'demo': state.sheet = { type: 'demo' }; renderSheet(); break;
       case 'nav': go(t.getAttribute('data-href')); break;
       case 'close-sheet':
         if (state.sheet && LOCAL_SHEETS.indexOf(state.sheet.type) > -1) {
@@ -1533,11 +1790,6 @@
 
       /* plans + account */
       case 'go-plans': go('#/plans'); break;
-      case 'demo-pro':
-        S.setState('pro'); renderShellBits();
-        toast('Previewing as an active subscriber');
-        rerenderCurrent();
-        break;
       case 'subscribe':
         /* a plan belongs to a signed-in identity, so sign in first */
         if (!S.canSubscribe()) {
@@ -1551,18 +1803,41 @@
         t.innerHTML = icon('refresh') + 'Activating…';
         S.subscribe(id).then(function () {
           renderShellBits();
-          toast('Prototype plan active — no payment was taken');
-          go('#/account');
+          toast('Plan active — no payment was taken');
+          /* the hash may already be #/account, which would not re-render */
+          if (location.hash.indexOf('#/account') === 0) renderAccount(document.getElementById('page'));
+          else go('#/account');
         });
         break;
+      case 'edit-profile': {
+        var ps = S.get().profile || {};
+        edit = {
+          shopName: ps.shopName || '', proprietor: ps.proprietor || '',
+          country: ps.country || 'IN', mobile: ps.mobile || '',
+          flat: (ps.address || {}).flat || '', area: (ps.address || {}).area || '',
+          city: (ps.address || {}).city || '', district: (ps.address || {}).district || '',
+          stateName: (ps.address || {}).state || '',
+          photo: ps.photo || '', location: ps.location || null
+        };
+        state.sheet = { type: 'editprofile' }; renderSheet();
+        break;
+      }
+      case 'pick-edit-country': state.sheet = { type: 'country', forEdit: true }; renderSheet(); break;
+      case 'clear-photo': edit.photo = ''; state.sheet = { type: 'editprofile' }; renderSheet(); break;
+      case 'use-location': captureLocation(); break;
+      case 'clear-location': edit.location = null; renderSheet(); break;
+      case 'save-profile': saveProfile(); break;
+
+      case 'resume-sub':
+        S.updateProfile({
+          subscription: Object.assign({}, S.get().profile.subscription, { cancelledAt: null })
+        }).then(function () {
+          renderShellBits(); renderAccount(document.getElementById('page')); toast('Renewal turned back on');
+        });
+        break;
+
       case 'cancel-sub':
         S.cancel().then(function () { renderShellBits(); toast('Subscription marked expired', 'alert'); renderAccount(document.getElementById('page')); });
-        break;
-      case 'set-state':
-        S.setState(id); renderShellBits();
-        if (state.sheet) { state.sheet = null; renderSheet(); }
-        toast('Access state: ' + id);
-        rerenderCurrent();
         break;
       case 'signout':
         S.signOut().then(function () {
@@ -1575,9 +1850,14 @@
 
       case 'open-country': state.sheet = { type: 'country' }; renderSheet(); break;
       case 'pick-country':
-        reg.country = id;
-        state.sheet = null; renderSheet();
-        repaintAuth();
+        if (state.sheet && state.sheet.forEdit) {
+          edit.country = id;
+          state.sheet = { type: 'editprofile' }; renderSheet();
+        } else {
+          reg.country = id;
+          state.sheet = null; renderSheet();
+          repaintAuth();
+        }
         break;
 
       case 'google-signin': startGoogle(false); break;
@@ -1656,6 +1936,7 @@
       }
       return;
     }
+    if (el.hasAttribute && el.hasAttribute('data-edit')) { edit[el.getAttribute('data-edit')] = el.value; return; }
     if (el.id === 'countryq') { paintCountryRows(el.value); return; }
 
     /* brand filter is local data — filter instantly, no debounce, no reload */
@@ -1694,6 +1975,15 @@
   }
 
   document.addEventListener('change', function (e) {
+    if (e.target.id === 'photoInput') {
+      var f = e.target.files && e.target.files[0];
+      readPhoto(f).then(function (dataUrl) {
+        edit.photo = dataUrl;
+        state.sheet = { type: 'editprofile' }; renderSheet();
+      }, function (err) { toast((err && err.message) || 'Could not read that image', 'alert'); });
+      return;
+    }
+
     if (e.target.id === 'sortSel') { state.finder.filters.sort = e.target.value; loadGroups(true); }
   });
 

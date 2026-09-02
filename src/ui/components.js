@@ -234,7 +234,6 @@
       '<p>' + esc(o.text || 'Browsing every phone model stays free forever. Matching a model to its compatibility group, part code and full fitment list needs an active plan.') + '</p>' +
       '<div class="paywall__acts">' +
       '<button class="btn btn--amber" data-act="go-plans">' + icon('crown') + 'See plans from ₹99</button>' +
-      '<button class="btn btn--ghost" style="color:#FFE7CE" data-act="demo-pro">' + icon('bolt') + 'Preview as subscriber</button>' +
       '</div></div>';
   };
 
