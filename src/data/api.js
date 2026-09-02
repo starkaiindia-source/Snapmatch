@@ -1,9 +1,9 @@
 /* ============================================================================
-   SnapMatch · api.js  —  the integration seam
+   Mobile Parts Finder · api.js  —  the integration seam
    ----------------------------------------------------------------------------
    Every screen talks to the app ONLY through SM.api. Each method returns a
    Promise and resolves after a small simulated delay, so all loading states in
-   the UI are real. To connect the live ProGlide backend later, replace the
+   the UI are real. To connect a live backend later, replace the
    bodies of these methods with fetch() calls that return the same shapes —
    no component needs to change.
 
@@ -355,7 +355,7 @@
   SM.PLANS = [
     {
       id: 'monthly', name: 'Monthly', price: 99, per: 'month', cadence: '₹99 billed every month',
-      note: 'Best for trying SnapMatch in your shop.',
+      note: 'Best for trying Mobile Parts Finder in your shop.',
       feats: ['Unlimited Device Finder searches', 'Every compatibility group unlocked', 'Full compatible-device lists', 'Part code, group & serial numbers', 'Works on counter phone, tablet & PC']
     },
     {

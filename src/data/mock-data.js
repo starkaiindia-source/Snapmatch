@@ -1,9 +1,9 @@
 /* ============================================================================
-   SnapMatch · mock-data.js
+   Mobile Parts Finder · mock-data.js
    ----------------------------------------------------------------------------
    PROTOTYPE DATA ONLY. Everything here is generated in the browser from a
    deterministic seed so the UI behaves like a large database without any
-   backend. When the real ProGlide database is connected, this file is the ONLY
+   backend. When a real parts database is connected, this file is the ONLY
    thing that gets replaced — src/data/api.js keeps the same shape.
 
    Entity shapes (kept close to what a real API would return):
@@ -400,7 +400,7 @@
         groups.push({
           groupId: 'g' + pad(gnum, 3),
           groupNumber: 'GRP-' + pad(gnum, 3),
-          serialNumber: 'PG-SN-' + pad(serial, 6),
+          serialNumber: 'MPF-SN-' + pad(serial, 6),
           partCode: cat.code + '-' + brandCode + '-' + partSlug(master) + '-' + pad(seq, 3),
           categoryId: catId,
           masterModelId: master.id,

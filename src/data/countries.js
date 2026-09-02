@@ -1,5 +1,5 @@
 /* ============================================================================
-   SnapMatch · countries.js
+   Mobile Parts Finder · countries.js
    Full ISO-3166 country list with dialling codes. Flags are derived from the
    ISO alpha-2 code (regional indicator letters), so no image assets and no
    per-country hardcoding.

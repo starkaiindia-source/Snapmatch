@@ -1,5 +1,5 @@
 /* ============================================================================
-   SnapMatch · icons.js — inline stroke icon set + the SnapMatch mark
+   Mobile Parts Finder · icons.js — inline stroke icon set + the brand mark
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -56,12 +56,13 @@
       (cls ? ' class="' + cls + '"' : '') + '>' + d + '</svg>';
   };
 
-  /* ---- SnapMatch mark: a phone plate split by a snap notch, halves locking */
+  /* ---- Mobile Parts Finder mark: a magnifier closing on a phone part.
+     The lens holds the part; the amber body keeps the brand accent.        */
   SM.logoMark = function (size, cls) {
     size = size || 36;
-    var uid = 'sm' + Math.random().toString(36).slice(2, 8);
+    var uid = 'mpf' + Math.random().toString(36).slice(2, 8);
     return '' +
-      '<svg class="' + (cls || 'logo__mark') + '" width="' + size + '" height="' + size + '" viewBox="0 0 48 48" role="img" aria-label="SnapMatch">' +
+      '<svg class="' + (cls || 'logo__mark') + '" width="' + size + '" height="' + size + '" viewBox="0 0 48 48" role="img" aria-label="Mobile Parts Finder">' +
       '<defs>' +
       '<linearGradient id="' + uid + '" x1="0" y1="0" x2="1" y2="1">' +
       '<stop offset="0%" stop-color="#0F766E"/><stop offset="55%" stop-color="#12A08C"/><stop offset="100%" stop-color="#10D0A8"/>' +
@@ -71,8 +72,14 @@
       '</linearGradient>' +
       '</defs>' +
       '<rect width="48" height="48" rx="14" fill="url(#' + uid + ')"/>' +
-      '<path d="M16 11h9.5a2 2 0 0 1 2 2v8.2l-4.6 3.1 4.6 3.1V35a2 2 0 0 1-2 2H16a2 2 0 0 1-2-2V13a2 2 0 0 1 2-2Z" fill="#fff" fill-opacity=".95"/>' +
-      '<path d="M32 13h2a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-5.7l-4.6-3.1 4.6-3.1V15a2 2 0 0 1 2-2Z" fill="url(#' + uid + 'b)"/>' +
+      /* lens glass */
+      '<circle cx="20.5" cy="20.5" r="11.6" fill="#fff" fill-opacity=".18"/>' +
+      /* the part being found */
+      '<rect x="16.6" y="13.2" width="7.8" height="14.6" rx="2.2" fill="url(#' + uid + 'b)"/>' +
+      '<path d="M18.5 15.4h4" stroke="#8A4A12" stroke-opacity=".55" stroke-width="1.1" stroke-linecap="round"/>' +
+      /* lens ring + handle */
+      '<circle cx="20.5" cy="20.5" r="11.6" fill="none" stroke="#fff" stroke-width="3.2"/>' +
+      '<path d="M29.4 29.4 37 37" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/>' +
       '</svg>';
   };
 

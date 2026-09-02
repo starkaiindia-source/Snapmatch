@@ -1,5 +1,5 @@
 /* ============================================================
-   SnapMatch — Device Finder  ·  Design tokens & base
+   Mobile Parts Finder  ·  Design tokens & base
    Palette grounded in the repair-bench world:
    bench ink, signal teal, kapton amber, anti-static neutrals.
    ============================================================ */
@@ -236,9 +236,11 @@ ul{ margin:0; padding:0; list-style:none; }
 /* ============================================================ BRAND MARK */
 .logo{ display:flex; align-items:center; gap:10px; }
 .logo__mark{ width:36px; height:36px; border-radius:11px; flex:none; box-shadow:var(--glow-brand); }
-.logo__word{ font-family:var(--f-display); font-weight:800; font-size:19px; letter-spacing:-.035em; line-height:1; }
+.logo__word{
+  font-family:var(--f-display); font-weight:800; font-size:15.5px;
+  letter-spacing:-.032em; line-height:1.05; white-space:nowrap;
+}
 .logo__word em{ font-style:normal; color:var(--teal-700); }
-.logo__by{ display:block; font-family:var(--f-ui); font-size:9.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); margin-top:3px; }
 
 /* ============================================================ TOPBAR */
 .topbar{
@@ -256,7 +258,6 @@ ul{ margin:0; padding:0; list-style:none; }
 /* ---- controls colour-managed for the green gradient ---- */
 .topbar .logo__word{ color:var(--hdr-ink); }
 .topbar .logo__word em{ color:var(--hdr-accent); }
-.topbar .logo__by{ color:var(--hdr-ink-3); }
 .topbar .logo__mark{
   box-shadow:0 0 0 1px rgba(255,255,255,.24), 0 6px 18px rgba(0,0,0,.35);
 }
@@ -283,8 +284,7 @@ ul{ margin:0; padding:0; list-style:none; }
 /* narrow phones: drop the byline and the header filter (the toolbar has one) */
 @media (max-width:560px){
   .topbar__in{ gap:10px; }
-  .logo__by{ display:none; }
-  .logo__word{ font-size:17px; }
+  .logo__word{ font-size:14px; }
   .logo__mark{ width:32px; height:32px; border-radius:10px; }
   .topbar__end [data-act="open-filters"]{ display:none; }
 }

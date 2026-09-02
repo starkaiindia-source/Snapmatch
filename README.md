@@ -1,6 +1,6 @@
-# SnapMatch — Device Finder (UI prototype)
+# Mobile Parts Finder (UI prototype)
 
-A ProGlide product. Responsive web app for mobile shop owners, accessories
+Responsive web app for mobile shop owners, accessories
 sellers, technicians and spare-parts businesses: search a phone model, get the
 compatibility group, master model, part code and every other device that takes
 the same part.
@@ -40,7 +40,7 @@ assets/styles.css       design tokens, reset, type scale, shell, search
 assets/components.css   feature components (plates, sheets, plans, states)
 src/data/mock-data.js   sample database generator  ← REPLACE THIS
 src/data/api.js         repository layer + mock session  ← REWIRE THIS
-src/ui/icons.js         inline icon set + the SnapMatch mark
+src/ui/icons.js         inline icon set + the Mobile Parts Finder mark
 src/ui/product-art.js   category product renders + brand logo mapping
 src/ui/components.js    reusable render functions
 src/app.js              shell, hash router, pages, interactions
@@ -50,7 +50,7 @@ server.js               20-line static server for local preview
 
 ---
 
-## Connecting the real ProGlide backend later
+## Connecting a real backend later
 
 Every screen talks to the app **only** through `SM.api`. No component reads
 `SM.db` for anything except id lookups. To go live, rewrite the method bodies in
@@ -93,7 +93,7 @@ Group   { groupId, groupNumber, serialNumber, partCode, categoryId,
 Generated in `mock-data.js`, never entered by hand:
 
 - **Group number** — `GRP-001`, sequential across all groups
-- **Serial number** — `PG-SN-000001`, sequential
+- **Serial number** — `MPF-SN-000001`, sequential
 - **Part code** — `TG-SAM-A55-001` = category code · brand code · model slug ·
   per-category sequence. Verified unique across all 170 groups.
 
@@ -110,7 +110,7 @@ them: 13 model-specific groups of 1, most in the 2–30 range, and ten groups ov
 group renders in 60-device chunks with in-group search.
 
 The brands and models are realistic sample data for design review. They are not
-the production ProGlide database.
+a production parts database.
 
 ---
 

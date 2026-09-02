@@ -1,5 +1,5 @@
 /* ============================================================================
-   SnapMatch · product-art.js
+   Mobile Parts Finder · product-art.js
    ----------------------------------------------------------------------------
    ONE centralised visual mapping, reused everywhere a category or a brand is
    shown. Nothing else hardcodes an image path.

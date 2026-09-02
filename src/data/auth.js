@@ -1,5 +1,5 @@
 /* ============================================================================
-   SnapMatch · auth.js — Google Sign-In + shop profile store
+   Mobile Parts Finder · auth.js — Google Sign-In + shop profile store
    ----------------------------------------------------------------------------
    GOING LIVE
      Set GOOGLE_CLIENT_ID below to an OAuth 2.0 Web client ID from

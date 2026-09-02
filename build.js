@@ -1,5 +1,5 @@
 /* ============================================================================
-   SnapMatch · build.js
+   Mobile Parts Finder · build.js
    Inlines the CSS and JS sources into two single-file bundles:
      dist/snapmatch.html          — full standalone page (open directly)
      dist/snapmatch.artifact.html — body-fragment build for publishing
@@ -28,7 +28,7 @@ const FONTS = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz
 const css = CSS.map((f) => `/* === ${f} === */\n${read(f)}`).join('\n\n');
 const js = JS.map((f) => `/* === ${f} === */\n${read(f)}`).join('\n\n');
 
-const head = `<title>SnapMatch Device Finder</title>
+const head = `<title>Mobile Parts Finder</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="${FONTS}" rel="stylesheet" />

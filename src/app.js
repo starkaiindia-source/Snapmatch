@@ -1,5 +1,5 @@
 /* ============================================================================
-   SnapMatch · app.js — shell, hash router, pages, interactions
+   Mobile Parts Finder · app.js — shell, hash router, pages, interactions
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -71,9 +71,8 @@
     document.getElementById('app').innerHTML =
       '<header class="topbar"><div class="shell topbar__in">' +
       '<div class="topbar__lead">' +
-      '<a class="logo" href="#/finder" aria-label="SnapMatch home">' + SM.logoMark(34) +
-      '<span><span class="logo__word">Snap<em>Match</em></span>' +
-      '<span class="logo__by">A ProGlide product</span></span></a>' +
+      '<a class="logo" href="#/finder" aria-label="Mobile Parts Finder home">' + SM.logoMark(34) +
+      '<span class="logo__word">Mobile Parts <em>Finder</em></span></a>' +
       '<nav class="nav" id="nav"></nav>' +
       '</div>' +
       /* primary search lives in the header on desktop; the hero copy below
@@ -172,7 +171,7 @@
       (picked ? '' :
         '<span class="bench__eyebrow">' + icon('sparkle') + 'Compatibility groups for ' + nf(st.models) + ' phone models</span>' +
         '<h1 class="t-hero">Which parts fit<br><em>this phone?</em></h1>' +
-        '<p class="bench__sub">Type any model. SnapMatch returns the compatibility group, its master model, the part code and every other device that takes the same part.</p>') +
+        '<p class="bench__sub">Type any model. Mobile Parts Finder returns the compatibility group, its master model, the part code and every other device that takes the same part.</p>') +
       searchHTML(picked) +
       /* the stat cards are gone; the category rail sits directly under the
          search instead, and is the only category selector on narrow screens */
@@ -958,7 +957,7 @@
   }
 
   function signinHTML() {
-    return '<h2 class="t-h1">Sign in to SnapMatch</h2>' +
+    return '<h2 class="t-h1">Sign in to Mobile Parts Finder</h2>' +
       '<p class="t-sub" style="margin-top:6px">Use the Google account already on this device. ' +
       'No password to type or remember.</p>' +
       '<div style="margin-top:18px">' + googleBtn('Continue with Google', 'google-signin', false) + '</div>' +
@@ -970,7 +969,7 @@
     var c = SM.countries.byCode(reg.country);
     var ready = regValid();
     var missing = REG_FIELDS.filter(function (f) { return regError(f.k); });
-    return '<h2 class="t-h1">Create your SnapMatch account</h2>' +
+    return '<h2 class="t-h1">Create your Mobile Parts Finder account</h2>' +
       '<p class="t-sub" style="margin-top:6px">Tell us about your shop, then finish with your Google account.</p>' +
 
       '<div class="regform">' +
@@ -1372,7 +1371,7 @@
       /* Honest fallback: with no OAuth client ID the device's real Google
          accounts are unreachable, so this is plainly labelled as a stand-in. */
       var demoAccounts = [
-        { sub: 'demo-1', email: 'proglideapp@gmail.com', name: 'ProGlide App' },
+        { sub: 'demo-1', email: 'shop.owner@gmail.com', name: 'Shop Owner' },
         { sub: 'demo-2', email: 'sharma.mobilecare@gmail.com', name: 'Sharma Mobile Care' }
       ];
       return paintSheet(host, 'Google Sign-In not configured yet',

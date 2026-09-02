@@ -4,14 +4,14 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0F766E" />
-<title>SnapMatch Device Finder</title>
+<title>Mobile Parts Finder</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
 <style>
 /* === assets/styles.css === */
 /* ============================================================
-   SnapMatch — Device Finder  ·  Design tokens & base
+   Mobile Parts Finder  ·  Design tokens & base
    Palette grounded in the repair-bench world:
    bench ink, signal teal, kapton amber, anti-static neutrals.
    ============================================================ */
@@ -248,9 +248,11 @@ ul{ margin:0; padding:0; list-style:none; }
 /* ============================================================ BRAND MARK */
 .logo{ display:flex; align-items:center; gap:10px; }
 .logo__mark{ width:36px; height:36px; border-radius:11px; flex:none; box-shadow:var(--glow-brand); }
-.logo__word{ font-family:var(--f-display); font-weight:800; font-size:19px; letter-spacing:-.035em; line-height:1; }
+.logo__word{
+  font-family:var(--f-display); font-weight:800; font-size:15.5px;
+  letter-spacing:-.032em; line-height:1.05; white-space:nowrap;
+}
 .logo__word em{ font-style:normal; color:var(--teal-700); }
-.logo__by{ display:block; font-family:var(--f-ui); font-size:9.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); margin-top:3px; }
 
 /* ============================================================ TOPBAR */
 .topbar{
@@ -268,7 +270,6 @@ ul{ margin:0; padding:0; list-style:none; }
 /* ---- controls colour-managed for the green gradient ---- */
 .topbar .logo__word{ color:var(--hdr-ink); }
 .topbar .logo__word em{ color:var(--hdr-accent); }
-.topbar .logo__by{ color:var(--hdr-ink-3); }
 .topbar .logo__mark{
   box-shadow:0 0 0 1px rgba(255,255,255,.24), 0 6px 18px rgba(0,0,0,.35);
 }
@@ -295,8 +296,7 @@ ul{ margin:0; padding:0; list-style:none; }
 /* narrow phones: drop the byline and the header filter (the toolbar has one) */
 @media (max-width:560px){
   .topbar__in{ gap:10px; }
-  .logo__by{ display:none; }
-  .logo__word{ font-size:17px; }
+  .logo__word{ font-size:14px; }
   .logo__mark{ width:32px; height:32px; border-radius:10px; }
   .topbar__end [data-act="open-filters"]{ display:none; }
 }
@@ -572,7 +572,7 @@ ul{ margin:0; padding:0; list-style:none; }
 
 /* === assets/components.css === */
 /* ============================================================
-   SnapMatch — Feature components
+   Mobile Parts Finder — Feature components
    ============================================================ */
 
 /* ---------------- section heading ---------------- */
@@ -1316,11 +1316,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 <script>
 /* === src/data/mock-data.js === */
 /* ============================================================================
-   SnapMatch · mock-data.js
+   Mobile Parts Finder · mock-data.js
    ----------------------------------------------------------------------------
    PROTOTYPE DATA ONLY. Everything here is generated in the browser from a
    deterministic seed so the UI behaves like a large database without any
-   backend. When the real ProGlide database is connected, this file is the ONLY
+   backend. When a real parts database is connected, this file is the ONLY
    thing that gets replaced — src/data/api.js keeps the same shape.
 
    Entity shapes (kept close to what a real API would return):
@@ -1717,7 +1717,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         groups.push({
           groupId: 'g' + pad(gnum, 3),
           groupNumber: 'GRP-' + pad(gnum, 3),
-          serialNumber: 'PG-SN-' + pad(serial, 6),
+          serialNumber: 'MPF-SN-' + pad(serial, 6),
           partCode: cat.code + '-' + brandCode + '-' + partSlug(master) + '-' + pad(seq, 3),
           categoryId: catId,
           masterModelId: master.id,
@@ -1800,7 +1800,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 /* === src/data/countries.js === */
 /* ============================================================================
-   SnapMatch · countries.js
+   Mobile Parts Finder · countries.js
    Full ISO-3166 country list with dialling codes. Flags are derived from the
    ISO alpha-2 code (regional indicator letters), so no image assets and no
    per-country hardcoding.
@@ -1896,7 +1896,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 /* === src/data/auth.js === */
 /* ============================================================================
-   SnapMatch · auth.js — Google Sign-In + shop profile store
+   Mobile Parts Finder · auth.js — Google Sign-In + shop profile store
    ----------------------------------------------------------------------------
    GOING LIVE
      Set GOOGLE_CLIENT_ID below to an OAuth 2.0 Web client ID from
@@ -2030,11 +2030,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 /* === src/data/api.js === */
 /* ============================================================================
-   SnapMatch · api.js  —  the integration seam
+   Mobile Parts Finder · api.js  —  the integration seam
    ----------------------------------------------------------------------------
    Every screen talks to the app ONLY through SM.api. Each method returns a
    Promise and resolves after a small simulated delay, so all loading states in
-   the UI are real. To connect the live ProGlide backend later, replace the
+   the UI are real. To connect a live backend later, replace the
    bodies of these methods with fetch() calls that return the same shapes —
    no component needs to change.
 
@@ -2386,7 +2386,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   SM.PLANS = [
     {
       id: 'monthly', name: 'Monthly', price: 99, per: 'month', cadence: '₹99 billed every month',
-      note: 'Best for trying SnapMatch in your shop.',
+      note: 'Best for trying Mobile Parts Finder in your shop.',
       feats: ['Unlimited Device Finder searches', 'Every compatibility group unlocked', 'Full compatible-device lists', 'Part code, group & serial numbers', 'Works on counter phone, tablet & PC']
     },
     {
@@ -2400,7 +2400,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 /* === src/ui/icons.js === */
 /* ============================================================================
-   SnapMatch · icons.js — inline stroke icon set + the SnapMatch mark
+   Mobile Parts Finder · icons.js — inline stroke icon set + the brand mark
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -2457,12 +2457,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       (cls ? ' class="' + cls + '"' : '') + '>' + d + '</svg>';
   };
 
-  /* ---- SnapMatch mark: a phone plate split by a snap notch, halves locking */
+  /* ---- Mobile Parts Finder mark: a magnifier closing on a phone part.
+     The lens holds the part; the amber body keeps the brand accent.        */
   SM.logoMark = function (size, cls) {
     size = size || 36;
-    var uid = 'sm' + Math.random().toString(36).slice(2, 8);
+    var uid = 'mpf' + Math.random().toString(36).slice(2, 8);
     return '' +
-      '<svg class="' + (cls || 'logo__mark') + '" width="' + size + '" height="' + size + '" viewBox="0 0 48 48" role="img" aria-label="SnapMatch">' +
+      '<svg class="' + (cls || 'logo__mark') + '" width="' + size + '" height="' + size + '" viewBox="0 0 48 48" role="img" aria-label="Mobile Parts Finder">' +
       '<defs>' +
       '<linearGradient id="' + uid + '" x1="0" y1="0" x2="1" y2="1">' +
       '<stop offset="0%" stop-color="#0F766E"/><stop offset="55%" stop-color="#12A08C"/><stop offset="100%" stop-color="#10D0A8"/>' +
@@ -2472,8 +2473,14 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '</linearGradient>' +
       '</defs>' +
       '<rect width="48" height="48" rx="14" fill="url(#' + uid + ')"/>' +
-      '<path d="M16 11h9.5a2 2 0 0 1 2 2v8.2l-4.6 3.1 4.6 3.1V35a2 2 0 0 1-2 2H16a2 2 0 0 1-2-2V13a2 2 0 0 1 2-2Z" fill="#fff" fill-opacity=".95"/>' +
-      '<path d="M32 13h2a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-5.7l-4.6-3.1 4.6-3.1V15a2 2 0 0 1 2-2Z" fill="url(#' + uid + 'b)"/>' +
+      /* lens glass */
+      '<circle cx="20.5" cy="20.5" r="11.6" fill="#fff" fill-opacity=".18"/>' +
+      /* the part being found */
+      '<rect x="16.6" y="13.2" width="7.8" height="14.6" rx="2.2" fill="url(#' + uid + 'b)"/>' +
+      '<path d="M18.5 15.4h4" stroke="#8A4A12" stroke-opacity=".55" stroke-width="1.1" stroke-linecap="round"/>' +
+      /* lens ring + handle */
+      '<circle cx="20.5" cy="20.5" r="11.6" fill="none" stroke="#fff" stroke-width="3.2"/>' +
+      '<path d="M29.4 29.4 37 37" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/>' +
       '</svg>';
   };
 
@@ -2488,7 +2495,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 /* === src/ui/product-art.js === */
 /* ============================================================================
-   SnapMatch · product-art.js
+   Mobile Parts Finder · product-art.js
    ----------------------------------------------------------------------------
    ONE centralised visual mapping, reused everywhere a category or a brand is
    shown. Nothing else hardcodes an image path.
@@ -2765,7 +2772,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 /* === src/ui/components.js === */
 /* ============================================================================
-   SnapMatch · components.js
+   Mobile Parts Finder · components.js
    Reusable render functions. Every one takes plain data and returns an HTML
    string — no framework, no duplicated markup across pages.
    ========================================================================== */
@@ -3029,7 +3036,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 /* === src/app.js === */
 /* ============================================================================
-   SnapMatch · app.js — shell, hash router, pages, interactions
+   Mobile Parts Finder · app.js — shell, hash router, pages, interactions
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -3101,9 +3108,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     document.getElementById('app').innerHTML =
       '<header class="topbar"><div class="shell topbar__in">' +
       '<div class="topbar__lead">' +
-      '<a class="logo" href="#/finder" aria-label="SnapMatch home">' + SM.logoMark(34) +
-      '<span><span class="logo__word">Snap<em>Match</em></span>' +
-      '<span class="logo__by">A ProGlide product</span></span></a>' +
+      '<a class="logo" href="#/finder" aria-label="Mobile Parts Finder home">' + SM.logoMark(34) +
+      '<span class="logo__word">Mobile Parts <em>Finder</em></span></a>' +
       '<nav class="nav" id="nav"></nav>' +
       '</div>' +
       /* primary search lives in the header on desktop; the hero copy below
@@ -3202,7 +3208,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       (picked ? '' :
         '<span class="bench__eyebrow">' + icon('sparkle') + 'Compatibility groups for ' + nf(st.models) + ' phone models</span>' +
         '<h1 class="t-hero">Which parts fit<br><em>this phone?</em></h1>' +
-        '<p class="bench__sub">Type any model. SnapMatch returns the compatibility group, its master model, the part code and every other device that takes the same part.</p>') +
+        '<p class="bench__sub">Type any model. Mobile Parts Finder returns the compatibility group, its master model, the part code and every other device that takes the same part.</p>') +
       searchHTML(picked) +
       /* the stat cards are gone; the category rail sits directly under the
          search instead, and is the only category selector on narrow screens */
@@ -3988,7 +3994,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   }
 
   function signinHTML() {
-    return '<h2 class="t-h1">Sign in to SnapMatch</h2>' +
+    return '<h2 class="t-h1">Sign in to Mobile Parts Finder</h2>' +
       '<p class="t-sub" style="margin-top:6px">Use the Google account already on this device. ' +
       'No password to type or remember.</p>' +
       '<div style="margin-top:18px">' + googleBtn('Continue with Google', 'google-signin', false) + '</div>' +
@@ -4000,7 +4006,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var c = SM.countries.byCode(reg.country);
     var ready = regValid();
     var missing = REG_FIELDS.filter(function (f) { return regError(f.k); });
-    return '<h2 class="t-h1">Create your SnapMatch account</h2>' +
+    return '<h2 class="t-h1">Create your Mobile Parts Finder account</h2>' +
       '<p class="t-sub" style="margin-top:6px">Tell us about your shop, then finish with your Google account.</p>' +
 
       '<div class="regform">' +
@@ -4402,7 +4408,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       /* Honest fallback: with no OAuth client ID the device's real Google
          accounts are unreachable, so this is plainly labelled as a stand-in. */
       var demoAccounts = [
-        { sub: 'demo-1', email: 'proglideapp@gmail.com', name: 'ProGlide App' },
+        { sub: 'demo-1', email: 'shop.owner@gmail.com', name: 'Shop Owner' },
         { sub: 'demo-2', email: 'sharma.mobilecare@gmail.com', name: 'Sharma Mobile Care' }
       ];
       return paintSheet(host, 'Google Sign-In not configured yet',

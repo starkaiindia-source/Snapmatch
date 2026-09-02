@@ -9,4 +9,4 @@ http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control':'no-store' });
     res.end(buf);
   });
-}).listen(4321, () => console.log('SnapMatch dev server on http://localhost:4321'));
+}).listen(4321, () => console.log('Mobile Parts Finder dev server on http://localhost:4321'));

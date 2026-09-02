@@ -1,5 +1,5 @@
 /* ============================================================================
-   SnapMatch · components.js
+   Mobile Parts Finder · components.js
    Reusable render functions. Every one takes plain data and returns an HTML
    string — no framework, no duplicated markup across pages.
    ========================================================================== */
