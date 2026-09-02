@@ -1,0 +1,61 @@
+{
+  "version": 1788381782499,
+  "generatedAt": "2026-09-02T20:43:02.499Z",
+  "counts": {
+    "models": 4933,
+    "groups": 3340,
+    "brands": 22,
+    "categories": 6,
+    "fitments": 12239
+  },
+  "categories": [
+    {
+      "id": "screen-guards",
+      "name": "Screen Guards",
+      "short": "Guard",
+      "code": "SG",
+      "order": 1,
+      "groupCount": 167
+    },
+    {
+      "id": "back-cover",
+      "name": "Back Cover",
+      "short": "Cover",
+      "code": "BC",
+      "order": 2,
+      "groupCount": 709
+    },
+    {
+      "id": "combo-display",
+      "name": "Combo/Display",
+      "short": "Display",
+      "code": "CD",
+      "order": 3,
+      "groupCount": 720
+    },
+    {
+      "id": "middle-frame",
+      "name": "Middle Frame",
+      "short": "Frame",
+      "code": "MF",
+      "order": 4,
+      "groupCount": 742
+    },
+    {
+      "id": "cc-board",
+      "name": "CC Board",
+      "short": "CC Board",
+      "code": "CC",
+      "order": 5,
+      "groupCount": 715
+    },
+    {
+      "id": "battery",
+      "name": "Battery",
+      "short": "Battery",
+      "code": "BT",
+      "order": 6,
+      "groupCount": 287
+    }
+  ]
+}

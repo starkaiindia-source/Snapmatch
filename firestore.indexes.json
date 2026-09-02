@@ -1,0 +1,104 @@
+{
+  "//": [
+    "Mobile Parts Finder — Firestore composite indexes.",
+    "Single-field indexes are automatic; only the multi-field queries the app",
+    "actually issues are listed here. Deploy with:",
+    "   firebase deploy --only firestore:indexes",
+    "",
+    "Query -> index mapping:",
+    "  browse a category, newest groups first    categoryId + groupNo",
+    "  browse a category, biggest fitment first  categoryId + memberCount",
+    "  category + brand filter                   categoryId + masterBrandId + groupNo",
+    "  brand filter across categories            masterBrandId + groupNo",
+    "  free-text token search inside a category  categoryId + searchTokens(array)",
+    "  brand's models, newest first              brandId + releaseYear",
+    "  brand's models A-Z                        brandId + nameLower"
+  ],
+  "indexes": [
+    {
+      "collectionGroup": "groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "categoryId", "order": "ASCENDING" },
+        { "fieldPath": "groupNo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "categoryId", "order": "ASCENDING" },
+        { "fieldPath": "memberCount", "order": "DESCENDING" },
+        { "fieldPath": "groupNo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "categoryId", "order": "ASCENDING" },
+        { "fieldPath": "masterBrandId", "order": "ASCENDING" },
+        { "fieldPath": "groupNo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "masterBrandId", "order": "ASCENDING" },
+        { "fieldPath": "groupNo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "groups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "categoryId", "order": "ASCENDING" },
+        { "fieldPath": "searchTokens", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "groupNo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "models",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "brandId", "order": "ASCENDING" },
+        { "fieldPath": "releaseYear", "order": "DESCENDING" },
+        { "fieldPath": "nameLower", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "models",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "brandId", "order": "ASCENDING" },
+        { "fieldPath": "nameLower", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "//": "memberNames is display-only; never queried. Exempting it saves an index entry per name on every group write and keeps writes cheap.",
+      "collectionGroup": "groups",
+      "fieldPath": "memberNames",
+      "indexes": []
+    },
+    {
+      "//": "tokens is used for the static bundle, not for Firestore queries.",
+      "collectionGroup": "models",
+      "fieldPath": "tokens",
+      "indexes": []
+    },
+    {
+      "//": "memberIds lives on groupDetails and is read whole, never queried.",
+      "collectionGroup": "groupDetails",
+      "fieldPath": "memberIds",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "groupDetails",
+      "fieldPath": "memberNames",
+      "indexes": []
+    }
+  ]
+}

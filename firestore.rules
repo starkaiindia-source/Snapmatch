@@ -1,0 +1,117 @@
+rules_version = '2';
+
+/* ============================================================================
+   Mobile Parts Finder — Firestore security rules
+
+   Shape of the data and why:
+
+     /catalog/meta            public   counts + dataset version
+     /brands/{id}             public   brand rollups
+     /models/{id}             public   phone catalogue (free browsing)
+     /groups/{id}             public   group PREVIEW — category, master, count
+     /groupDetails/{id}       PAID     part number, full member list
+     /modelGroups/{id}        PAID     model -> matching group ids
+     /users/{uid}             owner    shop profile, self-editable
+     /users/{uid}/billing/*   owner-read, server-write only
+
+   The paywall is enforced here, not only in the UI: the fields a subscriber
+   pays for live in their own collections, because Firestore rules cannot
+   protect individual fields of a document.
+
+   Subscription state is never client-writable. A signed-in user can read
+   their own billing document but only a trusted server (Admin SDK or a
+   Cloud Function) may create or change it — otherwise anyone could grant
+   themselves a plan from the browser console.
+   ========================================================================== */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ---------------------------------------------------------- helpers */
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    function billing() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)/billing/subscription).data;
+    }
+    function hasActivePlan() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid)/billing/subscription)
+        && billing().expiresAt > request.time;
+    }
+    /* fields a user may set on their own profile — subscription is not one */
+    function profileFieldsOk() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['subscription', 'plan', 'status', 'role', 'createdAt']);
+    }
+
+    /* ------------------------------------------------------- public catalogue
+       Free browsing: anyone may read models, brands and group previews.
+       Nothing here is writable from a client; the importer uses the Admin
+       SDK, which bypasses these rules. */
+    match /catalog/{doc} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /brands/{brandId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /models/{modelId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /groups/{groupId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /* --------------------------------------------------------- paid surface
+       The actual answer the product sells: which parts fit, the part number
+       and the full compatible-device list. */
+    match /groupDetails/{groupId} {
+      allow read: if hasActivePlan();
+      allow write: if false;
+    }
+    match /modelGroups/{modelId} {
+      allow read: if hasActivePlan();
+      allow write: if false;
+    }
+
+    /* -------------------------------------------------------------- users */
+    match /users/{uid} {
+      /* a profile is created once, by its owner, at sign-up */
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.keys().hasAll(['uid', 'email', 'shopName', 'proprietor'])
+        && request.resource.data.shopName is string
+        && request.resource.data.shopName.size() > 1
+        && request.resource.data.proprietor is string
+        && request.resource.data.proprietor.size() > 1
+        && !request.resource.data.keys().hasAny(['subscription', 'plan', 'status', 'role']);
+
+      allow read: if isOwner(uid);
+      allow update: if isOwner(uid) && profileFieldsOk();
+      allow delete: if false;
+
+      /* billing is readable by its owner and writable only by a server */
+      match /billing/{doc} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      /* the user's own search history — fully theirs */
+      match /recent/{doc} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    /* anything not matched above is closed */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

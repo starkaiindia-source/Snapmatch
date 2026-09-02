@@ -12,3 +12,13 @@ Thumbs.db
 *.log
 tmp/
 .tmp/
+
+# Firebase credentials — never commit these
+*.serviceaccount.json
+serviceAccountKey*.json
+.firebaserc.local
+firebase-debug.log
+.firebase/
+
+# raw vendor exports (regenerate with scripts/dump-xlsx.py)
+data/raw/

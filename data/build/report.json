@@ -1,0 +1,69 @@
+{
+  "source": "C:/Users/stark/Downloads",
+  "startedAt": "2026-09-02T20:43:02.147Z",
+  "anomalies": {
+    "duplicateModelRows": [],
+    "emptyGroups": [
+      {
+        "category": "screen-guards",
+        "name": "Honor X7c",
+        "partNo": null
+      },
+      {
+        "category": "screen-guards",
+        "name": "Oppo K5",
+        "partNo": null
+      },
+      {
+        "category": "screen-guards",
+        "name": "ONE PLUS 13S",
+        "partNo": null
+      },
+      {
+        "category": "combo-display",
+        "name": "Lenovo B",
+        "partNo": "1"
+      },
+      {
+        "category": "combo-display",
+        "name": "Lenovo B",
+        "partNo": "1"
+      },
+      {
+        "category": "combo-display",
+        "name": "Lenovo B",
+        "partNo": "1"
+      },
+      {
+        "category": "combo-display",
+        "name": "honor x5",
+        "partNo": "1"
+      },
+      {
+        "category": "combo-display",
+        "name": "Hote 50 5g",
+        "partNo": "ae"
+      },
+      {
+        "category": "middle-frame",
+        "name": "Xiaomi 12",
+        "partNo": "1"
+      },
+      {
+        "category": "battery",
+        "name": "Oppo A3",
+        "partNo": "BLP-A77 (5000mAh)"
+      }
+    ],
+    "unresolvedMembers": [],
+    "unresolvedMemberCount": 0
+  },
+  "counts": {
+    "models": 4933,
+    "groups": 3340,
+    "modelGroupDocs": 3140,
+    "brands": 22,
+    "fitments": 12239
+  },
+  "finishedAt": "2026-09-02T20:43:02.624Z"
+}
