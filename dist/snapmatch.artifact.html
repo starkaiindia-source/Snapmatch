@@ -1147,6 +1147,64 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .plan__feats svg{ width:17px; height:17px; flex:none; margin-top:2px; color:var(--teal-600); }
 .plan--hero .plan__feats svg{ color:var(--amber-400); }
 
+/* ---------------- auth: Google button, registration form, country picker -- */
+.gbtn{
+  display:flex; align-items:center; justify-content:center; gap:11px; width:100%;
+  height:52px; padding:0 18px; border-radius:var(--r-sm);
+  background:var(--surface); color:var(--ink); border:1px solid var(--line);
+  font-size:15.5px; font-weight:700; letter-spacing:-.01em; box-shadow:var(--sh-1);
+  transition:border-color .16s, box-shadow .16s, transform .16s, opacity .16s;
+}
+.gbtn:hover{ border-color:var(--ink-3); box-shadow:var(--sh-2); }
+.gbtn:active{ transform:translateY(1px); }
+.gbtn__g{ display:grid; place-items:center; width:20px; height:20px; flex:none; }
+.gbtn.is-disabled,.gbtn[disabled]{
+  opacity:.5; cursor:not-allowed; box-shadow:none;
+  background:var(--surface-2); color:var(--ink-3); border-style:dashed;
+}
+.gbtn.is-disabled:hover{ border-color:var(--line); box-shadow:none; }
+.gbtn.is-busy{ opacity:.7; pointer-events:none; }
+
+.regform{ display:flex; flex-direction:column; gap:12px; margin-top:18px; }
+.regform__sub{
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  margin-top:6px; padding-top:14px; border-top:1px solid var(--line-soft);
+}
+.ffield{ display:flex; flex-direction:column; gap:5px; min-width:0; }
+.ffield .t-lab{ display:block; }
+.ffield__err{ font-size:11.5px; font-weight:700; color:var(--bad); }
+.ffield.has-error .input{ border-color:var(--bad); background:var(--bad-bg); }
+.ffield.has-error .input:focus{ box-shadow:0 0 0 3px rgba(220,75,82,.18); }
+.ffield--pair{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+@media (max-width:379px){ .ffield--pair{ grid-template-columns:1fr; } }
+
+.phonerow{ display:flex; gap:8px; align-items:stretch; }
+.phonerow .input{ flex:1 1 auto; min-width:0; }
+.ccpick{
+  display:flex; align-items:center; gap:6px; flex:none; max-width:46%;
+  height:42px; padding:0 9px; border-radius:var(--r-sm);
+  border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
+  font-size:13.5px; font-weight:600;
+}
+.ccpick:hover{ border-color:var(--ink-3); }
+.ccpick__flag{ font-size:17px; line-height:1; }
+.ccpick__name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ccpick__dial{ color:var(--ink-2); font-family:var(--f-mono); font-size:12.5px; }
+.ccpick svg{ width:14px; height:14px; color:var(--ink-3); flex:none; }
+
+.clist{ display:flex; flex-direction:column; gap:1px; background:var(--line-soft);
+  border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
+.crow{
+  display:flex; align-items:center; gap:11px; padding:11px 13px; width:100%;
+  background:var(--surface); text-align:left; transition:background .14s;
+}
+.crow:hover{ background:var(--surface-2); }
+.crow.is-on{ background:var(--teal-050); }
+.crow.is-on .crow__name{ color:var(--teal-700); font-weight:800; }
+.crow__flag{ font-size:20px; line-height:1; flex:none; }
+.crow__name{ font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.crow__dial{ margin-left:auto; font-family:var(--f-mono); font-size:12.5px; color:var(--ink-3); flex:none; }
+
 /* ---------------- account ---------------- */
 .acct{ display:grid; gap:16px; grid-template-columns:1fr; }
 @media (min-width:900px){ .acct{ grid-template-columns:1.05fr .95fr; align-items:start; } }
@@ -1674,6 +1732,236 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 })(window);
 
 
+/* === src/data/countries.js === */
+/* ============================================================================
+   SnapMatch · countries.js
+   Full ISO-3166 country list with dialling codes. Flags are derived from the
+   ISO alpha-2 code (regional indicator letters), so no image assets and no
+   per-country hardcoding.
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  /* code:name:dial — packed to keep the payload small */
+  var PACKED =
+    'AF:Afghanistan:93,AL:Albania:355,DZ:Algeria:213,AD:Andorra:376,AO:Angola:244,' +
+    'AG:Antigua and Barbuda:1268,AR:Argentina:54,AM:Armenia:374,AU:Australia:61,AT:Austria:43,' +
+    'AZ:Azerbaijan:994,BS:Bahamas:1242,BH:Bahrain:973,BD:Bangladesh:880,BB:Barbados:1246,' +
+    'BY:Belarus:375,BE:Belgium:32,BZ:Belize:501,BJ:Benin:229,BT:Bhutan:975,BO:Bolivia:591,' +
+    'BA:Bosnia and Herzegovina:387,BW:Botswana:267,BR:Brazil:55,BN:Brunei:673,BG:Bulgaria:359,' +
+    'BF:Burkina Faso:226,BI:Burundi:257,KH:Cambodia:855,CM:Cameroon:237,CA:Canada:1,' +
+    'CV:Cape Verde:238,CF:Central African Republic:236,TD:Chad:235,CL:Chile:56,CN:China:86,' +
+    'CO:Colombia:57,KM:Comoros:269,CG:Congo:242,CD:Congo (DRC):243,CR:Costa Rica:506,' +
+    'CI:Cote d Ivoire:225,HR:Croatia:385,CU:Cuba:53,CY:Cyprus:357,CZ:Czechia:420,DK:Denmark:45,' +
+    'DJ:Djibouti:253,DM:Dominica:1767,DO:Dominican Republic:1809,EC:Ecuador:593,EG:Egypt:20,' +
+    'SV:El Salvador:503,GQ:Equatorial Guinea:240,ER:Eritrea:291,EE:Estonia:372,SZ:Eswatini:268,' +
+    'ET:Ethiopia:251,FJ:Fiji:679,FI:Finland:358,FR:France:33,GA:Gabon:241,GM:Gambia:220,' +
+    'GE:Georgia:995,DE:Germany:49,GH:Ghana:233,GR:Greece:30,GD:Grenada:1473,GT:Guatemala:502,' +
+    'GN:Guinea:224,GW:Guinea-Bissau:245,GY:Guyana:592,HT:Haiti:509,HN:Honduras:504,' +
+    'HK:Hong Kong:852,HU:Hungary:36,IS:Iceland:354,IN:India:91,ID:Indonesia:62,IR:Iran:98,' +
+    'IQ:Iraq:964,IE:Ireland:353,IL:Israel:972,IT:Italy:39,JM:Jamaica:1876,JP:Japan:81,' +
+    'JO:Jordan:962,KZ:Kazakhstan:7,KE:Kenya:254,KI:Kiribati:686,KW:Kuwait:965,' +
+    'KG:Kyrgyzstan:996,LA:Laos:856,LV:Latvia:371,LB:Lebanon:961,LS:Lesotho:266,LR:Liberia:231,' +
+    'LY:Libya:218,LI:Liechtenstein:423,LT:Lithuania:370,LU:Luxembourg:352,MO:Macau:853,' +
+    'MG:Madagascar:261,MW:Malawi:265,MY:Malaysia:60,MV:Maldives:960,ML:Mali:223,MT:Malta:356,' +
+    'MH:Marshall Islands:692,MR:Mauritania:222,MU:Mauritius:230,MX:Mexico:52,' +
+    'FM:Micronesia:691,MD:Moldova:373,MC:Monaco:377,MN:Mongolia:976,ME:Montenegro:382,' +
+    'MA:Morocco:212,MZ:Mozambique:258,MM:Myanmar:95,NA:Namibia:264,NR:Nauru:674,NP:Nepal:977,' +
+    'NL:Netherlands:31,NZ:New Zealand:64,NI:Nicaragua:505,NE:Niger:227,NG:Nigeria:234,' +
+    'KP:North Korea:850,MK:North Macedonia:389,NO:Norway:47,OM:Oman:968,PK:Pakistan:92,' +
+    'PW:Palau:680,PS:Palestine:970,PA:Panama:507,PG:Papua New Guinea:675,PY:Paraguay:595,' +
+    'PE:Peru:51,PH:Philippines:63,PL:Poland:48,PT:Portugal:351,QA:Qatar:974,RO:Romania:40,' +
+    'RU:Russia:7,RW:Rwanda:250,KN:Saint Kitts and Nevis:1869,LC:Saint Lucia:1758,' +
+    'VC:Saint Vincent and the Grenadines:1784,WS:Samoa:685,SM:San Marino:378,' +
+    'ST:Sao Tome and Principe:239,SA:Saudi Arabia:966,SN:Senegal:221,RS:Serbia:381,' +
+    'SC:Seychelles:248,SL:Sierra Leone:232,SG:Singapore:65,SK:Slovakia:421,SI:Slovenia:386,' +
+    'SB:Solomon Islands:677,SO:Somalia:252,ZA:South Africa:27,KR:South Korea:82,' +
+    'SS:South Sudan:211,ES:Spain:34,LK:Sri Lanka:94,SD:Sudan:249,SR:Suriname:597,' +
+    'SE:Sweden:46,CH:Switzerland:41,SY:Syria:963,TW:Taiwan:886,TJ:Tajikistan:992,' +
+    'TZ:Tanzania:255,TH:Thailand:66,TL:Timor-Leste:670,TG:Togo:228,TO:Tonga:676,' +
+    'TT:Trinidad and Tobago:1868,TN:Tunisia:216,TR:Turkiye:90,TM:Turkmenistan:993,' +
+    'TV:Tuvalu:688,UG:Uganda:256,UA:Ukraine:380,AE:United Arab Emirates:971,' +
+    'GB:United Kingdom:44,US:United States:1,UY:Uruguay:598,UZ:Uzbekistan:998,' +
+    'VU:Vanuatu:678,VA:Vatican City:379,VE:Venezuela:58,VN:Vietnam:84,YE:Yemen:967,' +
+    'ZM:Zambia:260,ZW:Zimbabwe:263';
+
+  function flagOf(code) {
+    return String.fromCodePoint.apply(String, code.toUpperCase().split('').map(function (c) {
+      return 0x1F1E6 + c.charCodeAt(0) - 65;
+    }));
+  }
+
+  var LIST = PACKED.split(',').map(function (row) {
+    var p = row.split(':');
+    return {
+      code: p[0],
+      name: p[1],
+      dial: '+' + p[2],
+      flag: flagOf(p[0]),
+      search: (p[0] + ' ' + p[1] + ' +' + p[2]).toLowerCase()
+    };
+  }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+  var BY_CODE = Object.create(null);
+  LIST.forEach(function (c) { BY_CODE[c.code] = c; });
+
+  SM.countries = {
+    all: LIST,
+    byCode: function (code) { return BY_CODE[code] || null; },
+    search: function (q) {
+      q = (q || '').toLowerCase().trim();
+      if (!q) return LIST;
+      var starts = [], has = [];
+      LIST.forEach(function (c) {
+        var n = c.name.toLowerCase();
+        if (n.indexOf(q) === 0) starts.push(c);
+        else if (c.search.indexOf(q) > -1) has.push(c);
+      });
+      return starts.concat(has);
+    },
+    /* national number length sanity check (without the dialling code) */
+    validNumber: function (digits) {
+      return /^[0-9]{6,14}$/.test(digits || '');
+    }
+  };
+})(window);
+
+
+/* === src/data/auth.js === */
+/* ============================================================================
+   SnapMatch · auth.js — Google Sign-In + shop profile store
+   ----------------------------------------------------------------------------
+   GOING LIVE
+     Set GOOGLE_CLIENT_ID below to an OAuth 2.0 Web client ID from
+     Google Cloud Console (APIs & Services -> Credentials), with the deployed
+     origin added under "Authorised JavaScript origins", e.g.
+        https://starkaiindia-source.github.io
+     The moment that constant is filled in, SM.auth.signIn() loads Google
+     Identity Services and opens the real account chooser showing the Google
+     accounts already signed in on the device. Nothing else needs changing.
+
+   WITHOUT A CLIENT ID
+     There is no way to reach the device's Google accounts, so signIn() opens
+     a clearly-labelled demo chooser instead. It never presents itself as
+     Google's own UI.
+
+   TOKEN VERIFICATION
+     GIS returns a signed JWT credential. A production build must send that
+     credential to a backend and verify its signature, `aud` and `iss` against
+     Google's public keys before trusting it — see SM.auth.verifyEndpoint.
+     Profiles are stored locally here because this build has no server.
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  var GOOGLE_CLIENT_ID = '';                 /* <-- paste the client ID here */
+  var VERIFY_ENDPOINT = '';                  /* <-- backend token verifier    */
+  var GSI_SRC = 'https://accounts.google.com/gsi/client';
+
+  var PROFILE_KEY = 'snapmatch.profiles.v1';
+
+  function readStore() {
+    try { return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function writeStore(s) {
+    try { localStorage.setItem(PROFILE_KEY, JSON.stringify(s)); } catch (e) { /* private mode */ }
+  }
+
+  /* base64url JWT payload -> object (display only; never a substitute for
+     server-side signature verification) */
+  function decodeJwt(tok) {
+    try {
+      var p = tok.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      return JSON.parse(decodeURIComponent(atob(p).split('').map(function (c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join('')));
+    } catch (e) { return null; }
+  }
+
+  var gsiLoading = null;
+  function loadGsi() {
+    if (window.google && window.google.accounts && window.google.accounts.id) return Promise.resolve(true);
+    if (gsiLoading) return gsiLoading;
+    gsiLoading = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = GSI_SRC; s.async = true; s.defer = true;
+      s.onload = function () { resolve(true); };
+      s.onerror = function () { reject(new Error('Could not reach Google Sign-In.')); };
+      document.head.appendChild(s);
+    });
+    return gsiLoading;
+  }
+
+  SM.auth = {
+    configured: function () { return !!GOOGLE_CLIENT_ID; },
+    clientId: GOOGLE_CLIENT_ID,
+    verifyEndpoint: VERIFY_ENDPOINT,
+
+    /* Opens the real Google account chooser when configured.
+       Resolves with { sub, email, name, picture } or rejects:
+         code 'unconfigured' | 'cancelled' | 'network' | 'failed'          */
+    signInWithGoogle: function () {
+      if (!GOOGLE_CLIENT_ID) {
+        var e = new Error('Google Sign-In is not configured yet.');
+        e.code = 'unconfigured';
+        return Promise.reject(e);
+      }
+      return loadGsi().then(function () {
+        return new Promise(function (resolve, reject) {
+          var settled = false;
+          google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            auto_select: false,
+            cancel_on_tap_outside: true,
+            callback: function (res) {
+              settled = true;
+              var claims = decodeJwt(res.credential);
+              if (!claims || !claims.sub) {
+                var er = new Error('Google returned an unreadable response.');
+                er.code = 'failed'; reject(er); return;
+              }
+              /* production: POST res.credential to VERIFY_ENDPOINT and let the
+                 server confirm the signature before trusting these claims */
+              resolve({
+                sub: claims.sub, email: claims.email, name: claims.name || '',
+                picture: claims.picture || '', credential: res.credential
+              });
+            }
+          });
+          google.accounts.id.prompt(function (n) {
+            if (settled) return;
+            if (n.isNotDisplayed && n.isNotDisplayed()) {
+              var e1 = new Error('Google could not show the account chooser.');
+              e1.code = 'failed'; reject(e1);
+            } else if (n.isSkippedMoment && n.isSkippedMoment()) {
+              var e2 = new Error('Sign-in cancelled.');
+              e2.code = 'cancelled'; reject(e2);
+            }
+          });
+        });
+      }, function () {
+        var e = new Error('Could not reach Google Sign-In. Check your connection.');
+        e.code = 'network';
+        return Promise.reject(e);
+      });
+    },
+
+    /* profile store — swap these three for backend calls when a server exists */
+    findProfile: function (sub) { return readStore()[sub] || null; },
+    saveProfile: function (sub, profile) {
+      var s = readStore();
+      s[sub] = Object.assign({}, s[sub], profile, { sub: sub, updatedAt: Date.now() });
+      writeStore(s);
+      return s[sub];
+    },
+    allProfiles: function () { return readStore(); }
+  };
+})(window);
+
+
 /* === src/data/api.js === */
 /* ============================================================================
    SnapMatch · api.js  —  the integration seam
@@ -1857,7 +2145,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      in memory and mirrored to localStorage so a refresh keeps the demo intact.
      ========================================================================== */
   var KEY = 'snapmatch.session.v1';
-  var DEFAULT = { status: 'guest', name: '', email: '', plan: null, renewsOn: null, since: null };
+  var DEFAULT = {
+    status: 'guest', name: '', email: '', plan: null, renewsOn: null, since: null,
+    sub: null, picture: '', profile: null
+  };
 
   function read() {
     try {
@@ -1890,28 +2181,56 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     isPro: function () { return current.status === 'pro'; },
     onChange: function (fn) { listeners.push(fn); return function () { listeners = listeners.filter(function (f) { return f !== fn; }); }; },
 
-    signIn: function (email, name) {
-      return respond(set({
-        status: 'free',
-        email: email,
-        name: name || email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }),
+    /* Signs in an authenticated Google identity.
+       Existing profile  -> restores it (plan, status, shop details).
+       New identity      -> reports needsRegistration so the caller can collect
+                            the shop details; nothing is written until then,
+                            which also prevents duplicate accounts. */
+    signInWithGoogle: function (identity, registration) {
+      var existing = SM.auth.findProfile(identity.sub);
+      if (!existing && !registration) {
+        return respond({ needsRegistration: true, identity: identity }, LAT.normal);
+      }
+      var profile = existing || SM.auth.saveProfile(identity.sub, Object.assign({
+        email: identity.email,
+        googleName: identity.name,
+        picture: identity.picture,
+        createdAt: Date.now(),
+        status: 'free', plan: null, renewsOn: null,
         since: fmtDate(new Date())
-      }), LAT.slow);
+      }, registration || {}));
+
+      set({
+        status: profile.status || 'free',
+        plan: profile.plan || null,
+        renewsOn: profile.renewsOn || null,
+        email: profile.email || identity.email,
+        name: profile.shopName || profile.googleName || identity.name || 'My Shop',
+        since: profile.since || fmtDate(new Date()),
+        sub: identity.sub,
+        picture: identity.picture || '',
+        profile: profile
+      });
+      return respond({ profile: profile, session: current, isNew: !existing }, LAT.normal);
     },
     signOut: function () { return respond(set(Object.assign({}, DEFAULT)), LAT.fast); },
 
-    /* prototype only — nothing is charged, nothing is validated server-side */
+    /* A subscription always belongs to a signed-in identity, never to the
+       device — callers must send the user through sign-in first. */
+    canSubscribe: function () { return current.status !== 'guest'; },
+
+    /* no payment gateway is connected — this only records the plan locally */
     subscribe: function (planId) {
+      if (current.status === 'guest') {
+        return respond({ error: 'signin-required' }, LAT.fast);
+      }
       var d = new Date();
       d.setDate(d.getDate() + (planId === 'yearly' ? 365 : 30));
-      return respond(set({
-        status: 'pro',
-        plan: planId,
-        renewsOn: fmtDate(d),
-        email: current.email || 'demo@proglide.app',
-        name: current.name || 'Demo Shop',
-        since: current.since || fmtDate(new Date())
-      }), LAT.slow);
+      set({ status: 'pro', plan: planId, renewsOn: fmtDate(d) });
+      if (current.sub) {
+        SM.auth.saveProfile(current.sub, { status: 'pro', plan: planId, renewsOn: current.renewsOn });
+      }
+      return respond({ ok: true, session: current }, LAT.slow);
     },
     cancel: function () { return respond(set({ status: 'expired' }), LAT.normal); },
 
@@ -3458,25 +3777,66 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '</div>';
   }
 
+  /* ------------------------------------------------- registration form state */
+  var reg = {
+    country: 'IN', mobile: '', shopName: '', proprietor: '',
+    flat: '', area: '', city: '', district: '', stateName: '', touched: {}
+  };
+  var REG_FIELDS = [
+    { k: 'mobile', label: 'Mobile number' }, { k: 'shopName', label: 'Shop name' },
+    { k: 'proprietor', label: 'Proprietor name' }, { k: 'flat', label: 'Flat / building number' },
+    { k: 'area', label: 'Area / colony' }, { k: 'city', label: 'City' },
+    { k: 'district', label: 'District' }, { k: 'stateName', label: 'State' }
+  ];
+  function regError(k) {
+    var v = String(reg[k] || '').trim();
+    if (k === 'mobile') {
+      if (!v) return 'Enter your mobile number';
+      if (!SM.countries.validNumber(v.replace(/\D/g, ''))) return 'Enter a valid mobile number';
+      return '';
+    }
+    if (!v) return 'Required';
+    if (v.length < 2) return 'Too short';
+    if (k === 'proprietor' && v.split(/\s+/).length < 2) return 'Enter the full name';
+    return '';
+  }
+  function regValid() {
+    return !!reg.country && REG_FIELDS.every(function (f) { return !regError(f.k); });
+  }
+  function field(k, label, opts) {
+    opts = opts || {};
+    var err = reg.touched[k] ? regError(k) : '';
+    return '<div class="ffield' + (err ? ' has-error' : '') + '"' + (opts.style ? ' style="' + opts.style + '"' : '') + '>' +
+      '<label class="t-lab" for="reg_' + k + '">' + esc(label) + '</label>' +
+      '<input class="input" id="reg_' + k + '" data-reg="' + k + '" ' +
+      'type="' + (opts.type || 'text') + '" inputmode="' + (opts.inputmode || 'text') + '" ' +
+      'placeholder="' + esc(opts.ph || '') + '" value="' + esc(reg[k]) + '" autocomplete="off" />' +
+      (err ? '<span class="ffield__err">' + esc(err) + '</span>' : '') +
+      '</div>';
+  }
+
+  function googleBtn(labelText, act, disabled) {
+    return '<button class="gbtn' + (disabled ? ' is-disabled' : '') + '" data-act="' + act + '"' +
+      (disabled ? ' disabled aria-disabled="true"' : '') + ' type="button">' +
+      '<span class="gbtn__g" aria-hidden="true">' +
+      '<svg viewBox="0 0 48 48" width="20" height="20">' +
+      '<path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.6 9.5 24 9.5Z"/>' +
+      '<path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.6 5.9c4.4-4.1 7-10.750 7-17.6Z"/>' +
+      '<path fill="#FBBC05" d="M10.4 28.7a14.6 14.6 0 0 1 0-9.4l-7.8-6.1a24 24 0 0 0 0 21.6l7.8-6.1Z"/>' +
+      '<path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.3-8.3 2.3-6.4 0-11.7-3.7-13.6-9.1l-7.8 6.1C6.5 42.6 14.6 48 24 48Z"/>' +
+      '</svg></span>' +
+      '<span>' + esc(labelText) + '</span></button>';
+  }
+
   function authHTML() {
+    var signup = authMode === 'signup';
     return '<div class="acct">' +
       '<div class="card card--pad">' +
       '<div class="segmented" style="margin-bottom:18px">' +
-      '<button class="is-on" data-act="auth-tab" data-id="signin">Sign in</button>' +
-      '<button data-act="auth-tab" data-id="signup">Create account</button>' +
+      '<button class="' + (signup ? '' : 'is-on') + '" data-act="auth-tab" data-id="signin">Sign in</button>' +
+      '<button class="' + (signup ? 'is-on' : '') + '" data-act="auth-tab" data-id="signup">Create account</button>' +
       '</div>' +
-      '<h2 class="t-h1" id="authTitle">Sign in to SnapMatch</h2>' +
-      '<p class="t-sub" style="margin-top:6px" id="authSub">Use any email — this prototype has no authentication backend, so nothing is sent anywhere.</p>' +
-      '<form id="authForm" style="display:flex;flex-direction:column;gap:12px;margin-top:18px">' +
-      '<div id="nameRow" style="display:none"><label class="t-lab" for="nm">Shop name</label>' +
-      '<input class="input" id="nm" placeholder="Sharma Mobile Care" autocomplete="off" /></div>' +
-      '<div><label class="t-lab" for="em">Email</label>' +
-      '<input class="input" id="em" type="email" placeholder="you@shop.in" value="demo@proglide.app" autocomplete="off" required /></div>' +
-      '<div><label class="t-lab" for="pw">Password</label>' +
-      '<input class="input" id="pw" type="password" placeholder="••••••••" value="demo1234" autocomplete="off" /></div>' +
-      '<button class="btn btn--primary btn--lg btn--block" type="submit">' + icon('arrowRight') + '<span id="authBtn">Sign in</span></button>' +
-      '</form>' +
-      '<p class="t-xs muted" style="margin-top:14px">Prototype only — no credentials are validated, stored on a server, or transmitted.</p>' +
+      (signup ? signupHTML() : signinHTML()) +
       '</div>' +
 
       '<div class="card card--pad">' +
@@ -3488,6 +3848,67 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '<hr class="divider" style="margin:16px 0" />' +
       demoPanelHTML() +
       '</div></div>';
+  }
+
+  function signinHTML() {
+    return '<h2 class="t-h1">Sign in to SnapMatch</h2>' +
+      '<p class="t-sub" style="margin-top:6px">Use the Google account already on this device. ' +
+      'No password to type or remember.</p>' +
+      '<div style="margin-top:18px">' + googleBtn('Continue with Google', 'google-signin', false) + '</div>' +
+      '<div id="authMsg"></div>' +
+      '<p class="t-xs muted" style="margin-top:14px">Your plan is tied to your Google account, so it follows you to every device at the counter.</p>';
+  }
+
+  function signupHTML() {
+    var c = SM.countries.byCode(reg.country);
+    var ready = regValid();
+    var missing = REG_FIELDS.filter(function (f) { return regError(f.k); });
+    return '<h2 class="t-h1">Create your SnapMatch account</h2>' +
+      '<p class="t-sub" style="margin-top:6px">Tell us about your shop, then finish with your Google account.</p>' +
+
+      '<div class="regform">' +
+      /* country + mobile share one row */
+      '<div class="ffield ffield--row' + (reg.touched.mobile && regError('mobile') ? ' has-error' : '') + '">' +
+      '<label class="t-lab">Country &amp; mobile number</label>' +
+      '<div class="phonerow">' +
+      '<button type="button" class="ccpick" data-act="open-country">' +
+      '<span class="ccpick__flag">' + (c ? c.flag : '🌐') + '</span>' +
+      '<span class="ccpick__name">' + esc(c ? c.name : 'Select') + '</span>' +
+      '<span class="ccpick__dial">' + esc(c ? c.dial : '') + '</span>' +
+      icon('chevronDown') + '</button>' +
+      '<input class="input" id="reg_mobile" data-reg="mobile" type="tel" inputmode="tel" ' +
+      'placeholder="98765 43210" value="' + esc(reg.mobile) + '" autocomplete="off" aria-label="Mobile number" />' +
+      '</div>' +
+      (reg.touched.mobile && regError('mobile') ? '<span class="ffield__err">' + esc(regError('mobile')) + '</span>' : '') +
+      '</div>' +
+
+      field('shopName', 'Shop name', { ph: 'Sharma Mobile Care' }) +
+      field('proprietor', 'Proprietor name (full name)', { ph: 'Rajesh Kumar Sharma' }) +
+
+      '<div class="regform__sub"><span class="t-lab">Shop address</span>' +
+      '<span class="t-xs muted">in ' + esc(c ? c.name : '—') + '</span></div>' +
+      field('flat', 'Flat / building number', { ph: '12B, Ganesh Complex' }) +
+      field('area', 'Area / colony', { ph: 'Gandhi Nagar' }) +
+      '<div class="ffield--pair">' + field('city', 'City', { ph: 'Coimbatore' }) +
+      field('district', 'District', { ph: 'Coimbatore' }) + '</div>' +
+      field('stateName', 'State', { ph: 'Tamil Nadu' }) +
+      '</div>' +
+
+      '<div style="margin-top:16px">' + googleBtn('Continue with Google', 'google-signup', !ready) + '</div>' +
+      '<div id="authMsg"></div>' +
+      '<p class="t-xs muted" id="regHint" style="margin-top:12px">' + regHintHTML() + '</p>';
+  }
+
+  function regHintHTML() {
+    var missing = REG_FIELDS.filter(function (f) { return regError(f.k); });
+    if (!missing.length) return icon('checkCircle') + ' All details complete — pick your Google account to finish.';
+    return 'Complete ' + missing.length + ' more ' + (missing.length === 1 ? 'field' : 'fields') +
+      ' to continue: ' + esc(missing.map(function (f) { return f.label; }).join(', '));
+  }
+
+  function repaintAuth() {
+    var page = document.getElementById('page');
+    if (state.route.name === 'account' && S.get().status === 'guest') renderAccount(page);
   }
 
   function profileHTML(s) {
@@ -3568,6 +3989,39 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '<button class="btn btn--outline grow" data-act="reset-filters">Reset</button>' +
       '<button class="btn btn--primary grow" data-act="close-sheet">Show ' + nf(state.finder.total) + ' groups</button>');
 
+    if (s.type === 'country') {
+      paintSheet(host, 'Select country',
+        '<label class="field" style="margin-bottom:10px">' + icon('search') +
+        '<input class="input" id="countryq" placeholder="Search countries…" autocomplete="off" aria-label="Search countries" /></label>' +
+        '<div class="clist" id="countryRows">' + countryRowsHTML('') + '</div>', '');
+      setTimeout(function () { var i = document.getElementById('countryq'); if (i) i.focus(); }, 60);
+      return;
+    }
+
+    if (s.type === 'gdemo') {
+      /* Honest fallback: with no OAuth client ID the device's real Google
+         accounts are unreachable, so this is plainly labelled as a stand-in. */
+      var demoAccounts = [
+        { sub: 'demo-1', email: 'proglideapp@gmail.com', name: 'ProGlide App' },
+        { sub: 'demo-2', email: 'sharma.mobilecare@gmail.com', name: 'Sharma Mobile Care' }
+      ];
+      return paintSheet(host, 'Google Sign-In not configured yet',
+        '<div class="notice notice--amber">' + icon('alert') +
+        '<span><b>This is not the Google account chooser.</b> Reaching the Google accounts on ' +
+        'your device needs an OAuth client ID from Google Cloud Console, set as ' +
+        '<code>GOOGLE_CLIENT_ID</code> in <code>src/data/auth.js</code>, with this site listed ' +
+        'under authorised JavaScript origins. Once it is set, this button opens the real ' +
+        'Google chooser instead.</span></div>' +
+        '<span class="t-lab" style="display:block;margin:16px 0 8px">Continue with a stand-in account</span>' +
+        '<div class="devlist">' + demoAccounts.map(function (a) {
+          return '<button class="dev" data-act="demo-google-pick" data-identity="' + esc(JSON.stringify(a)) + '">' +
+            '<span class="avatar avatar--sm">' + esc(initials(a.name)) + '</span>' +
+            '<span class="dev__n">' + esc(a.email) + '</span>' +
+            '<span class="dev__b">' + esc(a.name) + '</span></button>';
+        }).join('') + '</div>',
+        '<button class="btn btn--outline btn--block" data-act="close-sheet">Cancel</button>');
+    }
+
     if (s.type === 'demo') return paintSheet(host, 'Prototype access states', demoPanelHTML() +
       '<div class="notice" style="margin-top:14px">' + icon('info') +
       '<span>This switch exists only so the UI can be reviewed end to end. In production the state comes from the ProGlide backend.</span></div>',
@@ -3609,6 +4063,22 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         paintGroupSheet(host, row);
       });
     }
+  }
+
+  function countryRowsHTML(q) {
+    var list = SM.countries.search(q);
+    if (!list.length) return '<div class="brandempty">' + icon('search') + '<span>No country found</span></div>';
+    return list.map(function (c) {
+      return '<button class="crow' + (reg.country === c.code ? ' is-on' : '') + '" ' +
+        'data-act="pick-country" data-id="' + c.code + '">' +
+        '<span class="crow__flag">' + c.flag + '</span>' +
+        '<span class="crow__name">' + esc(c.name) + '</span>' +
+        '<span class="crow__dial">' + esc(c.dial) + '</span></button>';
+    }).join('');
+  }
+  function paintCountryRows(q) {
+    var host = document.getElementById('countryRows');
+    if (host) host.innerHTML = countryRowsHTML(q);
   }
 
   function paintSheet(host, titleHTML, bodyHTML, footHTML, rawTitle) {
@@ -3794,6 +4264,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   }
 
   var authMode = 'signin';
+  /* sheets that live in memory rather than in the URL */
+  var LOCAL_SHEETS = ['filters', 'demo', 'country', 'gdemo'];
 
   /* leave the result view and restore the normal Finder home page */
   function exitResult() {
@@ -3828,7 +4300,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       case 'demo': state.sheet = { type: 'demo' }; renderSheet(); break;
       case 'nav': go(t.getAttribute('data-href')); break;
       case 'close-sheet':
-        if (state.sheet && (state.sheet.type === 'filters' || state.sheet.type === 'demo')) {
+        if (state.sheet && LOCAL_SHEETS.indexOf(state.sheet.type) > -1) {
           state.sheet = null; renderSheet();
         } else closeSheet();
         break;
@@ -3960,6 +4432,14 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         rerenderCurrent();
         break;
       case 'subscribe':
+        /* a plan belongs to a signed-in identity, so sign in first */
+        if (!S.canSubscribe()) {
+          state.afterSignIn = '#/plans';
+          authMode = 'signin';        /* most people arriving here already have an account */
+          toast('Sign in to activate a plan', 'lock');
+          go('#/account');
+          break;
+        }
         t.disabled = true;
         t.innerHTML = icon('refresh') + 'Activating…';
         S.subscribe(id).then(function () {
@@ -3978,17 +4458,30 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         rerenderCurrent();
         break;
       case 'signout':
-        S.signOut().then(function () { renderShellBits(); renderAccount(document.getElementById('page')); toast('Signed out'); });
+        S.signOut().then(function () {
+          authMode = 'signin';           /* land back on Sign in, not the form */
+          state.pendingIdentity = null;
+          renderShellBits(); renderAccount(document.getElementById('page')); toast('Signed out');
+        });
         break;
-      case 'auth-tab': {
-        authMode = id;
-        var seg = t.parentNode.querySelectorAll('button');
-        for (var k = 0; k < seg.length; k++) seg[k].classList.toggle('is-on', seg[k] === t);
-        document.getElementById('nameRow').style.display = id === 'signup' ? '' : 'none';
-        document.getElementById('authTitle').textContent = id === 'signup' ? 'Create your SnapMatch account' : 'Sign in to SnapMatch';
-        document.getElementById('authBtn').textContent = id === 'signup' ? 'Create account' : 'Sign in';
+      case 'auth-tab': authMode = id; repaintAuth(); break;
+
+      case 'open-country': state.sheet = { type: 'country' }; renderSheet(); break;
+      case 'pick-country':
+        reg.country = id;
+        state.sheet = null; renderSheet();
+        repaintAuth();
         break;
-      }
+
+      case 'google-signin': startGoogle(false); break;
+      case 'google-signup':
+        REG_FIELDS.forEach(function (f) { reg.touched[f.k] = true; });
+        if (!regValid()) { repaintAuth(); toast('Complete the highlighted fields first', 'alert'); break; }
+        /* already authenticated, just missing the shop profile */
+        if (state.pendingIdentity) { finishGoogle(state.pendingIdentity, true); state.pendingIdentity = null; break; }
+        startGoogle(true);
+        break;
+      case 'demo-google-pick': finishGoogle(JSON.parse(t.getAttribute('data-identity')), authMode === 'signup'); break;
     }
   });
 
@@ -4029,6 +4522,35 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       clearTimeout(bqTimer);
       bqTimer = setTimeout(function () { state.models.q = el.value; loadBrandModels(true); }, 220);
     }
+    /* registration fields: validate live without losing the caret */
+    if (el.hasAttribute && el.hasAttribute('data-reg')) {
+      var rk = el.getAttribute('data-reg');
+      reg[rk] = (rk === 'mobile') ? el.value.replace(/[^\d\s-]/g, '') : el.value;
+      if (rk === 'mobile' && el.value !== reg.mobile) el.value = reg.mobile;
+      var gb = document.querySelector('.gbtn');
+      if (gb) {
+        var ok = regValid();
+        gb.classList.toggle('is-disabled', !ok);
+        gb.disabled = !ok;
+        gb.setAttribute('aria-disabled', String(!ok));
+      }
+      var hint = document.getElementById('regHint');
+      if (hint) hint.innerHTML = regHintHTML();
+      if (reg.touched[rk]) {
+        var wrap = el.closest('.ffield');
+        if (wrap) {
+          var e2 = regError(rk);
+          wrap.classList.toggle('has-error', !!e2);
+          var es = wrap.querySelector('.ffield__err');
+          if (e2 && !es) { var sp = document.createElement('span'); sp.className = 'ffield__err'; sp.textContent = e2; wrap.appendChild(sp); }
+          else if (e2 && es) es.textContent = e2;
+          else if (!e2 && es) es.remove();
+        }
+      }
+      return;
+    }
+    if (el.id === 'countryq') { paintCountryRows(el.value); return; }
+
     /* brand filter is local data — filter instantly, no debounce, no reload */
     if (el.classList && el.classList.contains('brandq')) {
       state.brandQ = el.value;
@@ -4068,6 +4590,21 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     if (e.target.id === 'sortSel') { state.finder.filters.sort = e.target.value; loadGroups(true); }
   });
 
+  document.addEventListener('focusout', function (e) {
+    var el = e.target;
+    if (el && el.hasAttribute && el.hasAttribute('data-reg')) {
+      reg.touched[el.getAttribute('data-reg')] = true;
+      var wrap = el.closest('.ffield');
+      if (!wrap) return;
+      var err = regError(el.getAttribute('data-reg'));
+      wrap.classList.toggle('has-error', !!err);
+      var es = wrap.querySelector('.ffield__err');
+      if (err && !es) { var sp = document.createElement('span'); sp.className = 'ffield__err'; sp.textContent = err; wrap.appendChild(sp); }
+      else if (err && es) es.textContent = err;
+      else if (!err && es) es.remove();
+    }
+  });
+
   document.addEventListener('focusin', function (e) {
     if ((e.target.id === 'q' || e.target.id === 'qh') && !state.finder.query) showIdle(suggestSlot(e.target));
   });
@@ -4080,7 +4617,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     if (e.key === 'Escape') {
       if (state.suggest.open) { closeSuggest(); return; }
       if (state.sheet) {
-        if (state.sheet.type === 'filters' || state.sheet.type === 'demo') { state.sheet = null; renderSheet(); }
+        if (LOCAL_SHEETS.indexOf(state.sheet.type) > -1) { state.sheet = null; renderSheet(); }
         else closeSheet();
       }
       return;
@@ -4096,19 +4633,59 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     }
   });
 
-  document.addEventListener('submit', function (e) {
-    if (e.target.id !== 'authForm') return;
-    e.preventDefault();
-    var em = document.getElementById('em').value || 'demo@proglide.app';
-    var nm = (document.getElementById('nm') || {}).value || '';
-    var btn = e.target.querySelector('button[type=submit]');
-    btn.disabled = true; btn.innerHTML = icon('refresh') + 'Signing in…';
-    S.signIn(em, nm).then(function () {
+  /* ---------------------------------------------------- Google sign-in flow */
+  function authMsg(html) {
+    var host = document.getElementById('authMsg');
+    if (host) host.innerHTML = html ? '<div class="notice notice--amber" style="margin-top:12px">' + icon('alert') + '<span>' + html + '</span></div>' : '';
+  }
+
+  function startGoogle(isSignup) {
+    authMsg('');
+    var btn = document.querySelector('.gbtn');
+    if (btn) { btn.classList.add('is-busy'); btn.disabled = true; }
+    SM.auth.signInWithGoogle().then(function (identity) {
+      finishGoogle(identity, isSignup);
+    }, function (err) {
+      if (btn) { btn.classList.remove('is-busy'); btn.disabled = false; }
+      if (err && err.code === 'unconfigured') {
+        /* no client ID -> we cannot reach the device's Google accounts */
+        state.sheet = { type: 'gdemo', signup: isSignup };
+        renderSheet();
+        return;
+      }
+      if (err && err.code === 'cancelled') { toast('Sign-in cancelled'); return; }
+      authMsg(esc(err && err.message ? err.message : 'Google sign-in failed. Try again.'));
+    });
+  }
+
+  function finishGoogle(identity, isSignup) {
+    var registration = isSignup ? {
+      shopName: reg.shopName.trim(), proprietor: reg.proprietor.trim(),
+      country: reg.country, countryName: (SM.countries.byCode(reg.country) || {}).name,
+      dial: (SM.countries.byCode(reg.country) || {}).dial,
+      mobile: reg.mobile.trim(),
+      address: {
+        flat: reg.flat.trim(), area: reg.area.trim(), city: reg.city.trim(),
+        district: reg.district.trim(), state: reg.stateName.trim(),
+        country: (SM.countries.byCode(reg.country) || {}).name
+      }
+    } : null;
+
+    S.signInWithGoogle(identity, registration).then(function (res) {
+      if (res && res.needsRegistration) {
+        /* known Google account, no shop profile yet — send them to the form */
+        authMode = 'signup';
+        state.pendingIdentity = identity;
+        repaintAuth();
+        authMsg('That Google account has no shop profile yet. Fill in your shop details below to finish creating it.');
+        return;
+      }
       renderShellBits();
       renderAccount(document.getElementById('page'));
-      toast(authMode === 'signup' ? 'Account created (prototype)' : 'Signed in (prototype)');
+      toast(res && res.isNew ? 'Account created — welcome' : 'Signed in');
+      if (state.afterSignIn) { var go2 = state.afterSignIn; state.afterSignIn = null; go(go2); }
     });
-  });
+  }
 
   /* ----------------------------------------------------------------- boot */
   applyTheme();

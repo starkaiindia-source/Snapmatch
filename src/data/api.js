@@ -180,7 +180,10 @@
      in memory and mirrored to localStorage so a refresh keeps the demo intact.
      ========================================================================== */
   var KEY = 'snapmatch.session.v1';
-  var DEFAULT = { status: 'guest', name: '', email: '', plan: null, renewsOn: null, since: null };
+  var DEFAULT = {
+    status: 'guest', name: '', email: '', plan: null, renewsOn: null, since: null,
+    sub: null, picture: '', profile: null
+  };
 
   function read() {
     try {
@@ -213,28 +216,56 @@
     isPro: function () { return current.status === 'pro'; },
     onChange: function (fn) { listeners.push(fn); return function () { listeners = listeners.filter(function (f) { return f !== fn; }); }; },
 
-    signIn: function (email, name) {
-      return respond(set({
-        status: 'free',
-        email: email,
-        name: name || email.split('@')[0].replace(/[._-]+/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }),
+    /* Signs in an authenticated Google identity.
+       Existing profile  -> restores it (plan, status, shop details).
+       New identity      -> reports needsRegistration so the caller can collect
+                            the shop details; nothing is written until then,
+                            which also prevents duplicate accounts. */
+    signInWithGoogle: function (identity, registration) {
+      var existing = SM.auth.findProfile(identity.sub);
+      if (!existing && !registration) {
+        return respond({ needsRegistration: true, identity: identity }, LAT.normal);
+      }
+      var profile = existing || SM.auth.saveProfile(identity.sub, Object.assign({
+        email: identity.email,
+        googleName: identity.name,
+        picture: identity.picture,
+        createdAt: Date.now(),
+        status: 'free', plan: null, renewsOn: null,
         since: fmtDate(new Date())
-      }), LAT.slow);
+      }, registration || {}));
+
+      set({
+        status: profile.status || 'free',
+        plan: profile.plan || null,
+        renewsOn: profile.renewsOn || null,
+        email: profile.email || identity.email,
+        name: profile.shopName || profile.googleName || identity.name || 'My Shop',
+        since: profile.since || fmtDate(new Date()),
+        sub: identity.sub,
+        picture: identity.picture || '',
+        profile: profile
+      });
+      return respond({ profile: profile, session: current, isNew: !existing }, LAT.normal);
     },
     signOut: function () { return respond(set(Object.assign({}, DEFAULT)), LAT.fast); },
 
-    /* prototype only — nothing is charged, nothing is validated server-side */
+    /* A subscription always belongs to a signed-in identity, never to the
+       device — callers must send the user through sign-in first. */
+    canSubscribe: function () { return current.status !== 'guest'; },
+
+    /* no payment gateway is connected — this only records the plan locally */
     subscribe: function (planId) {
+      if (current.status === 'guest') {
+        return respond({ error: 'signin-required' }, LAT.fast);
+      }
       var d = new Date();
       d.setDate(d.getDate() + (planId === 'yearly' ? 365 : 30));
-      return respond(set({
-        status: 'pro',
-        plan: planId,
-        renewsOn: fmtDate(d),
-        email: current.email || 'demo@proglide.app',
-        name: current.name || 'Demo Shop',
-        since: current.since || fmtDate(new Date())
-      }), LAT.slow);
+      set({ status: 'pro', plan: planId, renewsOn: fmtDate(d) });
+      if (current.sub) {
+        SM.auth.saveProfile(current.sub, { status: 'pro', plan: planId, renewsOn: current.renewsOn });
+      }
+      return respond({ ok: true, session: current }, LAT.slow);
     },
     cancel: function () { return respond(set({ status: 'expired' }), LAT.normal); },
 
