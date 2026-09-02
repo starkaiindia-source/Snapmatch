@@ -174,10 +174,9 @@
         '<h1 class="t-hero">Which parts fit<br><em>this phone?</em></h1>' +
         '<p class="bench__sub">Type any model. SnapMatch returns the compatibility group, its master model, the part code and every other device that takes the same part.</p>') +
       searchHTML(picked) +
-      /* recent searches are no longer a permanent row — they live in the
-         search dropdown. Stats stay here for narrow screens only; the header
-         carries them from 1180px up. */
-      (picked ? '' : '<div class="bench__stats">' + statsHTML() + '</div>');
+      /* the stat cards are gone; the category rail sits directly under the
+         search instead, and is the only category selector on narrow screens */
+      (picked ? '' : '<div id="catRail">' + categoryRailHTML() + '</div>');
 
     if (picked) {
       /* focused result view — unchanged single-column page */
@@ -293,6 +292,14 @@
     document.getElementById('catPanel').innerHTML = categoryPanelHTML();
     document.getElementById('brandPanel').innerHTML = brandPanelHTML();
     document.getElementById('centerHead').innerHTML = centerHeadHTML();
+    var rail = document.getElementById('catRail');
+    if (rail) {
+      var keep = rail.querySelector('.crail') ? rail.querySelector('.crail').scrollLeft : 0;
+      rail.innerHTML = categoryRailHTML();
+      /* keep the rail where the user had scrolled it */
+      var r = rail.querySelector('.crail');
+      if (r) r.scrollLeft = keep;
+    }
     loadGroups(true);
   }
 
@@ -304,14 +311,6 @@
         'value="' + esc(f.filters.q) + '" aria-label="Filter groups" /></label>';
     };
     return (
-      /* mobile / tablet toolbar — unchanged behaviour */
-      '<div class="fbar">' +
-      '<div class="field grow">' + icon('search') +
-      '<input class="input" id="gq" placeholder="Filter groups, part codes…" value="' + esc(f.filters.q) + '" aria-label="Filter groups" /></div>' +
-      '<button class="btn btn--outline btn--icon fbar__btn" data-act="open-filters" aria-label="Filters">' +
-      icon('filter') + (activeFilterCount() ? '<span class="dotn">' + activeFilterCount() + '</span>' : '') + '</button>' +
-      '</div>' +
-
       '<div class="sec"><div class="sec__head"><div class="sec__title">' +
       '<h2>Compatibility groups</h2><span class="sec__count" id="gcount">…</span></div>' +
       '<div class="row wrap ws-tools" style="gap:8px">' +
@@ -324,12 +323,33 @@
       opt('az', 'Master A–Z', f.filters.sort) +
       '</select></div></div>' +
 
-      /* horizontal category selector — mobile/tablet only, panels take over on desktop */
-      '<div class="catrow" style="margin-bottom:14px">' +
-      '<button class="catchip' + (f.filters.catId === 'all' ? ' is-on' : '') + '" data-act="filter-cat" data-id="all" style="--c:var(--teal-500)"><span class="dot"></span>All parts</button>' +
-      db.categories.map(function (c) { return C.categoryChip(c, f.filters.catId === c.id); }).join('') +
+      /* the group filter belongs to this section, below its heading —
+         static, so it never floats over the hero or the search dropdown */
+      '<div class="fbar">' +
+      '<div class="field grow">' + icon('search') +
+      '<input class="input" id="gq" placeholder="Filter groups, part codes…" value="' + esc(f.filters.q) + '" aria-label="Filter groups" /></div>' +
+      '<button class="btn btn--outline btn--icon fbar__btn" data-act="open-filters" aria-label="Filters">' +
+      icon('filter') + (activeFilterCount() ? '<span class="dotn">' + activeFilterCount() + '</span>' : '') + '</button>' +
       '</div></div>'
     );
+  }
+
+  /* ---- horizontal product-category rail, directly under the main search ---- */
+  function categoryRailHTML() {
+    var sel = state.finder.filters.catId;
+    function item(id, name, count) {
+      var on = sel === id;
+      return '<button type="button" class="crail__item' + (on ? ' is-on' : '') + '" ' +
+        'data-act="filter-cat" data-id="' + id + '" aria-pressed="' + on + '">' +
+        SM.art.category(id, 'pthumb--rail') +
+        '<span class="crail__name">' + esc(name) + '</span>' +
+        '<span class="crail__n">' + count + '</span>' +
+        '</button>';
+    }
+    return '<div class="crail" role="group" aria-label="Part categories">' +
+      item('all', 'All Parts', db.stats.groups) +
+      db.categories.map(function (c) { return item(c.id, c.name, c.groupCount); }).join('') +
+      '</div>';
   }
 
   function opt(v, l, cur) {

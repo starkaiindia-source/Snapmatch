@@ -60,8 +60,7 @@
   .ws__center::-webkit-scrollbar-thumb{ background:var(--line); border-radius:99px; border:2px solid transparent; background-clip:content-box; }
 
   /* the panels replace these on desktop */
-  .ws__center .fbar,
-  .ws__center .catrow{ display:none; }
+  .ws__center .fbar{ display:none; }
   .ws-only{ display:block; }
   .ws-tools .field{ width:230px; }
 
@@ -191,12 +190,35 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .checkline{ display:flex; align-items:center; gap:10px; padding:7px 0; font-size:14px; font-weight:600; cursor:pointer; }
 .checkline input{ accent-color:var(--teal-600); width:17px; height:17px; }
 
-/* mobile + tablet filter bar (the side panels take over above --ws-bp) */
+/* ---- horizontal product-category rail (under the main search) ----------- */
+.crail{
+  display:flex; gap:8px; margin-top:16px; padding:2px 0 4px;
+  overflow-x:auto; -webkit-overflow-scrolling:touch;
+  scroll-snap-type:x proximity; scrollbar-width:none;
+}
+.crail::-webkit-scrollbar{ display:none; }
+.crail__item{
+  flex:none; width:78px; scroll-snap-align:start;
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  padding:8px 6px 7px; border-radius:var(--r-sm);
+  background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.17);
+  color:#fff; text-align:center;
+  transition:background .16s, border-color .16s, transform .16s cubic-bezier(.2,.8,.3,1);
+}
+.crail__item:hover{ background:rgba(255,255,255,.18); }
+.crail__item:active{ transform:scale(.97); }
+.crail__name{ font-size:10.5px; font-weight:700; line-height:1.2; letter-spacing:-.005em; }
+.crail__n{ font-size:9px; font-weight:600; opacity:.72; font-variant-numeric:tabular-nums; }
+.crail__item.is-on{
+  background:#fff; border-color:#fff; color:var(--teal-900);
+  box-shadow:0 6px 16px -8px rgba(0,0,0,.55);
+}
+.crail__item.is-on .crail__n{ opacity:.7; }
+.pthumb--rail{ width:46px; height:46px; }
+
+/* group filter — a plain row inside the Compatibility Groups section */
 .fbar{
-  position:sticky; top:var(--topbar-h); z-index:40; margin-inline:calc(var(--pad) * -1);
-  padding:10px var(--pad); background:color-mix(in srgb,var(--paper) 90%,transparent);
-  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
-  display:flex; gap:8px; align-items:center; border-bottom:1px solid var(--line-soft);
+  display:flex; gap:8px; align-items:center; margin:0 0 14px;
 }
 @media (min-width:1180px){ .fbar{ display:none; } }
 .fbar .field{ flex:1; min-width:0; }
@@ -227,17 +249,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .cat__tick svg{ width:17px; height:17px; }
 .cat.is-on .cat__tick{ opacity:1; }
 
-.catrow{ display:flex; gap:8px; overflow-x:auto; padding:2px 0 6px; }
-.catrow::-webkit-scrollbar{ display:none; }
-.catchip{
-  flex:none; height:36px; padding:0 14px; border-radius:var(--r-pill); font-size:13px; font-weight:700;
-  border:1px solid var(--line); background:var(--surface); color:var(--ink-2);
-  display:inline-flex; align-items:center; gap:7px; transition:all .16s;
-}
-.catchip .dot{ width:8px; height:8px; border-radius:3px; background:var(--c); }
-.catchip:hover{ border-color:var(--ink-3); color:var(--ink); }
-.catchip.is-on{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
-.catchip.is-on .dot{ background:var(--c); }
 
 /* ---------------- part-label group card ---------------- */
 .gridcards{ display:grid; gap:14px; grid-template-columns:1fr; }
@@ -271,7 +282,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   font-family:var(--f-ui); font-size:10.5px; font-weight:800; letter-spacing:.04em; text-transform:uppercase;
 }
 .plate__body{ padding:14px; display:flex; flex-direction:column; gap:12px; flex:1; }
-.plate__master{ display:flex; gap:11px; align-items:flex-start; }
+.plate__master{ display:flex; gap:12px; align-items:center; }
 .plate__mname{ font-family:var(--f-display); font-size:18.5px; font-weight:700; letter-spacing:-.028em; line-height:1.18; }
 @media (min-width:768px){ .plate__mname{ font-size:19.5px; } }
 .plate__mmeta{ display:flex; align-items:center; gap:7px; margin-top:4px; font-size:12px; color:var(--ink-3); font-weight:600; }

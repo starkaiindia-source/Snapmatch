@@ -43,17 +43,19 @@
     '<stop offset="60%" stop-color="#1E6FA8" stop-opacity=".12"/>' +
     '<stop offset="100%" stop-color="#0B1219" stop-opacity="0"/></linearGradient>' +
 
+    /* black li-ion pouch, matching a real replacement cell */
     '<linearGradient id="agCell" x1="0" y1="0" x2="1" y2="0">' +
-    '<stop offset="0%" stop-color="#9FB4C4"/><stop offset="22%" stop-color="#E8F0F5"/>' +
-    '<stop offset="60%" stop-color="#BCCCD8"/><stop offset="100%" stop-color="#8FA5B6"/></linearGradient>' +
+    '<stop offset="0%" stop-color="#12181D"/><stop offset="18%" stop-color="#39434B"/>' +
+    '<stop offset="45%" stop-color="#1B2228"/><stop offset="100%" stop-color="#0C1114"/></linearGradient>' +
 
     '<linearGradient id="agMetal" x1="0" y1="0" x2="1" y2="1">' +
     '<stop offset="0%" stop-color="#D7DEE4"/><stop offset="40%" stop-color="#98A6B2"/>' +
     '<stop offset="70%" stop-color="#C9D3DA"/><stop offset="100%" stop-color="#8B99A6"/></linearGradient>' +
 
+    /* dark matte PCB with gold pads, as on real charging / CC boards */
     '<linearGradient id="agPcb" x1="0" y1="0" x2="1" y2="1">' +
-    '<stop offset="0%" stop-color="#1F7A56"/><stop offset="55%" stop-color="#14603F"/>' +
-    '<stop offset="100%" stop-color="#1C7551"/></linearGradient>' +
+    '<stop offset="0%" stop-color="#25292E"/><stop offset="55%" stop-color="#14181C"/>' +
+    '<stop offset="100%" stop-color="#22272C"/></linearGradient>' +
 
     '<linearGradient id="agGold" x1="0" y1="0" x2="0" y2="1">' +
     '<stop offset="0%" stop-color="#F2D188"/><stop offset="100%" stop-color="#C79A3C"/></linearGradient>' +
@@ -122,10 +124,10 @@
       '<path d="M27 8.6h5.6a1.4 1.4 0 0 1 1.4 1.4v2.6h-7Z" fill="url(#agKapton)"/>' +
       '<rect x="30.4" y="5.2" width="8" height="5.2" rx="1.3" fill="#F2F6F8" stroke="#8C9BA7" stroke-width=".8"/>' +
       '<path d="M32.2 6.6v2.4M34.4 6.6v2.4M36.6 6.6v2.4" stroke="#6B7C89" stroke-width="1" stroke-linecap="round"/>' +
-      '<rect x="10.6" y="11" width="22" height="29.4" rx="2.4" fill="url(#agCell)" stroke="#748796" stroke-width=".9"/>' +
-      '<rect x="12.4" y="19.4" width="18.4" height="12.6" rx="1.4" fill="#123243" fill-opacity=".92"/>' +
-      '<path d="M15 23h8.2M15 25.8h11.4M15 28.6h5.6" stroke="#D5E8F0" stroke-opacity=".85" stroke-width="1.1" stroke-linecap="round"/>' +
-      '<path d="M12.6 13.4v24.6" stroke="#fff" stroke-opacity=".8" stroke-width="1.6" stroke-linecap="round"/>' +
+      '<rect x="10.6" y="11" width="22" height="29.4" rx="2.4" fill="url(#agCell)" stroke="#05080A" stroke-width=".9"/>' +
+      '<path d="M13.4 19.6h16.6" stroke="#8A97A1" stroke-opacity=".7" stroke-width=".9"/>' +
+      '<path d="M13.4 16h11.6M13.4 23.4h16M13.4 26.2h13.4M13.4 29h8.6" stroke="#E3EAEF" stroke-opacity=".8" stroke-width="1.1" stroke-linecap="round"/>' +
+      '<path d="M12.4 13.2v25" stroke="#fff" stroke-opacity=".35" stroke-width="1.5" stroke-linecap="round"/>' +
       '</g>',
 
     /* chassis: a genuinely hollow machined frame — the open middle is what

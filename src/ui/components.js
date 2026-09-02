@@ -84,10 +84,6 @@
       '</button>';
   };
 
-  C.categoryChip = function (cat, active) {
-    return '<button type="button" class="catchip' + (active ? ' is-on' : '') + '" data-act="filter-cat" data-id="' + cat.id + '" style="--c:' + cat.color + '">' +
-      '<span class="dot"></span>' + esc(cat.short) + '</button>';
-  };
 
   /* --------------------------------------------------- compatibility plate */
   function bars(count) {
