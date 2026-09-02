@@ -220,6 +220,58 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .fbar{
   display:flex; gap:8px; align-items:center; margin:0 0 14px;
 }
+
+/* ---------------- RESULT PAGE ------------------------------------------- */
+/* the app header is not repeated above the result head on small screens */
+@media (max-width:1179px){
+  .app.is-result .topbar{ display:none; }
+}
+.rhead{
+  position:sticky; top:0; z-index:58;
+  border-radius:0; padding:10px 0 11px;
+  box-shadow:0 10px 24px -18px rgba(0,0,0,.8);
+}
+.rhead__row{ display:flex; align-items:center; gap:10px; }
+.rhead__row .searchwrap{ flex:1 1 auto; min-width:0; margin-top:0; }
+.rhead__row .search{ height:48px; }
+.rhead__x{
+  width:48px; height:48px; flex:none; border-radius:var(--r-sm);
+  display:grid; place-items:center; color:#fff;
+  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.22);
+  transition:background .16s, transform .16s;
+}
+.rhead__x:hover{ background:rgba(255,255,255,.26); }
+.rhead__x:active{ transform:scale(.95); }
+.rhead__x svg{ width:20px; height:20px; }
+/* the result rail is a touch tighter than the home one — this block is
+   sticky, so it has to stay light on a phone screen */
+.rhead .crail{ margin-top:10px; }
+.rhead .crail__item{ width:68px; padding:7px 5px 6px; gap:5px; }
+.rhead .pthumb--rail{ width:38px; height:38px; }
+.rhead .crail__name{ font-size:10px; }
+.crail__item.is-empty{ opacity:.42; pointer-events:none; }
+@media (min-width:1180px){
+  /* the app header already carries the search up here */
+  .rhead{ position:static; }
+  .rhead__row .searchwrap{ display:none; }
+  .rhead__row{ justify-content:flex-end; }
+}
+
+/* category block heading inside a grouped "All Parts" result */
+.catgroup{
+  display:flex; align-items:center; gap:10px; margin:22px 0 12px;
+  padding-bottom:9px; border-bottom:2px solid color-mix(in srgb,var(--c) 35%,var(--line));
+}
+.catgroup:first-child{ margin-top:4px; }
+.pthumb--head{ width:32px; height:32px; border-radius:9px; }
+.catgroup__name{
+  font-family:var(--f-display); font-size:15px; font-weight:700; letter-spacing:-.015em;
+  color:color-mix(in srgb,var(--c) 62%,var(--ink)); text-transform:uppercase;
+}
+.catgroup__n{
+  margin-left:auto; font-family:var(--f-mono); font-size:11.5px; color:var(--ink-3);
+  background:var(--surface-3); padding:3px 8px; border-radius:var(--r-xs);
+}
 @media (min-width:1180px){ .fbar{ display:none; } }
 .fbar .field{ flex:1; min-width:0; }
 .fbar__btn{ position:relative; }
@@ -484,8 +536,21 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .paywall__lock svg{ width:24px; height:24px; }
 .paywall__acts{ display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:16px; }
 
-.locked{ position:relative; }
-.locked__blur{ filter:blur(5px); opacity:.55; pointer-events:none; user-select:none; }
+/* deliberate locked state — replaces the old blurred-data treatment.
+   Nothing real is ever obscured; restricted fields are simply not rendered. */
+.lockbox{
+  display:flex; align-items:center; gap:12px; padding:13px 14px;
+  border-radius:var(--r); border:1px dashed var(--amber-100);
+  background:var(--amber-050);
+}
+.lockbox__ico{
+  width:34px; height:34px; flex:none; border-radius:10px; display:grid; place-items:center;
+  background:var(--amber-100); color:var(--amber-700);
+}
+.lockbox__ico svg{ width:18px; height:18px; }
+.lockbox__body{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.lockbox__body b{ font-size:13.5px; font-weight:700; color:var(--ink); letter-spacing:-.01em; }
+.lockbox__body span{ font-size:12px; color:var(--ink-2); }
 
 /* ---------------- plans ---------------- */
 .plans{ display:grid; gap:16px; grid-template-columns:1fr; }

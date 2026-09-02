@@ -12,7 +12,7 @@
     route: { name: 'finder', params: {} },
     base: '#/finder',
     finder: {
-      modelId: null, catId: null, query: '', matchShown: 3,
+      modelId: null, catId: null, query: '', matchShown: 6, avail: null,
       filters: { q: '', brandId: 'all', catId: 'all', sort: 'default' },
       page: 1, rows: [], total: 0, hasMore: false, busy: false
     },
@@ -179,14 +179,24 @@
       (picked ? '' : '<div id="catRail">' + categoryRailHTML() + '</div>');
 
     if (picked) {
-      /* focused result view — unchanged single-column page */
+      /* Result page: its own compact sticky head (search + close + category
+         rail). The app header is hidden on narrow screens so it is not
+         repeated above this one. */
       page.classList.remove('is-ws');
+      document.getElementById('app').classList.add('is-result');
       page.innerHTML =
-        '<section class="bench"><div class="shell bench__in">' + benchInner + '</div></section>' +
+        '<section class="bench rhead"><div class="shell bench__in">' +
+        '<div class="rhead__row">' + searchBoxHTML('q') +
+        '<button class="rhead__x" data-act="exit-result" title="Close result" ' +
+        'aria-label="Close result and return to Finder">' + icon('close') + '</button>' +
+        '</div>' +
+        '<div id="catRail">' + resultRailHTML() + '</div>' +
+        '</div></section>' +
         '<div class="shell" id="finderBody"></div>';
       renderSelection();
       return;
     }
+    document.getElementById('app').classList.remove('is-result');
 
     /* browse mode — full-width workspace. Below 1180px the same markup falls
        back to the original stacked page (side panels move into the filter
@@ -332,6 +342,42 @@
       icon('filter') + (activeFilterCount() ? '<span class="dotn">' + activeFilterCount() + '</span>' : '') + '</button>' +
       '</div></div>'
     );
+  }
+
+  /* Category priority used by the Result page — both for the rail order and
+     for the grouped "All Parts" listing. Anything not listed follows after. */
+  var RESULT_CAT_ORDER = ['tempered-glass', 'back-cover', 'combo-display', 'middle-frame', 'cc-board', 'battery'];
+
+  function resultCategories() {
+    var byId = {}, out = [];
+    db.categories.forEach(function (c) { byId[c.id] = c; });
+    RESULT_CAT_ORDER.forEach(function (id) { if (byId[id]) { out.push(byId[id]); byId[id] = null; } });
+    db.categories.forEach(function (c) { if (byId[c.id]) out.push(c); });
+    return out;
+  }
+
+  /* Result-page rail: same look and behaviour as the home rail, ordered by
+     the priority above and annotated with this model's group counts. */
+  function resultRailHTML() {
+    var f = state.finder;
+    var avail = f.avail;
+    function item(id, name, count) {
+      var on = (id === 'all') ? !f.catId : f.catId === id;
+      var empty = count === 0;
+      return '<button type="button" class="crail__item' + (on ? ' is-on' : '') + (empty ? ' is-empty' : '') + '" ' +
+        'data-act="pick-cat-rail" data-id="' + id + '" aria-pressed="' + on + '"' + (empty ? ' disabled' : '') + '>' +
+        SM.art.category(id, 'pthumb--rail') +
+        '<span class="crail__name">' + esc(name) + '</span>' +
+        '<span class="crail__n">' + (count == null ? '&nbsp;' : count) + '</span>' +
+        '</button>';
+    }
+    var total = avail ? Object.keys(avail).reduce(function (n, k) { return n + avail[k]; }, 0) : null;
+    return '<div class="crail" role="group" aria-label="Part categories">' +
+      item('all', 'All Parts', total) +
+      resultCategories().map(function (c) {
+        return item(c.id, c.name, avail ? (avail[c.id] || 0) : null);
+      }).join('') +
+      '</div>';
   }
 
   /* ---- horizontal product-category rail, directly under the main search ---- */
@@ -552,22 +598,19 @@
       '<button class="btn btn--ghost btn--sm" data-act="clear-model">' + icon('close') + 'Clear</button>' +
       '</div></div></div>' +
 
-      '<div class="sec"><div class="sec__head"><div class="sec__title">' +
-      '<h2>Pick a part category</h2></div>' +
-      (f.catId ? '<button class="btn btn--ghost btn--sm" data-act="pick-cat" data-id="' + f.catId + '">' + icon('close') + 'All categories</button>' : '') +
-      '</div><div class="cats" id="cats">' +
-      db.categories.map(function (c) { return C.categoryCard(c, null, { active: f.catId === c.id }); }).join('') +
-      '</div></div>' +
-
+      /* category picking lives only in the rail above — no duplicate grid */
       '<div class="sec" id="matchRegion">' + C.skelPlates(2) + '</div>';
 
-    api.categoryAvailability(m.id).then(function (rows) {
-      var host = document.getElementById('cats');
-      if (!host) return;
-      host.innerHTML = rows.map(function (r) {
-        return C.categoryCard(r.category, r.count, { active: f.catId === r.category.id, dim: true });
-      }).join('');
-    });
+    if (!f.avail) {
+      api.categoryAvailability(m.id).then(function (rows) {
+        if (state.finder.modelId !== m.id) return;
+        var map = Object.create(null);
+        rows.forEach(function (r) { map[r.category.id] = r.count; });
+        state.finder.avail = map;
+        var rail = document.getElementById('catRail');
+        if (rail) rail.innerHTML = resultRailHTML();
+      });
+    }
     loadMatches();
   }
 
@@ -595,6 +638,17 @@
       rows.forEach(function (r) { catCount[r.group.categoryId] = 1; });
       var nCats = Object.keys(catCount).length;
 
+      /* All Parts: keep categories together, in the agreed priority order,
+         instead of interleaving them */
+      if (!cat) {
+        var order = {};
+        resultCategories().forEach(function (c, i) { order[c.id] = i; });
+        rows = rows.slice().sort(function (a, b) {
+          return (order[a.group.categoryId] - order[b.group.categoryId]) ||
+            a.group.groupNumber.localeCompare(b.group.groupNumber);
+        });
+      }
+
       var shown = rows.slice(0, f.matchShown);
       var head = '<div class="sec__head"><div class="sec__title">' +
         '<h2>' + (rows.length === 1 ? 'Match found' : rows.length + ' matches found') + '</h2>' +
@@ -606,12 +660,25 @@
           nCats + ' part ' + (nCats === 1 ? 'category' : 'categories') + '. Pick a category above to narrow it down.</span></div>'
           : '');
 
+      var lastCat = null;
       host.innerHTML = head + shown.map(function (row) {
-        return matchCard(row, m);
+        var heading = '';
+        /* a heading before the first card of each category block */
+        if (!cat && row.group.categoryId !== lastCat) {
+          lastCat = row.group.categoryId;
+          var c = row.category;
+          var n = rows.filter(function (r) { return r.group.categoryId === c.id; }).length;
+          heading = '<div class="catgroup" style="--c:' + c.color + '">' +
+            SM.art.category(c.id, 'pthumb--head') +
+            '<span class="catgroup__name">' + esc(c.name) + '</span>' +
+            '<span class="catgroup__n">' + n + (n === 1 ? ' group' : ' groups') + '</span>' +
+            '</div>';
+        }
+        return heading + matchCard(row, m);
       }).join('') +
         (rows.length > shown.length
           ? '<button class="expandbtn" data-act="more-matches">' + icon('chevronDown') +
-          'Show ' + Math.min(3, rows.length - shown.length) + ' more ' +
+          'Show ' + Math.min(6, rows.length - shown.length) + ' more ' +
           '<span class="muted">(' + (rows.length - shown.length) + ' groups hidden)</span></button>'
           : '') +
         (pro ? '' : '<div style="margin-top:16px">' + C.paywall({
@@ -637,7 +704,15 @@
       '<div class="match__body">' +
       '<div class="stack" style="gap:14px">' +
       C.masterCard(master, cat) +
-      (pro ? C.idGrid(g) : '<div class="locked"><div class="locked__blur">' + C.idGrid(g) + '</div></div>') +
+      /* never blur real data — either show the identifiers, or show a clear,
+         deliberate locked panel in their place */
+      (pro ? C.idGrid(g)
+        : '<div class="lockbox">' +
+        '<span class="lockbox__ico">' + icon('lock') + '</span>' +
+        '<span class="lockbox__body"><b>Part code, serial &amp; group number</b>' +
+        '<span>Included with any plan — from ₹99/month</span></span>' +
+        '<button class="btn btn--amber btn--sm" data-act="go-plans">Unlock</button>' +
+        '</div>') +
       '</div>' +
       '<div class="stack" style="gap:12px">' +
       '<div class="complist__head">' +
@@ -1133,7 +1208,8 @@
     if (!m) return;
     state.finder.modelId = id;
     state.finder.catId = null;
-    state.finder.matchShown = 3;
+    state.finder.matchShown = 6;
+    state.finder.avail = null;
     state.finder.query = m.fullName;
     pushRecent(id);
     closeSuggest();
@@ -1145,7 +1221,26 @@
 
   var authMode = 'signin';
 
+  /* leave the result view and restore the normal Finder home page */
+  function exitResult() {
+    var f = state.finder;
+    f.modelId = null; f.catId = null; f.query = ''; f.matchShown = 6; f.avail = null;
+    closeSuggest();
+    if (location.hash.indexOf('#/finder') !== 0) { go('#/finder'); }
+    else { renderFinder(document.getElementById('page')); }
+    syncSearchInputs(true);
+    window.scrollTo({ top: 0 });
+  }
+
   document.addEventListener('click', function (e) {
+    /* the Finder tab / nav link must never leave the user stuck in a result:
+       the hash is already #/finder, so no hashchange would fire on its own */
+    var finderLink = e.target.closest('a[href="#/finder"]');
+    if (finderLink && state.finder.modelId) {
+      e.preventDefault();
+      exitResult();
+      return;
+    }
     var t = e.target.closest('[data-act]');
     if (!t) {
       if (!e.target.closest('.searchwrap')) closeSuggest();
@@ -1178,18 +1273,25 @@
       }
       case 'pick-model': pickModel(id); break;
       case 'clear-model':
-        state.finder.modelId = null; state.finder.catId = null; state.finder.query = '';
-        closeSuggest();
-        renderFinder(document.getElementById('page'));
-        syncSearchInputs(true);
+      case 'exit-result':
+        exitResult();
         break;
       case 'pick-cat':
         state.finder.catId = state.finder.catId === id ? null : id;
-        state.finder.matchShown = 3;
+        state.finder.matchShown = 6;
         renderSelection();
         break;
-      case 'clear-cat': state.finder.catId = null; state.finder.matchShown = 3; renderSelection(); break;
-      case 'more-matches': state.finder.matchShown += 3; loadMatches(); break;
+      /* rail on the result page: 'all' clears the category filter */
+      case 'pick-cat-rail': {
+        state.finder.catId = (id === 'all') ? null : id;
+        state.finder.matchShown = 6;
+        var railHost = document.getElementById('catRail');
+        if (railHost) railHost.innerHTML = resultRailHTML();
+        renderSelection();
+        break;
+      }
+      case 'clear-cat': state.finder.catId = null; state.finder.matchShown = 6; renderSelection(); break;
+      case 'more-matches': state.finder.matchShown += 6; loadMatches(); break;
 
       /* browse filters */
       case 'filter-cat':
