@@ -1,0 +1,85 @@
+/* ============================================================================
+   SnapMatch · icons.js — inline stroke icon set + the SnapMatch mark
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  var P = {
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/>',
+    close: '<path d="M18 6 6 18M6 6l12 12"/>',
+    chevronDown: '<path d="m6 9 6 6 6-6"/>',
+    chevronRight: '<path d="m9 6 6 6-6 6"/>',
+    chevronLeft: '<path d="m15 6-6 6 6 6"/>',
+    arrowRight: '<path d="M4 12h15"/><path d="m13 6 6 6-6 6"/>',
+    check: '<path d="m4 12.5 5 5L20 6.5"/>',
+    checkCircle: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12.2 2.4 2.4 4.6-4.9"/>',
+    filter: '<path d="M3 5h18M6 12h12M10 19h4"/>',
+    sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h9M17 18h3"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="15" cy="18" r="2"/>',
+    layers: '<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/>',
+    grid: '<rect x="3" y="3" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="2"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="2"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2"/>',
+    phone: '<rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 5.5h3"/>',
+    user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.8 20c.9-3.6 3.7-5.4 7.2-5.4s6.3 1.8 7.2 5.4"/>',
+    crown: '<path d="M3.5 8.5 7 12l5-6.5 5 6.5 3.5-3.5-1.6 9.5H5.1L3.5 8.5Z"/>',
+    lock: '<rect x="4.5" y="10" width="15" height="10.5" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/>',
+    unlock: '<rect x="4.5" y="10" width="15" height="10.5" rx="2.5"/><path d="M8 10V7.5a4 4 0 0 1 7.5-2"/>',
+    bolt: '<path d="M13.5 2.5 5 13.2h5.4L9.8 21.5 19 10.6h-5.5l0-8.1Z"/>',
+    sparkle: '<path d="M12 3.2 13.9 9 20 10.9 13.9 12.8 12 18.6 10.1 12.8 4 10.9 10.1 9 12 3.2Z"/><path d="M18.6 3v3.2M17 4.6h3.2"/>',
+    copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 5.5h-9a2.5 2.5 0 0 0-2.5 2.5v9"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/>',
+    moon: '<path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.5 8.5 0 1 0 20 14.2Z"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.2M12 7.9v.1"/>',
+    alert: '<path d="M12 3.5 21 19.5H3L12 3.5Z"/><path d="M12 9.5v4M12 16.6v.1"/>',
+    inbox: '<path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.4 5h13.2l2 8.5v4a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2v-4L5.4 5Z"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    logout: '<path d="M9.5 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3.5"/><path d="M15 8.5 18.5 12 15 15.5M18 12H9.5"/>',
+    refresh: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4.5h-4.5"/>',
+    history: '<path d="M3.6 9.5A8.5 8.5 0 1 1 3 12"/><path d="M3.2 4.6v5h5"/><path d="M12 7.6V12l3.2 1.9"/>',
+    linkOut: '<path d="M9 5H5.5A1.5 1.5 0 0 0 4 6.5v12A1.5 1.5 0 0 0 5.5 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/><path d="M14 4h6v6"/><path d="m20 4-8.5 8.5"/>',
+    shop: '<path d="M4 9.5V19a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 20 19V9.5"/><path d="M3 9.5 5 4h14l2 5.5a3 3 0 0 1-5.4 1.8A3 3 0 0 1 12 12a3 3 0 0 1-3.6-.7A3 3 0 0 1 3 9.5Z"/>',
+    tag: '<path d="M4 11.5V5a1 1 0 0 1 1-1h6.5L20 12.5 12.5 20 4 11.5Z"/><circle cx="8.2" cy="8.2" r="1.3"/>',
+    /* --- part categories --- */
+    glass: '<rect x="5.5" y="2.5" width="13" height="19" rx="3"/><path d="m8 17 8-11"/><path d="M8 11.5 12.5 5"/>',
+    cover: '<rect x="5.5" y="2.5" width="13" height="19" rx="3"/><circle cx="9.6" cy="7" r="1.6"/><circle cx="9.6" cy="11" r="1.6"/>',
+    display: '<rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M4 7.5h16"/><path d="M8 17.5h8"/>',
+    battery: '<rect x="3" y="7" width="16" height="10" rx="2.5"/><path d="M21 10.5v3"/><path d="M6.5 10.5v3M10 10.5v3"/>',
+    frame: '<rect x="5" y="2.5" width="14" height="19" rx="3.5"/><rect x="8" y="6" width="8" height="12" rx="1.5"/>',
+    board: '<rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M9 9h6v6H9z"/><path d="M9 2.5v1.5M15 2.5v1.5M9 20v1.5M15 20v1.5M2.5 9H4M2.5 15H4M20 9h1.5M20 15h1.5"/>',
+    charge: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M13 8.2 9.8 12.6h3.1L12.2 16l3.4-4.6h-3.2L13 8.2Z"/>',
+    parts: '<circle cx="7" cy="7" r="3"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><path d="M4 20.5h7l-3.5-6-3.5 6Z"/><circle cx="17" cy="17" r="3.5"/>'
+  };
+
+  SM.icon = function (name, cls) {
+    var d = P[name] || P.info;
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"' +
+      (cls ? ' class="' + cls + '"' : '') + '>' + d + '</svg>';
+  };
+
+  /* ---- SnapMatch mark: a phone plate split by a snap notch, halves locking */
+  SM.logoMark = function (size, cls) {
+    size = size || 36;
+    var uid = 'sm' + Math.random().toString(36).slice(2, 8);
+    return '' +
+      '<svg class="' + (cls || 'logo__mark') + '" width="' + size + '" height="' + size + '" viewBox="0 0 48 48" role="img" aria-label="SnapMatch">' +
+      '<defs>' +
+      '<linearGradient id="' + uid + '" x1="0" y1="0" x2="1" y2="1">' +
+      '<stop offset="0%" stop-color="#0F766E"/><stop offset="55%" stop-color="#12A08C"/><stop offset="100%" stop-color="#10D0A8"/>' +
+      '</linearGradient>' +
+      '<linearGradient id="' + uid + 'b" x1="0" y1="1" x2="1" y2="0">' +
+      '<stop offset="0%" stop-color="#FF8A3D"/><stop offset="100%" stop-color="#FFC46B"/>' +
+      '</linearGradient>' +
+      '</defs>' +
+      '<rect width="48" height="48" rx="14" fill="url(#' + uid + ')"/>' +
+      '<path d="M16 11h9.5a2 2 0 0 1 2 2v8.2l-4.6 3.1 4.6 3.1V35a2 2 0 0 1-2 2H16a2 2 0 0 1-2-2V13a2 2 0 0 1 2-2Z" fill="#fff" fill-opacity=".95"/>' +
+      '<path d="M32 13h2a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-5.7l-4.6-3.1 4.6-3.1V15a2 2 0 0 1 2-2Z" fill="url(#' + uid + 'b)"/>' +
+      '</svg>';
+  };
+
+  /* Two-letter monogram on the brand's own gradient. Previously Apple used the
+     U+F8FF private-use glyph, which renders as a blank box off Apple platforms. */
+  SM.brandLogo = function (brand, cls) {
+    return '<span class="blogo ' + (cls || '') + '" style="background:linear-gradient(135deg,' + brand.color + ',' + brand.color2 + ')">' +
+      brand.name.slice(0, 2).toUpperCase() + '</span>';
+  };
+})(window);
