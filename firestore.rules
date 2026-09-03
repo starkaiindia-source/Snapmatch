@@ -153,6 +153,24 @@ service cloud.firestore {
     match /importRuns/{runId}    { allow read, write: if false; }
     match /updateJobs/{jobId}    { allow read, write: if false; }
 
+
+    /* ------------------------------------------------------------- billing
+       Written ONLY by the Vercel functions through the Admin SDK, which
+       bypasses these rules. Closing writes here is what stops a signed-in user
+       from opening the console and granting themselves a subscription — the
+       one attack this whole payment design exists to prevent.
+
+       Reads are limited to the owner: a subscriber may see their own invoices
+       and nobody else's. */
+    match /subscriptions/{subscriptionId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+    match /payments/{paymentId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
     /* anything not matched above is closed */
     match /{document=**} {
       allow read, write: if false;
