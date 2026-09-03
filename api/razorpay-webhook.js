@@ -110,6 +110,11 @@ module.exports = async function handler(req, res) {
     const result = await activateSubscription({
       uid,
       email: order?.email || payment?.notes?.email || null,
+      displayName: order?.displayName || null,
+      /* The delivery itself was HMAC-verified above, so this payment is
+         trusted — but by the webhook signature, not by a checkout signature.
+         The record says which, because they are different proofs. */
+      signatureVerified: true,
       plan,
       orderId,
       paymentId,

@@ -100,6 +100,9 @@ module.exports = async function handler(req, res) {
     const result = await activateSubscription({
       uid: user.uid,
       email: user.email,
+      displayName: user.name,
+      /* Reached only past the signature check above. */
+      signatureVerified: true,
       plan,
       orderId,
       paymentId,

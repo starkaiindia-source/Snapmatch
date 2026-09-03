@@ -82,24 +82,34 @@ function main() {
     deviceTypeOf(m.name)
   ]);
 
-  /* ---- groups -------------------------------------------------------------
-     memberNames is dropped — it duplicates names the client already has by id,
-     and it was the single largest field in the build at ~900 KB. */
-  const GROUP_COLS = ['id', 'no', 'cat', 'mm', 'mb', 'cnt', 'part', 'mem'];
+  /* ---- groups: PUBLIC PREVIEW ONLY -----------------------------------------
+     The part number and the fitment list are the product. They are NOT in the
+     public bundle — anything under assets/ is one unauthenticated GET away,
+     and shipping them there made 3,173 part codes and 12,239 fitments free to
+     download, which leaves nothing to sell.
+
+     What stays is enough to browse and to see that an answer exists: the
+     category, the master device, and how many devices are in the group. The
+     answer itself comes from /api/device-parts, behind a subscription. */
+  const GROUP_COLS = ['id', 'no', 'cat', 'mm', 'mb', 'cnt'];
   const groupRows = groups.map(g => [
     g.id,
     g.groupNo,
     g.categoryId,
     g.masterModelId,
     g.masterBrandId,
-    g.memberCount,
-    g.partNo || null,
-    g.memberIds || []
+    g.memberCount
   ]);
 
-  /* ---- model -> groups by category ---------------------------------------- */
-  const mgObj = {};
-  modelGroups.forEach(r => { mgObj[r.id] = r.byCategory; });
+  /* Device -> which categories have parts, and HOW MANY. The group ids are
+     withheld: knowing that a phone has 4 back-cover options is a reason to
+     subscribe, knowing which ones is the thing subscribed for. */
+  const mgPublic = {};
+  modelGroups.forEach(r => {
+    const counts = {};
+    Object.keys(r.byCategory).forEach(cat => { counts[cat] = r.byCategory[cat].length; });
+    mgPublic[r.id] = counts;
+  });
 
   const bundle = {
     v: meta.version,
@@ -123,11 +133,32 @@ function main() {
     models: modelRows,
     groupCols: GROUP_COLS,
     groups: groupRows,
-    modelGroups: mgObj
+    modelGroupCounts: mgPublic
   };
 
   const json = JSON.stringify(bundle);
   fs.writeFileSync(OUT, json);
+
+  /* ---- the paid half ------------------------------------------------------
+     Written where the serverless functions can require it and the CDN cannot
+     serve it. api/_data is inside the function bundle; nothing under it has a
+     public URL. /api/device-parts is the only way in, and it checks for an
+     active subscription first. */
+  const paid = {
+    v: meta.version,
+    generatedAt: new Date().toISOString(),
+    /* groupId -> { partNo, memberIds } */
+    groups: Object.fromEntries(groups.map(g => [g.id, {
+      partNo: g.partNo || null,
+      drawingName: g.drawingName || null,
+      memberIds: g.memberIds || []
+    }])),
+    /* deviceId -> { categoryId: [groupId] } */
+    deviceGroups: Object.fromEntries(modelGroups.map(r => [r.id, r.byCategory]))
+  };
+  const paidDir = path.join(__dirname, '..', 'api', '_data');
+  fs.mkdirSync(paidDir, { recursive: true });
+  fs.writeFileSync(path.join(paidDir, 'parts.json'), JSON.stringify(paid));
 
   const gz = zlib.gzipSync(Buffer.from(json)).length;
   const raw = Buffer.byteLength(json);
@@ -140,12 +171,17 @@ function main() {
   console.log('  ' + '-'.repeat(50));
   console.log('  models     ', modelRows.length, JSON.stringify(counts));
   console.log('  groups     ', groupRows.length);
-  console.log('  fitments   ', groupRows.reduce((s, g) => s + g[7].length, 0));
+  console.log('  devices    ', Object.keys(mgPublic).length, 'with part counts');
   console.log('  brands     ', bundle.brands.length);
   console.log('  categories ', bundle.categories.length);
   console.log('  ' + '-'.repeat(50));
+  const paidBytes = fs.statSync(path.join(paidDir, 'parts.json')).size;
   console.log('  raw        ', kb(raw));
   console.log('  gzipped    ', kb(gz), ' <- what the browser downloads');
+  console.log('  ' + '-'.repeat(50));
+  console.log('  paid slice ', kb(paidBytes), '-> api/_data/parts.json (never served)');
+  console.log('  part codes ', groups.filter(g => g.partNo).length, 'held back');
+  console.log('  fitments   ', groups.reduce((s, g) => s + (g.memberIds || []).length, 0), 'held back');
   console.log();
 }
 

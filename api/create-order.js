@@ -58,6 +58,7 @@ module.exports = async function handler(req, res) {
       orderId: order.id,
       uid: user.uid,
       email: user.email,
+      displayName: user.name,
       plan,
       amountPaise: plan.amountPaise,
       currency: plan.currency,

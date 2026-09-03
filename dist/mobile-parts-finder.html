@@ -2125,27 +2125,31 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         masterModelId: g.mm,
         masterModelName: master ? master.fullName : g.mm,
         masterBrandId: g.mb,
-        compatibleDeviceIds: g.mem,
+        /* The member list is the paid answer and is NOT in this bundle.
+           Anything under assets/ is one unauthenticated GET away, so the
+           public copy carries only the count. The ids come from
+           /api/device-parts, behind a subscription. */
+        compatibleDeviceIds: null,
         compatibleCount: g.cnt,
-        createdOn: null,           /* the export carries no creation date */
-        /* Resolved from ids rather than shipped as text — the names were the
-           single largest field in the export and are already here. */
-        memberNames: g.mem.map(function (id) {
-          return modelById[id] ? modelById[id].fullName : id;
-        })
+        createdOn: null,
+        memberNames: null
       };
     });
 
     var groupById = Object.create(null);
     groups.forEach(function (g) { groupById[g.groupId] = g; });
 
-    /* model -> the groups it belongs to, flattened across categories */
+    /* device -> how many parts it has, per category. Counts are free; which
+       groups they are is what the subscription buys, so the public bundle
+       ships numbers and no ids. groupsByModel keeps its old shape — an array
+       whose LENGTH is right — because the whole UI reads .length off it. */
     var groupsByModel = Object.create(null);
-    Object.keys(bundle.modelGroups).forEach(function (modelId) {
-      var byCat = bundle.modelGroups[modelId];
-      var ids = [];
-      Object.keys(byCat).forEach(function (cat) { ids = ids.concat(byCat[cat]); });
-      groupsByModel[modelId] = ids;
+    var partCounts = bundle.modelGroupCounts || {};
+    Object.keys(partCounts).forEach(function (modelId) {
+      var byCat = partCounts[modelId];
+      var total = 0;
+      Object.keys(byCat).forEach(function (cat) { total += byCat[cat]; });
+      groupsByModel[modelId] = new Array(total);
     });
 
     var links = groups.reduce(function (s, g) { return s + g.memberCount; }, 0);
@@ -2163,7 +2167,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       categoryById: categoryById,
       groupById: groupById,
       groupsByModel: groupsByModel,
-      modelGroupsByCategory: bundle.modelGroups,
+      partCountsByCategory: partCounts,
       /* So the UI can state its own limits instead of rendering blank rows. */
       coverage: {
         present: bundle.fieldsPresent,
@@ -2916,7 +2920,15 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       group: g,
       category: db.categoryById[g.categoryId],
       master: db.modelById[g.masterModelId],
-      devices: g.compatibleDeviceIds.map(function (id) { return db.modelById[id]; })
+      /* The member list is the paid answer and is absent from the public
+         catalogue, so this is null for a visitor and filled from
+         /api/device-parts for a subscriber. `deviceCount` is always real,
+         which lets the UI say "fits 12 devices" without giving the twelve away. */
+      devices: g.compatibleDeviceIds
+        ? g.compatibleDeviceIds.map(function (id) { return db.modelById[id]; })
+        : null,
+      deviceCount: g.compatibleCount,
+      locked: !g.compatibleDeviceIds
     };
   }
 
@@ -2945,13 +2957,23 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       var m = db.modelById[id];
       if (!m) return respond(null, LAT.fast);
       var gids = db.groupsByModel[m.id] || [];
+      /* The public catalogue ships counts per category and withholds the group
+         ids, so counting memberships here returns zero for every category.
+         The count map is the source when it exists; the membership scan is
+         the fallback for a fully loaded catalogue. */
+      var counts = db.partCountsByCategory && db.partCountsByCategory[m.id];
       return respond({
         model: m,
         groupCount: gids.length,
         categories: db.categories.map(function (c) {
           return {
             category: c,
-            count: gids.filter(function (gid) { return db.groupById[gid].categoryId === c.id; }).length
+            count: counts
+              ? (counts[c.id] || 0)
+              : gids.filter(function (gid) {
+                  var g = db.groupById[gid];
+                  return g && g.categoryId === c.id;
+                }).length
           };
         })
       }, LAT.fast);
@@ -2985,7 +3007,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
             norm(g.partCode).indexOf(q) > -1 ||
             norm(g.serialNumber).indexOf(q) > -1 ||
             norm(db.modelById[g.masterModelId].fullName).indexOf(q) > -1;
-          if (!hit) {
+          /* Group text only. Matching on member names needs the member list,
+             which the public catalogue does not carry — and leaking it one
+             query at a time is still leaking it. */
+          if (!hit && g.compatibleDeviceIds) {
             hit = g.compatibleDeviceIds.some(function (id) {
               return norm(db.modelById[id].fullName).indexOf(q) > -1;
             });
@@ -3029,13 +3054,23 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     },
 
     /* per-category availability for the selected model (drives the chips) */
+    /* How many parts exist per category for one device.
+       Counts are free — "this phone has a back cover and a battery listed" is
+       what makes the product worth paying for. WHICH groups they are is the
+       paid answer, so this reads the count map the public catalogue ships and
+       falls back to counting real memberships when the full data is loaded. */
     categoryAvailability: function (modelId) {
-      var gids = db.groupsByModel[modelId] || [];
       var byCat = Object.create(null);
-      gids.forEach(function (id) {
-        var g = db.groupById[id];
-        byCat[g.categoryId] = (byCat[g.categoryId] || 0) + 1;
-      });
+      var counts = db.partCountsByCategory && db.partCountsByCategory[modelId];
+
+      if (counts) {
+        byCat = counts;
+      } else {
+        (db.groupsByModel[modelId] || []).forEach(function (id) {
+          var g = db.groupById[id];
+          if (g) byCat[g.categoryId] = (byCat[g.categoryId] || 0) + 1;
+        });
+      }
       return respond(db.categories.map(function (c) {
         return { category: c, count: byCat[c.id] || 0 };
       }), LAT.fast);
@@ -3891,9 +3926,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   C.plate = function (row, opts) {
     opts = opts || {};
     var g = row.group, cat = row.category, master = row.master;
-    var others = row.devices.filter(function (d) { return d.id !== master.id; });
+    /* row.devices is null when the catalogue is the public preview — the
+       member list is the paid answer. The count is still real, so the card
+       says how many devices are in the group and withholds which. */
+    var locked = !row.devices;
+    var others = locked ? [] : row.devices.filter(function (d) { return d.id !== master.id; });
     var preview = others.slice(0, 3);
-    var hidden = others.length - preview.length;
+    var hidden = locked ? Math.max(0, (row.deviceCount || 1) - 1) : others.length - preview.length;
     var b = SM.db.brandById[master.brandId];
 
     return '<article class="plate" style="--c:' + cat.color + '" data-act="open-group" data-id="' + g.groupId + '" ' +
@@ -4810,7 +4849,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   function matchCard(row, hitModel) {
     var g = row.group, cat = row.category, master = row.master;
     var pro = S.isPro();
-    var preview = row.devices.slice(0, pro ? 8 : 4);
+    /* Null means the member list was not in the public catalogue at all — a
+       different thing from a free account seeing a shortened one. */
+    var preview = row.devices ? row.devices.slice(0, pro ? 8 : 4) : [];
 
     return '<div class="match" style="margin-bottom:14px">' +
       '<div class="match__head">' +
@@ -6278,7 +6319,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var g = row.group, master = row.master, pro = S.isPro();
     var v = state.devView;
     var q = v.q.toLowerCase();
-    var list = q ? row.devices.filter(function (d) { return d.fullName.toLowerCase().indexOf(q) > -1; }) : row.devices;
+    var all = row.devices || [];
+    var list = q ? all.filter(function (d) { return d.fullName.toLowerCase().indexOf(q) > -1; }) : all;
     var shown = list.slice(0, v.shown);
     var remaining = list.length - shown.length;
 

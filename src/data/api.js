@@ -51,7 +51,15 @@
       group: g,
       category: db.categoryById[g.categoryId],
       master: db.modelById[g.masterModelId],
-      devices: g.compatibleDeviceIds.map(function (id) { return db.modelById[id]; })
+      /* The member list is the paid answer and is absent from the public
+         catalogue, so this is null for a visitor and filled from
+         /api/device-parts for a subscriber. `deviceCount` is always real,
+         which lets the UI say "fits 12 devices" without giving the twelve away. */
+      devices: g.compatibleDeviceIds
+        ? g.compatibleDeviceIds.map(function (id) { return db.modelById[id]; })
+        : null,
+      deviceCount: g.compatibleCount,
+      locked: !g.compatibleDeviceIds
     };
   }
 
@@ -80,13 +88,23 @@
       var m = db.modelById[id];
       if (!m) return respond(null, LAT.fast);
       var gids = db.groupsByModel[m.id] || [];
+      /* The public catalogue ships counts per category and withholds the group
+         ids, so counting memberships here returns zero for every category.
+         The count map is the source when it exists; the membership scan is
+         the fallback for a fully loaded catalogue. */
+      var counts = db.partCountsByCategory && db.partCountsByCategory[m.id];
       return respond({
         model: m,
         groupCount: gids.length,
         categories: db.categories.map(function (c) {
           return {
             category: c,
-            count: gids.filter(function (gid) { return db.groupById[gid].categoryId === c.id; }).length
+            count: counts
+              ? (counts[c.id] || 0)
+              : gids.filter(function (gid) {
+                  var g = db.groupById[gid];
+                  return g && g.categoryId === c.id;
+                }).length
           };
         })
       }, LAT.fast);
@@ -120,7 +138,10 @@
             norm(g.partCode).indexOf(q) > -1 ||
             norm(g.serialNumber).indexOf(q) > -1 ||
             norm(db.modelById[g.masterModelId].fullName).indexOf(q) > -1;
-          if (!hit) {
+          /* Group text only. Matching on member names needs the member list,
+             which the public catalogue does not carry — and leaking it one
+             query at a time is still leaking it. */
+          if (!hit && g.compatibleDeviceIds) {
             hit = g.compatibleDeviceIds.some(function (id) {
               return norm(db.modelById[id].fullName).indexOf(q) > -1;
             });
@@ -164,13 +185,23 @@
     },
 
     /* per-category availability for the selected model (drives the chips) */
+    /* How many parts exist per category for one device.
+       Counts are free — "this phone has a back cover and a battery listed" is
+       what makes the product worth paying for. WHICH groups they are is the
+       paid answer, so this reads the count map the public catalogue ships and
+       falls back to counting real memberships when the full data is loaded. */
     categoryAvailability: function (modelId) {
-      var gids = db.groupsByModel[modelId] || [];
       var byCat = Object.create(null);
-      gids.forEach(function (id) {
-        var g = db.groupById[id];
-        byCat[g.categoryId] = (byCat[g.categoryId] || 0) + 1;
-      });
+      var counts = db.partCountsByCategory && db.partCountsByCategory[modelId];
+
+      if (counts) {
+        byCat = counts;
+      } else {
+        (db.groupsByModel[modelId] || []).forEach(function (id) {
+          var g = db.groupById[id];
+          if (g) byCat[g.categoryId] = (byCat[g.categoryId] || 0) + 1;
+        });
+      }
       return respond(db.categories.map(function (c) {
         return { category: c, count: byCat[c.id] || 0 };
       }), LAT.fast);

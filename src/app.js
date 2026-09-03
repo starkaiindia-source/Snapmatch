@@ -705,7 +705,9 @@
   function matchCard(row, hitModel) {
     var g = row.group, cat = row.category, master = row.master;
     var pro = S.isPro();
-    var preview = row.devices.slice(0, pro ? 8 : 4);
+    /* Null means the member list was not in the public catalogue at all — a
+       different thing from a free account seeing a shortened one. */
+    var preview = row.devices ? row.devices.slice(0, pro ? 8 : 4) : [];
 
     return '<div class="match" style="margin-bottom:14px">' +
       '<div class="match__head">' +
@@ -2173,7 +2175,8 @@
     var g = row.group, master = row.master, pro = S.isPro();
     var v = state.devView;
     var q = v.q.toLowerCase();
-    var list = q ? row.devices.filter(function (d) { return d.fullName.toLowerCase().indexOf(q) > -1; }) : row.devices;
+    var all = row.devices || [];
+    var list = q ? all.filter(function (d) { return d.fullName.toLowerCase().indexOf(q) > -1; }) : all;
     var shown = list.slice(0, v.shown);
     var remaining = list.length - shown.length;
 

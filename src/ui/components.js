@@ -98,9 +98,13 @@
   C.plate = function (row, opts) {
     opts = opts || {};
     var g = row.group, cat = row.category, master = row.master;
-    var others = row.devices.filter(function (d) { return d.id !== master.id; });
+    /* row.devices is null when the catalogue is the public preview — the
+       member list is the paid answer. The count is still real, so the card
+       says how many devices are in the group and withholds which. */
+    var locked = !row.devices;
+    var others = locked ? [] : row.devices.filter(function (d) { return d.id !== master.id; });
     var preview = others.slice(0, 3);
-    var hidden = others.length - preview.length;
+    var hidden = locked ? Math.max(0, (row.deviceCount || 1) - 1) : others.length - preview.length;
     var b = SM.db.brandById[master.brandId];
 
     return '<article class="plate" style="--c:' + cat.color + '" data-act="open-group" data-id="' + g.groupId + '" ' +

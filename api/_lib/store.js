@@ -42,13 +42,19 @@ const FieldValue = admin.firestore.FieldValue;
  * plan the order belonged to. Without this row the webhook would have a
  * payment it cannot attribute to anyone.
  */
-async function recordPendingOrder({ orderId, uid, email, plan, amountPaise, currency, now }) {
+async function recordPendingOrder({
+  orderId, uid, email, displayName, plan, amountPaise, currency, now
+}) {
   await db().collection('subscriptions').doc(orderId).set({
     razorpayOrderId: orderId,
     uid,
     email: email || null,
+    displayName: displayName || null,
     planId: plan.id,
+    planName: plan.name,
+    billingInterval: plan.billingPeriod,
     billingPeriod: plan.billingPeriod,
+    paymentStatus: 'pending',
     amount: amountPaise,
     currency,
     status: 'pending',
@@ -85,7 +91,8 @@ async function getOrder(orderId) {
  * @returns {Promise<{alreadyProcessed:boolean, startedAt:number, expiresAt:number, planId:string}>}
  */
 async function activateSubscription({
-  uid, email, plan, orderId, paymentId, amountPaise, currency, now, source
+  uid, email, displayName, plan, orderId, paymentId, amountPaise, currency,
+  now, source, signatureVerified
 }) {
   const firestore = db();
   const paymentRef = firestore.collection('payments').doc(paymentId);
@@ -119,38 +126,53 @@ async function activateSubscription({
 
     tx.set(paymentRef, {
       uid,
-      razorpayPaymentId: paymentId,
-      razorpayOrderId: orderId,
       planId: plan.id,
       amount: amountPaise,
       currency,
+      razorpayOrderId: orderId,
+      razorpayPaymentId: paymentId,
       status: 'captured',
+      /* Records HOW this was trusted. The checkout path proves the payment
+         with an HMAC the browser cannot forge; the webhook path is Razorpay
+         telling us directly. Both are verified, and the field says which. */
+      signatureVerified: signatureVerified !== false,
       verifiedBy: source,
+      createdAt: now,
       verifiedAt: now,
       startedAt,
-      expiresAt,
-      createdAt: now
+      expiresAt
     });
 
     tx.set(subRef, {
-      razorpayOrderId: orderId,
       uid,
       email: email || null,
       planId: plan.id,
-      billingPeriod: plan.billingPeriod,
+      planName: plan.name,
+      billingInterval: plan.billingPeriod,
+      billingPeriod: plan.billingPeriod,      /* kept: earlier records use it */
       amount: amountPaise,
       currency,
-      paymentId,
+      razorpayOrderId: orderId,
+      razorpayPaymentId: paymentId,
+      paymentId,                              /* kept for the same reason */
+      paymentStatus: 'captured',
       status: 'active',
       startedAt,
       expiresAt,
       updatedAt: now,
+      verifiedAt: now,
       createdAt: FieldValue.serverTimestamp()
     }, { merge: true });
 
     tx.set(userRef, {
       uid,
       email: email || null,
+      displayName: displayName || null,
+      /* Both names are written: subscriptionStatus is what the spec asks for,
+         activeSubscriptionStatus is what readAccess and the existing records
+         already use. Writing one and reading the other is how a subscription
+         silently stops being recognised. */
+      subscriptionStatus: 'active',
       activeSubscriptionStatus: 'active',
       currentPlanId: plan.id,
       currentSubscriptionId: orderId,
@@ -220,7 +242,8 @@ async function readAccess(uid, now) {
      re-derive it. */
   if (state === 'expired' && u.activeSubscriptionStatus === 'active') {
     await db().collection('users').doc(uid)
-      .set({ activeSubscriptionStatus: 'expired', updatedAt: now }, { merge: true });
+      .set({ activeSubscriptionStatus: 'expired', subscriptionStatus: 'expired', updatedAt: now },
+            { merge: true });
   }
 
   return {

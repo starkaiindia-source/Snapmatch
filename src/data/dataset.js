@@ -195,27 +195,31 @@
         masterModelId: g.mm,
         masterModelName: master ? master.fullName : g.mm,
         masterBrandId: g.mb,
-        compatibleDeviceIds: g.mem,
+        /* The member list is the paid answer and is NOT in this bundle.
+           Anything under assets/ is one unauthenticated GET away, so the
+           public copy carries only the count. The ids come from
+           /api/device-parts, behind a subscription. */
+        compatibleDeviceIds: null,
         compatibleCount: g.cnt,
-        createdOn: null,           /* the export carries no creation date */
-        /* Resolved from ids rather than shipped as text — the names were the
-           single largest field in the export and are already here. */
-        memberNames: g.mem.map(function (id) {
-          return modelById[id] ? modelById[id].fullName : id;
-        })
+        createdOn: null,
+        memberNames: null
       };
     });
 
     var groupById = Object.create(null);
     groups.forEach(function (g) { groupById[g.groupId] = g; });
 
-    /* model -> the groups it belongs to, flattened across categories */
+    /* device -> how many parts it has, per category. Counts are free; which
+       groups they are is what the subscription buys, so the public bundle
+       ships numbers and no ids. groupsByModel keeps its old shape — an array
+       whose LENGTH is right — because the whole UI reads .length off it. */
     var groupsByModel = Object.create(null);
-    Object.keys(bundle.modelGroups).forEach(function (modelId) {
-      var byCat = bundle.modelGroups[modelId];
-      var ids = [];
-      Object.keys(byCat).forEach(function (cat) { ids = ids.concat(byCat[cat]); });
-      groupsByModel[modelId] = ids;
+    var partCounts = bundle.modelGroupCounts || {};
+    Object.keys(partCounts).forEach(function (modelId) {
+      var byCat = partCounts[modelId];
+      var total = 0;
+      Object.keys(byCat).forEach(function (cat) { total += byCat[cat]; });
+      groupsByModel[modelId] = new Array(total);
     });
 
     var links = groups.reduce(function (s, g) { return s + g.memberCount; }, 0);
@@ -233,7 +237,7 @@
       categoryById: categoryById,
       groupById: groupById,
       groupsByModel: groupsByModel,
-      modelGroupsByCategory: bundle.modelGroups,
+      partCountsByCategory: partCounts,
       /* So the UI can state its own limits instead of rendering blank rows. */
       coverage: {
         present: bundle.fieldsPresent,
