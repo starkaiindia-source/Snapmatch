@@ -311,17 +311,61 @@
       return respond({ ok: true, session: current }, LAT.normal);
     },
 
-    /* No payment gateway is connected: this records the purchase against the
-       signed-in identity with real start and expiry dates. */
-    subscribe: function (planId) {
+    /* True once Firebase Auth and the billing API are wired up. Until then the
+       local sample path below runs instead, and the UI says so — a pretend
+       subscription is fine for a prototype and unacceptable once real money is
+       involved, so the two are kept strictly apart. */
+    hasPaymentBackend: function () {
+      return !!(SM.fb && SM.fb.isConfigured() && SM.billing);
+    },
+
+    /* Pulls the SERVER's record of access into the session.
+       The expiry is decided by the server clock, so a device set forward
+       cannot extend a subscription, and localStorage becomes a cache of the
+       server's answer rather than the answer itself. */
+    syncFromServer: function () {
+      if (!this.hasPaymentBackend() || !current.signedIn) return Promise.resolve(current);
+      return SM.billing.status().then(function (data) {
+        var a = data.access || {};
+        SM.auth.saveProfile(current.sub, {
+          subscription: a.expiresAt ? {
+            plan: a.plan,
+            startedAt: a.startedAt,
+            expiresAt: a.expiresAt,
+            cancelledAt: a.state === 'cancelling' ? Date.now() : null,
+            serverState: a.state
+          } : null
+        });
+        refresh();
+        return current;
+      }).catch(function () { return current; });   /* offline keeps the cache */
+    },
+
+    /* Real purchase when the backend is configured; the sample path otherwise.
+       Nothing is activated here on the client's say-so — subscribe() resolves
+       only after /api/verify-payment has confirmed the signature server side,
+       and the state is then re-read from the server. */
+    subscribe: function (planId, onStage) {
       if (!current.signedIn) return respond({ error: 'signin-required' }, LAT.fast);
+
+      if (this.hasPaymentBackend()) {
+        var self = this;
+        return SM.billing.subscribe(planId, onStage).then(function (result) {
+          if (result.state !== 'active') return { ok: false, result: result };
+          return self.syncFromServer().then(function () {
+            return { ok: true, session: current, result: result };
+          });
+        });
+      }
+
+      /* ---- sample path: no gateway configured -------------------------- */
       var days = PLAN_DAYS[planId] || 30;
       var now = Date.now();
       SM.auth.saveProfile(current.sub, {
-        subscription: { plan: planId, startedAt: now, expiresAt: now + days * DAY, cancelledAt: null }
+        subscription: { plan: planId, startedAt: now, expiresAt: now + days * DAY, cancelledAt: null, sample: true }
       });
       refresh();
-      return respond({ ok: true, session: current }, LAT.slow);
+      return respond({ ok: true, session: current, sample: true }, LAT.slow);
     },
 
     /* Cancelling stops the renewal; access runs to the paid-for expiry date

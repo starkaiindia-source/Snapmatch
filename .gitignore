@@ -25,3 +25,9 @@ data/raw/
 
 # PoC output — regenerate with: node scripts/poc-apple.js
 data/build/poc-apple/
+
+# Never commit credentials. Razorpay keys and the Firebase service account
+# live in the Vercel project's environment variables and nowhere else.
+.env
+.env.*
+!.env.example

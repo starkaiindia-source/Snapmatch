@@ -3,6 +3,7 @@
   "builds": [
     { "src": "index.html", "use": "@vercel/static" },
     { "src": "assets/**", "use": "@vercel/static" },
-    { "src": "src/**", "use": "@vercel/static" }
+    { "src": "src/**", "use": "@vercel/static" },
+    { "src": "api/*.js", "use": "@vercel/node" }
   ]
 }

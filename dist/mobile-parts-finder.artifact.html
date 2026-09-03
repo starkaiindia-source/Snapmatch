@@ -2301,6 +2301,345 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 })(window);
 
 
+/* === src/data/firebase.js === */
+/* ============================================================================
+   Mobile Parts Finder · firebase.js — real Firebase Authentication
+   ----------------------------------------------------------------------------
+   Identity for the billing system. Every call to /api/* that can move money or
+   grant access carries a Firebase ID token from here, and the server decides
+   who the caller is by verifying it. A uid sent in a request body would be a
+   free subscription for anyone who can open dev tools, so this is the only way
+   the app names a user.
+
+   CONFIGURATION
+     Fill in FIREBASE_CONFIG below from
+       Firebase console -> Project settings -> General -> Your apps -> SDK setup
+     Those values are PUBLIC by design. They identify the project to the
+     browser; what protects the data is Firestore rules and the authorised-
+     domain list, not secrecy. The service-account key — the dangerous one —
+     stays on the server and never appears in this directory.
+
+     Also add www.mobilepartsfinder.com under
+       Authentication -> Settings -> Authorised domains
+     or the Google popup closes immediately with auth/unauthorized-domain.
+
+   UNCONFIGURED IS A STATE, NOT A CRASH
+     With the config blank, isConfigured() returns false and the UI says so
+     plainly. It does not fall back to a fake sign-in: a pretend identity would
+     let the app show a subscription that no payment backs.
+
+   The SDK is loaded on first use rather than on page load — most visits never
+   sign in, and it is ~200 KB they should not have to pay for.
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  /* <-- paste the web app config here */
+  var FIREBASE_CONFIG = {
+    apiKey: '',
+    authDomain: '',            /* e.g. mobilepartsfinder.firebaseapp.com */
+    projectId: '',             /* e.g. mobilepartsfinder                 */
+    appId: ''
+  };
+
+  var SDK_VERSION = '10.14.1';
+  var SDK = [
+    'https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-app-compat.js',
+    'https://www.gstatic.com/firebasejs/' + SDK_VERSION + '/firebase-auth-compat.js'
+  ];
+
+  var loading = null;
+  var listeners = [];
+  var currentUser = null;
+
+  function isConfigured() {
+    return !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.authDomain && FIREBASE_CONFIG.projectId);
+  }
+
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('could not load ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /* Loads the SDK once and wires the auth listener. Repeat calls share the
+     same promise, so two buttons pressed together do not load it twice. */
+  function ready() {
+    if (!isConfigured()) return Promise.reject(new Error('firebase-not-configured'));
+    if (loading) return loading;
+
+    loading = SDK.reduce(function (chain, src) {
+      return chain.then(function () { return loadScript(src); });
+    }, Promise.resolve()).then(function () {
+      var fb = global.firebase;
+      if (!fb) throw new Error('firebase sdk did not load');
+      if (!fb.apps.length) fb.initializeApp(FIREBASE_CONFIG);
+
+      fb.auth().onAuthStateChanged(function (user) {
+        currentUser = user || null;
+        listeners.forEach(function (fn) {
+          try { fn(currentUser); } catch (e) { /* a listener must not break auth */ }
+        });
+      });
+      return fb;
+    }).catch(function (err) {
+      loading = null;                       /* let a later attempt retry */
+      throw err;
+    });
+
+    return loading;
+  }
+
+  SM.fb = {
+    isConfigured: isConfigured,
+    config: FIREBASE_CONFIG,
+
+    /** Google sign-in. Opens the real account chooser. */
+    signIn: function () {
+      return ready().then(function (fb) {
+        var provider = new fb.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        return fb.auth().signInWithPopup(provider).then(function (result) {
+          return result.user;
+        });
+      });
+    },
+
+    signOut: function () {
+      return ready().then(function (fb) { return fb.auth().signOut(); });
+    },
+
+    user: function () { return currentUser; },
+
+    /**
+     * A fresh ID token for the Authorization header.
+     *
+     * `getIdToken(false)` returns the cached token and refreshes it only when
+     * it is close to expiring, so this is cheap to call before every request —
+     * which is the point. Holding one token for the life of the page means a
+     * long session starts failing with 401s an hour in.
+     */
+    idToken: function () {
+      return ready().then(function (fb) {
+        var u = fb.auth().currentUser;
+        if (!u) return null;
+        return u.getIdToken(false);
+      });
+    },
+
+    /** Fires on sign-in, sign-out and token refresh. Returns an unsubscribe. */
+    onChange: function (fn) {
+      listeners.push(fn);
+      if (currentUser) fn(currentUser);
+      return function () {
+        var i = listeners.indexOf(fn);
+        if (i > -1) listeners.splice(i, 1);
+      };
+    },
+
+    /** Wakes the SDK so a returning session is restored without a click. */
+    restore: function () {
+      if (!isConfigured()) return Promise.resolve(null);
+      return ready().then(function (fb) {
+        return new Promise(function (resolve) {
+          var off = fb.auth().onAuthStateChanged(function (u) { off(); resolve(u || null); });
+        });
+      }).catch(function () { return null; });
+    }
+  };
+})(window);
+
+
+/* === src/data/billing.js === */
+/* ============================================================================
+   Mobile Parts Finder · billing.js — the browser half of the payment flow
+   ----------------------------------------------------------------------------
+   Talks to /api/*, opens Razorpay Checkout, and reports progress. What it
+   deliberately does NOT do is decide anything.
+
+   THE RULE THIS FILE EXISTS TO ENFORCE
+
+     A subscription becomes active because the SERVER said so, never because
+     Checkout's success callback fired. That callback runs in the page, and
+     anything running in the page can be run by hand from the console. So the
+     handler does not unlock anything — it posts the payment to
+     /api/verify-payment and waits. The signature is checked there, against a
+     secret this file has never seen, and access follows from that answer alone.
+
+   WHY THE STATUS IS RE-FETCHED AFTERWARDS
+
+     Even the verify response is not treated as the final word on access.
+     `status()` re-reads /api/subscription, so what the UI shows is always the
+     server's current record — including the case where the webhook activated
+     the subscription first and the browser's own verify call arrived second.
+
+   PAYMENT CANNOT ONLY SUCCEED
+
+     Checkout has three exits and all three are handled: success, an explicit
+     failure event, and the user dismissing the modal. That last one used to be
+     the bug in every integration — the promise simply never settles and the
+     button spins forever — so `ondismiss` resolves with a cancelled state.
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  var CHECKOUT_SDK = 'https://checkout.razorpay.com/v1/checkout.js';
+  var checkoutLoading = null;
+
+  function loadCheckout() {
+    if (global.Razorpay) return Promise.resolve();
+    if (checkoutLoading) return checkoutLoading;
+    checkoutLoading = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = CHECKOUT_SDK;
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('checkout-unavailable')); };
+      document.head.appendChild(s);
+    }).catch(function (e) { checkoutLoading = null; throw e; });
+    return checkoutLoading;
+  }
+
+  /* Every authenticated call goes through here so the token is always fresh
+     and a 401 always means the same thing. */
+  function apiFetch(path, options) {
+    options = options || {};
+    return SM.fb.idToken().then(function (token) {
+      if (!token) throw new Error('signin-required');
+      return fetch(path, {
+        method: options.method || 'GET',
+        headers: Object.assign({
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json'
+        }, options.headers || {}),
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) {
+          var err = new Error(data.error || ('http ' + res.status));
+          err.status = res.status;
+          err.data = data;
+          throw err;
+        }
+        return data;
+      });
+    });
+  }
+
+  SM.billing = {
+    /** Public pricing. No auth — a signed-out visitor must see the price. */
+    plans: function () {
+      return fetch('/api/plans').then(function (r) { return r.json(); });
+    },
+
+    /** The server's record of this account's access. The only source of truth. */
+    status: function () {
+      return apiFetch('/api/subscription');
+    },
+
+    cancel: function () {
+      return apiFetch('/api/cancel-subscription', { method: 'POST' });
+    },
+
+    /**
+     * Runs the whole purchase.
+     *
+     * @param {string} planId
+     * @param {(stage:string, detail?:object) => void} [onStage]
+     *        creating-order | opening-checkout | verifying |
+     *        active | failed | cancelled
+     * @returns {Promise<{state:string, [key:string]:any}>}
+     *          Resolves for a cancellation too — a dismissed modal is an
+     *          outcome, not an exception.
+     */
+    subscribe: function (planId, onStage) {
+      var stage = onStage || function () {};
+
+      return SM.fb.idToken().then(function (token) {
+        if (!token) throw new Error('signin-required');
+
+        stage('creating-order');
+        return Promise.all([
+          apiFetch('/api/create-order', { method: 'POST', body: { planId: planId } }),
+          loadCheckout()
+        ]);
+      }).then(function (results) {
+        var order = results[0];
+
+        return new Promise(function (resolve, reject) {
+          var settled = false;
+          var finish = function (v) { if (!settled) { settled = true; resolve(v); } };
+
+          var rzp = new global.Razorpay({
+            key: order.keyId,              /* public key id, never the secret */
+            amount: order.amount,
+            currency: order.currency,
+            order_id: order.orderId,
+            name: 'Mobile Parts Finder',
+            description: order.planName + ' subscription',
+            prefill: order.prefill || {},
+            theme: { color: '#0E7A6C' },
+
+            /* Success here means Checkout finished — NOT that access is
+               granted. That is decided by the server, below. */
+            handler: function (response) {
+              stage('verifying');
+              apiFetch('/api/verify-payment', {
+                method: 'POST',
+                body: {
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature
+                }
+              }).then(function (verified) {
+                stage('active', verified);
+                finish({ state: 'active', ...verified });
+              }).catch(function (err) {
+                /* The money may well have left the account — the webhook will
+                   reconcile it — so this says "could not confirm", not
+                   "payment failed". */
+                stage('failed', { reason: err.message, recoverable: true });
+                finish({
+                  state: 'verification-failed',
+                  reason: err.message,
+                  paymentId: response.razorpay_payment_id
+                });
+              });
+            },
+
+            modal: {
+              /* Without this the promise never settles when the user closes
+                 the sheet, and the button spins for ever. */
+              ondismiss: function () {
+                stage('cancelled');
+                finish({ state: 'cancelled' });
+              }
+            }
+          });
+
+          rzp.on('payment.failed', function (resp) {
+            var d = (resp && resp.error) || {};
+            stage('failed', { reason: d.description, code: d.code });
+            finish({ state: 'failed', reason: d.description || 'payment failed', code: d.code || null });
+          });
+
+          stage('opening-checkout');
+          rzp.open();
+        });
+      });
+    }
+  };
+})(window);
+
+
 /* === src/data/auth.js === */
 /* ============================================================================
    Mobile Parts Finder · auth.js — Google Sign-In + shop profile store
@@ -2772,17 +3111,61 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return respond({ ok: true, session: current }, LAT.normal);
     },
 
-    /* No payment gateway is connected: this records the purchase against the
-       signed-in identity with real start and expiry dates. */
-    subscribe: function (planId) {
+    /* True once Firebase Auth and the billing API are wired up. Until then the
+       local sample path below runs instead, and the UI says so — a pretend
+       subscription is fine for a prototype and unacceptable once real money is
+       involved, so the two are kept strictly apart. */
+    hasPaymentBackend: function () {
+      return !!(SM.fb && SM.fb.isConfigured() && SM.billing);
+    },
+
+    /* Pulls the SERVER's record of access into the session.
+       The expiry is decided by the server clock, so a device set forward
+       cannot extend a subscription, and localStorage becomes a cache of the
+       server's answer rather than the answer itself. */
+    syncFromServer: function () {
+      if (!this.hasPaymentBackend() || !current.signedIn) return Promise.resolve(current);
+      return SM.billing.status().then(function (data) {
+        var a = data.access || {};
+        SM.auth.saveProfile(current.sub, {
+          subscription: a.expiresAt ? {
+            plan: a.plan,
+            startedAt: a.startedAt,
+            expiresAt: a.expiresAt,
+            cancelledAt: a.state === 'cancelling' ? Date.now() : null,
+            serverState: a.state
+          } : null
+        });
+        refresh();
+        return current;
+      }).catch(function () { return current; });   /* offline keeps the cache */
+    },
+
+    /* Real purchase when the backend is configured; the sample path otherwise.
+       Nothing is activated here on the client's say-so — subscribe() resolves
+       only after /api/verify-payment has confirmed the signature server side,
+       and the state is then re-read from the server. */
+    subscribe: function (planId, onStage) {
       if (!current.signedIn) return respond({ error: 'signin-required' }, LAT.fast);
+
+      if (this.hasPaymentBackend()) {
+        var self = this;
+        return SM.billing.subscribe(planId, onStage).then(function (result) {
+          if (result.state !== 'active') return { ok: false, result: result };
+          return self.syncFromServer().then(function () {
+            return { ok: true, session: current, result: result };
+          });
+        });
+      }
+
+      /* ---- sample path: no gateway configured -------------------------- */
       var days = PLAN_DAYS[planId] || 30;
       var now = Date.now();
       SM.auth.saveProfile(current.sub, {
-        subscription: { plan: planId, startedAt: now, expiresAt: now + days * DAY, cancelledAt: null }
+        subscription: { plan: planId, startedAt: now, expiresAt: now + days * DAY, cancelledAt: null, sample: true }
       });
       refresh();
-      return respond({ ok: true, session: current }, LAT.slow);
+      return respond({ ok: true, session: current, sample: true }, LAT.slow);
     },
 
     /* Cancelling stops the renewal; access runs to the paid-for expiry date
@@ -5608,13 +5991,48 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           break;
         }
         t.disabled = true;
-        t.innerHTML = icon('refresh') + 'Activating…';
-        S.subscribe(id).then(function () {
+        var restoreCta = t.innerHTML;
+        var live = S.hasPaymentBackend && S.hasPaymentBackend();
+
+        /* Each stage is shown on the button itself. A payment that looks frozen
+           is the fastest way to make someone pay twice, so "Verifying…" has to
+           be visible for the second or two the server takes. */
+        var STAGE_LABEL = {
+          'creating-order':   'Preparing…',
+          'opening-checkout': 'Opening payment…',
+          'verifying':        'Verifying payment…'
+        };
+        var onStage = function (stage) {
+          if (STAGE_LABEL[stage]) t.innerHTML = icon('refresh') + STAGE_LABEL[stage];
+        };
+
+        t.innerHTML = icon('refresh') + (live ? 'Preparing…' : 'Activating…');
+
+        S.subscribe(id, onStage).then(function (r) {
+          /* A cancelled or failed payment must put the button back — the user
+             is still on the pricing page and will want to try again. */
+          if (r && r.ok === false) {
+            t.disabled = false;
+            t.innerHTML = restoreCta;
+            var st = (r.result && r.result.state) || 'failed';
+            if (st === 'cancelled') toast('Payment cancelled', 'alert');
+            else if (st === 'verification-failed') {
+              toast('Payment taken but not yet confirmed — it will activate shortly', 'alert');
+            } else {
+              toast((r.result && r.result.reason) || 'Payment failed', 'alert');
+            }
+            return;
+          }
           renderShellBits();
-          toast('Plan active — no payment was taken');
+          toast(live ? 'Payment verified — plan active' : 'Plan active — no payment was taken');
           /* the hash may already be #/account, which would not re-render */
           if (location.hash.indexOf('#/account') === 0) renderAccount(document.getElementById('page'));
           else go('#/account');
+        }).catch(function (err) {
+          t.disabled = false;
+          t.innerHTML = restoreCta;
+          toast(err && err.message === 'signin-required'
+            ? 'Sign in to activate a plan' : 'Could not start payment', 'alert');
         });
         break;
       case 'edit-profile': {

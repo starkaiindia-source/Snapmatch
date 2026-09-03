@@ -2081,13 +2081,48 @@
           break;
         }
         t.disabled = true;
-        t.innerHTML = icon('refresh') + 'Activating…';
-        S.subscribe(id).then(function () {
+        var restoreCta = t.innerHTML;
+        var live = S.hasPaymentBackend && S.hasPaymentBackend();
+
+        /* Each stage is shown on the button itself. A payment that looks frozen
+           is the fastest way to make someone pay twice, so "Verifying…" has to
+           be visible for the second or two the server takes. */
+        var STAGE_LABEL = {
+          'creating-order':   'Preparing…',
+          'opening-checkout': 'Opening payment…',
+          'verifying':        'Verifying payment…'
+        };
+        var onStage = function (stage) {
+          if (STAGE_LABEL[stage]) t.innerHTML = icon('refresh') + STAGE_LABEL[stage];
+        };
+
+        t.innerHTML = icon('refresh') + (live ? 'Preparing…' : 'Activating…');
+
+        S.subscribe(id, onStage).then(function (r) {
+          /* A cancelled or failed payment must put the button back — the user
+             is still on the pricing page and will want to try again. */
+          if (r && r.ok === false) {
+            t.disabled = false;
+            t.innerHTML = restoreCta;
+            var st = (r.result && r.result.state) || 'failed';
+            if (st === 'cancelled') toast('Payment cancelled', 'alert');
+            else if (st === 'verification-failed') {
+              toast('Payment taken but not yet confirmed — it will activate shortly', 'alert');
+            } else {
+              toast((r.result && r.result.reason) || 'Payment failed', 'alert');
+            }
+            return;
+          }
           renderShellBits();
-          toast('Plan active — no payment was taken');
+          toast(live ? 'Payment verified — plan active' : 'Plan active — no payment was taken');
           /* the hash may already be #/account, which would not re-render */
           if (location.hash.indexOf('#/account') === 0) renderAccount(document.getElementById('page'));
           else go('#/account');
+        }).catch(function (err) {
+          t.disabled = false;
+          t.innerHTML = restoreCta;
+          toast(err && err.message === 'signin-required'
+            ? 'Sign in to activate a plan' : 'Could not start payment', 'alert');
         });
         break;
       case 'edit-profile': {

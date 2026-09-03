@@ -29,3 +29,10 @@
 # Tooling
 /.claude/
 /README.md
+
+# Vercel installs dependencies itself from package.json; uploading the local
+# tree would be slow and could ship a platform-specific build.
+/node_modules/
+
+# Tests run in CI and locally, not in a function bundle.
+/api/_lib/*.test.js
