@@ -1,8 +1,8 @@
 /* ============================================================================
    Mobile Parts Finder · build.js
    Inlines the CSS and JS sources into two single-file bundles:
-     dist/snapmatch.html          — full standalone page (open directly)
-     dist/snapmatch.artifact.html — body-fragment build for publishing
+     dist/mobile-parts-finder.html          — full standalone page (open directly)
+     dist/mobile-parts-finder.artifact.html — body-fragment build for publishing
    No minifier, no dependencies: run `node build.js`.
    ========================================================================== */
 const fs = require('fs');
@@ -44,7 +44,7 @@ ${js}
 fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
 
 fs.writeFileSync(
-  path.join(root, 'dist/snapmatch.html'),
+  path.join(root, 'dist/mobile-parts-finder.html'),
   `<!doctype html>
 <html lang="en">
 <head>
@@ -63,12 +63,12 @@ ${bodyContent}
 /* Artifact build: no doctype/html/head/body wrappers — those are added at
    publish time. Everything else is identical. */
 fs.writeFileSync(
-  path.join(root, 'dist/snapmatch.artifact.html'),
+  path.join(root, 'dist/mobile-parts-finder.artifact.html'),
   `${head}
 ${bodyContent}
 `
 );
 
 const kb = (p) => (fs.statSync(path.join(root, p)).size / 1024).toFixed(0) + ' KB';
-console.log('built dist/snapmatch.html          ' + kb('dist/snapmatch.html'));
-console.log('built dist/snapmatch.artifact.html ' + kb('dist/snapmatch.artifact.html'));
+console.log('built dist/mobile-parts-finder.html          ' + kb('dist/mobile-parts-finder.html'));
+console.log('built dist/mobile-parts-finder.artifact.html ' + kb('dist/mobile-parts-finder.artifact.html'));

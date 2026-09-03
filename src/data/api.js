@@ -189,7 +189,7 @@
      Because the derivation reads the clock, expiry happens on its own — there
      is no state for anyone to flip by hand.
      ========================================================================== */
-  var SESSION_KEY = 'snapmatch.session.v2';
+  var SESSION_KEY = 'mpf.session.v2';
   var DAY = 86400000;
   var PLAN_DAYS = { monthly: 30, yearly: 365 };
 

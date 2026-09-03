@@ -8,7 +8,7 @@
 
   /* ------------------------------------------------------------------ state */
   var state = {
-    theme: store('snapmatch.theme') || 'system',
+    theme: store('mpf.theme') || 'system',
     route: { name: 'finder', params: {} },
     base: '#/finder',
     finder: {
@@ -41,7 +41,7 @@
     var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     var now = state.theme === 'system' ? (sysDark ? 'dark' : 'light') : state.theme;
     state.theme = now === 'dark' ? 'light' : 'dark';
-    store('snapmatch.theme', state.theme);
+    store('mpf.theme', state.theme);
     applyTheme(); renderShellBits();
   }
 
@@ -269,7 +269,7 @@
   }
 
   /* ------------------------------------------------------- recent searches */
-  var RECENT_KEY = 'snapmatch.recent.v1';
+  var RECENT_KEY = 'mpf.recent.v1';
   var RECENT_SEED = ['Samsung Galaxy A55 5G', 'Redmi Note 13 Pro', 'Vivo V40', 'OPPO Reno 12', 'Apple iPhone 15'];
 
   function loadRecent() {

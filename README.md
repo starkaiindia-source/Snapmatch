@@ -27,8 +27,8 @@ To produce the single-file bundles:
 node build.js
 ```
 
-- `dist/snapmatch.html` — standalone page, open it directly in any browser
-- `dist/snapmatch.artifact.html` — same page as a body fragment, for publishing
+- `dist/mobile-parts-finder.html` — standalone page, open it directly in any browser
+- `dist/mobile-parts-finder.artifact.html` — same page as a body fragment, for publishing
 
 ---
 
@@ -132,6 +132,44 @@ payment gateway is connected and nothing is charged.**
 
 ---
 
+## Deployment
+
+Static hosting on Vercel, redeployed automatically on every push to `main`.
+
+`vercel.json` is the important file. It declares the three static roots and
+nothing else:
+
+```json
+{ "version": 2, "builds": [ { "src": "index.html", "use": "@vercel/static" }, ... ] }
+```
+
+Declaring `builds` switches Vercel's framework auto-detection **off**. That
+matters: the local preview server used to live at the repo root as
+`server.js`, Vercel detected it as a Node entrypoint and routed the entire
+site through it as a serverless function. Only `index.html` was bundled into
+that function, so every stylesheet and script 404'd and the site rendered
+blank. The preview server now lives at `scripts/dev-server.js`, where nothing
+detects it.
+
+Three things to know before editing the deployment config:
+
+- **`vercel.json` allows no unknown keys.** Its schema
+  (<https://openapi.vercel.sh/vercel.json>) sets `"additionalProperties": false`,
+  so a `"//"` comment key makes the whole file invalid. Vercel then fails the
+  build and leaves the previous deployment in production — the site does not
+  change, and nothing about the live response says why. Keep notes here, not
+  in the JSON.
+- **`buildCommand: null` does not mean "no build".** The schema defines `null`
+  as *automatically detected*, which is the detection this setup exists to
+  avoid. `builds` is what turns detection off.
+- **`.vercelignore` follows `.gitignore` matching**, so a bare `data/` also
+  excludes `src/data/`. Anchor every pattern with a leading slash.
+
+`.vercelignore` keeps the generated dataset off the site as well: `data/build/`
+holds the part numbers and fitment lists the subscription pays for.
+`assets/search-index.json` stays deployed on purpose — it is the free
+catalogue and carries no paid fields.
+
 ## Design notes
 
 - **Palette** — bench ink `#0A1512`, signal teal `#0F766E → #10D0A8` (primary),
@@ -197,7 +235,7 @@ back; blur/Escape/selection closes the panel.
 The search is rendered twice — once in the header (`#qh`, desktop) and once in
 the hero (`#q`, mobile/tablet). Only one is ever visible, both write to
 `state.finder.query`, and each owns its own suggestion slot. Recent searches are
-kept in `localStorage` (`snapmatch.recent.v1`), seeded with five common models
+kept in `localStorage` (`mpf.recent.v1`), seeded with five common models
 so the row is never empty.
 
 Below 1180px the **same markup** collapses back to the original single-column

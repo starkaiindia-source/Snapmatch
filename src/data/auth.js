@@ -5,7 +5,7 @@
      Set GOOGLE_CLIENT_ID below to an OAuth 2.0 Web client ID from
      Google Cloud Console (APIs & Services -> Credentials), with the deployed
      origin added under "Authorised JavaScript origins", e.g.
-        https://starkaiindia-source.github.io
+        https://www.mobilepartsfinder.com
      The moment that constant is filled in, SM.auth.signIn() loads Google
      Identity Services and opens the real account chooser showing the Google
      accounts already signed in on the device. Nothing else needs changing.
@@ -25,11 +25,34 @@
   'use strict';
   var SM = (global.SM = global.SM || {});
 
+  /* ---------------------------------------------------------------- storage
+     The rebrand renamed every key snapmatch.* -> mpf.*. Carry anything saved
+     under an old key across once so a returning browser keeps its theme,
+     recent searches, shop profile and subscription. auth.js loads before
+     api.js and app.js, so this runs before the first read. Safe to delete a
+     release or two from now. */
+  (function migrateStorageKeys() {
+    var moved = {
+      'snapmatch.theme':       'mpf.theme',
+      'snapmatch.recent.v1':   'mpf.recent.v1',
+      'snapmatch.profiles.v1': 'mpf.profiles.v1',
+      'snapmatch.session.v2':  'mpf.session.v2'
+    };
+    try {
+      Object.keys(moved).forEach(function (old) {
+        var v = localStorage.getItem(old);
+        if (v === null) return;
+        if (localStorage.getItem(moved[old]) === null) localStorage.setItem(moved[old], v);
+        localStorage.removeItem(old);
+      });
+    } catch (e) { /* private mode */ }
+  }());
+
   var GOOGLE_CLIENT_ID = '';                 /* <-- paste the client ID here */
   var VERIFY_ENDPOINT = '';                  /* <-- backend token verifier    */
   var GSI_SRC = 'https://accounts.google.com/gsi/client';
 
-  var PROFILE_KEY = 'snapmatch.profiles.v1';
+  var PROFILE_KEY = 'mpf.profiles.v1';
 
   function readStore() {
     try { return JSON.parse(localStorage.getItem(PROFILE_KEY)) || {}; }
