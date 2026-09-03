@@ -1557,6 +1557,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .input{ min-height:44px; }
   .plate__cta{ min-height:40px; }
   .dsw{ width:38px; height:38px; }
+  /* The breadcrumb is the back route on a phone — 22px tall is a miss. */
+  .crumbs button{ min-height:40px; padding-inline:2px; }
 }
 
 /* ============================================================================
@@ -1625,6 +1627,213 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .brandcard__lead b{ font-size:26px; }
   .brandcard__split{ gap:8px; }
   .bcs{ font-size:11px; }
+}
+
+/* ============================================================================
+   BRAND MODEL PAGE — header, controls, and three views
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ header */
+.bhead{
+  display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  padding:16px; margin-bottom:14px;
+}
+.bhead__id{ display:flex; align-items:center; gap:13px; min-width:0; }
+.bhead__n{
+  font-family:var(--f-display); font-weight:800; font-size:22px;
+  letter-spacing:-.03em; margin:0; color:var(--ink);
+}
+.bhead__c{ margin:2px 0 0; font-size:12.5px; color:var(--ink-3); }
+/* Search and the view switch sit together on the right, as one tool group. */
+.bhead__tools{ display:flex; align-items:center; gap:10px; margin-left:auto; flex-wrap:wrap; }
+.bhead__q{ min-width:min(260px, 100%); }
+
+/* View switch: three icons, not three words. The name is on the tooltip and
+   the aria-label, so the control keeps its width in any language. */
+.vswitch{
+  display:flex; gap:2px; padding:3px; flex:none;
+  background:var(--surface-3); border:1px solid var(--line); border-radius:11px;
+}
+.vswitch__b{
+  display:grid; place-items:center; width:36px; height:34px; padding:0;
+  border:0; border-radius:8px; background:transparent; color:var(--ink-3); cursor:pointer;
+  transition:background .15s, color .15s;
+}
+.vswitch__b svg{ width:17px; height:17px; }
+.vswitch__b:hover{ color:var(--ink-2); background:var(--surface); }
+.vswitch__b.is-on{ background:var(--surface); color:var(--teal-700); box-shadow:var(--sh-1); }
+.vswitch__b:focus-visible{ outline:2px solid var(--teal-500); outline-offset:1px; }
+
+/* ---------------------------------------------------------------- controls */
+.bctl{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+.fsel{ position:relative; display:inline-flex; }
+.fsel__l{
+  position:absolute; left:11px; top:-7px; padding:0 4px; z-index:1;
+  background:var(--paper); font-size:9.5px; font-weight:800; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--ink-3); pointer-events:none;
+}
+.fsel select{
+  appearance:none; -webkit-appearance:none;
+  min-height:40px; padding:0 30px 0 11px;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:10px;
+  font:inherit; font-size:13px; font-weight:600; cursor:pointer;
+  /* chevron drawn in CSS so it inherits the theme ink colour */
+  background-image:linear-gradient(45deg, transparent 50%, currentColor 50%),
+                   linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:calc(100% - 15px) 18px, calc(100% - 11px) 18px;
+  background-size:4px 4px, 4px 4px;
+  background-repeat:no-repeat;
+}
+.fsel select:hover{ border-color:var(--ink-3); }
+.fsel select:focus-visible{ outline:2px solid var(--teal-500); outline-offset:1px; }
+/* An applied filter must be visible at a glance, or a shortened list reads as
+   missing data rather than as a filtered one. */
+.fsel.is-set select{ border-color:var(--teal-500); color:var(--teal-700); font-weight:700; }
+.bctl__clear{ margin-left:auto; }
+.bcount{ font-size:12.5px; color:var(--ink-3); margin:0 0 12px; font-variant-numeric:tabular-nums; }
+
+/* ------------------------------------------------------- shared device art */
+.dvc{ display:block; width:auto; height:100%; filter:drop-shadow(0 6px 12px rgba(0,0,0,.22)); }
+.dvc--xs{ height:30px; filter:none; }
+
+/* --------------------------------------------------------------- grid view */
+.dgrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+@media (min-width:560px){ .dgrid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (min-width:900px){ .dgrid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (min-width:1280px){ .dgrid{ grid-template-columns:repeat(5,minmax(0,1fr)); } }
+
+.dcard{
+  display:flex; flex-direction:column; text-align:left; padding:0; overflow:hidden;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  cursor:pointer; transition:transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s, border-color .18s;
+}
+.dcard:hover{ transform:translateY(-3px); box-shadow:var(--sh-2); border-color:var(--teal-500); }
+.dcard:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+/* The device image leads — showing it instead of a repeated brand logo is the
+   whole reason this view exists. */
+.dcard__shot{
+  display:grid; place-items:center; height:132px; padding:14px 10px;
+  background:radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%), var(--surface-2);
+  border-bottom:1px solid var(--line);
+}
+.dcard__b{ display:flex; flex-direction:column; gap:5px; padding:11px 12px 13px; min-width:0; }
+.dcard__n{
+  font-weight:700; font-size:13.5px; color:var(--ink); line-height:1.25;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.dcard__m{ font-size:11.5px; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+.dcard__t{ display:flex; gap:5px; flex-wrap:wrap; margin-top:2px; }
+
+.tag{
+  font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+  padding:2.5px 7px; border-radius:99px;
+  background:var(--surface-3); color:var(--ink-3); white-space:nowrap;
+}
+.tag--curved{ background:var(--teal-100); color:var(--teal-700); }
+.tag--parts{ background:var(--teal-100); color:var(--teal-700); }
+
+/* --------------------------------------------------------------- list view */
+.dlist{ display:flex; flex-direction:column; gap:8px; }
+.drow{
+  display:flex; align-items:center; gap:13px; text-align:left; width:100%;
+  padding:10px 13px; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); cursor:pointer; transition:border-color .15s, background .15s;
+}
+.drow:hover{ border-color:var(--teal-500); background:var(--surface-2); }
+.drow:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+.drow__shot{ display:grid; place-items:center; width:38px; height:52px; flex:none; }
+.drow__main{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.drow__n{
+  font-weight:700; font-size:14px; color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.drow__m{
+  font-size:12px; color:var(--ink-3);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.drow__side{ display:flex; align-items:center; gap:8px; flex:none; }
+.drow__y{ font-size:12px; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+
+/* -------------------------------------------------------------- table view */
+.dtable-wrap{
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r-lg); overflow:hidden;
+}
+.dtable{ width:100%; border-collapse:collapse; font-size:13px; }
+.dtable th{
+  text-align:left; padding:10px 13px; white-space:nowrap;
+  background:var(--surface-2); border-bottom:1px solid var(--line);
+  font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink-3);
+}
+.dtable td{
+  padding:9px 13px; border-bottom:1px solid var(--line);
+  color:var(--ink-2); vertical-align:middle; white-space:nowrap;
+}
+.dtable tbody tr{ cursor:pointer; transition:background .12s; }
+.dtable tbody tr:hover{ background:var(--surface-2); }
+.dtable tbody tr:focus-visible{ outline:2px solid var(--teal-500); outline-offset:-2px; }
+.dtable tbody tr:last-child td{ border-bottom:0; }
+.tcell-dev{ display:flex; align-items:center; gap:10px; font-weight:700; color:var(--ink); }
+.c-device{ min-width:190px; }
+
+/* Columns drop from the least useful end as the viewport narrows, so the table
+   never needs a horizontal scrollbar. Hiding in CSS rather than in JS means a
+   resize costs nothing — there is no re-render. */
+@media (max-width:1499px){ .dtable .c-res{ display:none; } }
+@media (max-width:1399px){ .dtable .c-camera{ display:none; } }
+@media (max-width:1279px){ .dtable .c-ram, .dtable .c-storage{ display:none; } }
+@media (max-width:1099px){ .dtable .c-chipset{ display:none; } }
+@media (max-width:999px){ .dtable .c-network{ display:none; } }
+
+/* Below 900 the table stops being a table. A grid this wide on a phone can
+   only scroll sideways, which hides exactly the column someone is looking for,
+   so each row becomes a card and every cell carries its own label. */
+@media (max-width:899px){
+  .dtable thead{ display:none; }
+  .dtable, .dtable tbody, .dtable tr, .dtable td{ display:block; width:100%; }
+  .dtable-wrap{ background:transparent; border:0; border-radius:0; }
+  .dtable tr{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+    margin-bottom:8px; padding:6px 2px;
+  }
+  .dtable td{
+    display:flex; justify-content:space-between; align-items:center; gap:14px;
+    border-bottom:0; padding:6px 13px; white-space:normal;
+  }
+  .dtable td::before{
+    content:attr(data-label);
+    font-size:10.5px; font-weight:800; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--ink-3); flex:none;
+  }
+  .dtable .c-device{ min-width:0; padding-top:9px; }
+  .dtable .c-device::before{ display:none; }     /* the name is its own label */
+  .dtable .c-battery, .dtable .c-chipset, .dtable .c-network,
+  .dtable .c-ram, .dtable .c-storage{ display:flex; }
+}
+
+/* ------------------------------------------------------------ small screens */
+@media (max-width:640px){
+  .bhead{ padding:13px; gap:12px; }
+  .bhead__tools{ width:100%; margin-left:0; }
+  .bhead__q{ flex:1; min-width:0; }
+  .bhead__n{ font-size:19px; }
+  /* the filter bar scrolls sideways rather than stacking into a wall */
+  .bctl{
+    flex-wrap:nowrap; overflow-x:auto; padding:8px 0 4px;
+    scrollbar-width:none; -webkit-overflow-scrolling:touch;
+  }
+  .bctl::-webkit-scrollbar{ display:none; }
+  .fsel select{ min-height:44px; }
+  .bctl__clear{ margin-left:0; flex:none; }
+  .dcard__shot{ height:112px; }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .dcard, .drow, .vswitch__b, .dtable tbody tr{ transition:none; }
+  .dcard:hover{ transform:none; }
 }
 
 </style>
@@ -3812,6 +4021,77 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return d.firstChild;
     },
 
+    /* Draws the DEVICE, not its brand.
+       There is no product photography in the sample data, and a stock photo of
+       the wrong handset is worse than a drawing — so each device is rendered
+       from its own numbers: true aspect ratio from the screen resolution, a
+       corner radius by tier, the camera treatment its brand and year actually
+       use, and the finish the viewer picked. Every model therefore looks
+       different from its siblings, which is the whole point of showing a
+       device image instead of repeating one brand logo down a grid.
+
+       A tablet and a watch get their own silhouette; running them through the
+       phone proportions makes an iPad look like a very tall phone.
+
+       @param {object} m            the device
+       @param {number} [colourIdx]  which finish
+       @param {string} [cls]        extra classes on the wrapper
+       @param {boolean} [flat]      draw without the wrapper (grid thumbnails) */
+    device: function (m, colourIdx, cls) {
+      var sp = m.specs || {};
+      var col = (sp.colors && sp.colors[colourIdx || 0]) || { n: 'Black', h: '#15171A' };
+      var type = m.deviceType || 'phone';
+
+      var res = String(m.screenResolution || '').match(/(\d+)\s*x\s*(\d+)/);
+      var pw = res ? Number(res[1]) : 1080;
+      var ph = res ? Number(res[2]) : 2340;
+      var ratio = ph / pw;
+      if (type === 'tablet') ratio = 1.42;          /* tablets are far squarer */
+      if (type === 'watch') ratio = 1.18;           /* and a watch is nearly square */
+
+      var W = 150;
+      var H = Math.round(W * ratio);
+      var pad = type === 'watch' ? 8 : 6;
+      var radius = type === 'watch' ? 34 : type === 'tablet' ? 12 : (m.tier === 'flag' ? 22 : 18);
+
+      /* A pale finish needs an outline or it disappears against the light chip. */
+      var lum = parseInt(col.h.slice(1, 3), 16) * 0.299 +
+                parseInt(col.h.slice(3, 5), 16) * 0.587 +
+                parseInt(col.h.slice(5, 7), 16) * 0.114;
+      var outline = lum > 190 ? ' stroke="rgba(0,0,0,.22)" stroke-width="1"' : '';
+
+      var uid = 'dg' + Math.random().toString(36).slice(2, 8);
+      var camera = type !== 'phone' ? ''
+        : (m.brandId === 'apple' && m.releaseYear >= 2022)
+          ? '<rect x="' + (W / 2 - 17) + '" y="' + (pad + 6) + '" width="34" height="11" rx="5.5" fill="#05090A"/>'
+          : '<circle cx="' + (W / 2) + '" cy="' + (pad + 12) + '" r="4.4" fill="#05090A"/>';
+
+      /* the strap makes a watch read as a watch at thumbnail size */
+      var strap = type !== 'watch' ? '' :
+        '<rect x="' + (W * 0.3) + '" y="' + (-H * 0.16) + '" width="' + (W * 0.4) + '" height="' + (H * 0.2) +
+        '" rx="6" fill="' + esc(col.h) + '" opacity=".75"/>' +
+        '<rect x="' + (W * 0.3) + '" y="' + (H * 0.96) + '" width="' + (W * 0.4) + '" height="' + (H * 0.2) +
+        '" rx="6" fill="' + esc(col.h) + '" opacity=".75"/>';
+
+      var vb = type === 'watch'
+        ? ('0 ' + (-H * 0.18) + ' ' + W + ' ' + (H * 1.36))
+        : ('0 0 ' + W + ' ' + H);
+
+      return '<svg class="dvc ' + (cls || '') + '" viewBox="' + vb + '" role="img" ' +
+        'aria-label="' + esc(m.fullName) + ' in ' + esc(col.n) + '">' +
+        '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="1" y2="1">' +
+        '<stop offset="0" stop-color="#fff" stop-opacity=".28"/>' +
+        '<stop offset=".45" stop-color="#fff" stop-opacity=".04"/>' +
+        '<stop offset="1" stop-color="#000" stop-opacity=".18"/></linearGradient></defs>' +
+        strap +
+        '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="' + radius + '" fill="' + esc(col.h) + '"' + outline + '/>' +
+        '<rect x="' + pad + '" y="' + pad + '" width="' + (W - pad * 2) + '" height="' + (H - pad * 2) +
+        '" rx="' + Math.max(2, radius - 5) + '" fill="#0B1211"/>' +
+        '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="' + radius + '" fill="url(#' + uid + ')"/>' +
+        camera +
+        '</svg>';
+    },
+
     /* Delegates to SM.brandLogo, which owns the file -> vector -> wordmark
        order. Kept as an alias because callers and docs already use it. */
     brand: function (brand, cls) { return SM.brandLogo(brand, cls); }
@@ -4145,7 +4425,15 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       filters: { q: '', brandId: 'all', catId: 'all', sort: 'default' },
       page: 1, rows: [], total: 0, hasMore: false, busy: false
     },
-    models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false },
+    models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
+      /* View state, not query state: the same records are already in memory,
+         so a dropdown change re-renders instead of re-fetching. The chosen
+         view is remembered because it is a working preference, not a session
+         detail — someone who prefers the table wants it next time too. */
+      view: store('mpf.modelview') || 'grid',
+      sort: 'newest',
+      filters: { deviceType: '', curve: '', year: '', size: '', fiveG: '', minRam: '', minStorage: '', minBattery: '' }
+    },
     recent: [],
     brandQ: '',
     suggest: { open: false, q: '', items: [], cursor: -1 },
@@ -4922,46 +5210,303 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     });
   }
 
+  /* ==========================================================================
+     PAGE · BRAND MODELS  (#/models/<brandId>)
+
+     One list of devices, shown three ways. The view is a real choice, not a
+     decoration: a shop owner scanning for a shape wants the grid, one checking
+     a spec across models wants the table, and a phone screen wants neither —
+     so the table collapses into stacked cards below 900px rather than becoming
+     a sideways scroll.
+
+     Filters use native <select>. A custom dropdown would need its own keyboard
+     handling, focus trap, touch targets and two themes' worth of styling, and
+     would still be worse on a phone than the one the OS already ships.
+     ========================================================================== */
+
+  /* Which columns survive at which width. Priority order is the order a
+     repair decision actually needs them, so dropping from the right always
+     drops the least useful column first. */
+  var TABLE_COLS = [
+    { k: 'device',  label: 'Device',     min: 0 },
+    { k: 'size',    label: 'Display',    min: 0 },
+    { k: 'curve',   label: 'Screen',     min: 700 },
+    { k: 'year',    label: 'Released',   min: 560 },
+    { k: 'groups',  label: 'Parts',      min: 0 },
+    { k: 'chipset', label: 'Processor',  min: 1100 },
+    { k: 'battery', label: 'Battery',    min: 900 },
+    { k: 'ram',     label: 'RAM',        min: 1280 },
+    { k: 'storage', label: 'Storage',    min: 1280 },
+    { k: 'network', label: 'Network',    min: 1000 },
+    { k: 'camera',  label: 'Camera',     min: 1400 },
+    { k: 'res',     label: 'Resolution', min: 1500 }
+  ];
+
+  function groupCountOf(m) { return (db.groupsByModel[m.id] || []).length; }
+
+  /* ---------------------------------------------------------------- filters */
+  function filterModels(items, f) {
+    return items.filter(function (m) {
+      var sp = m.specs || {};
+      if (f.curve && m.screenCurve !== f.curve) return false;
+      if (f.deviceType && m.deviceType !== f.deviceType) return false;
+      if (f.year && m.releaseYear !== Number(f.year)) return false;
+      if (f.fiveG === '5g' && sp.network !== '5G') return false;
+      if (f.fiveG === '4g' && sp.network === '5G') return false;
+      if (f.minRam && Math.max.apply(null, sp.ramVariantsGb || [0]) < Number(f.minRam)) return false;
+      if (f.minStorage && Math.max.apply(null, sp.storageVariantsGb || [0]) < Number(f.minStorage)) return false;
+      if (f.minBattery && (sp.batteryMah || 0) < Number(f.minBattery)) return false;
+      if (f.size) {
+        var band = f.size.split('-').map(Number);
+        if (m.displaySize < band[0] || m.displaySize >= band[1]) return false;
+      }
+      return true;
+    });
+  }
+
+  var SORTS = {
+    newest: function (a, b) { return b.releaseYear - a.releaseYear || a.fullName.localeCompare(b.fullName); },
+    oldest: function (a, b) { return a.releaseYear - b.releaseYear || a.fullName.localeCompare(b.fullName); },
+    name:   function (a, b) { return a.fullName.localeCompare(b.fullName); },
+    size:   function (a, b) { return b.displaySize - a.displaySize; },
+    groups: function (a, b) { return groupCountOf(b) - groupCountOf(a); }
+  };
+
+  function activeFilterCount(f) {
+    return Object.keys(f).filter(function (k) { return f[k]; }).length;
+  }
+
+  /* ------------------------------------------------------------------ views */
+  function deviceGridHTML(items) {
+    return '<div class="dgrid">' + items.map(function (m) {
+      var gc = groupCountOf(m);
+      return '<button type="button" class="dcard" data-act="open-model" data-id="' + esc(m.id) + '">' +
+        '<span class="dcard__shot">' + SM.art.device(m, 0) + '</span>' +
+        '<span class="dcard__b">' +
+          '<span class="dcard__n">' + esc(m.modelName) + '</span>' +
+          '<span class="dcard__m">' + m.displaySize + '&Prime; · ' + m.releaseYear + '</span>' +
+          '<span class="dcard__t">' +
+            '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>' +
+            (gc ? '<span class="tag">' + gc + ' part' + (gc === 1 ? '' : 's') + '</span>' : '') +
+          '</span>' +
+        '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  function deviceListHTML(items) {
+    return '<div class="dlist">' + items.map(function (m) {
+      var sp = m.specs || {};
+      var gc = groupCountOf(m);
+      return '<button type="button" class="drow" data-act="open-model" data-id="' + esc(m.id) + '">' +
+        '<span class="drow__shot">' + SM.art.device(m, 0) + '</span>' +
+        '<span class="drow__main">' +
+          '<span class="drow__n">' + esc(m.fullName) + '</span>' +
+          '<span class="drow__m">' + m.displaySize + '&Prime; ' + esc(m.screenType) +
+            ' · ' + esc(sp.chipset || '') + ' · ' + nf(sp.batteryMah || 0) + ' mAh</span>' +
+        '</span>' +
+        '<span class="drow__side">' +
+          '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>' +
+          '<span class="drow__y">' + m.releaseYear + '</span>' +
+          (gc ? '<span class="tag tag--parts">' + gc + '</span>' : '') +
+        '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  /* The table renders every column; CSS hides the ones that do not fit, and
+     below 900px the whole thing becomes stacked cards. Hiding in CSS rather
+     than in JS means a resize needs no re-render. */
+  function deviceTableHTML(items) {
+    var head = TABLE_COLS.map(function (c) {
+      return '<th class="c-' + c.k + '">' + esc(c.label) + '</th>';
+    }).join('');
+
+    var rows = items.map(function (m) {
+      var sp = m.specs || {};
+      var gc = groupCountOf(m);
+      var cell = {
+        device: '<span class="tcell-dev">' + SM.art.device(m, 0, 'dvc--xs') +
+                '<span>' + esc(m.modelName) + '</span></span>',
+        size: m.displaySize + '&Prime;',
+        curve: '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>',
+        year: String(m.releaseYear),
+        groups: gc ? String(gc) : '—',
+        chipset: esc(sp.chipset || '—'),
+        battery: sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : '—',
+        ram: (sp.ramVariantsGb || []).join('/') + ' GB',
+        storage: (sp.storageVariantsGb || []).join('/') + ' GB',
+        network: esc(sp.network || '—'),
+        camera: (sp.cameraRear && sp.cameraRear[0] ? sp.cameraRear[0].mp + ' MP' : '—'),
+        res: esc(m.screenResolution || '—')
+      };
+      return '<tr data-act="open-model" data-id="' + esc(m.id) + '" tabindex="0">' +
+        TABLE_COLS.map(function (c) {
+          return '<td class="c-' + c.k + '" data-label="' + esc(c.label) + '">' + cell[c.k] + '</td>';
+        }).join('') + '</tr>';
+    }).join('');
+
+    return '<div class="dtable-wrap"><table class="dtable">' +
+      '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /* --------------------------------------------------------------- controls */
+  function selectHTML(id, label, value, options) {
+    return '<label class="fsel' + (value ? ' is-set' : '') + '">' +
+      '<span class="fsel__l">' + esc(label) + '</span>' +
+      '<select data-act="model-filter" data-key="' + id + '" aria-label="' + esc(label) + '">' +
+      options.map(function (o) {
+        return '<option value="' + esc(o[0]) + '"' + (String(value) === String(o[0]) ? ' selected' : '') + '>' +
+          esc(o[1]) + '</option>';
+      }).join('') + '</select></label>';
+  }
+
+  function brandControlsHTML(b, years) {
+    var m = state.models;
+    var f = m.filters;
+    var n = activeFilterCount(f);
+
+    return '<div class="bctl">' +
+      selectHTML('deviceType', 'Type', f.deviceType, [
+        ['', 'All types'], ['phone', 'Phones'], ['tablet', 'Tablets'], ['watch', 'Watches']]) +
+      selectHTML('curve', 'Screen', f.curve, [
+        ['', 'Flat & curved'], ['flat', 'Flat only'], ['curved', 'Curved only']]) +
+      selectHTML('year', 'Year', f.year,
+        [['', 'Any year']].concat(years.map(function (y) { return [String(y), String(y)]; }))) +
+      selectHTML('size', 'Size', f.size, [
+        ['', 'Any size'], ['0-5', 'Under 5"'], ['5-6.2', '5–6.2"'],
+        ['6.2-6.7', '6.2–6.7"'], ['6.7-20', '6.7" and up']]) +
+      selectHTML('fiveG', 'Network', f.fiveG, [
+        ['', 'Any network'], ['5g', '5G only'], ['4g', '4G only']]) +
+      selectHTML('minRam', 'RAM', f.minRam, [
+        ['', 'Any RAM'], ['6', '6 GB+'], ['8', '8 GB+'], ['12', '12 GB+'], ['16', '16 GB']]) +
+      selectHTML('minStorage', 'Storage', f.minStorage, [
+        ['', 'Any storage'], ['128', '128 GB+'], ['256', '256 GB+'], ['512', '512 GB+']]) +
+      selectHTML('minBattery', 'Battery', f.minBattery, [
+        ['', 'Any battery'], ['4500', '4500 mAh+'], ['5000', '5000 mAh+'], ['5500', '5500 mAh+']]) +
+      selectHTML('sort', 'Sort', m.sort, [
+        ['newest', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'Name A–Z'],
+        ['size', 'Largest screen'], ['groups', 'Most parts']]) +
+      (n ? '<button class="btn btn--ghost btn--sm bctl__clear" data-act="clear-model-filters">' +
+        icon('close') + 'Clear ' + n + '</button>' : '') +
+      '</div>';
+  }
+
+  var VIEW_ICON = { grid: 'grid', list: 'parts', table: 'layers' };
+
+  function viewSwitchHTML(view) {
+    return '<div class="vswitch" role="group" aria-label="Display style">' +
+      ['grid', 'list', 'table'].map(function (v) {
+        return '<button type="button" class="vswitch__b' + (view === v ? ' is-on' : '') + '" ' +
+          'data-act="model-view" data-view="' + v + '" aria-pressed="' + (view === v) + '" ' +
+          'title="' + v.charAt(0).toUpperCase() + v.slice(1) + ' view" ' +
+          'aria-label="' + v + ' view">' + icon(VIEW_ICON[v]) + '</button>';
+      }).join('') + '</div>';
+  }
+
+  /* ------------------------------------------------------------------- page */
   function renderBrandModels(brandId) {
     var b = db.brandById[brandId];
     if (!b) { go('#/models'); return; }
     var m = state.models;
+    var c = b.counts || {};
+
+    var years = Array.from(new Set(db.models
+      .filter(function (x) { return x.brandId === brandId; })
+      .map(function (x) { return x.releaseYear; }))).sort(function (x, y) { return y - x; });
+
     document.getElementById('modelsBody').innerHTML =
       '<div class="crumbs" style="margin-bottom:14px">' +
       '<button data-act="nav" data-href="#/models">All brands</button>' + icon('chevronRight') +
       '<span style="color:var(--ink)">' + esc(b.name) + '</span></div>' +
 
-      '<div class="card card--pad" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:18px;--b1:' + b.color + '">' +
-      SM.brandLogo(b, 'blogo--lg') +
-      '<div class="grow"><h2 class="t-h1">' + esc(b.name) + '</h2>' +
-      '<p class="t-xs">' + b.modelCount + ' models in the sample database</p></div>' +
-      '<label class="field" style="min-width:min(280px,100%)">' + icon('search') +
-      '<input class="input" id="bq" placeholder="Search ' + esc(b.name) + ' models…" value="' + esc(m.q) + '" aria-label="Search within brand" /></label>' +
+      '<div class="bhead" style="--b1:' + b.color + '">' +
+        '<div class="bhead__id">' +
+          SM.brandLogo(b, 'blogo--lg') +
+          '<div>' +
+            '<h2 class="bhead__n">' + esc(b.name) + '</h2>' +
+            '<p class="bhead__c">' + c.total + ' devices · ' + (c.phones || 0) + ' phones' +
+              (c.tablets ? ' · ' + c.tablets + ' tablets' : '') +
+              (c.watches ? ' · ' + c.watches + ' watches' : '') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="bhead__tools">' +
+          '<label class="field bhead__q">' + icon('search') +
+            '<input id="bq" placeholder="Search ' + esc(b.name) + '…" value="' + esc(m.q) + '" ' +
+            'aria-label="Search within ' + esc(b.name) + '" /></label>' +
+          viewSwitchHTML(m.view) +
+        '</div>' +
       '</div>' +
+
+      '<div id="brandControls">' + brandControlsHTML(b, years) + '</div>' +
+      '<div class="bcount" id="brandCount"></div>' +
       '<div id="brandModels">' + C.skelRows(9) + '</div>' +
       '<div class="loadmore" id="brandMore"></div>';
 
     loadBrandModels(true);
   }
 
+  /* Repaints the filter bar in place. Called after a change so the "Clear N"
+     button appears and disappears without rebuilding the header, which would
+     blur the search box mid-typing. */
+  function refreshBrandControls() {
+    var host = document.getElementById('brandControls');
+    var b = db.brandById[state.models.brandId];
+    if (!host || !b) return;
+    var years = Array.from(new Set(db.models
+      .filter(function (x) { return x.brandId === b.id; })
+      .map(function (x) { return x.releaseYear; }))).sort(function (x, y) { return y - x; });
+    host.innerHTML = brandControlsHTML(b, years);
+  }
+
   function loadBrandModels(reset) {
     var m = state.models;
-    if (reset) { m.page = 1; m.items = []; }
-    m.busy = true;
-    api.listModels({ brandId: m.brandId, q: m.q, page: m.page, pageSize: 24, sort: 'newest' }).then(function (r) {
-      m.busy = false; m.total = r.total; m.hasMore = r.hasMore;
-      m.items = reset ? r.items : m.items.concat(r.items);
+    if (reset) { m.page = 1; }
+
+    /* Filtering and sorting happen here rather than in the API seam because
+       they are view state, not a query — the same 344 records are already in
+       memory, and a round trip per dropdown change would be latency for
+       nothing. When this moves to Firestore the seam takes over and this
+       becomes the fallback path. */
+    api.listModels({ brandId: m.brandId, q: m.q, page: 1, pageSize: 9999, sort: m.sort }).then(function (r) {
+      var all = filterModels(r.items, m.filters).sort(SORTS[m.sort] || SORTS.newest);
+      var pageSize = m.view === 'table' ? 60 : 24;
+      var shown = all.slice(0, m.page * pageSize);
+
+      m.total = all.length;
+      m.items = shown;
+      m.hasMore = shown.length < all.length;
+      m.busy = false;
+
       var host = document.getElementById('brandModels');
       var more = document.getElementById('brandMore');
+      var count = document.getElementById('brandCount');
       if (!host) return;
-      if (!m.items.length) {
-        host.innerHTML = C.state({ icon: 'search', title: 'No models match “' + m.q + '”', text: 'Try a shorter search — a series name or a number.' });
-        more.innerHTML = ''; return;
+
+      if (count) {
+        count.innerHTML = all.length
+          ? '<span>' + nf(all.length) + ' device' + (all.length === 1 ? '' : 's') +
+            (all.length !== r.items.length ? ' of ' + nf(r.items.length) : '') + '</span>'
+          : '';
       }
-      host.innerHTML = '<div class="modelgrid">' + m.items.map(function (x) { return C.modelCard(x, m.q); }).join('') + '</div>';
+
+      if (!shown.length) {
+        host.innerHTML = C.state({
+          icon: 'search',
+          title: m.q ? 'No models match “' + esc(m.q) + '”' : 'No models match these filters',
+          text: m.q ? 'Try a shorter search — a series name or a number.'
+                    : 'Clear a filter or two to widen the list.'
+        });
+        more.innerHTML = '';
+        return;
+      }
+
+      host.innerHTML = m.view === 'table' ? deviceTableHTML(shown)
+        : m.view === 'list' ? deviceListHTML(shown)
+          : deviceGridHTML(shown);
+
       more.innerHTML = m.hasMore
-        ? '<button class="btn btn--outline" data-act="more-models">' + icon('plus') + 'Show more (' + nf(m.total - m.items.length) + ' left)</button>'
-        : '<span class="t-xs muted">All ' + nf(m.total) + ' models shown</span>';
+        ? '<button class="btn btn--outline" data-act="more-models">' + icon('plus') +
+          'Show more (' + nf(all.length - shown.length) + ' left)</button>'
+        : '<span class="t-xs muted">All ' + nf(all.length) + ' shown</span>';
     });
   }
 
@@ -6178,6 +6723,30 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       /* models page */
       case 'open-brand': go('#/models/' + id); break;
       case 'more-models': state.models.page++; loadBrandModels(false); break;
+
+      case 'model-view': {
+        var v = t.getAttribute('data-view');
+        if (v === state.models.view) break;
+        state.models.view = v;
+        store('mpf.modelview', v);
+        state.models.page = 1;
+        Array.prototype.forEach.call(document.querySelectorAll('.vswitch__b'), function (el) {
+          var on = el.getAttribute('data-view') === v;
+          el.classList.toggle('is-on', on);
+          el.setAttribute('aria-pressed', String(on));
+        });
+        loadBrandModels(true);
+        break;
+      }
+
+      case 'clear-model-filters': {
+        var f = state.models.filters;
+        Object.keys(f).forEach(function (k) { f[k] = ''; });
+        state.models.page = 1;
+        refreshBrandControls();
+        loadBrandModels(true);
+        break;
+      }
       case 'clear-mq': {
         state.models.q = '';
         var mq = document.getElementById('mq'); if (mq) mq.value = '';
@@ -6428,6 +6997,21 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     }
 
     if (e.target.id === 'sortSel') { state.finder.filters.sort = e.target.value; loadGroups(true); }
+
+    /* Brand-page filters and sort. Only the control that changed is re-read,
+       and only the list is repainted — re-rendering the whole page would drop
+       focus out of the select the user just used, which on a phone closes the
+       native picker mid-choice. */
+    var fsel = e.target.closest && e.target.closest('[data-act="model-filter"]');
+    if (fsel) {
+      var key = fsel.getAttribute('data-key');
+      if (key === 'sort') state.models.sort = fsel.value;
+      else state.models.filters[key] = fsel.value;
+      state.models.page = 1;
+      fsel.parentNode.classList.toggle('is-set', !!fsel.value);
+      refreshBrandControls();
+      loadBrandModels(true);
+    }
   });
 
   document.addEventListener('focusout', function (e) {

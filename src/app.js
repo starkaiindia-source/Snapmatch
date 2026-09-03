@@ -18,7 +18,15 @@
       filters: { q: '', brandId: 'all', catId: 'all', sort: 'default' },
       page: 1, rows: [], total: 0, hasMore: false, busy: false
     },
-    models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false },
+    models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
+      /* View state, not query state: the same records are already in memory,
+         so a dropdown change re-renders instead of re-fetching. The chosen
+         view is remembered because it is a working preference, not a session
+         detail — someone who prefers the table wants it next time too. */
+      view: store('mpf.modelview') || 'grid',
+      sort: 'newest',
+      filters: { deviceType: '', curve: '', year: '', size: '', fiveG: '', minRam: '', minStorage: '', minBattery: '' }
+    },
     recent: [],
     brandQ: '',
     suggest: { open: false, q: '', items: [], cursor: -1 },
@@ -795,46 +803,303 @@
     });
   }
 
+  /* ==========================================================================
+     PAGE · BRAND MODELS  (#/models/<brandId>)
+
+     One list of devices, shown three ways. The view is a real choice, not a
+     decoration: a shop owner scanning for a shape wants the grid, one checking
+     a spec across models wants the table, and a phone screen wants neither —
+     so the table collapses into stacked cards below 900px rather than becoming
+     a sideways scroll.
+
+     Filters use native <select>. A custom dropdown would need its own keyboard
+     handling, focus trap, touch targets and two themes' worth of styling, and
+     would still be worse on a phone than the one the OS already ships.
+     ========================================================================== */
+
+  /* Which columns survive at which width. Priority order is the order a
+     repair decision actually needs them, so dropping from the right always
+     drops the least useful column first. */
+  var TABLE_COLS = [
+    { k: 'device',  label: 'Device',     min: 0 },
+    { k: 'size',    label: 'Display',    min: 0 },
+    { k: 'curve',   label: 'Screen',     min: 700 },
+    { k: 'year',    label: 'Released',   min: 560 },
+    { k: 'groups',  label: 'Parts',      min: 0 },
+    { k: 'chipset', label: 'Processor',  min: 1100 },
+    { k: 'battery', label: 'Battery',    min: 900 },
+    { k: 'ram',     label: 'RAM',        min: 1280 },
+    { k: 'storage', label: 'Storage',    min: 1280 },
+    { k: 'network', label: 'Network',    min: 1000 },
+    { k: 'camera',  label: 'Camera',     min: 1400 },
+    { k: 'res',     label: 'Resolution', min: 1500 }
+  ];
+
+  function groupCountOf(m) { return (db.groupsByModel[m.id] || []).length; }
+
+  /* ---------------------------------------------------------------- filters */
+  function filterModels(items, f) {
+    return items.filter(function (m) {
+      var sp = m.specs || {};
+      if (f.curve && m.screenCurve !== f.curve) return false;
+      if (f.deviceType && m.deviceType !== f.deviceType) return false;
+      if (f.year && m.releaseYear !== Number(f.year)) return false;
+      if (f.fiveG === '5g' && sp.network !== '5G') return false;
+      if (f.fiveG === '4g' && sp.network === '5G') return false;
+      if (f.minRam && Math.max.apply(null, sp.ramVariantsGb || [0]) < Number(f.minRam)) return false;
+      if (f.minStorage && Math.max.apply(null, sp.storageVariantsGb || [0]) < Number(f.minStorage)) return false;
+      if (f.minBattery && (sp.batteryMah || 0) < Number(f.minBattery)) return false;
+      if (f.size) {
+        var band = f.size.split('-').map(Number);
+        if (m.displaySize < band[0] || m.displaySize >= band[1]) return false;
+      }
+      return true;
+    });
+  }
+
+  var SORTS = {
+    newest: function (a, b) { return b.releaseYear - a.releaseYear || a.fullName.localeCompare(b.fullName); },
+    oldest: function (a, b) { return a.releaseYear - b.releaseYear || a.fullName.localeCompare(b.fullName); },
+    name:   function (a, b) { return a.fullName.localeCompare(b.fullName); },
+    size:   function (a, b) { return b.displaySize - a.displaySize; },
+    groups: function (a, b) { return groupCountOf(b) - groupCountOf(a); }
+  };
+
+  function activeFilterCount(f) {
+    return Object.keys(f).filter(function (k) { return f[k]; }).length;
+  }
+
+  /* ------------------------------------------------------------------ views */
+  function deviceGridHTML(items) {
+    return '<div class="dgrid">' + items.map(function (m) {
+      var gc = groupCountOf(m);
+      return '<button type="button" class="dcard" data-act="open-model" data-id="' + esc(m.id) + '">' +
+        '<span class="dcard__shot">' + SM.art.device(m, 0) + '</span>' +
+        '<span class="dcard__b">' +
+          '<span class="dcard__n">' + esc(m.modelName) + '</span>' +
+          '<span class="dcard__m">' + m.displaySize + '&Prime; · ' + m.releaseYear + '</span>' +
+          '<span class="dcard__t">' +
+            '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>' +
+            (gc ? '<span class="tag">' + gc + ' part' + (gc === 1 ? '' : 's') + '</span>' : '') +
+          '</span>' +
+        '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  function deviceListHTML(items) {
+    return '<div class="dlist">' + items.map(function (m) {
+      var sp = m.specs || {};
+      var gc = groupCountOf(m);
+      return '<button type="button" class="drow" data-act="open-model" data-id="' + esc(m.id) + '">' +
+        '<span class="drow__shot">' + SM.art.device(m, 0) + '</span>' +
+        '<span class="drow__main">' +
+          '<span class="drow__n">' + esc(m.fullName) + '</span>' +
+          '<span class="drow__m">' + m.displaySize + '&Prime; ' + esc(m.screenType) +
+            ' · ' + esc(sp.chipset || '') + ' · ' + nf(sp.batteryMah || 0) + ' mAh</span>' +
+        '</span>' +
+        '<span class="drow__side">' +
+          '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>' +
+          '<span class="drow__y">' + m.releaseYear + '</span>' +
+          (gc ? '<span class="tag tag--parts">' + gc + '</span>' : '') +
+        '</span></button>';
+    }).join('') + '</div>';
+  }
+
+  /* The table renders every column; CSS hides the ones that do not fit, and
+     below 900px the whole thing becomes stacked cards. Hiding in CSS rather
+     than in JS means a resize needs no re-render. */
+  function deviceTableHTML(items) {
+    var head = TABLE_COLS.map(function (c) {
+      return '<th class="c-' + c.k + '">' + esc(c.label) + '</th>';
+    }).join('');
+
+    var rows = items.map(function (m) {
+      var sp = m.specs || {};
+      var gc = groupCountOf(m);
+      var cell = {
+        device: '<span class="tcell-dev">' + SM.art.device(m, 0, 'dvc--xs') +
+                '<span>' + esc(m.modelName) + '</span></span>',
+        size: m.displaySize + '&Prime;',
+        curve: '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>',
+        year: String(m.releaseYear),
+        groups: gc ? String(gc) : '—',
+        chipset: esc(sp.chipset || '—'),
+        battery: sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : '—',
+        ram: (sp.ramVariantsGb || []).join('/') + ' GB',
+        storage: (sp.storageVariantsGb || []).join('/') + ' GB',
+        network: esc(sp.network || '—'),
+        camera: (sp.cameraRear && sp.cameraRear[0] ? sp.cameraRear[0].mp + ' MP' : '—'),
+        res: esc(m.screenResolution || '—')
+      };
+      return '<tr data-act="open-model" data-id="' + esc(m.id) + '" tabindex="0">' +
+        TABLE_COLS.map(function (c) {
+          return '<td class="c-' + c.k + '" data-label="' + esc(c.label) + '">' + cell[c.k] + '</td>';
+        }).join('') + '</tr>';
+    }).join('');
+
+    return '<div class="dtable-wrap"><table class="dtable">' +
+      '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /* --------------------------------------------------------------- controls */
+  function selectHTML(id, label, value, options) {
+    return '<label class="fsel' + (value ? ' is-set' : '') + '">' +
+      '<span class="fsel__l">' + esc(label) + '</span>' +
+      '<select data-act="model-filter" data-key="' + id + '" aria-label="' + esc(label) + '">' +
+      options.map(function (o) {
+        return '<option value="' + esc(o[0]) + '"' + (String(value) === String(o[0]) ? ' selected' : '') + '>' +
+          esc(o[1]) + '</option>';
+      }).join('') + '</select></label>';
+  }
+
+  function brandControlsHTML(b, years) {
+    var m = state.models;
+    var f = m.filters;
+    var n = activeFilterCount(f);
+
+    return '<div class="bctl">' +
+      selectHTML('deviceType', 'Type', f.deviceType, [
+        ['', 'All types'], ['phone', 'Phones'], ['tablet', 'Tablets'], ['watch', 'Watches']]) +
+      selectHTML('curve', 'Screen', f.curve, [
+        ['', 'Flat & curved'], ['flat', 'Flat only'], ['curved', 'Curved only']]) +
+      selectHTML('year', 'Year', f.year,
+        [['', 'Any year']].concat(years.map(function (y) { return [String(y), String(y)]; }))) +
+      selectHTML('size', 'Size', f.size, [
+        ['', 'Any size'], ['0-5', 'Under 5"'], ['5-6.2', '5–6.2"'],
+        ['6.2-6.7', '6.2–6.7"'], ['6.7-20', '6.7" and up']]) +
+      selectHTML('fiveG', 'Network', f.fiveG, [
+        ['', 'Any network'], ['5g', '5G only'], ['4g', '4G only']]) +
+      selectHTML('minRam', 'RAM', f.minRam, [
+        ['', 'Any RAM'], ['6', '6 GB+'], ['8', '8 GB+'], ['12', '12 GB+'], ['16', '16 GB']]) +
+      selectHTML('minStorage', 'Storage', f.minStorage, [
+        ['', 'Any storage'], ['128', '128 GB+'], ['256', '256 GB+'], ['512', '512 GB+']]) +
+      selectHTML('minBattery', 'Battery', f.minBattery, [
+        ['', 'Any battery'], ['4500', '4500 mAh+'], ['5000', '5000 mAh+'], ['5500', '5500 mAh+']]) +
+      selectHTML('sort', 'Sort', m.sort, [
+        ['newest', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'Name A–Z'],
+        ['size', 'Largest screen'], ['groups', 'Most parts']]) +
+      (n ? '<button class="btn btn--ghost btn--sm bctl__clear" data-act="clear-model-filters">' +
+        icon('close') + 'Clear ' + n + '</button>' : '') +
+      '</div>';
+  }
+
+  var VIEW_ICON = { grid: 'grid', list: 'parts', table: 'layers' };
+
+  function viewSwitchHTML(view) {
+    return '<div class="vswitch" role="group" aria-label="Display style">' +
+      ['grid', 'list', 'table'].map(function (v) {
+        return '<button type="button" class="vswitch__b' + (view === v ? ' is-on' : '') + '" ' +
+          'data-act="model-view" data-view="' + v + '" aria-pressed="' + (view === v) + '" ' +
+          'title="' + v.charAt(0).toUpperCase() + v.slice(1) + ' view" ' +
+          'aria-label="' + v + ' view">' + icon(VIEW_ICON[v]) + '</button>';
+      }).join('') + '</div>';
+  }
+
+  /* ------------------------------------------------------------------- page */
   function renderBrandModels(brandId) {
     var b = db.brandById[brandId];
     if (!b) { go('#/models'); return; }
     var m = state.models;
+    var c = b.counts || {};
+
+    var years = Array.from(new Set(db.models
+      .filter(function (x) { return x.brandId === brandId; })
+      .map(function (x) { return x.releaseYear; }))).sort(function (x, y) { return y - x; });
+
     document.getElementById('modelsBody').innerHTML =
       '<div class="crumbs" style="margin-bottom:14px">' +
       '<button data-act="nav" data-href="#/models">All brands</button>' + icon('chevronRight') +
       '<span style="color:var(--ink)">' + esc(b.name) + '</span></div>' +
 
-      '<div class="card card--pad" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:18px;--b1:' + b.color + '">' +
-      SM.brandLogo(b, 'blogo--lg') +
-      '<div class="grow"><h2 class="t-h1">' + esc(b.name) + '</h2>' +
-      '<p class="t-xs">' + b.modelCount + ' models in the sample database</p></div>' +
-      '<label class="field" style="min-width:min(280px,100%)">' + icon('search') +
-      '<input class="input" id="bq" placeholder="Search ' + esc(b.name) + ' models…" value="' + esc(m.q) + '" aria-label="Search within brand" /></label>' +
+      '<div class="bhead" style="--b1:' + b.color + '">' +
+        '<div class="bhead__id">' +
+          SM.brandLogo(b, 'blogo--lg') +
+          '<div>' +
+            '<h2 class="bhead__n">' + esc(b.name) + '</h2>' +
+            '<p class="bhead__c">' + c.total + ' devices · ' + (c.phones || 0) + ' phones' +
+              (c.tablets ? ' · ' + c.tablets + ' tablets' : '') +
+              (c.watches ? ' · ' + c.watches + ' watches' : '') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="bhead__tools">' +
+          '<label class="field bhead__q">' + icon('search') +
+            '<input id="bq" placeholder="Search ' + esc(b.name) + '…" value="' + esc(m.q) + '" ' +
+            'aria-label="Search within ' + esc(b.name) + '" /></label>' +
+          viewSwitchHTML(m.view) +
+        '</div>' +
       '</div>' +
+
+      '<div id="brandControls">' + brandControlsHTML(b, years) + '</div>' +
+      '<div class="bcount" id="brandCount"></div>' +
       '<div id="brandModels">' + C.skelRows(9) + '</div>' +
       '<div class="loadmore" id="brandMore"></div>';
 
     loadBrandModels(true);
   }
 
+  /* Repaints the filter bar in place. Called after a change so the "Clear N"
+     button appears and disappears without rebuilding the header, which would
+     blur the search box mid-typing. */
+  function refreshBrandControls() {
+    var host = document.getElementById('brandControls');
+    var b = db.brandById[state.models.brandId];
+    if (!host || !b) return;
+    var years = Array.from(new Set(db.models
+      .filter(function (x) { return x.brandId === b.id; })
+      .map(function (x) { return x.releaseYear; }))).sort(function (x, y) { return y - x; });
+    host.innerHTML = brandControlsHTML(b, years);
+  }
+
   function loadBrandModels(reset) {
     var m = state.models;
-    if (reset) { m.page = 1; m.items = []; }
-    m.busy = true;
-    api.listModels({ brandId: m.brandId, q: m.q, page: m.page, pageSize: 24, sort: 'newest' }).then(function (r) {
-      m.busy = false; m.total = r.total; m.hasMore = r.hasMore;
-      m.items = reset ? r.items : m.items.concat(r.items);
+    if (reset) { m.page = 1; }
+
+    /* Filtering and sorting happen here rather than in the API seam because
+       they are view state, not a query — the same 344 records are already in
+       memory, and a round trip per dropdown change would be latency for
+       nothing. When this moves to Firestore the seam takes over and this
+       becomes the fallback path. */
+    api.listModels({ brandId: m.brandId, q: m.q, page: 1, pageSize: 9999, sort: m.sort }).then(function (r) {
+      var all = filterModels(r.items, m.filters).sort(SORTS[m.sort] || SORTS.newest);
+      var pageSize = m.view === 'table' ? 60 : 24;
+      var shown = all.slice(0, m.page * pageSize);
+
+      m.total = all.length;
+      m.items = shown;
+      m.hasMore = shown.length < all.length;
+      m.busy = false;
+
       var host = document.getElementById('brandModels');
       var more = document.getElementById('brandMore');
+      var count = document.getElementById('brandCount');
       if (!host) return;
-      if (!m.items.length) {
-        host.innerHTML = C.state({ icon: 'search', title: 'No models match “' + m.q + '”', text: 'Try a shorter search — a series name or a number.' });
-        more.innerHTML = ''; return;
+
+      if (count) {
+        count.innerHTML = all.length
+          ? '<span>' + nf(all.length) + ' device' + (all.length === 1 ? '' : 's') +
+            (all.length !== r.items.length ? ' of ' + nf(r.items.length) : '') + '</span>'
+          : '';
       }
-      host.innerHTML = '<div class="modelgrid">' + m.items.map(function (x) { return C.modelCard(x, m.q); }).join('') + '</div>';
+
+      if (!shown.length) {
+        host.innerHTML = C.state({
+          icon: 'search',
+          title: m.q ? 'No models match “' + esc(m.q) + '”' : 'No models match these filters',
+          text: m.q ? 'Try a shorter search — a series name or a number.'
+                    : 'Clear a filter or two to widen the list.'
+        });
+        more.innerHTML = '';
+        return;
+      }
+
+      host.innerHTML = m.view === 'table' ? deviceTableHTML(shown)
+        : m.view === 'list' ? deviceListHTML(shown)
+          : deviceGridHTML(shown);
+
       more.innerHTML = m.hasMore
-        ? '<button class="btn btn--outline" data-act="more-models">' + icon('plus') + 'Show more (' + nf(m.total - m.items.length) + ' left)</button>'
-        : '<span class="t-xs muted">All ' + nf(m.total) + ' models shown</span>';
+        ? '<button class="btn btn--outline" data-act="more-models">' + icon('plus') +
+          'Show more (' + nf(all.length - shown.length) + ' left)</button>'
+        : '<span class="t-xs muted">All ' + nf(all.length) + ' shown</span>';
     });
   }
 
@@ -2051,6 +2316,30 @@
       /* models page */
       case 'open-brand': go('#/models/' + id); break;
       case 'more-models': state.models.page++; loadBrandModels(false); break;
+
+      case 'model-view': {
+        var v = t.getAttribute('data-view');
+        if (v === state.models.view) break;
+        state.models.view = v;
+        store('mpf.modelview', v);
+        state.models.page = 1;
+        Array.prototype.forEach.call(document.querySelectorAll('.vswitch__b'), function (el) {
+          var on = el.getAttribute('data-view') === v;
+          el.classList.toggle('is-on', on);
+          el.setAttribute('aria-pressed', String(on));
+        });
+        loadBrandModels(true);
+        break;
+      }
+
+      case 'clear-model-filters': {
+        var f = state.models.filters;
+        Object.keys(f).forEach(function (k) { f[k] = ''; });
+        state.models.page = 1;
+        refreshBrandControls();
+        loadBrandModels(true);
+        break;
+      }
       case 'clear-mq': {
         state.models.q = '';
         var mq = document.getElementById('mq'); if (mq) mq.value = '';
@@ -2301,6 +2590,21 @@
     }
 
     if (e.target.id === 'sortSel') { state.finder.filters.sort = e.target.value; loadGroups(true); }
+
+    /* Brand-page filters and sort. Only the control that changed is re-read,
+       and only the list is repainted — re-rendering the whole page would drop
+       focus out of the select the user just used, which on a phone closes the
+       native picker mid-choice. */
+    var fsel = e.target.closest && e.target.closest('[data-act="model-filter"]');
+    if (fsel) {
+      var key = fsel.getAttribute('data-key');
+      if (key === 'sort') state.models.sort = fsel.value;
+      else state.models.filters[key] = fsel.value;
+      state.models.page = 1;
+      fsel.parentNode.classList.toggle('is-set', !!fsel.value);
+      refreshBrandControls();
+      loadBrandModels(true);
+    }
   });
 
   document.addEventListener('focusout', function (e) {

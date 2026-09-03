@@ -951,6 +951,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .input{ min-height:44px; }
   .plate__cta{ min-height:40px; }
   .dsw{ width:38px; height:38px; }
+  /* The breadcrumb is the back route on a phone — 22px tall is a miss. */
+  .crumbs button{ min-height:40px; padding-inline:2px; }
 }
 
 /* ============================================================================
@@ -1019,4 +1021,211 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .brandcard__lead b{ font-size:26px; }
   .brandcard__split{ gap:8px; }
   .bcs{ font-size:11px; }
+}
+
+/* ============================================================================
+   BRAND MODEL PAGE — header, controls, and three views
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ header */
+.bhead{
+  display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  padding:16px; margin-bottom:14px;
+}
+.bhead__id{ display:flex; align-items:center; gap:13px; min-width:0; }
+.bhead__n{
+  font-family:var(--f-display); font-weight:800; font-size:22px;
+  letter-spacing:-.03em; margin:0; color:var(--ink);
+}
+.bhead__c{ margin:2px 0 0; font-size:12.5px; color:var(--ink-3); }
+/* Search and the view switch sit together on the right, as one tool group. */
+.bhead__tools{ display:flex; align-items:center; gap:10px; margin-left:auto; flex-wrap:wrap; }
+.bhead__q{ min-width:min(260px, 100%); }
+
+/* View switch: three icons, not three words. The name is on the tooltip and
+   the aria-label, so the control keeps its width in any language. */
+.vswitch{
+  display:flex; gap:2px; padding:3px; flex:none;
+  background:var(--surface-3); border:1px solid var(--line); border-radius:11px;
+}
+.vswitch__b{
+  display:grid; place-items:center; width:36px; height:34px; padding:0;
+  border:0; border-radius:8px; background:transparent; color:var(--ink-3); cursor:pointer;
+  transition:background .15s, color .15s;
+}
+.vswitch__b svg{ width:17px; height:17px; }
+.vswitch__b:hover{ color:var(--ink-2); background:var(--surface); }
+.vswitch__b.is-on{ background:var(--surface); color:var(--teal-700); box-shadow:var(--sh-1); }
+.vswitch__b:focus-visible{ outline:2px solid var(--teal-500); outline-offset:1px; }
+
+/* ---------------------------------------------------------------- controls */
+.bctl{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+.fsel{ position:relative; display:inline-flex; }
+.fsel__l{
+  position:absolute; left:11px; top:-7px; padding:0 4px; z-index:1;
+  background:var(--paper); font-size:9.5px; font-weight:800; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--ink-3); pointer-events:none;
+}
+.fsel select{
+  appearance:none; -webkit-appearance:none;
+  min-height:40px; padding:0 30px 0 11px;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:10px;
+  font:inherit; font-size:13px; font-weight:600; cursor:pointer;
+  /* chevron drawn in CSS so it inherits the theme ink colour */
+  background-image:linear-gradient(45deg, transparent 50%, currentColor 50%),
+                   linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:calc(100% - 15px) 18px, calc(100% - 11px) 18px;
+  background-size:4px 4px, 4px 4px;
+  background-repeat:no-repeat;
+}
+.fsel select:hover{ border-color:var(--ink-3); }
+.fsel select:focus-visible{ outline:2px solid var(--teal-500); outline-offset:1px; }
+/* An applied filter must be visible at a glance, or a shortened list reads as
+   missing data rather than as a filtered one. */
+.fsel.is-set select{ border-color:var(--teal-500); color:var(--teal-700); font-weight:700; }
+.bctl__clear{ margin-left:auto; }
+.bcount{ font-size:12.5px; color:var(--ink-3); margin:0 0 12px; font-variant-numeric:tabular-nums; }
+
+/* ------------------------------------------------------- shared device art */
+.dvc{ display:block; width:auto; height:100%; filter:drop-shadow(0 6px 12px rgba(0,0,0,.22)); }
+.dvc--xs{ height:30px; filter:none; }
+
+/* --------------------------------------------------------------- grid view */
+.dgrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+@media (min-width:560px){ .dgrid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (min-width:900px){ .dgrid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (min-width:1280px){ .dgrid{ grid-template-columns:repeat(5,minmax(0,1fr)); } }
+
+.dcard{
+  display:flex; flex-direction:column; text-align:left; padding:0; overflow:hidden;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  cursor:pointer; transition:transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s, border-color .18s;
+}
+.dcard:hover{ transform:translateY(-3px); box-shadow:var(--sh-2); border-color:var(--teal-500); }
+.dcard:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+/* The device image leads — showing it instead of a repeated brand logo is the
+   whole reason this view exists. */
+.dcard__shot{
+  display:grid; place-items:center; height:132px; padding:14px 10px;
+  background:radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%), var(--surface-2);
+  border-bottom:1px solid var(--line);
+}
+.dcard__b{ display:flex; flex-direction:column; gap:5px; padding:11px 12px 13px; min-width:0; }
+.dcard__n{
+  font-weight:700; font-size:13.5px; color:var(--ink); line-height:1.25;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.dcard__m{ font-size:11.5px; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+.dcard__t{ display:flex; gap:5px; flex-wrap:wrap; margin-top:2px; }
+
+.tag{
+  font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+  padding:2.5px 7px; border-radius:99px;
+  background:var(--surface-3); color:var(--ink-3); white-space:nowrap;
+}
+.tag--curved{ background:var(--teal-100); color:var(--teal-700); }
+.tag--parts{ background:var(--teal-100); color:var(--teal-700); }
+
+/* --------------------------------------------------------------- list view */
+.dlist{ display:flex; flex-direction:column; gap:8px; }
+.drow{
+  display:flex; align-items:center; gap:13px; text-align:left; width:100%;
+  padding:10px 13px; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); cursor:pointer; transition:border-color .15s, background .15s;
+}
+.drow:hover{ border-color:var(--teal-500); background:var(--surface-2); }
+.drow:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+.drow__shot{ display:grid; place-items:center; width:38px; height:52px; flex:none; }
+.drow__main{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.drow__n{
+  font-weight:700; font-size:14px; color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.drow__m{
+  font-size:12px; color:var(--ink-3);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.drow__side{ display:flex; align-items:center; gap:8px; flex:none; }
+.drow__y{ font-size:12px; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+
+/* -------------------------------------------------------------- table view */
+.dtable-wrap{
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r-lg); overflow:hidden;
+}
+.dtable{ width:100%; border-collapse:collapse; font-size:13px; }
+.dtable th{
+  text-align:left; padding:10px 13px; white-space:nowrap;
+  background:var(--surface-2); border-bottom:1px solid var(--line);
+  font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink-3);
+}
+.dtable td{
+  padding:9px 13px; border-bottom:1px solid var(--line);
+  color:var(--ink-2); vertical-align:middle; white-space:nowrap;
+}
+.dtable tbody tr{ cursor:pointer; transition:background .12s; }
+.dtable tbody tr:hover{ background:var(--surface-2); }
+.dtable tbody tr:focus-visible{ outline:2px solid var(--teal-500); outline-offset:-2px; }
+.dtable tbody tr:last-child td{ border-bottom:0; }
+.tcell-dev{ display:flex; align-items:center; gap:10px; font-weight:700; color:var(--ink); }
+.c-device{ min-width:190px; }
+
+/* Columns drop from the least useful end as the viewport narrows, so the table
+   never needs a horizontal scrollbar. Hiding in CSS rather than in JS means a
+   resize costs nothing — there is no re-render. */
+@media (max-width:1499px){ .dtable .c-res{ display:none; } }
+@media (max-width:1399px){ .dtable .c-camera{ display:none; } }
+@media (max-width:1279px){ .dtable .c-ram, .dtable .c-storage{ display:none; } }
+@media (max-width:1099px){ .dtable .c-chipset{ display:none; } }
+@media (max-width:999px){ .dtable .c-network{ display:none; } }
+
+/* Below 900 the table stops being a table. A grid this wide on a phone can
+   only scroll sideways, which hides exactly the column someone is looking for,
+   so each row becomes a card and every cell carries its own label. */
+@media (max-width:899px){
+  .dtable thead{ display:none; }
+  .dtable, .dtable tbody, .dtable tr, .dtable td{ display:block; width:100%; }
+  .dtable-wrap{ background:transparent; border:0; border-radius:0; }
+  .dtable tr{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+    margin-bottom:8px; padding:6px 2px;
+  }
+  .dtable td{
+    display:flex; justify-content:space-between; align-items:center; gap:14px;
+    border-bottom:0; padding:6px 13px; white-space:normal;
+  }
+  .dtable td::before{
+    content:attr(data-label);
+    font-size:10.5px; font-weight:800; letter-spacing:.07em; text-transform:uppercase;
+    color:var(--ink-3); flex:none;
+  }
+  .dtable .c-device{ min-width:0; padding-top:9px; }
+  .dtable .c-device::before{ display:none; }     /* the name is its own label */
+  .dtable .c-battery, .dtable .c-chipset, .dtable .c-network,
+  .dtable .c-ram, .dtable .c-storage{ display:flex; }
+}
+
+/* ------------------------------------------------------------ small screens */
+@media (max-width:640px){
+  .bhead{ padding:13px; gap:12px; }
+  .bhead__tools{ width:100%; margin-left:0; }
+  .bhead__q{ flex:1; min-width:0; }
+  .bhead__n{ font-size:19px; }
+  /* the filter bar scrolls sideways rather than stacking into a wall */
+  .bctl{
+    flex-wrap:nowrap; overflow-x:auto; padding:8px 0 4px;
+    scrollbar-width:none; -webkit-overflow-scrolling:touch;
+  }
+  .bctl::-webkit-scrollbar{ display:none; }
+  .fsel select{ min-height:44px; }
+  .bctl__clear{ margin-left:0; flex:none; }
+  .dcard__shot{ height:112px; }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .dcard, .drow, .vswitch__b, .dtable tbody tr{ transition:none; }
+  .dcard:hover{ transform:none; }
 }

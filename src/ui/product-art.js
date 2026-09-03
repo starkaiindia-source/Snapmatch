@@ -261,6 +261,77 @@
       return d.firstChild;
     },
 
+    /* Draws the DEVICE, not its brand.
+       There is no product photography in the sample data, and a stock photo of
+       the wrong handset is worse than a drawing — so each device is rendered
+       from its own numbers: true aspect ratio from the screen resolution, a
+       corner radius by tier, the camera treatment its brand and year actually
+       use, and the finish the viewer picked. Every model therefore looks
+       different from its siblings, which is the whole point of showing a
+       device image instead of repeating one brand logo down a grid.
+
+       A tablet and a watch get their own silhouette; running them through the
+       phone proportions makes an iPad look like a very tall phone.
+
+       @param {object} m            the device
+       @param {number} [colourIdx]  which finish
+       @param {string} [cls]        extra classes on the wrapper
+       @param {boolean} [flat]      draw without the wrapper (grid thumbnails) */
+    device: function (m, colourIdx, cls) {
+      var sp = m.specs || {};
+      var col = (sp.colors && sp.colors[colourIdx || 0]) || { n: 'Black', h: '#15171A' };
+      var type = m.deviceType || 'phone';
+
+      var res = String(m.screenResolution || '').match(/(\d+)\s*x\s*(\d+)/);
+      var pw = res ? Number(res[1]) : 1080;
+      var ph = res ? Number(res[2]) : 2340;
+      var ratio = ph / pw;
+      if (type === 'tablet') ratio = 1.42;          /* tablets are far squarer */
+      if (type === 'watch') ratio = 1.18;           /* and a watch is nearly square */
+
+      var W = 150;
+      var H = Math.round(W * ratio);
+      var pad = type === 'watch' ? 8 : 6;
+      var radius = type === 'watch' ? 34 : type === 'tablet' ? 12 : (m.tier === 'flag' ? 22 : 18);
+
+      /* A pale finish needs an outline or it disappears against the light chip. */
+      var lum = parseInt(col.h.slice(1, 3), 16) * 0.299 +
+                parseInt(col.h.slice(3, 5), 16) * 0.587 +
+                parseInt(col.h.slice(5, 7), 16) * 0.114;
+      var outline = lum > 190 ? ' stroke="rgba(0,0,0,.22)" stroke-width="1"' : '';
+
+      var uid = 'dg' + Math.random().toString(36).slice(2, 8);
+      var camera = type !== 'phone' ? ''
+        : (m.brandId === 'apple' && m.releaseYear >= 2022)
+          ? '<rect x="' + (W / 2 - 17) + '" y="' + (pad + 6) + '" width="34" height="11" rx="5.5" fill="#05090A"/>'
+          : '<circle cx="' + (W / 2) + '" cy="' + (pad + 12) + '" r="4.4" fill="#05090A"/>';
+
+      /* the strap makes a watch read as a watch at thumbnail size */
+      var strap = type !== 'watch' ? '' :
+        '<rect x="' + (W * 0.3) + '" y="' + (-H * 0.16) + '" width="' + (W * 0.4) + '" height="' + (H * 0.2) +
+        '" rx="6" fill="' + esc(col.h) + '" opacity=".75"/>' +
+        '<rect x="' + (W * 0.3) + '" y="' + (H * 0.96) + '" width="' + (W * 0.4) + '" height="' + (H * 0.2) +
+        '" rx="6" fill="' + esc(col.h) + '" opacity=".75"/>';
+
+      var vb = type === 'watch'
+        ? ('0 ' + (-H * 0.18) + ' ' + W + ' ' + (H * 1.36))
+        : ('0 0 ' + W + ' ' + H);
+
+      return '<svg class="dvc ' + (cls || '') + '" viewBox="' + vb + '" role="img" ' +
+        'aria-label="' + esc(m.fullName) + ' in ' + esc(col.n) + '">' +
+        '<defs><linearGradient id="' + uid + '" x1="0" y1="0" x2="1" y2="1">' +
+        '<stop offset="0" stop-color="#fff" stop-opacity=".28"/>' +
+        '<stop offset=".45" stop-color="#fff" stop-opacity=".04"/>' +
+        '<stop offset="1" stop-color="#000" stop-opacity=".18"/></linearGradient></defs>' +
+        strap +
+        '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="' + radius + '" fill="' + esc(col.h) + '"' + outline + '/>' +
+        '<rect x="' + pad + '" y="' + pad + '" width="' + (W - pad * 2) + '" height="' + (H - pad * 2) +
+        '" rx="' + Math.max(2, radius - 5) + '" fill="#0B1211"/>' +
+        '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="' + radius + '" fill="url(#' + uid + ')"/>' +
+        camera +
+        '</svg>';
+    },
+
     /* Delegates to SM.brandLogo, which owns the file -> vector -> wordmark
        order. Kept as an alias because callers and docs already use it. */
     brand: function (brand, cls) { return SM.brandLogo(brand, cls); }
