@@ -1,27 +1,22 @@
 {
   "version": 2,
   "//": [
-    "This site is plain static files served from the repo root — no build step,",
-    "no serverless functions. Declaring `builds` explicitly turns OFF Vercel's",
-    "framework auto-detection, which had been picking up the local dev server",
-    "and routing every request through it as a lambda (blank site, then",
-    "FUNCTION_INVOCATION_FAILED once that file moved).",
-    "The app uses a hash router (#/finder), so no rewrites are needed: the",
-    "browser never asks the server for a route path."
+    "Plain static files served from the repo root — no build step, no",
+    "serverless functions. Declaring `builds` turns OFF Vercel's framework",
+    "auto-detection, which had been routing every request through the local",
+    "dev server as a lambda (blank site, then FUNCTION_INVOCATION_FAILED).",
+    "",
+    "Keep this file free of `headers`, `rewrites`, `redirects`, `cleanUrls`",
+    "and `trailingSlash`: Vercel rejects those alongside `builds`, and an",
+    "invalid vercel.json fails the build silently, leaving the last broken",
+    "deployment live in production.",
+    "",
+    "The app is a hash router (#/finder), so no rewrites are needed anyway.",
+    "The allowlist below also keeps build.js and dist/ off the deployment."
   ],
   "builds": [
     { "src": "index.html", "use": "@vercel/static" },
     { "src": "assets/**", "use": "@vercel/static" },
     { "src": "src/**", "use": "@vercel/static" }
-  ],
-  "headers": [
-    {
-      "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }]
-    },
-    {
-      "source": "/src/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }]
-    }
   ]
 }
