@@ -5,5 +5,9 @@
     { "src": "assets/**", "use": "@vercel/static" },
     { "src": "src/**", "use": "@vercel/static" },
     { "src": "api/*.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/api/([^/.]+)/?$", "dest": "/api/$1.js" }
   ]
 }
