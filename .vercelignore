@@ -1,27 +1,31 @@
 # ============================================================================
-# Files that must not reach the Vercel deployment.
+# Kept out of the upload to Vercel.
+#
+# vercel.json already allowlists what gets served (index.html, assets/, src/),
+# so this file is only about not shipping large or private files at all.
+#
+# Patterns follow .gitignore rules, so a LEADING SLASH matters: a bare `data/`
+# matches a directory of that name at ANY depth — including src/data/, which
+# took the app's own modules offline until this was anchored.
 # ============================================================================
 
-# Local preview server. With this at the repo root Vercel detects a Node
-# entrypoint and serves the WHOLE site through it as a serverless function.
-# Only index.html gets bundled into that lambda, so every stylesheet and
-# script 404s and the site renders blank. Ignoring it restores plain static
-# hosting from the repo root. `node server.js` still works locally.
+# Build inputs and the generated dataset. groups.ndjson carries the part
+# numbers and fitment lists the subscription pays for, so it must never be
+# downloadable from the site. Only scripts/import-firestore.js needs these.
+# assets/search-index.json is deliberately NOT excluded: it is the free
+# catalogue (model names, brands, years) and holds no paid fields.
+/data/
+/scripts/
 
-# Build inputs and the full generated dataset. groups.ndjson carries the part
-# numbers and fitment lists that the subscription pays for, so these must not
-# be downloadable from the site. They are only needed locally by
-# scripts/import-firestore.js.
-# assets/search-index.json is deliberately NOT here: it holds the free
-# catalogue (model names, brands, years) and no paid fields.
-data/
-scripts/
+# Backend configuration — deployed with the Firebase CLI, not with the site.
+/firebase.json
+/firestore.rules
+/firestore.indexes.json
 
-# Backend configuration — shipped with the Firebase CLI, not with the site.
-firebase.json
-firestore.rules
-firestore.indexes.json
+# Single-file bundles and their builder; not part of the hosted site.
+/dist/
+/build.js
 
 # Tooling
-.claude/
-README.md
+/.claude/
+/README.md
