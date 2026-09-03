@@ -7,7 +7,6 @@
 # Only index.html gets bundled into that lambda, so every stylesheet and
 # script 404s and the site renders blank. Ignoring it restores plain static
 # hosting from the repo root. `node server.js` still works locally.
-server.js
 
 # Build inputs and the full generated dataset. groups.ndjson carries the part
 # numbers and fitment lists that the subscription pays for, so these must not

@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "snapmatch", "runtimeExecutable": "node", "runtimeArgs": ["server.js"], "port": 4321 }
+    { "name": "mobile-parts-finder", "runtimeExecutable": "node", "runtimeArgs": ["scripts/dev-server.js"], "port": 4321 }
   ]
 }
