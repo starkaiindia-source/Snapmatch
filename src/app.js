@@ -4,6 +4,7 @@
 (function (global) {
   'use strict';
   var SM = global.SM, C = SM.C, icon = SM.icon, api = SM.api, db = SM.db, S = SM.session;
+  (SM.__rebind = SM.__rebind || []).push(function () { db = SM.db; });
   var esc = C.esc, nf = C.nf;
 
   /* ------------------------------------------------------------------ state */
@@ -821,22 +822,40 @@
   /* Which columns survive at which width. Priority order is the order a
      repair decision actually needs them, so dropping from the right always
      drops the least useful column first. */
-  var TABLE_COLS = [
-    { k: 'device',  label: 'Device',     min: 0 },
-    { k: 'size',    label: 'Display',    min: 0 },
-    { k: 'curve',   label: 'Screen',     min: 700 },
-    { k: 'year',    label: 'Released',   min: 560 },
-    { k: 'groups',  label: 'Parts',      min: 0 },
-    { k: 'chipset', label: 'Processor',  min: 1100 },
-    { k: 'battery', label: 'Battery',    min: 900 },
-    { k: 'ram',     label: 'RAM',        min: 1280 },
-    { k: 'storage', label: 'Storage',    min: 1280 },
-    { k: 'network', label: 'Network',    min: 1000 },
-    { k: 'camera',  label: 'Camera',     min: 1400 },
-    { k: 'res',     label: 'Resolution', min: 1500 }
+  var TABLE_COLS_ALL = [
+    { k: 'device',  label: 'Device',     needs: null },
+    { k: 'size',    label: 'Display',    needs: null },
+    { k: 'curve',   label: 'Screen',     needs: 'screenCurve' },
+    { k: 'year',    label: 'Released',   needs: null },
+    { k: 'groups',  label: 'Parts',      needs: null },
+    { k: 'chipset', label: 'Processor',  needs: 'chipset' },
+    { k: 'battery', label: 'Battery',    needs: null },
+    { k: 'ram',     label: 'RAM',        needs: 'ram' },
+    { k: 'storage', label: 'Storage',    needs: 'storage' },
+    { k: 'network', label: 'Network',    needs: 'network' },
+    { k: 'camera',  label: 'Camera',     needs: 'cameras' },
+    { k: 'res',     label: 'Resolution', needs: 'screenResolution' }
   ];
+  /* A column the dataset cannot fill is not rendered at all. Showing twelve
+     headings above nine columns of dashes tells a reader the data is broken
+     rather than that it was never collected. */
+  function tableCols() {
+    return TABLE_COLS_ALL.filter(function (c) { return !c.needs || dbHas(c.needs); });
+  }
 
   function groupCountOf(m) { return (db.groupsByModel[m.id] || []).length; }
+
+  /* Does the loaded catalogue actually carry this field?
+     The UI is built for a richer dataset than the current export provides, so
+     rather than render empty controls and blank columns it asks first and
+     leaves out what cannot be answered. One source of truth — the bundle says
+     which fields it has — so a future import with real specs turns the
+     filters, columns and spec cards back on without a code change. */
+  function dbHas(field) {
+    var cov = db.coverage;
+    if (!cov) return true;                 /* sample data carries everything */
+    return cov.absent.indexOf(field) === -1;
+  }
 
   /* ---------------------------------------------------------------- filters */
   function filterModels(items, f) {
@@ -849,7 +868,7 @@
       if (f.fiveG === '4g' && sp.network === '5G') return false;
       if (f.minRam && Math.max.apply(null, sp.ramVariantsGb || [0]) < Number(f.minRam)) return false;
       if (f.minStorage && Math.max.apply(null, sp.storageVariantsGb || [0]) < Number(f.minStorage)) return false;
-      if (f.minBattery && (sp.batteryMah || 0) < Number(f.minBattery)) return false;
+      if (f.minBattery && (sp.batteryMah || 0) < Number(f.minBattery)) return false;   /* the export carries mAh */
       if (f.size) {
         var band = f.size.split('-').map(Number);
         if (m.displaySize < band[0] || m.displaySize >= band[1]) return false;
@@ -914,7 +933,7 @@
      below 900px the whole thing becomes stacked cards. Hiding in CSS rather
      than in JS means a resize needs no re-render. */
   function deviceTableHTML(items) {
-    var head = TABLE_COLS.map(function (c) {
+    var head = tableCols().map(function (c) {
       return '<th class="c-' + c.k + '">' + esc(c.label) + '</th>';
     }).join('');
 
@@ -937,7 +956,7 @@
         res: esc(m.screenResolution || '—')
       };
       return '<tr data-act="open-model" data-id="' + esc(m.id) + '" tabindex="0">' +
-        TABLE_COLS.map(function (c) {
+        tableCols().map(function (c) {
           return '<td class="c-' + c.k + '" data-label="' + esc(c.label) + '">' + cell[c.k] + '</td>';
         }).join('') + '</tr>';
     }).join('');
@@ -962,22 +981,25 @@
     var f = m.filters;
     var n = activeModelFilterCount(f);
 
+    /* A filter the dataset cannot answer is not shown. Offering "Curved only"
+       against data with no curvature field returns an empty list and reads as
+       a broken filter rather than as missing data. */
     return '<div class="bctl">' +
       selectHTML('deviceType', 'Type', f.deviceType, [
         ['', 'All types'], ['phone', 'Phones'], ['tablet', 'Tablets'], ['watch', 'Watches']]) +
-      selectHTML('curve', 'Screen', f.curve, [
-        ['', 'Flat & curved'], ['flat', 'Flat only'], ['curved', 'Curved only']]) +
+      (dbHas('screenCurve') ? selectHTML('curve', 'Screen', f.curve, [
+        ['', 'Flat & curved'], ['flat', 'Flat only'], ['curved', 'Curved only']]) : '') +
       selectHTML('year', 'Year', f.year,
         [['', 'Any year']].concat(years.map(function (y) { return [String(y), String(y)]; }))) +
       selectHTML('size', 'Size', f.size, [
         ['', 'Any size'], ['0-5', 'Under 5"'], ['5-6.2', '5–6.2"'],
         ['6.2-6.7', '6.2–6.7"'], ['6.7-20', '6.7" and up']]) +
-      selectHTML('fiveG', 'Network', f.fiveG, [
-        ['', 'Any network'], ['5g', '5G only'], ['4g', '4G only']]) +
-      selectHTML('minRam', 'RAM', f.minRam, [
-        ['', 'Any RAM'], ['6', '6 GB+'], ['8', '8 GB+'], ['12', '12 GB+'], ['16', '16 GB']]) +
-      selectHTML('minStorage', 'Storage', f.minStorage, [
-        ['', 'Any storage'], ['128', '128 GB+'], ['256', '256 GB+'], ['512', '512 GB+']]) +
+      (dbHas('network') ? selectHTML('fiveG', 'Network', f.fiveG, [
+        ['', 'Any network'], ['5g', '5G only'], ['4g', '4G only']]) : '') +
+      (dbHas('ram') ? selectHTML('minRam', 'RAM', f.minRam, [
+        ['', 'Any RAM'], ['6', '6 GB+'], ['8', '8 GB+'], ['12', '12 GB+'], ['16', '16 GB']]) : '') +
+      (dbHas('storage') ? selectHTML('minStorage', 'Storage', f.minStorage, [
+        ['', 'Any storage'], ['128', '128 GB+'], ['256', '256 GB+'], ['512', '512 GB+']]) : '') +
       selectHTML('minBattery', 'Battery', f.minBattery, [
         ['', 'Any battery'], ['4500', '4500 mAh+'], ['5000', '5000 mAh+'], ['5500', '5500 mAh+']]) +
       selectHTML('sort', 'Sort', m.sort, [
@@ -1490,11 +1512,14 @@
     }).join('') + '</div>';
   }
 
-  var FREE_INCLUDED = [
+  /* A function, not a constant: the model count comes from the catalogue, which
+     now arrives over the network. Evaluating this at module scope read
+     db.stats before the fetch had resolved and took the whole app down. */
+  function freeIncluded() { return [
     'Browse all ' + nf(db.stats.models) + ' phone models and their specs',
     'Browse every compatibility group in the catalogue',
     'Search by model, part code or group number'
-  ];
+  ]; }
   var PRO_ONLY = [
     'Match a model to its compatibility group',
     'Full compatible-device list for every group',
@@ -1505,7 +1530,7 @@
   function accessHTML() {
     return '<span class="t-lab">What your account can do</span>' +
       '<ul class="acclist" style="margin-top:10px">' +
-      FREE_INCLUDED.map(function (t) {
+      freeIncluded().map(function (t) {
         return '<li class="acclist__on">' + icon('checkCircle') + '<span>' + esc(t) + '</span></li>';
       }).join('') +
       PRO_ONLY.map(function (t) {
@@ -1674,7 +1699,37 @@
   }
 
   /* One highlight tile. Kept deliberately terse — this band is scanned, not read. */
+  /* A highlight card with no value is not rendered. Six cards reading "—" tell
+     a reader the page is broken; four real ones tell them what is known. */
+  /* Joins the parts that exist and returns null when none do, so a caption
+     never renders as "null · null · null". */
+  function join(sep, parts) {
+    var kept = parts.filter(function (p) { return p != null && p !== ''; });
+    return kept.length ? kept.join(sep) : null;
+  }
+
+  /* States what the loaded catalogue does not carry, by name. A spec page that
+     silently omits half its sections looks incomplete; one that says which
+     fields the source lacks is simply accurate, and tells the owner exactly
+     what a richer import would add. */
+  function coverageNoteHTML() {
+    var cov = db.coverage;
+    if (!cov || !cov.absent || !cov.absent.length) return '';
+    var LABEL = {
+      chipset: 'processor', cpu: 'CPU', gpu: 'GPU', ram: 'RAM', storage: 'storage',
+      colours: 'colours', cameras: 'cameras', os: 'software', network: 'network',
+      sensors: 'sensors', screenCurve: 'flat/curved screen', price: 'price',
+      variants: 'RAM and storage variants', screenResolution: 'resolution'
+    };
+    var names = cov.absent.map(function (f) { return LABEL[f] || f; });
+    return '<p class="dnote">' + icon('info') +
+      '<span>This catalogue carries model, brand, release date, display size, ' +
+      'dimensions and battery. It does not include ' + esc(names.join(', ')) +
+      ' — those fields are left out rather than estimated.</span></p>';
+  }
+
   function keySpecHTML(iconName, label, value, sub) {
+    if (value == null || value === '' || value === 'null') return '';
     return '<div class="dkey">' +
       '<span class="dkey__i">' + icon(iconName) + '</span>' +
       '<span class="dkey__l">' + esc(label) + '</span>' +
@@ -1861,15 +1916,18 @@
              below the fold — a three-column band so the hero balances instead
              of leaving the right half of a desktop window empty. */
           '<div class="dkeys">' +
-            keySpecHTML('phone', 'Display', m.displaySize + '"',
-              m.screenResolution + ' · ' + m.screenType + ' · ' + m.screenRatio) +
-            keySpecHTML('cpu', 'Processor', sp.chipset, sp.cpu + ' · ' + sp.gpu) +
-            keySpecHTML('camera', 'Main camera', mainCam.mp + ' MP',
-              rear.length + ' rear · ' + sp.cameraFront.mp + ' MP front') +
-            keySpecHTML('battery', 'Battery', nf(sp.batteryMah) + ' mAh',
-              sp.chargingWatts + 'W' + (sp.wirelessCharging ? ' · wireless' : '')) +
-            keySpecHTML('layers', 'Memory', ramTxt, romTxt) +
+            keySpecHTML('phone', 'Display', m.displaySize ? m.displaySize + '"' : null,
+              join(' · ', [m.screenResolution, m.screenType, m.screenRatio])) +
+            keySpecHTML('cpu', 'Processor', sp.chipset, join(' · ', [sp.cpu, sp.gpu])) +
+            keySpecHTML('camera', 'Main camera', mainCam.mp ? mainCam.mp + ' MP' : null,
+              rear.length ? rear.length + ' rear' : null) +
+            keySpecHTML('battery', 'Battery', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null,
+              sp.chargingWatts ? sp.chargingWatts + 'W' + (sp.wirelessCharging ? ' · wireless' : '') : null) +
+            keySpecHTML('layers', 'Memory', sp.ramVariantsGb ? ramTxt : null, sp.storageVariantsGb ? romTxt : null) +
             keySpecHTML('signal', 'Network', sp.network, sp.wifi) +
+            keySpecHTML('ruler', 'Body', join(' × ', [m.height, m.width]),
+              m.screenCm2 ? m.screenCm2 + ' cm² screen' : null) +
+            keySpecHTML('calendar', 'Released', m.releaseDate, m.releaseYear ? String(m.releaseYear) : null) +
           '</div>' +
 
           /* --------------------------------------------------- full spec sheet */
@@ -1890,45 +1948,63 @@
               ['Process', sp.fabrication]
             ]) +
             specBlockHTML('Memory', 'layers', [
-              ['RAM', ramTxt],
-              ['Storage', romTxt],
-              ['Expandable', sp.expandable ? 'microSD supported' : 'Not expandable']
+              ['RAM', sp.ramVariantsGb ? ramTxt : null],
+              ['Storage', sp.storageVariantsGb ? romTxt : null],
+              ['Expandable', sp.expandable == null ? null
+                : (sp.expandable ? 'microSD supported' : 'Not expandable')]
             ]) +
+            /* Every row here tolerates a null: this page must render for a
+               catalogue that carries only names and dimensions as readily as
+               for one with a full spec sheet. specBlockHTML drops null rows
+               and omits a section that ends up with none. */
             specBlockHTML('Camera', 'camera', rear.map(function (c) {
               return [c.role, c.mp + ' MP · ' + c.aperture + (c.ois ? ' · OIS' : '')];
             }).concat([
-              ['Front camera', sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture],
+              ['Front camera', sp.cameraFront ? sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture : null],
               ['Video', sp.videoMax]
             ])) +
             specBlockHTML('Battery & charging', 'battery', [
-              ['Capacity', nf(sp.batteryMah) + ' mAh'],
+              ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null],
               ['Type', sp.batteryType],
-              ['Wired charging', sp.chargingWatts + 'W'],
-              ['Wireless charging', sp.wirelessCharging ? 'Supported' : 'Not supported']
+              ['Wired charging', sp.chargingWatts ? sp.chargingWatts + 'W' : null],
+              ['Wireless charging', sp.wirelessCharging == null ? null
+                : (sp.wirelessCharging ? 'Supported' : 'Not supported')]
             ]) +
             specBlockHTML('Software', 'sparkle', [
-              ['Operating system', sp.os + ' ' + sp.osVersion],
-              ['Interface', sp.skin],
-              ['Released', m.releaseDate]
+              ['Operating system', sp.os ? sp.os + ' ' + (sp.osVersion || '') : null],
+              ['Interface', sp.skin]
+              /* Release date lives in its own highlight card and in Source —
+                 filed under Software it was the only row keeping an otherwise
+                 empty section on the page. */
             ]) +
             specBlockHTML('Network & connectivity', 'signal', [
               ['Network', sp.networkDetail],
               ['SIM', m.sim],
               ['Wi-Fi', sp.wifi],
               ['Bluetooth', sp.bluetooth],
-              ['NFC', sp.nfc ? 'Yes' : 'No'],
+              ['NFC', sp.nfc == null ? null : (sp.nfc ? 'Yes' : 'No')],
               ['USB', sp.usb],
-              ['Headphone jack', sp.headphoneJack ? '3.5 mm' : 'None']
+              ['Headphone jack', sp.headphoneJack == null ? null : (sp.headphoneJack ? '3.5 mm' : 'None')]
             ]) +
             specBlockHTML('Body', 'ruler', [
               ['Height', m.height],
               ['Width', m.width],
               ['Thickness', m.thickness],
               ['Weight', m.weight],
-              ['Colours', (sp.colors || []).map(function (c) { return c.n; }).join(', ')]
+              ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null],
+              ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null],
+              ['Colours', sp.colors ? sp.colors.map(function (c) { return c.n; }).join(', ') : null]
             ]) +
             specBlockHTML('Sensors', 'shield', [
-              ['Sensors', (sp.sensors || []).join(', ')]
+              ['Sensors', sp.sensors ? sp.sensors.join(', ') : null]
+            ]) +
+            /* The source link is the one field the export always has and the
+               UI had nowhere to show. It is also the attribution the licence
+               asks for. */
+            specBlockHTML('Source', 'linkOut', [
+              ['Released', m.releaseDate],
+              ['Catalogue entry', m.sourceUrl ? m.sourceUrl.replace(/^https?:\/\//, '') : null],
+              ['Device type', m.deviceType + (m.typeDerived ? ' (read from the model name)' : '')]
             ]) +
           '</div>' +
 
@@ -1940,8 +2016,7 @@
             compat +
           '</section>' +
 
-          '<p class="dnote">' + icon('alert') +
-            'Specifications shown are sample data for interface testing, not researched values.</p>' +
+          coverageNoteHTML() +
         '</div></div>';
 
       window.scrollTo({ top: 0, behavior: 'auto' });
@@ -2826,10 +2901,37 @@
       if (state.theme === 'system') renderShellBits();
     });
   }
-  state.recent = loadRecent();
   SM.art.mount();
-  mountShell();
   if (!location.hash) location.replace('#/finder');
-  window.addEventListener('hashchange', route);
-  route();
+
+  /* The shell reads db.stats for the header counts, so it cannot mount before
+     the catalogue arrives. A brand mark and a line of text hold the page in
+     the meantime — ~280 KB gzipped, so this is brief, but a blank window while
+     it downloads would look broken. */
+  var app = document.getElementById('app');
+  if (app) {
+    app.innerHTML = '<div class="bootwait">' + SM.logoMark(44) +
+      '<span>Loading the device catalogue…</span></div>';
+  }
+
+  SM.dataset.load().then(function () {
+    SM.__rebind.forEach(function (fn) { fn(); });
+    /* Recent searches resolve stored ids against the catalogue, so this has to
+       come after it exists — reading them at boot was what crashed the page. */
+    state.recent = loadRecent();
+    mountShell();
+    window.addEventListener('hashchange', route);
+    route();
+  }).catch(function (err) {
+    console.error('[dataset]', (err && err.stack) || err);
+    global.__bootError = (err && err.stack) || String(err);
+    var host = document.getElementById('app');
+    if (host) {
+      host.innerHTML = '<div class="wrap" style="padding:40px 20px">' + C.state({
+        icon: 'alert',
+        title: 'Could not load the catalogue',
+        text: 'The device database did not download. Check the connection and reload the page.'
+      }) + '</div>';
+    }
+  });
 })(window);

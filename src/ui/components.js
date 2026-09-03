@@ -202,7 +202,12 @@
   C.brandCard = function (b) {
     var c = b.counts || { total: b.modelCount, phones: b.modelCount, flat: 0, curved: 0, tablets: 0, watches: 0 };
     var phones = c.phones || 0;
-    var flatPct = phones ? Math.round((c.flat / phones) * 100) : 0;
+    /* The flat/curved split only exists when the dataset carries curvature.
+       The current export does not, so the bar and its labels are omitted
+       rather than drawn from nulls — a bar at 0% would read as "every phone is
+       curved", which is a claim the data cannot support. */
+    var hasCurve = c.flat != null && c.curved != null;
+    var flatPct = hasCurve && phones ? Math.round((c.flat / phones) * 100) : 0;
 
     /* Only the classes this brand actually sells get a chip — a row of
        "0 tablets · 0 watches" is noise on the brands that make neither. */
@@ -225,14 +230,16 @@
         ? '<span class="brandcard__lead">' +
             '<b>' + phones + '</b><span>phone' + (phones === 1 ? '' : 's') + '</span>' +
           '</span>' +
-          '<span class="curvebar" role="img" aria-label="' +
-            c.flat + ' flat, ' + c.curved + ' curved">' +
-            '<span class="curvebar__flat" style="width:' + flatPct + '%"></span>' +
-          '</span>' +
-          '<span class="brandcard__split">' +
-            '<span class="bcs bcs--flat"><b>' + c.flat + '</b> flat</span>' +
-            '<span class="bcs bcs--curved"><b>' + c.curved + '</b> curved</span>' +
-          '</span>'
+          (hasCurve
+            ? '<span class="curvebar" role="img" aria-label="' +
+                c.flat + ' flat, ' + c.curved + ' curved">' +
+                '<span class="curvebar__flat" style="width:' + flatPct + '%"></span>' +
+              '</span>' +
+              '<span class="brandcard__split">' +
+                '<span class="bcs bcs--flat"><b>' + c.flat + '</b> flat</span>' +
+                '<span class="bcs bcs--curved"><b>' + c.curved + '</b> curved</span>' +
+              '</span>'
+            : '')
         : '') +
 
       (extras.length ? '<span class="brandcard__extra">' + extras.join('') + '</span>' : '') +

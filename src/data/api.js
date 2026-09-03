@@ -22,7 +22,12 @@
 (function (global) {
   'use strict';
   var SM = (global.SM = global.SM || {});
+  /* The catalogue arrives over the network now, so this alias is bound before
+     it exists. Every module that caches SM.db registers a rebind here and boot
+     runs them once the dataset has loaded — cheaper and far less invasive than
+     turning several hundred `db.x` reads into `SM.db.x`. */
   var db = SM.db;
+  (SM.__rebind = SM.__rebind || []).push(function () { db = SM.db; });
 
   var LAT = { instant: 0, fast: 90, normal: 190, slow: 380 };
   function respond(value, ms) {

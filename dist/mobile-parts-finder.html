@@ -1915,712 +1915,293 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 @media (prefers-reduced-motion:reduce){ .vchip{ transition:none; } }
 
+/* Boot placeholder — shown only while assets/dataset.json downloads. */
+.bootwait{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:14px; min-height:70vh; color:var(--ink-3); font-size:13.5px;
+}
+.bootwait svg{ opacity:.85; }
+
 </style>
 </head>
 <body>
 <div id="app" class="app"></div>
 <script>
-/* === src/data/mock-data.js === */
+/* === src/data/dataset.js === */
 /* ============================================================================
-   Mobile Parts Finder · mock-data.js
+   Mobile Parts Finder · dataset.js — the real catalogue
    ----------------------------------------------------------------------------
-   PROTOTYPE DATA ONLY. Everything here is generated in the browser from a
-   deterministic seed so the UI behaves like a large database without any
-   backend. When a real parts database is connected, this file is the ONLY
-   thing that gets replaced — src/data/api.js keeps the same shape.
+   Loads assets/dataset.json and builds SM.db from it. This replaces the sample
+   generator: every model, group and fitment here came from the owner's own
+   export.
 
-   Entity shapes (kept close to what a real API would return):
+   WHAT THE SOURCE ACTUALLY CONTAINS
+     name · brand · release date · display size · height · width · screen area ·
+     body ratio · battery · image · source URL,
+     plus 3,340 compatibility groups and 12,239 fitments.
 
-     Brand   { id, name, code, color, color2, modelCount }
-     Model   { id, brandId, brand, modelName, fullName, releaseDate, ... specs }
-     Group   { groupId, groupNumber, serialNumber, partCode, categoryId,
-               masterModelId, compatibleDeviceIds[], compatibleCount }
+   WHAT IT DOES NOT
+     chipset, CPU, GPU, RAM, storage, colours, cameras, OS, network, sensors,
+     price, variants, and whether the screen is flat or curved.
+
+     Those are set to null and the UI omits them. They are NOT estimated,
+     defaulted or filled from a lookalike model — a spec sheet that invents a
+     processor is worse than one that admits the field is unknown, because the
+     invented one gets quoted to a customer.
+
+   deviceType is the one exception, and it is derived rather than invented:
+   "Apple iPad 10.2 (2019)" is a tablet because the name says so. `typeDerived`
+   marks it, so the UI can distinguish a fact from a reading.
+
+   LOADING
+     One fetch, ~280 KB gzipped, before the first render. Rows arrive
+     positionally — an object per model would repeat sixteen key names 4,933
+     times — and are rehydrated here in a single pass.
    ========================================================================== */
 (function (global) {
   'use strict';
   var SM = (global.SM = global.SM || {});
 
-  /* ---------------------------------------------------------------- random */
-  function hash32(str) {
-    var h = 2166136261 >>> 0;
-    for (var i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619) >>> 0;
-    }
-    return h >>> 0;
-  }
-  function mulberry32(a) {
-    return function () {
-      a |= 0; a = (a + 0x6d2b79f5) | 0;
-      var t = Math.imul(a ^ (a >>> 15), 1 | a);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-  function seeded(key) { return mulberry32(hash32(key)); }
-  function pick(r, arr) { return arr[Math.floor(r() * arr.length)]; }
-  function intIn(r, a, b) { return Math.floor(a + r() * (b - a + 1)); }
-  function round(n, d) { var p = Math.pow(10, d); return Math.round(n * p) / p; }
+  /* Presentation only. A brand's colour is a UI token, not a claim about the
+     device, so keeping it in code is not the same as inventing spec data. */
+  var BRAND_COLOR = {
+    apple: '#0F172A', samsung: '#1D4ED8', xiaomi: '#EA580C', oppo: '#0E7490',
+    vivo: '#1E40AF', realme: '#EAB308', oneplus: '#DC2626', motorola: '#1E5FD8',
+    nokia: '#0369A1', google: '#1A73E8', huawei: '#B91C1C', honor: '#0891B2',
+    nothing: '#111827', tecno: '#0D9488', infinix: '#7C3AED', itel: '#DB2777',
+    lava: '#C2410C', asus: '#1E3A8A', zte: '#2563EB', lenovo: '#B91C1C',
+    coolpad: '#0284C7', hmd: '#047857'
+  };
+  var CAT_ICON = {
+    'screen-guards': 'glass', 'back-cover': 'cover', 'combo-display': 'display',
+    'middle-frame': 'frame', 'cc-board': 'board', 'battery': 'battery'
+  };
+  var CAT_COLOR = {
+    'screen-guards': '#0E7490', 'back-cover': '#7C3AED', 'combo-display': '#2563EB',
+    'middle-frame': '#B45309', 'cc-board': '#E11D48', 'battery': '#047857'
+  };
 
-  /* ============================== BRAND TABLE ==============================
-     Centralised brand source. The UI never hardcodes a brand — the panel
-     renders whatever this table contains, so adding a row here makes the
-     brand appear everywhere automatically.
-
-     Brand { id, name, slug, code, color, color2, aliases[], gsmarena,
-             logo, active, sortOrder, search, modelCount, groupCount }
-
-     `gsmarena` is the source reference slug for a future sync against the
-     public brand list. `logo` stays null until a real licensed logo file is
-     registered (see SM.art.registerBrand) — brands without one are reported
-     in the import summary as needing manual logo review rather than being
-     given fabricated artwork.
-     ====================================================================== */
-
-  /* brands that already carry models + compatibility groups in this build */
-  var CORE_BRANDS = [
-    { id: 'samsung',  name: 'Samsung',  code: 'SAM', color: '#1D4ED8', color2: '#38BDF8', aliases: ['Samsung Mobile', 'Galaxy'] },
-    { id: 'apple',    name: 'Apple',    code: 'APL', color: '#334155', color2: '#94A3B8', aliases: ['iPhone', 'Apple Inc'] },
-    { id: 'vivo',     name: 'Vivo',     code: 'VIV', color: '#1E5FD8', color2: '#22D3EE', aliases: ['Vivo Mobile'] },
-    { id: 'oppo',     name: 'OPPO',     code: 'OPP', color: '#047857', color2: '#34D399', aliases: ['Oppo Mobile', 'Reno'] },
-    { id: 'xiaomi',   name: 'Xiaomi',   code: 'XIA', color: '#EA580C', color2: '#FB923C', aliases: ['Mi', 'Mi Phone'] },
-    { id: 'redmi',    name: 'Redmi',    code: 'RED', color: '#C2261F', color2: '#F87171', aliases: ['Xiaomi Redmi', 'Mi Redmi'] },
-    { id: 'realme',   name: 'Realme',   code: 'RLM', color: '#CA8A04', color2: '#FACC15', aliases: ['Narzo'] },
-    { id: 'oneplus',  name: 'OnePlus',  code: 'ONE', color: '#B91C1C', color2: '#FB7185', aliases: ['One Plus', 'Nord'] },
-    { id: 'motorola', name: 'Motorola', code: 'MOT', color: '#0E7490', color2: '#67E8F9', aliases: ['Moto', 'Moto G', 'Moto Edge'] },
-    { id: 'nokia',    name: 'Nokia',    code: 'NOK', color: '#1E3A8A', color2: '#60A5FA', aliases: ['HMD', 'HMD Global'] },
-    { id: 'google',   name: 'Google',   code: 'GOO', color: '#1A73E8', color2: '#34A853', aliases: ['Pixel', 'Google Pixel'] },
-    { id: 'huawei',   name: 'Huawei',   code: 'HUA', color: '#9F1239', color2: '#FB7185', aliases: ['Nova', 'Mate'] },
-    { id: 'nothing',  name: 'Nothing',  code: 'NOT', color: '#374151', color2: '#9CA3AF', aliases: ['Nothing Phone', 'CMF'] }
-  ];
-
-  /* additional mobile brands the catalogue should cover. No models are mapped
-     to these yet, so they report a zero count until stock data arrives. */
-  var EXTRA_BRANDS = [
-    { id: 'honor',    name: 'Honor',    code: 'HON', color: '#1D4ED8', color2: '#7DD3FC', aliases: ['Honor Magic', 'Huawei Honor'] },
-    { id: 'poco',     name: 'POCO',     code: 'POC', color: '#CA8A04', color2: '#FDE047', aliases: ['Pocophone', 'Xiaomi Poco'] },
-    { id: 'tecno',    name: 'Tecno',    code: 'TEC', color: '#0EA5E9', color2: '#7DD3FC', aliases: ['Tecno Mobile', 'Camon', 'Spark'] },
-    { id: 'infinix',  name: 'Infinix',  code: 'INF', color: '#7C3AED', color2: '#C4B5FD', aliases: ['Infinix Mobility', 'Infinix Hot'] },
-    { id: 'itel',     name: 'itel',     code: 'ITL', color: '#DC2626', color2: '#FCA5A5', aliases: ['itel Mobile'] },
-    { id: 'lava',     name: 'Lava',     code: 'LAV', color: '#B91C1C', color2: '#F87171', aliases: ['Lava International', 'Agni', 'Blaze'] },
-    { id: 'micromax', name: 'Micromax', code: 'MMX', color: '#0891B2', color2: '#67E8F9', aliases: ['Micromax In'] },
-    { id: 'asus',     name: 'Asus',     code: 'ASU', color: '#334155', color2: '#94A3B8', aliases: ['ASUS', 'Zenfone', 'ROG Phone'] },
-    { id: 'sony',     name: 'Sony',     code: 'SON', color: '#0F172A', color2: '#64748B', aliases: ['Xperia', 'Sony Xperia'] },
-    { id: 'lg',       name: 'LG',       code: 'LGE', color: '#A21CAF', color2: '#F0ABFC', aliases: ['LG Electronics'] },
-    { id: 'htc',      name: 'HTC',      code: 'HTC', color: '#65A30D', color2: '#BEF264', aliases: ['HTC Desire'] },
-    { id: 'zte',      name: 'ZTE',      code: 'ZTE', color: '#0369A1', color2: '#7DD3FC', aliases: ['Nubia', 'ZTE Blade'] },
-    { id: 'lenovo',   name: 'Lenovo',   code: 'LEN', color: '#DC2626', color2: '#FCA5A5', aliases: ['Lenovo Mobile'] },
-    { id: 'tcl',      name: 'TCL',      code: 'TCL', color: '#1E40AF', color2: '#93C5FD', aliases: ['Alcatel', 'TCL Mobile'] }
-  ];
-
-  function slugify(s) {
-    return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  var MONTHS = ['January','February','March','April','May','June',
+                'July','August','September','October','November','December'];
+  function fmtDate(iso) {
+    if (!iso) return null;
+    var m = String(iso).match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+    if (!m) return iso;
+    var month = MONTHS[Number(m[2]) - 1];
+    if (!month) return iso;
+    return (m[3] ? Number(m[3]) + ' ' : '') + month + ' ' + m[1];
   }
 
-  /* ---------------------------------------------------------------------
-     Reusable brand import / sync. Merges an incoming brand feed into an
-     existing table: normalises names and slugs, skips repeats inside the
-     feed, keeps rows that already exist (never clobbering their model or
-     group relationships) and returns a summary of what happened.
-     --------------------------------------------------------------------- */
-  function syncBrands(existing, incoming) {
-    var byId = Object.create(null);
-    var out = [];
-    var summary = {
-      found: incoming.length, imported: 0, retained: 0, duplicates: 0,
-      withLogo: 0, logoReview: [], failed: []
-    };
+  /* Turns a positional row into the object shape the UI reads. Fields the
+     source does not carry are null, uniformly — a missing key would look like
+     an oversight, an explicit null reads as "not known". */
+  function toModel(row, cols, brandName) {
+    var r = {};
+    cols.forEach(function (c, i) { r[c] = row[i]; });
 
-    (existing || []).forEach(function (b) { byId[b.id] = b; out.push(b); });
+    var name = r.n;
+    var brand = brandName || '';
+    /* The export stores the full name with the brand on the front. */
+    var short = brand && name.toLowerCase().indexOf(brand.toLowerCase() + ' ') === 0
+      ? name.slice(brand.length + 1) : name;
 
-    incoming.forEach(function (raw, i) {
-      if (!raw || !raw.name) { summary.failed.push('(row ' + i + ': missing name)'); return; }
-      var id = raw.id || slugify(raw.name);
+    return {
+      id: r.id,
+      brandId: r.b,
+      brand: brand,
+      modelName: short,
+      fullName: name,
+      search: name.toLowerCase(),
+      deviceType: r.dt,
+      typeDerived: true,           /* read off the name, not stated by the source */
 
-      if (byId[id]) {
-        /* already in the table — keep it, never overwrite its relationships */
-        if (existing && existing.indexOf(byId[id]) > -1) summary.retained++;
-        else summary.duplicates++;
-        return;
+      /* The export stores ISO dates. "20 September 2019" is what a counter
+         reads; "2019-09-20" is what a database stores. */
+      releaseDate: fmtDate(r.rd),
+      releaseDateIso: r.rd,
+      releaseYear: r.ry,
+      displaySize: r.sz,
+      screenCm2: r.cm2,
+      bodyRatio: r.br,
+      height: r.h != null ? r.h + ' mm' : null,
+      width: r.w != null ? r.w + ' mm' : null,
+      image: r.img,
+      sourceUrl: r.src,
+
+      /* -------- absent from the source; never guessed ------------------- */
+      screenCurve: null,
+      screenType: null,
+      screenResolution: null,
+      screenRatio: null,
+      refreshRate: null,
+      ppi: null,
+      protection: null,
+      sim: null,
+      thickness: null,
+      weight: null,
+      tier: null,
+      popularity: r.ry || 0,
+
+      specs: {
+        batteryMah: r.mah,         /* the one spec the export does carry */
+        chipset: null, cpu: null, gpu: null, fabrication: null,
+        ramVariantsGb: null, storageVariantsGb: null, expandable: null,
+        variants: null, colors: null,
+        cameraRear: null, cameraFront: null, videoMax: null,
+        batteryType: null, chargingWatts: null, wirelessCharging: null,
+        os: null, osVersion: null, skin: null,
+        network: null, networkDetail: null, wifi: null, bluetooth: null,
+        nfc: null, usb: null, headphoneJack: null, sensors: null,
+        launchPriceInr: null, status: null
       }
+    };
+  }
+
+  function build(bundle) {
+    var brandById = Object.create(null);
+    var brands = bundle.brands.map(function (row) {
       var b = {
-        id: id,
-        name: String(raw.name).trim(),
-        slug: raw.slug || slugify(raw.name),
-        code: raw.code || String(raw.name).slice(0, 3).toUpperCase(),
-        color: raw.color || '#334155',
-        color2: raw.color2 || '#94A3B8',
-        aliases: (raw.aliases || []).slice(),
-        gsmarena: raw.gsmarena || slugify(raw.name),
-        logo: raw.logo || null,
-        active: raw.active !== false,
-        sortOrder: raw.sortOrder != null ? raw.sortOrder : out.length + 1
+        id: row[0], name: row[1], modelCount: row[2], groupCount: row[3],
+        slug: row[0], code: row[1].slice(0, 3).toUpperCase(),
+        color: BRAND_COLOR[row[0]] || '#0E7A6C',
+        color2: BRAND_COLOR[row[0]] || '#12907F',
+        aliases: [], logo: null, active: true,
+        search: (row[1] + ' ' + row[0]).toLowerCase(),
+        counts: null              /* filled below, once models are known */
       };
-      b.search = (b.name + ' ' + b.slug + ' ' + b.aliases.join(' ')).toLowerCase();
-      byId[id] = b; out.push(b); summary.imported++;
+      brandById[b.id] = b;
+      return b;
     });
 
-    out.forEach(function (b) {
-      if (!b.search) b.search = (b.name + ' ' + b.slug + ' ' + (b.aliases || []).join(' ')).toLowerCase();
-      if (b.logo) summary.withLogo++; else summary.logoReview.push(b.name);
-    });
-    out.sort(function (a, b) { return a.sortOrder - b.sortOrder; });
-    return { brands: out, summary: summary };
-  }
-
-  /* seed the table, then sync the wider catalogue into it */
-  var brandTable = syncBrands([], CORE_BRANDS).brands;
-  var brandSync = syncBrands(brandTable, CORE_BRANDS.concat(EXTRA_BRANDS));
-  var BRANDS = brandSync.brands;
-  var BRAND_IMPORT_SUMMARY = brandSync.summary;
-
-  /* ------------------------------------------------------------ categories */
-  /* `fit` drives how compatibility groups are generated for the category.    */
-  var CATEGORIES = [
-    { id: 'tempered-glass',  name: 'Tempered Glass',        short: 'Glass',    code: 'TG', color: '#0E7490', icon: 'glass',   fit: { scope: 'size',  tol: 0.045, min: 4,  max: 26 } },
-    { id: 'back-cover',      name: 'Back Cover',            short: 'Cover',    code: 'BC', color: '#7C3AED', icon: 'cover',   fit: { scope: 'brand', tol: 0.02,  min: 2,  max: 8  } },
-    { id: 'combo-display',   name: 'Combo Display',         short: 'Display',  code: 'CD', color: '#2563EB', icon: 'display', fit: { scope: 'brand', tol: 0.015, min: 2,  max: 10 } },
-    { id: 'battery',         name: 'Battery',               short: 'Battery',  code: 'BT', color: '#047857', icon: 'battery', fit: { scope: 'brand', tol: 0.30,  min: 3,  max: 15 } },
-    { id: 'middle-frame',    name: 'Middle Frame',          short: 'Frame',    code: 'MF', color: '#B45309', icon: 'frame',   fit: { scope: 'brand', tol: 0.02,  min: 2,  max: 6  } },
-    { id: 'cc-board',        name: 'CC Board',              short: 'CC Board', code: 'CC', color: '#E11D48', icon: 'board',   fit: { scope: 'brand', tol: 9,     min: 4,  max: 22 } },
-    { id: 'charging-board',  name: 'Charging Board',        short: 'Charging', code: 'CB', color: '#C2410C', icon: 'charge',  fit: { scope: 'brand', tol: 9,     min: 6,  max: 46 } },
-    { id: 'spare-parts',     name: 'Additional Spare Parts', short: 'Spares',  code: 'SP', color: '#4F46E5', icon: 'parts',   fit: { scope: 'any',   tol: 9,     min: 28, max: 240 } }
-  ];
-
-  /* -------------------------------------------------------- model families */
-  /* Each family expands into `base + number + suffix`. Sample data only.     */
-  var FAMILIES = [
-    // ---- Samsung
-    { b: 'samsung', base: 'Galaxy S',  nums: [24, 23, 22, 21, 20], sfx: ['', '+', ' Ultra'], tier: 'flag', year: function (n) { return 2000 + n; } },
-    { b: 'samsung', base: 'Galaxy A',  nums: [55, 54, 53, 35, 34, 33, 25, 24, 23, 15, 14, 13, 5, 4], pad: 2, sfx: [' 5G'], tier: 'mid', year: function (n) { return 2019 + (n % 10); } },
-    { b: 'samsung', base: 'Galaxy M',  nums: [55, 53, 35, 33, 15, 14, 13, 5], pad: 2, sfx: [''], tier: 'mid', year: function (n) { return 2019 + (n % 10); } },
-    { b: 'samsung', base: 'Galaxy F',  nums: [55, 54, 15, 14, 13, 5], pad: 2, sfx: [''], tier: 'mid', year: function (n) { return 2019 + (n % 10); } },
-    { b: 'samsung', base: 'Galaxy C',  nums: [55], pad: 2, sfx: [''], tier: 'mid', year: function () { return 2024; } },
-    { b: 'samsung', names: ['Galaxy Z Fold5', 'Galaxy Z Fold4', 'Galaxy Z Flip5', 'Galaxy Z Flip4', 'Galaxy Note 20 Ultra', 'Galaxy Note 10'], tier: 'flag', y: 2023 },
-    // ---- Apple
-    { b: 'apple', base: 'iPhone ', nums: [16, 15, 14], sfx: ['', ' Plus', ' Pro', ' Pro Max'], tier: 'flag', year: function (n) { return 2008 + n; } },
-    { b: 'apple', base: 'iPhone ', nums: [13, 12], sfx: ['', ' mini', ' Pro', ' Pro Max'], tier: 'flag', year: function (n) { return 2008 + n; } },
-    { b: 'apple', base: 'iPhone ', nums: [11], sfx: ['', ' Pro', ' Pro Max'], tier: 'flag', year: function (n) { return 2008 + n; } },
-    { b: 'apple', names: ['iPhone SE (3rd generation)', 'iPhone SE (2nd generation)', 'iPhone XR', 'iPhone XS Max', 'iPhone X', 'iPhone 8 Plus', 'iPhone 8', 'iPhone 7'], tier: 'flag', y: 2019 },
-    // ---- Vivo
-    { b: 'vivo', base: 'V',     nums: [40, 30, 29, 27, 25, 23, 21], sfx: ['', ' Pro'], tier: 'mid', year: function (n) { return n >= 40 ? 2024 : n >= 30 ? 2023 : n >= 27 ? 2022 : 2021; } },
-    { b: 'vivo', base: 'Y',     nums: [200, 100, 58, 28, 21, 17, 15], sfx: [''], tier: 'entry', year: function (n) { return n > 99 ? 2024 : 2021; } },
-    { b: 'vivo', base: 'T',     nums: [3, 2, 1], sfx: ['', ' Pro'], tier: 'mid', year: function (n) { return 2021 + n; } },
-    { b: 'vivo', base: 'X',     nums: [100, 90, 80], sfx: ['', ' Pro'], tier: 'flag', year: function (n) { return 2022 + Math.floor((n - 80) / 10); } },
-    // ---- OPPO
-    { b: 'oppo', base: 'Reno ', nums: [12, 11, 10, 8, 7], sfx: ['', ' Pro', ' Pro+'], tier: 'mid', year: function (n) { return 2018 + n / 2 | 0; } },
-    { b: 'oppo', base: 'F',     nums: [27, 25, 23, 21], sfx: [''], tier: 'mid', year: function (n) { return 2010 + Math.floor(n / 2); } },
-    { b: 'oppo', base: 'A',     nums: [79, 78, 59, 58, 57, 38, 17, 16], sfx: [''], tier: 'entry', year: function (n) { return n > 60 ? 2023 : 2022; } },
-    { b: 'oppo', base: 'K',     nums: [12, 11, 10], sfx: [''], tier: 'mid', year: function (n) { return 2012 + n; } },
-    // ---- Xiaomi
-    { b: 'xiaomi', base: '',    nums: [14, 13, 12, 11], sfx: ['', ' Pro', ' Ultra'], tier: 'flag', year: function (n) { return 2010 + n; } },
-    { b: 'xiaomi', names: ['Civi 4 Pro', 'Civi 3', 'Mi 11X', 'Mi 10T', 'Poco X6 Pro', 'Poco X5', 'Poco M6 Pro'], tier: 'mid', y: 2023 },
-    // ---- Redmi
-    { b: 'redmi', base: 'Note ', nums: [13, 12, 11, 10, 9], sfx: ['', ' Pro', ' Pro+', ' 5G'], tier: 'mid', year: function (n) { return 2011 + n; } },
-    { b: 'redmi', names: ['13C', '12C', '10A', 'A3', 'A2', 'A1', '9A'], tier: 'entry', y: 2023 },
-    { b: 'redmi', base: 'K',     nums: [70, 60], sfx: ['', ' Pro'], tier: 'flag', year: function (n) { return 2017 + n / 10 | 0; } },
-    // ---- Realme
-    { b: 'realme', base: '',     nums: [12, 11, 10, 9], sfx: ['', ' Pro', ' Pro+'], tier: 'mid', year: function (n) { return 2012 + n; } },
-    { b: 'realme', base: 'Narzo ', nums: [70, 60, 50], sfx: ['', ' Pro'], tier: 'mid', year: function (n) { return 2017 + n / 10 | 0; } },
-    { b: 'realme', base: 'C',    nums: [67, 55, 53, 35, 31, 21], sfx: [''], tier: 'entry', year: function (n) { return n > 50 ? 2023 : 2022; } },
-    { b: 'realme', base: 'GT ',  nums: [6, 5, 3], sfx: ['', ' Pro'], tier: 'flag', year: function (n) { return 2018 + n; } },
-    // ---- OnePlus
-    { b: 'oneplus', base: '',    nums: [12, 11, 10, 9], sfx: ['', ' Pro', ' R'], tier: 'flag', year: function (n) { return 2012 + n; } },
-    { b: 'oneplus', names: ['Nord 4', 'Nord 3', 'Nord CE4', 'Nord CE3 Lite', 'Nord CE2', 'Nord N30'], tier: 'mid', y: 2023 },
-    // ---- Motorola
-    { b: 'motorola', base: 'Edge ', nums: [50, 40, 30], sfx: ['', ' Pro', ' Fusion'], tier: 'flag', year: function (n) { return 2019 + n / 10 | 0; } },
-    { b: 'motorola', base: 'G',   nums: [84, 74, 54, 45, 34, 32, 24, 22], sfx: [''], tier: 'mid', year: function (n) { return 2016 + Math.floor(n / 12); } },
-    { b: 'motorola', base: 'E',   nums: [14, 13, 22], sfx: [''], tier: 'entry', year: function () { return 2023; } },
-    // ---- Nokia
-    { b: 'nokia', base: 'G',     nums: [42, 22, 21, 11], sfx: [''], tier: 'entry', year: function (n) { return 2021 + Math.floor(n / 22); } },
-    { b: 'nokia', base: 'C',     nums: [32, 22, 12], sfx: [''], tier: 'entry', year: function () { return 2022; } },
-    { b: 'nokia', names: ['X30 5G', 'X20', '105 (2023)', '110 4G', '150'], tier: 'entry', y: 2022 },
-    // ---- Google
-    { b: 'google', base: 'Pixel ', nums: [9, 8, 7, 6], sfx: ['', ' Pro', 'a'], tier: 'flag', year: function (n) { return 2015 + n; } },
-    // ---- Huawei
-    { b: 'huawei', base: 'P',    nums: [60, 50, 40], sfx: ['', ' Pro'], tier: 'flag', year: function (n) { return 2017 + n / 10 | 0; } },
-    { b: 'huawei', base: 'Nova ', nums: [12, 11, 10], sfx: ['', ' Pro'], tier: 'mid', year: function (n) { return 2012 + n; } },
-    { b: 'huawei', base: 'Mate ', nums: [60, 50], sfx: ['', ' Pro'], tier: 'flag', year: function (n) { return 2018 + n / 10 | 0; } },
-    // ---- Nothing
-    { b: 'nothing', names: ['Phone (2)', 'Phone (2a)', 'Phone (2a) Plus', 'Phone (1)', 'CMF Phone 1'], tier: 'mid', y: 2023 },
-
-    /* ------------------------------------------------------------- tablets
-       `kind` becomes deviceType. Without these families the brand dashboard's
-       tablet and smartwatch columns would always read zero, and those counts
-       are the point of that layout. */
-    { b: 'samsung', base: 'Galaxy Tab S', nums: [10, 9, 8], sfx: ['', ' Ultra', ' FE'], tier: 'flag', kind: 'tablet', year: function (n) { return 2015 + n; } },
-    { b: 'samsung', base: 'Galaxy Tab A', nums: [9, 8], sfx: ['', ' Plus'], tier: 'mid', kind: 'tablet', year: function (n) { return 2015 + n; } },
-    { b: 'apple', names: ['iPad Pro 13 (M4)', 'iPad Pro 11 (M4)', 'iPad Air 13 (M2)', 'iPad Air 11 (M2)', 'iPad (10th generation)', 'iPad mini (6th generation)'], tier: 'flag', kind: 'tablet', y: 2024 },
-    { b: 'xiaomi', names: ['Pad 6S Pro', 'Pad 6', 'Pad 5'], tier: 'mid', kind: 'tablet', y: 2023 },
-    { b: 'oneplus', names: ['Pad 2', 'Pad Go'], tier: 'mid', kind: 'tablet', y: 2024 },
-    { b: 'realme', names: ['Pad 2', 'Pad X'], tier: 'mid', kind: 'tablet', y: 2023 },
-    { b: 'oppo', names: ['Pad Air 2', 'Pad 2'], tier: 'mid', kind: 'tablet', y: 2023 },
-    { b: 'vivo', names: ['Pad 3 Pro', 'Pad 2'], tier: 'mid', kind: 'tablet', y: 2024 },
-    { b: 'motorola', names: ['Tab G70', 'Tab G62'], tier: 'entry', kind: 'tablet', y: 2023 },
-    { b: 'huawei', names: ['MatePad 11.5', 'MatePad SE'], tier: 'mid', kind: 'tablet', y: 2023 },
-
-    /* -------------------------------------------------------- smartwatches */
-    { b: 'samsung', base: 'Galaxy Watch', nums: [7, 6, 5], sfx: ['', ' Classic'], tier: 'flag', kind: 'watch', year: function (n) { return 2017 + n; } },
-    { b: 'apple', names: ['Watch Series 10', 'Watch Series 9', 'Watch Ultra 2', 'Watch SE (2nd generation)'], tier: 'flag', kind: 'watch', y: 2024 },
-    { b: 'xiaomi', names: ['Watch S3', 'Watch 2 Pro', 'Redmi Watch 4'], tier: 'mid', kind: 'watch', y: 2024 },
-    { b: 'oneplus', names: ['Watch 2R', 'Watch 2'], tier: 'mid', kind: 'watch', y: 2024 },
-    { b: 'realme', names: ['Watch 3 Pro', 'Watch S2'], tier: 'entry', kind: 'watch', y: 2023 },
-    { b: 'google', names: ['Pixel Watch 3', 'Pixel Watch 2'], tier: 'flag', kind: 'watch', y: 2024 },
-    { b: 'nothing', names: ['CMF Watch Pro 2'], tier: 'entry', kind: 'watch', y: 2024 },
-    { b: 'huawei', names: ['Watch GT 5', 'Watch Fit 3'], tier: 'mid', kind: 'watch', y: 2024 }
-  ];
-
-  /* ---------------------------------------------------------- spec helpers */
-  var SCREEN_TYPES = {
-    flag: ['Dynamic AMOLED 2X', 'LTPO AMOLED', 'Super Retina XDR OLED', 'LTPO OLED'],
-    mid: ['Super AMOLED', 'AMOLED', 'pOLED', 'IPS LCD'],
-    entry: ['IPS LCD', 'PLS LCD', 'AMOLED']
-  };
-  var RESOLUTIONS = [
-    { w: 1080, h: 2400, r: '20:9' }, { w: 1080, h: 2340, r: '19.5:9' },
-    { w: 1220, h: 2712, r: '20:9' }, { w: 1440, h: 3120, r: '19.5:9' },
-    { w: 1179, h: 2556, r: '19.5:9' }, { w: 1290, h: 2796, r: '19.5:9' },
-    { w: 720, h: 1600, r: '20:9' }, { w: 1264, h: 2780, r: '20:9' }
-  ];
-  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  var PROTECTION = ['Corning Gorilla Glass Victus 2', 'Corning Gorilla Glass 5', 'Corning Gorilla Glass 3', 'Panda Glass', 'Ceramic Shield', 'Asahi Dragontrail'];
-
-  function baseSize(name, tier, r, kind) {
-    /* A watch is not a small phone and a tablet is not a big one — sizing them
-       off the phone curve gave a Galaxy Watch a 6.5-inch screen. */
-    if (kind === 'watch') return round(1.3 + r() * 0.6, 2);
-    if (kind === 'tablet') {
-      /* Tablet names usually carry their own size: "MatePad 11.5", "iPad Pro 13". */
-      var declared = String(name).match(/\b(\d{1,2}(?:\.\d)?)\b/);
-      if (declared && +declared[1] >= 7 && +declared[1] <= 14) return +declared[1];
-      return round(10.1 + r() * 3, 1);
-    }
-    if (/mini/i.test(name)) return 5.4;
-    if (/SE \(/i.test(name)) return 4.7;
-    if (/Fold/i.test(name)) return 7.6;
-    if (/Flip/i.test(name)) return 6.7;
-    if (/^1(05|10|50)/.test(name)) return 1.8;
-    if (/Pro Max|Ultra/i.test(name)) return round(6.7 + r() * 0.2, 2);
-    if (/ Pro| Plus|\+/i.test(name)) return round(6.6 + r() * 0.2, 2);
-    if (tier === 'flag') return round(6.1 + r() * 0.5, 2);
-    if (tier === 'mid') return round(6.5 + r() * 0.3, 2);
-    return round(6.4 + r() * 0.3, 2);
-  }
-
-
-  /* ==========================================================================
-     SPEC POOLS — sample data for the device showcase.
-
-     Everything here is drawn with the model's own seeded PRNG, so a given
-     handset gets the same chipset, colours and battery on every page load and
-     in every browser. That matters more than it sounds: specs that reshuffled
-     on each render would make the detail page look broken and would make any
-     UI bug impossible to reproduce.
-
-     These are plausible sample values, NOT researched specifications. When the
-     real dataset arrives it replaces this block wholesale — the detail page
-     reads the same field names either way.
-     ========================================================================== */
-  var CHIPSETS = {
-    apple: { flag: ['A18 Pro', 'A18', 'A17 Pro', 'A16 Bionic', 'A15 Bionic'],
-             mid: ['A16 Bionic', 'A15 Bionic'], entry: ['A15 Bionic'] },
-    samsung: { flag: ['Snapdragon 8 Gen 3', 'Exynos 2400', 'Snapdragon 8 Gen 2'],
-               mid: ['Exynos 1480', 'Exynos 1380', 'Snapdragon 6 Gen 1'],
-               entry: ['Exynos 850', 'Snapdragon 680'] },
-    _default: { flag: ['Snapdragon 8 Gen 3', 'Dimensity 9300', 'Snapdragon 8s Gen 3', 'Dimensity 9200+'],
-                mid: ['Snapdragon 7s Gen 2', 'Dimensity 7200', 'Snapdragon 695', 'Helio G99'],
-                entry: ['Helio G85', 'Snapdragon 680', 'Unisoc T612', 'Dimensity 6100+'] }
-  };
-  var GPUS = {
-    'A18 Pro': '6-core Apple GPU', 'A18': '5-core Apple GPU', 'A17 Pro': '6-core Apple GPU',
-    'A16 Bionic': '5-core Apple GPU', 'A15 Bionic': '5-core Apple GPU',
-    'Snapdragon 8 Gen 3': 'Adreno 750', 'Snapdragon 8 Gen 2': 'Adreno 740',
-    'Snapdragon 8s Gen 3': 'Adreno 735', 'Snapdragon 7s Gen 2': 'Adreno 710',
-    'Snapdragon 695': 'Adreno 619', 'Snapdragon 680': 'Adreno 610',
-    'Exynos 2400': 'Xclipse 940', 'Exynos 1480': 'Xclipse 530', 'Exynos 1380': 'Mali-G68 MP5',
-    'Exynos 850': 'Mali-G52', 'Snapdragon 6 Gen 1': 'Adreno 710',
-    'Dimensity 9300': 'Immortalis-G720 MC12', 'Dimensity 9200+': 'Immortalis-G715 MC11',
-    'Dimensity 7200': 'Mali-G610 MC4', 'Dimensity 6100+': 'Mali-G57 MC2',
-    'Helio G99': 'Mali-G57 MC2', 'Helio G85': 'Mali-G52 MC2', 'Unisoc T612': 'Mali-G57'
-  };
-  /* Android skin by brand — how shop staff actually name a phone's software. */
-  var SKINS = {
-    samsung: 'One UI', xiaomi: 'HyperOS', redmi: 'HyperOS', poco: 'HyperOS',
-    oppo: 'ColorOS', realme: 'realme UI', oneplus: 'OxygenOS', vivo: 'Funtouch OS',
-    honor: 'MagicOS', huawei: 'EMUI', motorola: 'Hello UI', nothing: 'Nothing OS',
-    tecno: 'HiOS', infinix: 'XOS', itel: 'itel OS', google: 'Pixel UI'
-  };
-  var COLOUR_POOL = [
-    { n: 'Midnight Black', h: '#15171A' }, { n: 'Phantom Grey', h: '#4A4E54' },
-    { n: 'Glacier White', h: '#F2F4F6' }, { n: 'Ocean Blue', h: '#1E5AA8' },
-    { n: 'Sky Blue', h: '#8FC4E8' }, { n: 'Emerald Green', h: '#1F7A55' },
-    { n: 'Mint', h: '#BFE3CE' }, { n: 'Sunset Gold', h: '#D9A441' },
-    { n: 'Titanium Grey', h: '#7C7F86' }, { n: 'Lavender', h: '#C4B5E0' },
-    { n: 'Coral Red', h: '#C8443B' }, { n: 'Rose Pink', h: '#E8B4C4' },
-    { n: 'Starlight', h: '#EDE6DB' }, { n: 'Deep Purple', h: '#4A3B6B' }
-  ];
-
-  /* Builds the full specification block for one model. `r` is the model's own
-     seeded PRNG and must be the same one used for its dimensions, so a phone's
-     screen size and its battery stay consistent with each other. */
-  function makeSpecs(brand, modelName, tier, year, size, r, kind) {
-    var isApple = brand.id === 'apple';
-    var pool = CHIPSETS[brand.id] || CHIPSETS._default;
-    var chipset = pick(r, pool[tier] || pool.mid);
-
-    var ram = tier === 'flag' ? [8, 12, 16] : tier === 'mid' ? [6, 8, 12] : [4, 6, 8];
-    var rom = tier === 'flag' ? [128, 256, 512, 1024] : tier === 'mid' ? [64, 128, 256] : [64, 128];
-
-    /* colour count tracks tier the way real line-ups do: a flagship launches in
-       more finishes than a budget phone */
-    var colourCount = tier === 'flag' ? intIn(r, 3, 5) : tier === 'mid' ? intIn(r, 3, 4) : intIn(r, 2, 3);
-    var start = intIn(r, 0, COLOUR_POOL.length - colourCount);
-
-    var mainMp = tier === 'flag' ? pick(r, [48, 50, 108, 200])
-      : tier === 'mid' ? pick(r, [50, 64, 108]) : pick(r, [13, 50]);
-    var rear = [{ mp: mainMp, role: 'Wide (main)', aperture: 'f/' + round(1.5 + r() * 0.4, 1), ois: tier !== 'entry' }];
-    if (tier !== 'entry') rear.push({ mp: pick(r, [8, 12]), role: 'Ultra-wide', aperture: 'f/2.2', ois: false });
-    if (tier === 'flag') rear.push({ mp: pick(r, [10, 12, 50]), role: 'Telephoto ' + pick(r, ['3x', '5x']) + ' optical', aperture: 'f/2.8', ois: true });
-    if (tier !== 'flag') rear.push({ mp: 2, role: 'Depth', aperture: 'f/2.4', ois: false });
-
-    var mah = tier === 'flag' ? intIn(r, 4400, 5100) : tier === 'mid' ? intIn(r, 5000, 5600) : intIn(r, 5000, 6200);
-    var watts = isApple ? 20 : tier === 'flag' ? pick(r, [67, 80, 100, 120])
-      : tier === 'mid' ? pick(r, [33, 45, 67]) : pick(r, [10, 18, 33]);
-
-    var sensors = [isApple ? 'Face ID' : pick(r, ['Fingerprint (under-display)', 'Fingerprint (side-mounted)']),
-      'Accelerometer', 'Gyroscope', 'Proximity', 'Ambient light', 'Compass'];
-    if (tier === 'flag') sensors.push('Barometer');
-
-    /* ---------------------------------------------------------- variants
-       Every RAM x storage pair the model ships in, each with its own price.
-       Real line-ups charge for memory, so the step is proportional rather than
-       flat: doubling storage on a flagship costs more than on a budget phone.
-       A watch has one configuration and no variant picker. */
-    var ramList = ram.slice(0, intIn(r, 2, ram.length));
-    var romList = rom.slice(0, intIn(r, 2, rom.length));
-    if (kind === 'watch') { ramList = ramList.slice(0, 1); romList = romList.slice(0, 1); }
-
-    var basePrice = Math.round((
-      kind === 'watch' ? intIn(r, 8000, 45000)
-        : kind === 'tablet' ? intIn(r, 12000, 95000)
-          : tier === 'flag' ? intIn(r, 54000, 165000)
-            : tier === 'mid' ? intIn(r, 14000, 34000)
-              : intIn(r, 6500, 13500)) / 100) * 100;
-
-    var stepPerGbRam = tier === 'flag' ? 900 : tier === 'mid' ? 450 : 250;
-    var stepPerGbRom = tier === 'flag' ? 28 : tier === 'mid' ? 16 : 9;
-
-    var variants = [];
-    ramList.forEach(function (gbRam) {
-      romList.forEach(function (gbRom) {
-        var price = basePrice
-          + (gbRam - ramList[0]) * stepPerGbRam
-          + (gbRom - romList[0]) * stepPerGbRom;
-        variants.push({
-          id: gbRam + '-' + gbRom,
-          ramGb: gbRam,
-          storageGb: gbRom,
-          priceInr: Math.round(price / 100) * 100,
-          /* The largest configuration of an older phone is the one shops stop
-             stocking first, so it is the one marked unavailable. */
-          available: !(year < 2023 && gbRom === romList[romList.length - 1] && romList.length > 1)
-        });
-      });
+    var models = bundle.models.map(function (row) {
+      var brand = brandById[row[1]];
+      return toModel(row, bundle.modelCols, brand ? brand.name : '');
     });
 
-    var fiveG = (year >= 2020 && tier !== 'entry') || year >= 2022;
+    var modelById = Object.create(null);
+    models.forEach(function (m) { modelById[m.id] = m; });
 
-    return {
-      chipset: chipset,
-      cpu: '8-core CPU · ' + (tier === 'flag' ? 'up to 3.3 GHz' : tier === 'mid' ? 'up to 2.4 GHz' : 'up to 2.0 GHz'),
-      gpu: GPUS[chipset] || 'Integrated GPU',
-      fabrication: tier === 'flag' ? pick(r, ['3 nm', '4 nm']) : tier === 'mid' ? '6 nm' : '12 nm',
-      ramVariantsGb: ramList,
-      storageVariantsGb: romList,
-      expandable: !isApple && tier !== 'flag',
-      colors: COLOUR_POOL.slice(start, start + colourCount),
-      cameraRear: rear,
-      cameraFront: { mp: tier === 'flag' ? pick(r, [12, 32]) : pick(r, [8, 16, 32]), aperture: 'f/2.2' },
-      videoMax: tier === 'flag' ? '4K at 60 fps' : tier === 'mid' ? '4K at 30 fps' : '1080p at 30 fps',
-      batteryMah: mah,
-      batteryType: 'Li-Po, non-removable',
-      chargingWatts: watts,
-      wirelessCharging: tier === 'flag',
-      os: isApple ? 'iOS' : 'Android',
-      osVersion: isApple ? String(Math.min(26, year - 2005)) : String(Math.min(16, year - 2010)),
-      skin: isApple ? null : (SKINS[brand.id] || null),
-      network: fiveG ? '5G' : '4G LTE',
-      networkDetail: fiveG ? 'GSM · HSPA · LTE · 5G SA/NSA' : 'GSM · HSPA · LTE',
-      wifi: tier === 'flag' ? 'Wi-Fi 7 (802.11be)' : tier === 'mid' ? 'Wi-Fi 6 (802.11ax)' : 'Wi-Fi 5 (802.11ac)',
-      bluetooth: tier === 'flag' ? '5.4' : tier === 'mid' ? '5.3' : '5.0',
-      nfc: tier !== 'entry',
-      usb: isApple && year < 2023 ? 'Lightning' : 'USB Type-C',
-      headphoneJack: !isApple && tier === 'entry',
-      sensors: sensors,
-      /* Launch price is the price of the BASE variant. Every other RAM and
-         storage combination is priced relative to it in `variants` below, so
-         the detail page can update the figure as the buyer changes the
-         configuration instead of showing one price for every SKU.
-         Sample figures, not researched ones. */
-      launchPriceInr: basePrice,
-      variants: variants,
-      status: year >= 2022 ? 'Available' : 'Discontinued'
-    };
-  }
+    /* Brand rollups. Flat and curved are absent from the source, so they are
+       absent here — the dashboard shows what is known and says nothing about
+       what is not, rather than reporting a confident zero. */
+    brands.forEach(function (b) {
+      var mine = models.filter(function (m) { return m.brandId === b.id; });
+      b.counts = {
+        total: mine.length,
+        phones: mine.filter(function (m) { return m.deviceType === 'phone'; }).length,
+        tablets: mine.filter(function (m) { return m.deviceType === 'tablet'; }).length,
+        watches: mine.filter(function (m) { return m.deviceType === 'watch'; }).length,
+        flat: null, curved: null
+      };
+    });
 
-  function makeModel(brand, modelName, tier, year, kind) {
-    var full = brand.name + ' ' + modelName;
-    var r = seeded('model:' + full);
-    var size = baseSize(modelName, tier, r, kind);
-    var res = size < 5 ? { w: 750, h: 1334, r: '16:9' }
-      : tier === 'flag' ? pick(r, RESOLUTIONS.slice(0, 6))
-        : tier === 'mid' ? pick(r, RESOLUTIONS.slice(0, 3).concat(RESOLUTIONS.slice(6)))
-          : pick(r, [RESOLUTIONS[6], RESOLUTIONS[1]]);
-    var h = round(size * 24.2 + (r() * 3 - 1.5), 1);
-    var w = round(size * 11.55 + (r() * 2 - 1), 1);
-    var t = round(6.9 + r() * 2.1, 1);
-    var wt = Math.round(size * 27 + r() * 22 + 10);
-    var diagPx = Math.sqrt(res.w * res.w + res.h * res.h);
-    return {
-      id: full.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
-      brandId: brand.id,
-      brand: brand.name,
-      modelName: modelName,
-      fullName: full,
-      search: full.toLowerCase() + ' ' + modelName.toLowerCase().replace(/[^a-z0-9]/g, ''),
-      tier: tier,
-      deviceType: kind || 'phone',
-      /* Flat or curved is the single most useful fact when fitting a tempered
-         glass or a back cover — a curved panel takes a different part
-         entirely. Curved edges belong to premium phones, so the draw is
-         weighted by tier and never applies to a tablet or a watch. */
-      screenCurve: (kind && kind !== 'phone') ? 'flat'
-        : tier === 'flag' ? (r() < 0.62 ? 'curved' : 'flat')
-          : tier === 'mid' ? (r() < 0.18 ? 'curved' : 'flat')
-            : 'flat',
-      releaseYear: year,
-      releaseMonth: MONTHS[intIn(r, 0, 11)],
-      releaseDate: MONTHS[intIn(r, 0, 11)] + ' ' + year,
-      displaySize: size,
-      screenResolution: res.w + ' x ' + res.h + ' px',
-      screenRatio: res.r,
-      screenType: pick(r, SCREEN_TYPES[tier] || SCREEN_TYPES.mid),
-      refreshRate: (tier === 'flag' ? pick(r, [120, 144]) : tier === 'mid' ? pick(r, [90, 120]) : pick(r, [60, 90])) + ' Hz',
-      ppi: Math.round(diagPx / size) + ' ppi',
-      height: h + ' mm',
-      width: w + ' mm',
-      thickness: t + ' mm',
-      weight: wt + ' g',
-      protection: pick(r, PROTECTION),
-      sim: pick(r, ['Dual SIM (Nano + Nano)', 'Dual SIM (Nano + eSIM)', 'Single SIM (Nano)']),
-      specs: makeSpecs(brand, modelName, tier, year, size, r, kind || 'phone'),
-      _size: size,
-      popularity: Math.round((2026 - year) * -12 + r() * 40 + (tier === 'flag' ? 30 : tier === 'mid' ? 22 : 8))
-    };
-  }
+    var categories = bundle.categories.map(function (c) {
+      return {
+        id: c.id, name: c.name, short: c.short, code: c.code, order: c.order,
+        groupCount: c.groupCount,
+        icon: CAT_ICON[c.id] || 'parts',
+        color: CAT_COLOR[c.id] || '#0E7A6C'
+      };
+    });
+    var categoryById = Object.create(null);
+    categories.forEach(function (c) { categoryById[c.id] = c; });
 
-  /* ------------------------------------------------------------ build models */
-  function buildModels() {
-    var out = [], seen = Object.create(null);
-    var brandMap = Object.create(null);
-    BRANDS.forEach(function (b) { brandMap[b.id] = b; });
+    var gc = bundle.groupCols;
+    var groups = bundle.groups.map(function (row) {
+      var g = {};
+      gc.forEach(function (c, i) { g[c] = row[i]; });
+      var master = modelById[g.mm];
+      var cat = categoryById[g.cat];
+      /* Field names match what the UI already reads. The export calls these
+         memberIds and groupNo; renaming here rather than across the app keeps
+         the change to one file and leaves every screen untouched. */
+      return {
+        groupId: g.id,
+        groupNumber: g.no,
+        serialNumber: g.no,
+        partCode: g.part || null,
+        categoryId: g.cat,
+        categoryName: cat ? cat.name : g.cat,
+        masterModelId: g.mm,
+        masterModelName: master ? master.fullName : g.mm,
+        masterBrandId: g.mb,
+        compatibleDeviceIds: g.mem,
+        compatibleCount: g.cnt,
+        createdOn: null,           /* the export carries no creation date */
+        /* Resolved from ids rather than shipped as text — the names were the
+           single largest field in the export and are already here. */
+        memberNames: g.mem.map(function (id) {
+          return modelById[id] ? modelById[id].fullName : id;
+        })
+      };
+    });
 
-    FAMILIES.forEach(function (fam) {
-      var brand = brandMap[fam.b];
-      if (fam.names) {
-        fam.names.forEach(function (nm, i) {
-          push(brand, nm, fam.tier, fam.y - (i > 2 ? 1 : 0), fam.kind);
-        });
-        return;
+    var groupById = Object.create(null);
+    groups.forEach(function (g) { groupById[g.groupId] = g; });
+
+    /* model -> the groups it belongs to, flattened across categories */
+    var groupsByModel = Object.create(null);
+    Object.keys(bundle.modelGroups).forEach(function (modelId) {
+      var byCat = bundle.modelGroups[modelId];
+      var ids = [];
+      Object.keys(byCat).forEach(function (cat) { ids = ids.concat(byCat[cat]); });
+      groupsByModel[modelId] = ids;
+    });
+
+    var links = groups.reduce(function (s, g) { return s + g.memberCount; }, 0);
+
+    SM.db = {
+      brands: brands,
+      categories: categories,
+      models: models,
+      modelsRanked: models.slice().sort(function (a, b) {
+        return (b.releaseYear || 0) - (a.releaseYear || 0);
+      }),
+      groups: groups,
+      modelById: modelById,
+      brandById: brandById,
+      categoryById: categoryById,
+      groupById: groupById,
+      groupsByModel: groupsByModel,
+      modelGroupsByCategory: bundle.modelGroups,
+      /* So the UI can state its own limits instead of rendering blank rows. */
+      coverage: {
+        present: bundle.fieldsPresent,
+        absent: bundle.fieldsAbsent,
+        derived: bundle.fieldsDerived,
+        source: bundle.source
+      },
+      stats: {
+        models: models.length,
+        brands: brands.length,
+        brandsWithModels: brands.filter(function (b) { return b.modelCount > 0; }).length,
+        groups: groups.length,
+        categories: categories.length,
+        links: links
       }
-      fam.nums.forEach(function (n) {
-        var numStr = fam.pad ? String(n).padStart(fam.pad, '0') : String(n);
-        fam.sfx.forEach(function (s) {
-          var nm = (fam.pre || '') + fam.base + numStr + s;
-          push(brand, nm, fam.tier, fam.year(n), fam.kind);
-        });
-      });
-    });
-
-    function push(brand, nm, tier, year, kind) {
-      var m = makeModel(brand, nm, tier, Math.max(2016, Math.min(2026, year || 2023)), kind);
-      if (seen[m.id]) return;
-      seen[m.id] = 1;
-      out.push(m);
-    }
-    return out;
-  }
-
-  /* ------------------------------------------------------- identifier logic */
-  var ABBR = { PRO: 'P', MAX: 'M', PLUS: 'PL', ULTRA: 'U', LITE: 'L', MINI: 'MI', FUSION: 'F', GENERATION: '', RD: '', ND: '' };
-  var STRIP = /\b(galaxy|iphone|xiaomi|realme|oneplus|phone|5g|4g)\b/gi;
-
-  function partSlug(model) {
-    var s = model.modelName.replace(STRIP, ' ');
-    var tokens = s.replace(/[()]/g, ' ').split(/[\s+]+/).filter(Boolean);
-    var outStr = tokens.map(function (tk) {
-      var up = tk.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (ABBR.hasOwnProperty(up)) return ABBR[up];
-      return up;
-    }).join('');
-    outStr = outStr.replace(/[^A-Z0-9]/g, '');
-    if (!outStr) outStr = model.brand.slice(0, 3).toUpperCase();
-    return outStr.slice(0, 7);
-  }
-  function pad(n, len) { return String(n).padStart(len, '0'); }
-
-  /* ------------------------------------------------------------ build groups */
-  var GROUP_PLAN = [
-    ['tempered-glass', 34], ['back-cover', 26], ['combo-display', 24], ['battery', 22],
-    ['middle-frame', 16], ['cc-board', 16], ['charging-board', 18], ['spare-parts', 14]
-  ];
-
-  function buildGroups(models) {
-    var catMap = Object.create(null);
-    CATEGORIES.forEach(function (c) { catMap[c.id] = c; });
-
-    var ranked = models.slice().sort(function (a, b) {
-      return b.popularity - a.popularity || a.id.localeCompare(b.id);
-    });
-    var byBrand = Object.create(null);
-    models.forEach(function (m) { (byBrand[m.brandId] = byBrand[m.brandId] || []).push(m); });
-
-    var groups = [];
-    var serial = 1, gnum = 1;
-    var perCatSeq = Object.create(null);
-
-    GROUP_PLAN.forEach(function (row, ci) {
-      var catId = row[0], count = row[1], cat = catMap[catId];
-      var offset = ci * 7;
-      perCatSeq[catId] = 0;
-
-      for (var i = 0; i < count; i++) {
-        var master = ranked[(offset + i * 3) % ranked.length];
-        var r = seeded('grp:' + catId + ':' + master.id);
-        var pool = cat.fit.scope === 'any' ? models
-          : cat.fit.scope === 'brand' ? byBrand[master.brandId]
-            : models; /* size scope searches everything, filtered below */
-
-        var candidates = pool.filter(function (m) {
-          if (m.id === master.id) return false;
-          if (cat.fit.tol < 9 && Math.abs(m._size - master._size) > cat.fit.tol) return false;
-          return true;
-        });
-        /* size-scope groups (glass) favour same brand first, then cross-brand */
-        if (cat.fit.scope === 'size') {
-          candidates.sort(function (a, b) {
-            var sa = (a.brandId === master.brandId ? 0 : 1), sb = (b.brandId === master.brandId ? 0 : 1);
-            return sa - sb || a.id.localeCompare(b.id);
-          });
-        } else {
-          candidates.sort(function (a, b) {
-            return (hash32(catId + a.id) % 1000) - (hash32(catId + b.id) % 1000);
-          });
-        }
-
-        var target = intIn(r, cat.fit.min, cat.fit.max);
-        /* one deliberately huge group per run proves the UI scales */
-        if (catId === 'spare-parts' && i === 0) target = 268;
-        var members = candidates.slice(0, Math.max(0, target - 1));
-
-        var seq = ++perCatSeq[catId];
-        var brandCode = (BRANDS.filter(function (b) { return b.id === master.brandId; })[0] || {}).code || 'GEN';
-        groups.push({
-          groupId: 'g' + pad(gnum, 3),
-          groupNumber: 'GRP-' + pad(gnum, 3),
-          serialNumber: 'MPF-SN-' + pad(serial, 6),
-          partCode: cat.code + '-' + brandCode + '-' + partSlug(master) + '-' + pad(seq, 3),
-          categoryId: catId,
-          masterModelId: master.id,
-          compatibleDeviceIds: [master.id].concat(members.map(function (m) { return m.id; })),
-          compatibleCount: members.length + 1,
-          createdOn: (2024 + (gnum % 2)) + '-' + pad(1 + (gnum % 12), 2) + '-' + pad(1 + (gnum % 27), 2)
-        });
-        gnum++; serial++;
-      }
-    });
-
-    groups.sort(function (a, b) { return a.groupNumber.localeCompare(b.groupNumber); });
-    return groups;
-  }
-
-  /* -------------------------------------------------------------- assemble */
-  var models = buildModels();
-  var groups = buildGroups(models);
-
-  var modelById = Object.create(null);
-  models.forEach(function (m) { modelById[m.id] = m; });
-
-  var brandById = Object.create(null);
-  BRANDS.forEach(function (b) {
-    var mine = models.filter(function (m) { return m.brandId === b.id; });
-    b.modelCount = mine.length;
-
-    /* Rollup the brand dashboard reads. Counted once here rather than filtered
-       per card on every render — 27 cards each scanning 344 models is work the
-       browser should not repeat on a resize.
-
-       `phones` is the headline; flat and curved split it, because that split is
-       what decides which tempered glass or back cover fits. */
-    b.counts = {
-      total: mine.length,
-      phones: mine.filter(function (m) { return m.deviceType === 'phone'; }).length,
-      flat: mine.filter(function (m) { return m.deviceType === 'phone' && m.screenCurve === 'flat'; }).length,
-      curved: mine.filter(function (m) { return m.deviceType === 'phone' && m.screenCurve === 'curved'; }).length,
-      tablets: mine.filter(function (m) { return m.deviceType === 'tablet'; }).length,
-      watches: mine.filter(function (m) { return m.deviceType === 'watch'; }).length
     };
-    /* groups whose MASTER model belongs to this brand — matches how the brand
-       filter in listGroups() selects, so the count always equals the result. */
-    b.groupCount = groups.filter(function (g) {
-      return modelById[g.masterModelId].brandId === b.id;
-    }).length;
-    brandById[b.id] = b;
-  });
+    return SM.db;
+  }
 
-  var categoryById = Object.create(null);
-  CATEGORIES.forEach(function (c) {
-    c.groupCount = groups.filter(function (g) { return g.categoryId === c.id; }).length;
-    categoryById[c.id] = c;
-  });
+  var loaded = null;
 
-  var groupById = Object.create(null);
-  var groupsByModel = Object.create(null);   /* modelId -> [groupId]  (membership) */
-  var totalLinks = 0;
-  groups.forEach(function (g) {
-    groupById[g.groupId] = g;
-    totalLinks += g.compatibleCount;
-    g.compatibleDeviceIds.forEach(function (id) {
-      (groupsByModel[id] = groupsByModel[id] || []).push(g.groupId);
-    });
-  });
-
-  /* models sorted for default browse order */
-  var modelsRanked = models.slice().sort(function (a, b) {
-    return b.popularity - a.popularity || a.fullName.localeCompare(b.fullName);
-  });
-
-  SM.db = {
-    brands: BRANDS,
-    categories: CATEGORIES,
-    models: models,
-    modelsRanked: modelsRanked,
-    groups: groups,
-    modelById: modelById,
-    brandById: brandById,
-    categoryById: categoryById,
-    groupById: groupById,
-    groupsByModel: groupsByModel,
-    brandImport: BRAND_IMPORT_SUMMARY,
-    syncBrands: syncBrands,          /* reusable for the next import run */
-    stats: {
-      models: models.length,
-      brands: BRANDS.length,
-      brandsWithModels: BRANDS.filter(function (b) { return b.modelCount > 0; }).length,
-      groups: groups.length,
-      categories: CATEGORIES.length,
-      links: totalLinks
-    }
+  SM.dataset = {
+    /** One fetch, cached. Resolves with SM.db. */
+    load: function () {
+      if (loaded) return loaded;
+      loaded = fetch('assets/dataset.json')
+        .then(function (res) {
+          if (!res.ok) throw new Error('dataset ' + res.status);
+          return res.json();
+        })
+        .then(build)
+        .catch(function (err) {
+          loaded = null;
+          throw err;
+        });
+      return loaded;
+    },
+    build: build
   };
 })(window);
 
@@ -3286,7 +2867,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 (function (global) {
   'use strict';
   var SM = (global.SM = global.SM || {});
+  /* The catalogue arrives over the network now, so this alias is bound before
+     it exists. Every module that caches SM.db registers a rebind here and boot
+     runs them once the dataset has loaded — cheaper and far less invasive than
+     turning several hundred `db.x` reads into `SM.db.x`. */
   var db = SM.db;
+  (SM.__rebind = SM.__rebind || []).push(function () { db = SM.db; });
 
   var LAT = { instant: 0, fast: 90, normal: 190, slow: 380 };
   function respond(value, ms) {
@@ -4383,7 +3969,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   C.brandCard = function (b) {
     var c = b.counts || { total: b.modelCount, phones: b.modelCount, flat: 0, curved: 0, tablets: 0, watches: 0 };
     var phones = c.phones || 0;
-    var flatPct = phones ? Math.round((c.flat / phones) * 100) : 0;
+    /* The flat/curved split only exists when the dataset carries curvature.
+       The current export does not, so the bar and its labels are omitted
+       rather than drawn from nulls — a bar at 0% would read as "every phone is
+       curved", which is a claim the data cannot support. */
+    var hasCurve = c.flat != null && c.curved != null;
+    var flatPct = hasCurve && phones ? Math.round((c.flat / phones) * 100) : 0;
 
     /* Only the classes this brand actually sells get a chip — a row of
        "0 tablets · 0 watches" is noise on the brands that make neither. */
@@ -4406,14 +3997,16 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         ? '<span class="brandcard__lead">' +
             '<b>' + phones + '</b><span>phone' + (phones === 1 ? '' : 's') + '</span>' +
           '</span>' +
-          '<span class="curvebar" role="img" aria-label="' +
-            c.flat + ' flat, ' + c.curved + ' curved">' +
-            '<span class="curvebar__flat" style="width:' + flatPct + '%"></span>' +
-          '</span>' +
-          '<span class="brandcard__split">' +
-            '<span class="bcs bcs--flat"><b>' + c.flat + '</b> flat</span>' +
-            '<span class="bcs bcs--curved"><b>' + c.curved + '</b> curved</span>' +
-          '</span>'
+          (hasCurve
+            ? '<span class="curvebar" role="img" aria-label="' +
+                c.flat + ' flat, ' + c.curved + ' curved">' +
+                '<span class="curvebar__flat" style="width:' + flatPct + '%"></span>' +
+              '</span>' +
+              '<span class="brandcard__split">' +
+                '<span class="bcs bcs--flat"><b>' + c.flat + '</b> flat</span>' +
+                '<span class="bcs bcs--curved"><b>' + c.curved + '</b> curved</span>' +
+              '</span>'
+            : '')
         : '') +
 
       (extras.length ? '<span class="brandcard__extra">' + extras.join('') + '</span>' : '') +
@@ -4490,6 +4083,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 (function (global) {
   'use strict';
   var SM = global.SM, C = SM.C, icon = SM.icon, api = SM.api, db = SM.db, S = SM.session;
+  (SM.__rebind = SM.__rebind || []).push(function () { db = SM.db; });
   var esc = C.esc, nf = C.nf;
 
   /* ------------------------------------------------------------------ state */
@@ -5307,22 +4901,40 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* Which columns survive at which width. Priority order is the order a
      repair decision actually needs them, so dropping from the right always
      drops the least useful column first. */
-  var TABLE_COLS = [
-    { k: 'device',  label: 'Device',     min: 0 },
-    { k: 'size',    label: 'Display',    min: 0 },
-    { k: 'curve',   label: 'Screen',     min: 700 },
-    { k: 'year',    label: 'Released',   min: 560 },
-    { k: 'groups',  label: 'Parts',      min: 0 },
-    { k: 'chipset', label: 'Processor',  min: 1100 },
-    { k: 'battery', label: 'Battery',    min: 900 },
-    { k: 'ram',     label: 'RAM',        min: 1280 },
-    { k: 'storage', label: 'Storage',    min: 1280 },
-    { k: 'network', label: 'Network',    min: 1000 },
-    { k: 'camera',  label: 'Camera',     min: 1400 },
-    { k: 'res',     label: 'Resolution', min: 1500 }
+  var TABLE_COLS_ALL = [
+    { k: 'device',  label: 'Device',     needs: null },
+    { k: 'size',    label: 'Display',    needs: null },
+    { k: 'curve',   label: 'Screen',     needs: 'screenCurve' },
+    { k: 'year',    label: 'Released',   needs: null },
+    { k: 'groups',  label: 'Parts',      needs: null },
+    { k: 'chipset', label: 'Processor',  needs: 'chipset' },
+    { k: 'battery', label: 'Battery',    needs: null },
+    { k: 'ram',     label: 'RAM',        needs: 'ram' },
+    { k: 'storage', label: 'Storage',    needs: 'storage' },
+    { k: 'network', label: 'Network',    needs: 'network' },
+    { k: 'camera',  label: 'Camera',     needs: 'cameras' },
+    { k: 'res',     label: 'Resolution', needs: 'screenResolution' }
   ];
+  /* A column the dataset cannot fill is not rendered at all. Showing twelve
+     headings above nine columns of dashes tells a reader the data is broken
+     rather than that it was never collected. */
+  function tableCols() {
+    return TABLE_COLS_ALL.filter(function (c) { return !c.needs || dbHas(c.needs); });
+  }
 
   function groupCountOf(m) { return (db.groupsByModel[m.id] || []).length; }
+
+  /* Does the loaded catalogue actually carry this field?
+     The UI is built for a richer dataset than the current export provides, so
+     rather than render empty controls and blank columns it asks first and
+     leaves out what cannot be answered. One source of truth — the bundle says
+     which fields it has — so a future import with real specs turns the
+     filters, columns and spec cards back on without a code change. */
+  function dbHas(field) {
+    var cov = db.coverage;
+    if (!cov) return true;                 /* sample data carries everything */
+    return cov.absent.indexOf(field) === -1;
+  }
 
   /* ---------------------------------------------------------------- filters */
   function filterModels(items, f) {
@@ -5335,7 +4947,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       if (f.fiveG === '4g' && sp.network === '5G') return false;
       if (f.minRam && Math.max.apply(null, sp.ramVariantsGb || [0]) < Number(f.minRam)) return false;
       if (f.minStorage && Math.max.apply(null, sp.storageVariantsGb || [0]) < Number(f.minStorage)) return false;
-      if (f.minBattery && (sp.batteryMah || 0) < Number(f.minBattery)) return false;
+      if (f.minBattery && (sp.batteryMah || 0) < Number(f.minBattery)) return false;   /* the export carries mAh */
       if (f.size) {
         var band = f.size.split('-').map(Number);
         if (m.displaySize < band[0] || m.displaySize >= band[1]) return false;
@@ -5400,7 +5012,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      below 900px the whole thing becomes stacked cards. Hiding in CSS rather
      than in JS means a resize needs no re-render. */
   function deviceTableHTML(items) {
-    var head = TABLE_COLS.map(function (c) {
+    var head = tableCols().map(function (c) {
       return '<th class="c-' + c.k + '">' + esc(c.label) + '</th>';
     }).join('');
 
@@ -5423,7 +5035,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         res: esc(m.screenResolution || '—')
       };
       return '<tr data-act="open-model" data-id="' + esc(m.id) + '" tabindex="0">' +
-        TABLE_COLS.map(function (c) {
+        tableCols().map(function (c) {
           return '<td class="c-' + c.k + '" data-label="' + esc(c.label) + '">' + cell[c.k] + '</td>';
         }).join('') + '</tr>';
     }).join('');
@@ -5448,22 +5060,25 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var f = m.filters;
     var n = activeModelFilterCount(f);
 
+    /* A filter the dataset cannot answer is not shown. Offering "Curved only"
+       against data with no curvature field returns an empty list and reads as
+       a broken filter rather than as missing data. */
     return '<div class="bctl">' +
       selectHTML('deviceType', 'Type', f.deviceType, [
         ['', 'All types'], ['phone', 'Phones'], ['tablet', 'Tablets'], ['watch', 'Watches']]) +
-      selectHTML('curve', 'Screen', f.curve, [
-        ['', 'Flat & curved'], ['flat', 'Flat only'], ['curved', 'Curved only']]) +
+      (dbHas('screenCurve') ? selectHTML('curve', 'Screen', f.curve, [
+        ['', 'Flat & curved'], ['flat', 'Flat only'], ['curved', 'Curved only']]) : '') +
       selectHTML('year', 'Year', f.year,
         [['', 'Any year']].concat(years.map(function (y) { return [String(y), String(y)]; }))) +
       selectHTML('size', 'Size', f.size, [
         ['', 'Any size'], ['0-5', 'Under 5"'], ['5-6.2', '5–6.2"'],
         ['6.2-6.7', '6.2–6.7"'], ['6.7-20', '6.7" and up']]) +
-      selectHTML('fiveG', 'Network', f.fiveG, [
-        ['', 'Any network'], ['5g', '5G only'], ['4g', '4G only']]) +
-      selectHTML('minRam', 'RAM', f.minRam, [
-        ['', 'Any RAM'], ['6', '6 GB+'], ['8', '8 GB+'], ['12', '12 GB+'], ['16', '16 GB']]) +
-      selectHTML('minStorage', 'Storage', f.minStorage, [
-        ['', 'Any storage'], ['128', '128 GB+'], ['256', '256 GB+'], ['512', '512 GB+']]) +
+      (dbHas('network') ? selectHTML('fiveG', 'Network', f.fiveG, [
+        ['', 'Any network'], ['5g', '5G only'], ['4g', '4G only']]) : '') +
+      (dbHas('ram') ? selectHTML('minRam', 'RAM', f.minRam, [
+        ['', 'Any RAM'], ['6', '6 GB+'], ['8', '8 GB+'], ['12', '12 GB+'], ['16', '16 GB']]) : '') +
+      (dbHas('storage') ? selectHTML('minStorage', 'Storage', f.minStorage, [
+        ['', 'Any storage'], ['128', '128 GB+'], ['256', '256 GB+'], ['512', '512 GB+']]) : '') +
       selectHTML('minBattery', 'Battery', f.minBattery, [
         ['', 'Any battery'], ['4500', '4500 mAh+'], ['5000', '5000 mAh+'], ['5500', '5500 mAh+']]) +
       selectHTML('sort', 'Sort', m.sort, [
@@ -5976,11 +5591,14 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     }).join('') + '</div>';
   }
 
-  var FREE_INCLUDED = [
+  /* A function, not a constant: the model count comes from the catalogue, which
+     now arrives over the network. Evaluating this at module scope read
+     db.stats before the fetch had resolved and took the whole app down. */
+  function freeIncluded() { return [
     'Browse all ' + nf(db.stats.models) + ' phone models and their specs',
     'Browse every compatibility group in the catalogue',
     'Search by model, part code or group number'
-  ];
+  ]; }
   var PRO_ONLY = [
     'Match a model to its compatibility group',
     'Full compatible-device list for every group',
@@ -5991,7 +5609,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   function accessHTML() {
     return '<span class="t-lab">What your account can do</span>' +
       '<ul class="acclist" style="margin-top:10px">' +
-      FREE_INCLUDED.map(function (t) {
+      freeIncluded().map(function (t) {
         return '<li class="acclist__on">' + icon('checkCircle') + '<span>' + esc(t) + '</span></li>';
       }).join('') +
       PRO_ONLY.map(function (t) {
@@ -6160,7 +5778,37 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   }
 
   /* One highlight tile. Kept deliberately terse — this band is scanned, not read. */
+  /* A highlight card with no value is not rendered. Six cards reading "—" tell
+     a reader the page is broken; four real ones tell them what is known. */
+  /* Joins the parts that exist and returns null when none do, so a caption
+     never renders as "null · null · null". */
+  function join(sep, parts) {
+    var kept = parts.filter(function (p) { return p != null && p !== ''; });
+    return kept.length ? kept.join(sep) : null;
+  }
+
+  /* States what the loaded catalogue does not carry, by name. A spec page that
+     silently omits half its sections looks incomplete; one that says which
+     fields the source lacks is simply accurate, and tells the owner exactly
+     what a richer import would add. */
+  function coverageNoteHTML() {
+    var cov = db.coverage;
+    if (!cov || !cov.absent || !cov.absent.length) return '';
+    var LABEL = {
+      chipset: 'processor', cpu: 'CPU', gpu: 'GPU', ram: 'RAM', storage: 'storage',
+      colours: 'colours', cameras: 'cameras', os: 'software', network: 'network',
+      sensors: 'sensors', screenCurve: 'flat/curved screen', price: 'price',
+      variants: 'RAM and storage variants', screenResolution: 'resolution'
+    };
+    var names = cov.absent.map(function (f) { return LABEL[f] || f; });
+    return '<p class="dnote">' + icon('info') +
+      '<span>This catalogue carries model, brand, release date, display size, ' +
+      'dimensions and battery. It does not include ' + esc(names.join(', ')) +
+      ' — those fields are left out rather than estimated.</span></p>';
+  }
+
   function keySpecHTML(iconName, label, value, sub) {
+    if (value == null || value === '' || value === 'null') return '';
     return '<div class="dkey">' +
       '<span class="dkey__i">' + icon(iconName) + '</span>' +
       '<span class="dkey__l">' + esc(label) + '</span>' +
@@ -6347,15 +5995,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
              below the fold — a three-column band so the hero balances instead
              of leaving the right half of a desktop window empty. */
           '<div class="dkeys">' +
-            keySpecHTML('phone', 'Display', m.displaySize + '"',
-              m.screenResolution + ' · ' + m.screenType + ' · ' + m.screenRatio) +
-            keySpecHTML('cpu', 'Processor', sp.chipset, sp.cpu + ' · ' + sp.gpu) +
-            keySpecHTML('camera', 'Main camera', mainCam.mp + ' MP',
-              rear.length + ' rear · ' + sp.cameraFront.mp + ' MP front') +
-            keySpecHTML('battery', 'Battery', nf(sp.batteryMah) + ' mAh',
-              sp.chargingWatts + 'W' + (sp.wirelessCharging ? ' · wireless' : '')) +
-            keySpecHTML('layers', 'Memory', ramTxt, romTxt) +
+            keySpecHTML('phone', 'Display', m.displaySize ? m.displaySize + '"' : null,
+              join(' · ', [m.screenResolution, m.screenType, m.screenRatio])) +
+            keySpecHTML('cpu', 'Processor', sp.chipset, join(' · ', [sp.cpu, sp.gpu])) +
+            keySpecHTML('camera', 'Main camera', mainCam.mp ? mainCam.mp + ' MP' : null,
+              rear.length ? rear.length + ' rear' : null) +
+            keySpecHTML('battery', 'Battery', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null,
+              sp.chargingWatts ? sp.chargingWatts + 'W' + (sp.wirelessCharging ? ' · wireless' : '') : null) +
+            keySpecHTML('layers', 'Memory', sp.ramVariantsGb ? ramTxt : null, sp.storageVariantsGb ? romTxt : null) +
             keySpecHTML('signal', 'Network', sp.network, sp.wifi) +
+            keySpecHTML('ruler', 'Body', join(' × ', [m.height, m.width]),
+              m.screenCm2 ? m.screenCm2 + ' cm² screen' : null) +
+            keySpecHTML('calendar', 'Released', m.releaseDate, m.releaseYear ? String(m.releaseYear) : null) +
           '</div>' +
 
           /* --------------------------------------------------- full spec sheet */
@@ -6376,45 +6027,63 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
               ['Process', sp.fabrication]
             ]) +
             specBlockHTML('Memory', 'layers', [
-              ['RAM', ramTxt],
-              ['Storage', romTxt],
-              ['Expandable', sp.expandable ? 'microSD supported' : 'Not expandable']
+              ['RAM', sp.ramVariantsGb ? ramTxt : null],
+              ['Storage', sp.storageVariantsGb ? romTxt : null],
+              ['Expandable', sp.expandable == null ? null
+                : (sp.expandable ? 'microSD supported' : 'Not expandable')]
             ]) +
+            /* Every row here tolerates a null: this page must render for a
+               catalogue that carries only names and dimensions as readily as
+               for one with a full spec sheet. specBlockHTML drops null rows
+               and omits a section that ends up with none. */
             specBlockHTML('Camera', 'camera', rear.map(function (c) {
               return [c.role, c.mp + ' MP · ' + c.aperture + (c.ois ? ' · OIS' : '')];
             }).concat([
-              ['Front camera', sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture],
+              ['Front camera', sp.cameraFront ? sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture : null],
               ['Video', sp.videoMax]
             ])) +
             specBlockHTML('Battery & charging', 'battery', [
-              ['Capacity', nf(sp.batteryMah) + ' mAh'],
+              ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null],
               ['Type', sp.batteryType],
-              ['Wired charging', sp.chargingWatts + 'W'],
-              ['Wireless charging', sp.wirelessCharging ? 'Supported' : 'Not supported']
+              ['Wired charging', sp.chargingWatts ? sp.chargingWatts + 'W' : null],
+              ['Wireless charging', sp.wirelessCharging == null ? null
+                : (sp.wirelessCharging ? 'Supported' : 'Not supported')]
             ]) +
             specBlockHTML('Software', 'sparkle', [
-              ['Operating system', sp.os + ' ' + sp.osVersion],
-              ['Interface', sp.skin],
-              ['Released', m.releaseDate]
+              ['Operating system', sp.os ? sp.os + ' ' + (sp.osVersion || '') : null],
+              ['Interface', sp.skin]
+              /* Release date lives in its own highlight card and in Source —
+                 filed under Software it was the only row keeping an otherwise
+                 empty section on the page. */
             ]) +
             specBlockHTML('Network & connectivity', 'signal', [
               ['Network', sp.networkDetail],
               ['SIM', m.sim],
               ['Wi-Fi', sp.wifi],
               ['Bluetooth', sp.bluetooth],
-              ['NFC', sp.nfc ? 'Yes' : 'No'],
+              ['NFC', sp.nfc == null ? null : (sp.nfc ? 'Yes' : 'No')],
               ['USB', sp.usb],
-              ['Headphone jack', sp.headphoneJack ? '3.5 mm' : 'None']
+              ['Headphone jack', sp.headphoneJack == null ? null : (sp.headphoneJack ? '3.5 mm' : 'None')]
             ]) +
             specBlockHTML('Body', 'ruler', [
               ['Height', m.height],
               ['Width', m.width],
               ['Thickness', m.thickness],
               ['Weight', m.weight],
-              ['Colours', (sp.colors || []).map(function (c) { return c.n; }).join(', ')]
+              ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null],
+              ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null],
+              ['Colours', sp.colors ? sp.colors.map(function (c) { return c.n; }).join(', ') : null]
             ]) +
             specBlockHTML('Sensors', 'shield', [
-              ['Sensors', (sp.sensors || []).join(', ')]
+              ['Sensors', sp.sensors ? sp.sensors.join(', ') : null]
+            ]) +
+            /* The source link is the one field the export always has and the
+               UI had nowhere to show. It is also the attribution the licence
+               asks for. */
+            specBlockHTML('Source', 'linkOut', [
+              ['Released', m.releaseDate],
+              ['Catalogue entry', m.sourceUrl ? m.sourceUrl.replace(/^https?:\/\//, '') : null],
+              ['Device type', m.deviceType + (m.typeDerived ? ' (read from the model name)' : '')]
             ]) +
           '</div>' +
 
@@ -6426,8 +6095,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
             compat +
           '</section>' +
 
-          '<p class="dnote">' + icon('alert') +
-            'Specifications shown are sample data for interface testing, not researched values.</p>' +
+          coverageNoteHTML() +
         '</div></div>';
 
       window.scrollTo({ top: 0, behavior: 'auto' });
@@ -7312,12 +6980,39 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       if (state.theme === 'system') renderShellBits();
     });
   }
-  state.recent = loadRecent();
   SM.art.mount();
-  mountShell();
   if (!location.hash) location.replace('#/finder');
-  window.addEventListener('hashchange', route);
-  route();
+
+  /* The shell reads db.stats for the header counts, so it cannot mount before
+     the catalogue arrives. A brand mark and a line of text hold the page in
+     the meantime — ~280 KB gzipped, so this is brief, but a blank window while
+     it downloads would look broken. */
+  var app = document.getElementById('app');
+  if (app) {
+    app.innerHTML = '<div class="bootwait">' + SM.logoMark(44) +
+      '<span>Loading the device catalogue…</span></div>';
+  }
+
+  SM.dataset.load().then(function () {
+    SM.__rebind.forEach(function (fn) { fn(); });
+    /* Recent searches resolve stored ids against the catalogue, so this has to
+       come after it exists — reading them at boot was what crashed the page. */
+    state.recent = loadRecent();
+    mountShell();
+    window.addEventListener('hashchange', route);
+    route();
+  }).catch(function (err) {
+    console.error('[dataset]', (err && err.stack) || err);
+    global.__bootError = (err && err.stack) || String(err);
+    var host = document.getElementById('app');
+    if (host) {
+      host.innerHTML = '<div class="wrap" style="padding:40px 20px">' + C.state({
+        icon: 'alert',
+        title: 'Could not load the catalogue',
+        text: 'The device database did not download. Check the connection and reload the page.'
+      }) + '</div>';
+    }
+  });
 })(window);
 
 </script>
