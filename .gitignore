@@ -22,3 +22,6 @@ firebase-debug.log
 
 # raw vendor exports (regenerate with scripts/dump-xlsx.py)
 data/raw/
+
+# PoC output — regenerate with: node scripts/poc-apple.js
+data/build/poc-apple/

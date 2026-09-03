@@ -19,60 +19,216 @@
       "collectionGroup": "groups",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "categoryId", "order": "ASCENDING" },
-        { "fieldPath": "groupNo", "order": "ASCENDING" }
+        {
+          "fieldPath": "categoryId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "groupNo",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "groups",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "categoryId", "order": "ASCENDING" },
-        { "fieldPath": "memberCount", "order": "DESCENDING" },
-        { "fieldPath": "groupNo", "order": "ASCENDING" }
+        {
+          "fieldPath": "categoryId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "memberCount",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "groupNo",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "groups",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "categoryId", "order": "ASCENDING" },
-        { "fieldPath": "masterBrandId", "order": "ASCENDING" },
-        { "fieldPath": "groupNo", "order": "ASCENDING" }
+        {
+          "fieldPath": "categoryId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "masterBrandId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "groupNo",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "groups",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "masterBrandId", "order": "ASCENDING" },
-        { "fieldPath": "groupNo", "order": "ASCENDING" }
+        {
+          "fieldPath": "masterBrandId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "groupNo",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "groups",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "categoryId", "order": "ASCENDING" },
-        { "fieldPath": "searchTokens", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "groupNo", "order": "ASCENDING" }
+        {
+          "fieldPath": "categoryId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "searchTokens",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "groupNo",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "models",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "brandId", "order": "ASCENDING" },
-        { "fieldPath": "releaseYear", "order": "DESCENDING" },
-        { "fieldPath": "nameLower", "order": "ASCENDING" }
+        {
+          "fieldPath": "brandId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "releaseYear",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "nameLower",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "models",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "brandId", "order": "ASCENDING" },
-        { "fieldPath": "nameLower", "order": "ASCENDING" }
+        {
+          "fieldPath": "brandId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nameLower",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "devices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "brandId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "releaseYear",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "nameLower",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "devices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "brandId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nameLower",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "devices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "deviceType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "releaseYear",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "devices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "searchPrefixes",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "releaseYear",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "devices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "lastVerifiedAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "priceOffers",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "sourceId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "checkedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "priceHistory",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "sourceId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "checkedAt",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],
@@ -98,6 +254,31 @@
     {
       "collectionGroup": "groupDetails",
       "fieldPath": "memberNames",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "devices",
+      "fieldPath": "searchPrefixes",
+      "indexes": [
+        {
+          "queryScope": "COLLECTION",
+          "arrayConfig": "CONTAINS"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "devices",
+      "fieldPath": "tokens",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "devices",
+      "fieldPath": "aliases",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "specs",
+      "fieldPath": "sources",
       "indexes": []
     }
   ]

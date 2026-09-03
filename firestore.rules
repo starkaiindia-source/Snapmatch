@@ -109,6 +109,50 @@ service cloud.firestore {
       }
     }
 
+
+    /* ------------------------------------------------------ device master
+       The canonical catalogue built by the ingestion pipeline. Everything here
+       is free to browse: it is what makes the site useful before anyone pays.
+       Specs, colours and prices are subcollections so listing the catalogue
+       never pays to read a spec sheet nobody opened. */
+    match /devices/{deviceId} {
+      allow read: if true;
+      allow write: if false;                       /* importer uses Admin SDK */
+
+      match /specs/{doc}          { allow read: if true;  allow write: if false; }
+      match /colorVariants/{doc}  { allow read: if true;  allow write: if false; }
+      match /priceOffers/{doc}    { allow read: if true;  allow write: if false; }
+      match /priceHistory/{doc}   { allow read: if true;  allow write: if false; }
+      match /pricing/{doc}        { allow read: if true;  allow write: if false; }
+    }
+
+    /* The alias -> canonical id bridge. Public because resolving a typed model
+       name to a device is the first step of every search. */
+    match /aliases/{alias} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /partCategories/{categoryId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /* The device -> matching groups shortcut, under its new name. Same paid
+       gate as modelGroups, which stays until the client is migrated. */
+    match /deviceGroups/{deviceId} {
+      allow read: if hasActivePlan();
+      allow write: if false;
+    }
+
+    /* ---------------------------------------------------------- operations
+       Source registry, import audit trail and job schedule. No client has any
+       reason to read these, and letting one read the source list would expose
+       which credentials are configured. Admin SDK only, both ways. */
+    match /sources/{sourceId}    { allow read, write: if false; }
+    match /importRuns/{runId}    { allow read, write: if false; }
+    match /updateJobs/{jobId}    { allow read, write: if false; }
+
     /* anything not matched above is closed */
     match /{document=**} {
       allow read, write: if false;
