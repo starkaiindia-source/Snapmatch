@@ -185,8 +185,31 @@
     idToken: function () {
       return ready().then(function (fb) {
         var u = fb.auth().currentUser;
-        if (!u) return null;
-        return u.getIdToken(false);
+        if (u) return u.getIdToken(false);
+
+        /* currentUser is null until onAuthStateChanged has fired once, and
+           restoring a session from IndexedDB takes a moment. The local profile
+           says "signed in" the instant the page loads, so a subscriber who
+           clicks Subscribe straight away would otherwise get a null token and
+           a "could not start payment" for a session that is perfectly valid.
+           Wait for the first auth callback instead of guessing. */
+        return new Promise(function (resolve) {
+          var settled = false;
+          var off = fb.auth().onAuthStateChanged(function (user) {
+            if (settled) return;
+            settled = true;
+            off();
+            resolve(user ? user.getIdToken(false) : null);
+          });
+          /* Never hang the button: if auth says nothing at all, treat it as
+             signed out and let the caller ask for a sign-in. */
+          setTimeout(function () {
+            if (settled) return;
+            settled = true;
+            off();
+            resolve(null);
+          }, 8000);
+        });
       });
     },
 

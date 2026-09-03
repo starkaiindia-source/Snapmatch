@@ -2538,8 +2538,31 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     idToken: function () {
       return ready().then(function (fb) {
         var u = fb.auth().currentUser;
-        if (!u) return null;
-        return u.getIdToken(false);
+        if (u) return u.getIdToken(false);
+
+        /* currentUser is null until onAuthStateChanged has fired once, and
+           restoring a session from IndexedDB takes a moment. The local profile
+           says "signed in" the instant the page loads, so a subscriber who
+           clicks Subscribe straight away would otherwise get a null token and
+           a "could not start payment" for a session that is perfectly valid.
+           Wait for the first auth callback instead of guessing. */
+        return new Promise(function (resolve) {
+          var settled = false;
+          var off = fb.auth().onAuthStateChanged(function (user) {
+            if (settled) return;
+            settled = true;
+            off();
+            resolve(user ? user.getIdToken(false) : null);
+          });
+          /* Never hang the button: if auth says nothing at all, treat it as
+             signed out and let the caller ask for a sign-in. */
+          setTimeout(function () {
+            if (settled) return;
+            settled = true;
+            off();
+            resolve(null);
+          }, 8000);
+        });
       });
     },
 
@@ -7163,8 +7186,21 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         }).catch(function (err) {
           t.disabled = false;
           t.innerHTML = restoreCta;
-          toast(err && err.message === 'signin-required'
-            ? 'Sign in to activate a plan' : 'Could not start payment', 'alert');
+
+          /* "Could not start payment" told nobody anything — not the shop
+             owner staring at it, and not us reading a bug report. Each failure
+             now says which step broke and what to do about it. */
+          var msg = err && err.message;
+          var say =
+            msg === 'signin-required'      ? 'Sign in again to activate a plan'
+          : msg === 'checkout-unavailable' ? 'Razorpay Checkout did not load — check the connection and retry'
+          : msg === 'unknown plan'         ? 'That plan is no longer available'
+          : (err && err.status === 401)    ? 'Your session expired — sign in again'
+          : (err && err.status === 500)    ? 'Payment service is not configured yet'
+          : msg                            ? 'Could not start payment: ' + msg
+                                           : 'Could not start payment';
+          console.error('[subscribe]', err);
+          toast(say, 'alert');
         });
         break;
       case 'edit-profile': {

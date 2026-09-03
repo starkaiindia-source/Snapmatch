@@ -2585,8 +2585,21 @@
         }).catch(function (err) {
           t.disabled = false;
           t.innerHTML = restoreCta;
-          toast(err && err.message === 'signin-required'
-            ? 'Sign in to activate a plan' : 'Could not start payment', 'alert');
+
+          /* "Could not start payment" told nobody anything — not the shop
+             owner staring at it, and not us reading a bug report. Each failure
+             now says which step broke and what to do about it. */
+          var msg = err && err.message;
+          var say =
+            msg === 'signin-required'      ? 'Sign in again to activate a plan'
+          : msg === 'checkout-unavailable' ? 'Razorpay Checkout did not load — check the connection and retry'
+          : msg === 'unknown plan'         ? 'That plan is no longer available'
+          : (err && err.status === 401)    ? 'Your session expired — sign in again'
+          : (err && err.status === 500)    ? 'Payment service is not configured yet'
+          : msg                            ? 'Could not start payment: ' + msg
+                                           : 'Could not start payment';
+          console.error('[subscribe]', err);
+          toast(say, 'alert');
         });
         break;
       case 'edit-profile': {
