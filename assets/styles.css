@@ -17,7 +17,11 @@
   /* --- ink --- */
   --ink:          #0A1512;
   --ink-2:        #47605B;
-  --ink-3:        #7A918C;
+  /* #7A918C read at only 3.36:1 on white — under the 4.5 small-text floor, and
+     it carried every muted label on the site: spec captions, model counts, the
+     "launch price" line. #567269 is the nearest tone that clears 4.5 on all
+     three surfaces (4.64 worst case) and keeps the same cool-grey character. */
+  --ink-3:        #567269;
 
   /* --- signal teal (primary) --- */
   --teal-900:     #073B36;
@@ -104,7 +108,7 @@
   :root:not([data-theme="light"]){
     --paper:#060F0E; --paper-2:#0A1917; --surface:#0E1B19; --surface-2:#122320;
     --surface-3:#172C29; --line:#1E3430; --line-soft:#182A27;
-    --ink:#E8F2EF; --ink-2:#9DB5B0; --ink-3:#6E8A85;
+    --ink:#E8F2EF; --ink-2:#9DB5B0; --ink-3:#7C9994;   /* was #6E8A85: 3.95:1 on surface-3 */
     --teal-100:#0C3A36; --teal-050:#0A2B29; --teal-700:#14B39A; --teal-600:#10D0A8;
     --amber-100:#43260F; --amber-050:#2A1A0C; --amber-700:#FFB347; --amber-600:#FF8A3D;
     --ok-bg:#0B3A2F; --warn-bg:#3A2A0C; --bad-bg:#3D1A1C;
@@ -126,7 +130,7 @@
 :root[data-theme="dark"]{
   --paper:#060F0E; --paper-2:#0A1917; --surface:#0E1B19; --surface-2:#122320;
   --surface-3:#172C29; --line:#1E3430; --line-soft:#182A27;
-  --ink:#E8F2EF; --ink-2:#9DB5B0; --ink-3:#6E8A85;
+  --ink:#E8F2EF; --ink-2:#9DB5B0; --ink-3:#7C9994;   /* was #6E8A85: 3.95:1 on surface-3 */
   --teal-100:#0C3A36; --teal-050:#0A2B29; --teal-700:#14B39A; --teal-600:#10D0A8;
   --amber-100:#43260F; --amber-050:#2A1A0C; --amber-700:#FFB347; --amber-600:#FF8A3D;
   --ok-bg:#0B3A2F; --warn-bg:#3A2A0C; --bad-bg:#3D1A1C;
@@ -561,7 +565,10 @@ ul{ margin:0; padding:0; list-style:none; }
    pretending to be someone's identity. */
 .blogo--word{
   background:var(--pthumb-bg); border:1px solid var(--line);
-  color:var(--ink); font-family:var(--f-display); font-weight:800;
+  /* The chip is light in BOTH themes (see .blogo--mark), so the text must be a
+     fixed dark — var(--ink) is near-white in dark mode and rendered these
+     wordmarks at 1.01:1, i.e. completely invisible. */
+  color:#16211F; font-family:var(--f-display); font-weight:800;
   font-size:11px; letter-spacing:-.03em; padding:0 4px; text-align:center;
   line-height:1.05; overflow:hidden; word-break:break-word; hyphens:auto;
 }

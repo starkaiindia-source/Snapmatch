@@ -154,13 +154,13 @@
   /* ------------------------------------------------------------ categories */
   /* `fit` drives how compatibility groups are generated for the category.    */
   var CATEGORIES = [
-    { id: 'tempered-glass',  name: 'Tempered Glass',        short: 'Glass',    code: 'TG', color: '#0891B2', icon: 'glass',   fit: { scope: 'size',  tol: 0.045, min: 4,  max: 26 } },
+    { id: 'tempered-glass',  name: 'Tempered Glass',        short: 'Glass',    code: 'TG', color: '#0E7490', icon: 'glass',   fit: { scope: 'size',  tol: 0.045, min: 4,  max: 26 } },
     { id: 'back-cover',      name: 'Back Cover',            short: 'Cover',    code: 'BC', color: '#7C3AED', icon: 'cover',   fit: { scope: 'brand', tol: 0.02,  min: 2,  max: 8  } },
     { id: 'combo-display',   name: 'Combo Display',         short: 'Display',  code: 'CD', color: '#2563EB', icon: 'display', fit: { scope: 'brand', tol: 0.015, min: 2,  max: 10 } },
-    { id: 'battery',         name: 'Battery',               short: 'Battery',  code: 'BT', color: '#059669', icon: 'battery', fit: { scope: 'brand', tol: 0.30,  min: 3,  max: 15 } },
-    { id: 'middle-frame',    name: 'Middle Frame',          short: 'Frame',    code: 'MF', color: '#D97706', icon: 'frame',   fit: { scope: 'brand', tol: 0.02,  min: 2,  max: 6  } },
+    { id: 'battery',         name: 'Battery',               short: 'Battery',  code: 'BT', color: '#047857', icon: 'battery', fit: { scope: 'brand', tol: 0.30,  min: 3,  max: 15 } },
+    { id: 'middle-frame',    name: 'Middle Frame',          short: 'Frame',    code: 'MF', color: '#B45309', icon: 'frame',   fit: { scope: 'brand', tol: 0.02,  min: 2,  max: 6  } },
     { id: 'cc-board',        name: 'CC Board',              short: 'CC Board', code: 'CC', color: '#E11D48', icon: 'board',   fit: { scope: 'brand', tol: 9,     min: 4,  max: 22 } },
-    { id: 'charging-board',  name: 'Charging Board',        short: 'Charging', code: 'CB', color: '#EA580C', icon: 'charge',  fit: { scope: 'brand', tol: 9,     min: 6,  max: 46 } },
+    { id: 'charging-board',  name: 'Charging Board',        short: 'Charging', code: 'CB', color: '#C2410C', icon: 'charge',  fit: { scope: 'brand', tol: 9,     min: 6,  max: 46 } },
     { id: 'spare-parts',     name: 'Additional Spare Parts', short: 'Spares',  code: 'SP', color: '#4F46E5', icon: 'parts',   fit: { scope: 'any',   tol: 9,     min: 28, max: 240 } }
   ];
 
@@ -250,6 +250,126 @@
     return round(6.4 + r() * 0.3, 2);
   }
 
+
+  /* ==========================================================================
+     SPEC POOLS — sample data for the device showcase.
+
+     Everything here is drawn with the model's own seeded PRNG, so a given
+     handset gets the same chipset, colours and battery on every page load and
+     in every browser. That matters more than it sounds: specs that reshuffled
+     on each render would make the detail page look broken and would make any
+     UI bug impossible to reproduce.
+
+     These are plausible sample values, NOT researched specifications. When the
+     real dataset arrives it replaces this block wholesale — the detail page
+     reads the same field names either way.
+     ========================================================================== */
+  var CHIPSETS = {
+    apple: { flag: ['A18 Pro', 'A18', 'A17 Pro', 'A16 Bionic', 'A15 Bionic'],
+             mid: ['A16 Bionic', 'A15 Bionic'], entry: ['A15 Bionic'] },
+    samsung: { flag: ['Snapdragon 8 Gen 3', 'Exynos 2400', 'Snapdragon 8 Gen 2'],
+               mid: ['Exynos 1480', 'Exynos 1380', 'Snapdragon 6 Gen 1'],
+               entry: ['Exynos 850', 'Snapdragon 680'] },
+    _default: { flag: ['Snapdragon 8 Gen 3', 'Dimensity 9300', 'Snapdragon 8s Gen 3', 'Dimensity 9200+'],
+                mid: ['Snapdragon 7s Gen 2', 'Dimensity 7200', 'Snapdragon 695', 'Helio G99'],
+                entry: ['Helio G85', 'Snapdragon 680', 'Unisoc T612', 'Dimensity 6100+'] }
+  };
+  var GPUS = {
+    'A18 Pro': '6-core Apple GPU', 'A18': '5-core Apple GPU', 'A17 Pro': '6-core Apple GPU',
+    'A16 Bionic': '5-core Apple GPU', 'A15 Bionic': '5-core Apple GPU',
+    'Snapdragon 8 Gen 3': 'Adreno 750', 'Snapdragon 8 Gen 2': 'Adreno 740',
+    'Snapdragon 8s Gen 3': 'Adreno 735', 'Snapdragon 7s Gen 2': 'Adreno 710',
+    'Snapdragon 695': 'Adreno 619', 'Snapdragon 680': 'Adreno 610',
+    'Exynos 2400': 'Xclipse 940', 'Exynos 1480': 'Xclipse 530', 'Exynos 1380': 'Mali-G68 MP5',
+    'Exynos 850': 'Mali-G52', 'Snapdragon 6 Gen 1': 'Adreno 710',
+    'Dimensity 9300': 'Immortalis-G720 MC12', 'Dimensity 9200+': 'Immortalis-G715 MC11',
+    'Dimensity 7200': 'Mali-G610 MC4', 'Dimensity 6100+': 'Mali-G57 MC2',
+    'Helio G99': 'Mali-G57 MC2', 'Helio G85': 'Mali-G52 MC2', 'Unisoc T612': 'Mali-G57'
+  };
+  /* Android skin by brand — how shop staff actually name a phone's software. */
+  var SKINS = {
+    samsung: 'One UI', xiaomi: 'HyperOS', redmi: 'HyperOS', poco: 'HyperOS',
+    oppo: 'ColorOS', realme: 'realme UI', oneplus: 'OxygenOS', vivo: 'Funtouch OS',
+    honor: 'MagicOS', huawei: 'EMUI', motorola: 'Hello UI', nothing: 'Nothing OS',
+    tecno: 'HiOS', infinix: 'XOS', itel: 'itel OS', google: 'Pixel UI'
+  };
+  var COLOUR_POOL = [
+    { n: 'Midnight Black', h: '#15171A' }, { n: 'Phantom Grey', h: '#4A4E54' },
+    { n: 'Glacier White', h: '#F2F4F6' }, { n: 'Ocean Blue', h: '#1E5AA8' },
+    { n: 'Sky Blue', h: '#8FC4E8' }, { n: 'Emerald Green', h: '#1F7A55' },
+    { n: 'Mint', h: '#BFE3CE' }, { n: 'Sunset Gold', h: '#D9A441' },
+    { n: 'Titanium Grey', h: '#7C7F86' }, { n: 'Lavender', h: '#C4B5E0' },
+    { n: 'Coral Red', h: '#C8443B' }, { n: 'Rose Pink', h: '#E8B4C4' },
+    { n: 'Starlight', h: '#EDE6DB' }, { n: 'Deep Purple', h: '#4A3B6B' }
+  ];
+
+  /* Builds the full specification block for one model. `r` is the model's own
+     seeded PRNG and must be the same one used for its dimensions, so a phone's
+     screen size and its battery stay consistent with each other. */
+  function makeSpecs(brand, modelName, tier, year, size, r) {
+    var isApple = brand.id === 'apple';
+    var pool = CHIPSETS[brand.id] || CHIPSETS._default;
+    var chipset = pick(r, pool[tier] || pool.mid);
+
+    var ram = tier === 'flag' ? [8, 12, 16] : tier === 'mid' ? [6, 8, 12] : [4, 6, 8];
+    var rom = tier === 'flag' ? [128, 256, 512, 1024] : tier === 'mid' ? [64, 128, 256] : [64, 128];
+
+    /* colour count tracks tier the way real line-ups do: a flagship launches in
+       more finishes than a budget phone */
+    var colourCount = tier === 'flag' ? intIn(r, 3, 5) : tier === 'mid' ? intIn(r, 3, 4) : intIn(r, 2, 3);
+    var start = intIn(r, 0, COLOUR_POOL.length - colourCount);
+
+    var mainMp = tier === 'flag' ? pick(r, [48, 50, 108, 200])
+      : tier === 'mid' ? pick(r, [50, 64, 108]) : pick(r, [13, 50]);
+    var rear = [{ mp: mainMp, role: 'Wide (main)', aperture: 'f/' + round(1.5 + r() * 0.4, 1), ois: tier !== 'entry' }];
+    if (tier !== 'entry') rear.push({ mp: pick(r, [8, 12]), role: 'Ultra-wide', aperture: 'f/2.2', ois: false });
+    if (tier === 'flag') rear.push({ mp: pick(r, [10, 12, 50]), role: 'Telephoto ' + pick(r, ['3x', '5x']) + ' optical', aperture: 'f/2.8', ois: true });
+    if (tier !== 'flag') rear.push({ mp: 2, role: 'Depth', aperture: 'f/2.4', ois: false });
+
+    var mah = tier === 'flag' ? intIn(r, 4400, 5100) : tier === 'mid' ? intIn(r, 5000, 5600) : intIn(r, 5000, 6200);
+    var watts = isApple ? 20 : tier === 'flag' ? pick(r, [67, 80, 100, 120])
+      : tier === 'mid' ? pick(r, [33, 45, 67]) : pick(r, [10, 18, 33]);
+
+    var sensors = [isApple ? 'Face ID' : pick(r, ['Fingerprint (under-display)', 'Fingerprint (side-mounted)']),
+      'Accelerometer', 'Gyroscope', 'Proximity', 'Ambient light', 'Compass'];
+    if (tier === 'flag') sensors.push('Barometer');
+
+    var fiveG = (year >= 2020 && tier !== 'entry') || year >= 2022;
+
+    return {
+      chipset: chipset,
+      cpu: '8-core CPU · ' + (tier === 'flag' ? 'up to 3.3 GHz' : tier === 'mid' ? 'up to 2.4 GHz' : 'up to 2.0 GHz'),
+      gpu: GPUS[chipset] || 'Integrated GPU',
+      fabrication: tier === 'flag' ? pick(r, ['3 nm', '4 nm']) : tier === 'mid' ? '6 nm' : '12 nm',
+      ramVariantsGb: ram.slice(0, intIn(r, 2, ram.length)),
+      storageVariantsGb: rom.slice(0, intIn(r, 2, rom.length)),
+      expandable: !isApple && tier !== 'flag',
+      colors: COLOUR_POOL.slice(start, start + colourCount),
+      cameraRear: rear,
+      cameraFront: { mp: tier === 'flag' ? pick(r, [12, 32]) : pick(r, [8, 16, 32]), aperture: 'f/2.2' },
+      videoMax: tier === 'flag' ? '4K at 60 fps' : tier === 'mid' ? '4K at 30 fps' : '1080p at 30 fps',
+      batteryMah: mah,
+      batteryType: 'Li-Po, non-removable',
+      chargingWatts: watts,
+      wirelessCharging: tier === 'flag',
+      os: isApple ? 'iOS' : 'Android',
+      osVersion: isApple ? String(Math.min(26, year - 2005)) : String(Math.min(16, year - 2010)),
+      skin: isApple ? null : (SKINS[brand.id] || null),
+      network: fiveG ? '5G' : '4G LTE',
+      networkDetail: fiveG ? 'GSM · HSPA · LTE · 5G SA/NSA' : 'GSM · HSPA · LTE',
+      wifi: tier === 'flag' ? 'Wi-Fi 7 (802.11be)' : tier === 'mid' ? 'Wi-Fi 6 (802.11ax)' : 'Wi-Fi 5 (802.11ac)',
+      bluetooth: tier === 'flag' ? '5.4' : tier === 'mid' ? '5.3' : '5.0',
+      nfc: tier !== 'entry',
+      usb: isApple && year < 2023 ? 'Lightning' : 'USB Type-C',
+      headphoneJack: !isApple && tier === 'entry',
+      sensors: sensors,
+      /* launch price in rupees — a sample figure, not a researched one */
+      launchPriceInr: Math.round((tier === 'flag' ? intIn(r, 54000, 165000)
+        : tier === 'mid' ? intIn(r, 14000, 34000) : intIn(r, 6500, 13500)) / 100) * 100,
+      status: year >= 2022 ? 'Available' : 'Discontinued'
+    };
+  }
+
   function makeModel(brand, modelName, tier, year) {
     var full = brand.name + ' ' + modelName;
     var r = seeded('model:' + full);
@@ -286,6 +406,7 @@
       weight: wt + ' g',
       protection: pick(r, PROTECTION),
       sim: pick(r, ['Dual SIM (Nano + Nano)', 'Dual SIM (Nano + eSIM)', 'Single SIM (Nano)']),
+      specs: makeSpecs(brand, modelName, tier, year, size, r),
       _size: size,
       popularity: Math.round((2026 - year) * -12 + r() * 40 + (tier === 'flag' ? 30 : tier === 'mid' ? 22 : 8))
     };

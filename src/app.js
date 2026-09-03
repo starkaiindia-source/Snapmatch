@@ -9,6 +9,8 @@
   /* ------------------------------------------------------------------ state */
   var state = {
     theme: store('mpf.theme') || 'system',
+    deviceColour: 0,        /* which finish the device page is showing */
+    deviceId: null,
     route: { name: 'finder', params: {} },
     base: '#/finder',
     finder: {
@@ -128,7 +130,9 @@
 
   function route() {
     var r = parseHash();
-    if (r.name === 'group' || r.name === 'model') {
+    /* A model used to open as a bottom sheet. It is a full page now — see
+       renderDevice — so only groups still take the overlay path. */
+    if (r.name === 'group') {
       state.sheet = { type: r.name, id: r.params[0] };
       state.devView = { shown: 60, q: '' };
       if (!document.getElementById('page').innerHTML) renderPage(state.route);
@@ -154,6 +158,7 @@
   function renderPage(r) {
     var page = document.getElementById('page');
     if (r.name === 'models') return renderModels(page, r.params[0]);
+    if (r.name === 'model') return renderDevice(page, r.params[0]);
     if (r.name === 'plans') return renderPlans(page);
     if (r.name === 'account') return renderAccount(page);
     return renderFinder(page);
@@ -1342,6 +1347,256 @@
   /* ==========================================================================
      OVERLAYS · group sheet · model sheet · filters · demo
      ========================================================================== */
+  /* ==========================================================================
+     PAGE · DEVICE  (#/model/<id>)
+
+     The showcase. A model opens as a full page rather than the bottom sheet it
+     used to use: the sheet worked when this only had to answer "which parts
+     fit", but it caps at about half the viewport, and a spec sheet that has to
+     be scrolled inside a scrolling overlay is miserable on a phone — which is
+     the device most of this audience is holding.
+
+     The page is built from three bands, in the order a shop owner actually
+     needs them: identity and price first, then the four specs that decide a
+     repair quote, then the full sheet, then compatibility.
+     ========================================================================== */
+
+  /* Draws the handset itself. There is no product photography in the sample
+     data, and a stock image of the wrong phone would be worse than none — so
+     the device is rendered from its own numbers: real aspect ratio from the
+     screen resolution, real corner radius by tier, and the finish the viewer
+     picked. It is honest about being a drawing and it never 404s. */
+  function deviceShotHTML(m, colourIndex) {
+    var sp = m.specs;
+    var col = (sp.colors && sp.colors[colourIndex || 0]) || { n: 'Black', h: '#15171A' };
+    var res = String(m.screenResolution).match(/(\d+)\s*x\s*(\d+)/);
+    var pw = res ? Number(res[1]) : 1080;
+    var ph = res ? Number(res[2]) : 2340;
+    var W = 150;
+    var H = Math.round(W * (ph / pw));
+    var pad = 6;
+    var radius = m.tier === 'flag' ? 22 : 18;
+
+    /* a light finish needs a visible outline or it vanishes on the white chip */
+    var light = parseInt(col.h.slice(1, 3), 16) * 0.299 +
+                parseInt(col.h.slice(3, 5), 16) * 0.587 +
+                parseInt(col.h.slice(5, 7), 16) * 0.114 > 190;
+
+    return '<svg class="dshot__svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
+      'aria-label="' + esc(m.fullName) + ' in ' + esc(col.n) + '">' +
+      '<defs><linearGradient id="dsg" x1="0" y1="0" x2="1" y2="1">' +
+      '<stop offset="0" stop-color="#fff" stop-opacity=".28"/>' +
+      '<stop offset=".45" stop-color="#fff" stop-opacity=".04"/>' +
+      '<stop offset="1" stop-color="#000" stop-opacity=".18"/></linearGradient></defs>' +
+      /* body */
+      '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="' + radius + '" fill="' + esc(col.h) + '"' +
+      (light ? ' stroke="rgba(0,0,0,.22)" stroke-width="1"' : '') + '/>' +
+      /* screen */
+      '<rect x="' + pad + '" y="' + pad + '" width="' + (W - pad * 2) + '" height="' + (H - pad * 2) +
+      '" rx="' + (radius - 5) + '" fill="#0B1211"/>' +
+      /* highlight */
+      '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="' + radius + '" fill="url(#dsg)"/>' +
+      /* camera island — Apple gets the pill, everyone else the punch-hole */
+      (m.brandId === 'apple' && m.releaseYear >= 2022
+        ? '<rect x="' + (W / 2 - 17) + '" y="' + (pad + 6) + '" width="34" height="11" rx="5.5" fill="#05090A"/>'
+        : '<circle cx="' + (W / 2) + '" cy="' + (pad + 12) + '" r="4.4" fill="#05090A"/>') +
+      '</svg>';
+  }
+
+  /* One highlight tile. Kept deliberately terse — this band is scanned, not read. */
+  function keySpecHTML(iconName, label, value, sub) {
+    return '<div class="dkey">' +
+      '<span class="dkey__i">' + icon(iconName) + '</span>' +
+      '<span class="dkey__l">' + esc(label) + '</span>' +
+      '<span class="dkey__v">' + esc(value) + '</span>' +
+      (sub ? '<span class="dkey__s">' + esc(sub) + '</span>' : '') +
+      '</div>';
+  }
+
+  /* A titled block of label/value rows. Rows whose value is null are dropped
+     rather than shown empty, so a sparse device does not render a wall of
+     dashes. */
+  function specBlockHTML(title, iconName, rows) {
+    var body = rows.filter(function (r) { return r && r[1] != null && r[1] !== ''; })
+      .map(function (r) {
+        return '<div class="dspec"><dt>' + esc(r[0]) + '</dt><dd>' + esc(String(r[1])) + '</dd></div>';
+      }).join('');
+    if (!body) return '';
+    return '<section class="dsec">' +
+      '<h3 class="dsec__h">' + icon(iconName) + esc(title) + '</h3>' +
+      '<dl class="dsec__b">' + body + '</dl></section>';
+  }
+
+  function renderDevice(page, id) {
+    page.innerHTML = '<div class="wrap dev-page">' + C.skelRows(5) + '</div>';
+
+    if (state.deviceId !== id) { state.deviceId = id; state.deviceColour = 0; }
+
+    api.getModel(id).then(function (r) {
+      if (!r) { go('#/models'); return; }
+      var m = r.model;
+      var b = db.brandById[m.brandId] || { id: m.brandId, name: m.brand };
+      var sp = m.specs;
+      var ci = state.deviceColour || 0;
+      if (ci >= (sp.colors || []).length) ci = 0;
+
+      var rear = sp.cameraRear || [];
+      var mainCam = rear[0] || { mp: 0 };
+      var ramTxt = (sp.ramVariantsGb || []).join(' / ') + ' GB';
+      var romTxt = (sp.storageVariantsGb || []).map(function (g) {
+        return g >= 1024 ? (g / 1024) + ' TB' : g + ' GB';
+      }).join(' / ');
+
+      var meta = [
+        ['calendar', m.releaseDate],
+        ['signal', sp.network],
+        ['check', sp.status]
+      ].map(function (x) {
+        return '<span class="dmeta">' + icon(x[0]) + esc(x[1]) + '</span>';
+      }).join('');
+
+      var swatches = (sp.colors || []).map(function (c, i) {
+        return '<button class="dsw' + (i === ci ? ' is-on' : '') + '" data-act="dev-colour" data-i="' + i + '" ' +
+          'style="--sw:' + esc(c.h) + '" title="' + esc(c.n) + '" aria-label="' + esc(c.n) + '"' +
+          (i === ci ? ' aria-current="true"' : '') + '></button>';
+      }).join('');
+
+      var compat = r.groupCount
+        ? '<div class="cats">' + r.categories.filter(function (c) { return c.count; }).map(function (c) {
+            return C.categoryCard(c.category, c.count, { act: 'find-with-cat' });
+          }).join('') + '</div>'
+        : '<div class="notice">' + icon('alert') +
+          '<span>No compatibility group covers this model yet in the sample data.</span></div>';
+
+      page.innerHTML =
+        '<div class="dev-page">' +
+
+        /* ---- sticky head: identity stays visible through a long spec sheet -- */
+        '<div class="dhead">' +
+          '<div class="dhead__in">' +
+            '<button class="btn btn--icon" data-act="dev-back" aria-label="Back">' + icon('chevronLeft') + '</button>' +
+            SM.brandLogo(b, 'blogo--sm') +
+            '<span class="dhead__t">' + esc(m.fullName) + '</span>' +
+            '<button class="btn btn--primary dhead__cta" data-act="find-parts" data-id="' + esc(m.id) + '">' +
+              icon('search') + '<span>Find parts</span></button>' +
+          '</div>' +
+        '</div>' +
+
+        '<div class="wrap">' +
+
+          /* ------------------------------------------------------------ hero */
+          '<div class="dhero">' +
+            '<div class="dshot">' + deviceShotHTML(m, ci) + '</div>' +
+            '<div class="dintro">' +
+              '<div class="dintro__brand">' + SM.brandLogo(b, 'blogo--sm') +
+                '<span>' + esc(m.brand) + '</span></div>' +
+              '<h1 class="dintro__h">' + esc(m.modelName) + '</h1>' +
+              '<div class="dintro__meta">' + meta + '</div>' +
+              (sp.launchPriceInr
+                ? '<div class="dprice"><span class="dprice__n">₹' + nf(sp.launchPriceInr) + '</span>' +
+                  '<span class="dprice__l">launch price</span></div>'
+                : '') +
+              (swatches
+                ? '<div class="dcolours"><span class="t-lab">' +
+                  esc((sp.colors || []).length) + ' colour' + ((sp.colors || []).length === 1 ? '' : 's') +
+                  ' · ' + esc(sp.colors[ci].n) + '</span>' +
+                  '<div class="dsw__row">' + swatches + '</div></div>'
+                : '') +
+              '<div class="dintro__cta">' +
+                '<button class="btn btn--primary btn--lg" data-act="find-parts" data-id="' + esc(m.id) + '">' +
+                  icon('search') + 'Find parts for this model</button>' +
+                (r.groupCount
+                  ? '<span class="dintro__note">' + nf(r.groupCount) + ' compatibility group' +
+                    (r.groupCount === 1 ? '' : 's') + '</span>'
+                  : '') +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+
+          /* ------------------------------- the four specs that decide a quote */
+          '<div class="dkeys">' +
+            keySpecHTML('phone', 'Display', m.displaySize + '"', m.screenType) +
+            keySpecHTML('cpu', 'Processor', sp.chipset, sp.fabrication) +
+            keySpecHTML('camera', 'Main camera', mainCam.mp + ' MP', rear.length + ' rear cameras') +
+            keySpecHTML('battery', 'Battery', nf(sp.batteryMah) + ' mAh', sp.chargingWatts + 'W charging') +
+          '</div>' +
+
+          /* --------------------------------------------------- full spec sheet */
+          '<div class="dsecs">' +
+            specBlockHTML('Display', 'phone', [
+              ['Size', m.displaySize + ' inches'],
+              ['Resolution', m.screenResolution],
+              ['Type', m.screenType],
+              ['Refresh rate', m.refreshRate],
+              ['Pixel density', m.ppi],
+              ['Aspect ratio', m.screenRatio],
+              ['Protection', m.protection]
+            ]) +
+            specBlockHTML('Performance', 'cpu', [
+              ['Chipset', sp.chipset],
+              ['CPU', sp.cpu],
+              ['GPU', sp.gpu],
+              ['Process', sp.fabrication]
+            ]) +
+            specBlockHTML('Memory', 'layers', [
+              ['RAM', ramTxt],
+              ['Storage', romTxt],
+              ['Expandable', sp.expandable ? 'microSD supported' : 'Not expandable']
+            ]) +
+            specBlockHTML('Camera', 'camera', rear.map(function (c) {
+              return [c.role, c.mp + ' MP · ' + c.aperture + (c.ois ? ' · OIS' : '')];
+            }).concat([
+              ['Front camera', sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture],
+              ['Video', sp.videoMax]
+            ])) +
+            specBlockHTML('Battery & charging', 'battery', [
+              ['Capacity', nf(sp.batteryMah) + ' mAh'],
+              ['Type', sp.batteryType],
+              ['Wired charging', sp.chargingWatts + 'W'],
+              ['Wireless charging', sp.wirelessCharging ? 'Supported' : 'Not supported']
+            ]) +
+            specBlockHTML('Software', 'sparkle', [
+              ['Operating system', sp.os + ' ' + sp.osVersion],
+              ['Interface', sp.skin],
+              ['Released', m.releaseDate]
+            ]) +
+            specBlockHTML('Network & connectivity', 'signal', [
+              ['Network', sp.networkDetail],
+              ['SIM', m.sim],
+              ['Wi-Fi', sp.wifi],
+              ['Bluetooth', sp.bluetooth],
+              ['NFC', sp.nfc ? 'Yes' : 'No'],
+              ['USB', sp.usb],
+              ['Headphone jack', sp.headphoneJack ? '3.5 mm' : 'None']
+            ]) +
+            specBlockHTML('Body', 'ruler', [
+              ['Height', m.height],
+              ['Width', m.width],
+              ['Thickness', m.thickness],
+              ['Weight', m.weight],
+              ['Colours', (sp.colors || []).map(function (c) { return c.n; }).join(', ')]
+            ]) +
+            specBlockHTML('Sensors', 'shield', [
+              ['Sensors', (sp.sensors || []).join(', ')]
+            ]) +
+          '</div>' +
+
+          /* ------------------------------------------------------ compatibility */
+          '<section class="dcompat">' +
+            '<h2 class="t-h3">Parts that fit this model</h2>' +
+            '<p class="muted dcompat__p">Each group is one part that fits this device and every ' +
+              'other device in the group.</p>' +
+            compat +
+          '</section>' +
+
+          '<p class="dnote">' + icon('alert') +
+            'Specifications shown are sample data for interface testing, not researched values.</p>' +
+        '</div></div>';
+
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    });
+  }
+
   function renderSheet() {
     var host = document.getElementById('overlay');
     var s = state.sheet;
@@ -1736,6 +1991,33 @@
 
       /* overlays */
       case 'open-group': go('#/group/' + id); break;
+
+      /* device page */
+      case 'dev-back':
+        if (history.length > 1) history.back(); else go('#/models');
+        break;
+      case 'dev-colour': {
+        /* Repaint only the handset and the swatch row. Re-rendering the whole
+           page would throw away the reader's scroll position mid-spec-sheet. */
+        state.deviceColour = Number(t.getAttribute('data-i')) || 0;
+        var dm = db.modelById[state.deviceId];
+        var shot = document.querySelector('.dshot');
+        if (dm && shot) {
+          shot.innerHTML = deviceShotHTML(dm, state.deviceColour);
+          var lab = document.querySelector('.dcolours .t-lab');
+          if (lab) {
+            lab.textContent = dm.specs.colors.length + ' colour' +
+              (dm.specs.colors.length === 1 ? '' : 's') + ' · ' +
+              dm.specs.colors[state.deviceColour].n;
+          }
+          Array.prototype.forEach.call(document.querySelectorAll('.dsw'), function (el, i) {
+            var on = i === state.deviceColour;
+            el.classList.toggle('is-on', on);
+            if (on) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current');
+          });
+        }
+        break;
+      }
       case 'open-model': go('#/model/' + id); break;
       case 'find-parts':
         state.sheet = null;

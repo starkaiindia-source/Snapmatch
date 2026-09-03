@@ -735,3 +735,220 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important; }
 }
+
+/* ============================================================================
+   DEVICE PAGE  (#/model/<id>)
+   ----------------------------------------------------------------------------
+   A showcase, not a form. Three bands in the order a shop owner needs them:
+   identity and price, the four specs that decide a repair quote, then the full
+   sheet and compatibility.
+
+   Everything is built on the shared tokens, so both themes come out of one set
+   of rules — there is no colour here that exists only inside a dark block.
+   ========================================================================== */
+
+.dev-page{ padding-bottom:40px; }
+
+/* -------------------------------------------------------------- sticky head
+   The model name has to stay reachable through a long spec sheet, so the head
+   pins under the app header rather than scrolling away with the hero. */
+.dhead{
+  /* Stacks BELOW the app header, which is itself sticky at top:0 with z-index
+     60. Both at top:0 meant the topbar simply covered this one and the model
+     name vanished the moment the page scrolled. */
+  position:sticky; top:var(--topbar-h); z-index:30;
+  background:var(--surface); border-bottom:1px solid var(--line);
+  backdrop-filter:saturate(160%) blur(8px);
+}
+.dhead__in{
+  max-width:1180px; margin:0 auto; padding:9px 16px;
+  display:flex; align-items:center; gap:10px; min-height:56px;
+}
+.dhead__t{
+  flex:1; min-width:0; font-family:var(--f-display); font-weight:800;
+  font-size:15px; letter-spacing:-.02em;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.dhead__cta{ flex:none; }
+
+/* ---------------------------------------------------------------------- hero */
+.dhero{
+  display:grid; gap:22px; align-items:center;
+  padding:24px 0 8px;
+}
+.dshot{
+  display:grid; place-items:center;
+  background:
+    radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%),
+    var(--surface-2);
+  border:1px solid var(--line); border-radius:var(--r);
+  padding:26px 20px; min-height:260px;
+}
+.dshot__svg{ height:230px; width:auto; max-width:100%; filter:drop-shadow(0 14px 26px rgba(0,0,0,.24)); }
+
+.dintro{ min-width:0; }
+.dintro__brand{
+  display:flex; align-items:center; gap:9px;
+  font-size:13.5px; font-weight:600; color:var(--ink-2); margin-bottom:10px;
+}
+.dintro__h{
+  font-family:var(--f-display); font-weight:800;
+  font-size:clamp(24px,5.4vw,38px); line-height:1.06; letter-spacing:-.03em;
+  margin:0 0 12px; text-wrap:balance; color:var(--ink);
+}
+.dintro__meta{ display:flex; flex-wrap:wrap; gap:7px; margin-bottom:16px; }
+.dmeta{
+  display:inline-flex; align-items:center; gap:6px;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:99px;
+  padding:5px 11px; font-size:12.5px; font-weight:600; color:var(--ink-2);
+}
+.dmeta svg{ width:14px; height:14px; flex:none; }
+
+.dprice{ display:flex; align-items:baseline; gap:9px; margin-bottom:18px; }
+.dprice__n{
+  font-family:var(--f-display); font-weight:800; font-size:26px;
+  letter-spacing:-.025em; color:var(--ink); font-variant-numeric:tabular-nums;
+}
+.dprice__l{ font-size:12.5px; color:var(--ink-3); }
+
+/* --------------------------------------------------------------- colours */
+.dcolours{ margin-bottom:20px; }
+.dcolours .t-lab{ display:block; margin-bottom:9px; }
+.dsw__row{ display:flex; flex-wrap:wrap; gap:9px; }
+.dsw{
+  width:34px; height:34px; border-radius:11px; padding:0; cursor:pointer;
+  background:var(--sw); border:1px solid rgba(0,0,0,.22);
+  box-shadow:inset 0 -6px 10px -6px rgba(0,0,0,.45);
+  transition:transform .12s ease, box-shadow .12s ease;
+}
+.dsw:hover{ transform:translateY(-1px); }
+/* The ring is drawn OUTSIDE the swatch so it reads on a white finish as well
+   as a black one — an inset ring disappears into a pale colour. */
+.dsw.is-on{
+  box-shadow:0 0 0 2px var(--surface), 0 0 0 4px var(--teal-500),
+             inset 0 -6px 10px -6px rgba(0,0,0,.45);
+}
+.dsw:focus-visible{ outline:2px solid var(--teal-500); outline-offset:3px; }
+
+.dintro__cta{ display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.dintro__note{ font-size:13px; color:var(--ink-3); }
+
+/* ------------------------------------------------------------- key specs
+   The four numbers a repair quote turns on. Scanned, never read. */
+.dkeys{
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px;
+  margin:24px 0 30px;
+}
+.dkey{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  padding:14px 15px; min-width:0;
+}
+.dkey__i{ display:block; color:var(--teal-600); margin-bottom:9px; }
+.dkey__i svg{ width:19px; height:19px; }
+.dkey__l{
+  display:block; font-size:10.5px; font-weight:700; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--ink-3); margin-bottom:3px;
+}
+.dkey__v{
+  display:block; font-family:var(--f-display); font-weight:800; font-size:17px;
+  letter-spacing:-.02em; color:var(--ink); line-height:1.2;
+  overflow-wrap:anywhere;
+}
+.dkey__s{ display:block; font-size:12px; color:var(--ink-3); margin-top:3px; }
+
+/* ------------------------------------------------------------ spec blocks */
+.dsecs{ display:grid; gap:12px; margin-bottom:30px; }
+.dsec{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  overflow:hidden;
+}
+.dsec__h{
+  display:flex; align-items:center; gap:9px; margin:0;
+  padding:13px 16px; border-bottom:1px solid var(--line);
+  background:var(--surface-2);
+  font-family:var(--f-display); font-weight:800; font-size:13.5px;
+  letter-spacing:-.01em; color:var(--ink);
+}
+.dsec__h svg{ width:16px; height:16px; color:var(--teal-600); flex:none; }
+.dsec__b{ margin:0; padding:4px 16px 12px; }
+.dspec{
+  display:grid; grid-template-columns:minmax(96px,38%) 1fr; gap:14px;
+  padding:9px 0; border-bottom:1px solid var(--line);
+  align-items:baseline;
+}
+.dspec:last-child{ border-bottom:0; }
+.dspec dt{ font-size:13px; color:var(--ink-3); min-width:0; overflow-wrap:anywhere; }
+.dspec dd{ margin:0; font-size:13.5px; font-weight:600; color:var(--ink); min-width:0; overflow-wrap:anywhere; }
+
+/* ----------------------------------------------------------- compatibility */
+.dcompat{ margin-bottom:26px; }
+.dcompat__p{ font-size:13.5px; margin:5px 0 14px; }
+
+.dnote{
+  display:flex; gap:9px; align-items:flex-start;
+  font-size:12.5px; color:var(--ink-3); margin:0;
+}
+.dnote svg{ width:15px; height:15px; flex:none; margin-top:1px; }
+
+/* ==========================================================================
+   BREAKPOINTS
+   Each size gets a layout, not a squeeze: the hero goes side-by-side only when
+   there is room for the handset to stay large enough to read.
+   ========================================================================== */
+
+/* small phones — keep the handset visible without pushing the name off screen */
+@media (max-width:399px){
+  .dshot{ padding:18px 14px; min-height:210px; }
+  .dshot__svg{ height:180px; }
+  .dkeys{ gap:8px; }
+  .dhead__cta span{ display:none; }      /* icon-only CTA, still 44px tall */
+}
+
+/* tablet and up: hero splits, spec sheet goes two-up */
+@media (min-width:700px){
+  .dhero{ grid-template-columns:minmax(0,300px) minmax(0,1fr); gap:30px; padding:30px 0 10px; }
+  .dshot{ min-height:330px; padding:30px; }
+  .dshot__svg{ height:280px; }
+  .dkeys{ grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+  .dsecs{ grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; }
+  .dhead__in{ padding:9px 20px; }
+}
+
+/* laptop: the shot can breathe */
+@media (min-width:1024px){
+  .dhero{ grid-template-columns:minmax(0,360px) minmax(0,1fr); gap:40px; padding:36px 0 14px; }
+  .dshot{ min-height:400px; }
+  .dshot__svg{ height:340px; }
+  .dkey{ padding:16px 17px; }
+}
+
+/* wide desktop: three spec columns rather than a long two-column scroll */
+@media (min-width:1320px){
+  .dsecs{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .dsw{ transition:none; }
+  .dsw:hover{ transform:none; }
+}
+
+/* ============================================================================
+   TOUCH TARGETS
+   ----------------------------------------------------------------------------
+   A finger needs about 44px; a mouse pointer does not. These rules grow the
+   HIT area without changing the visual weight of the control, so the design is
+   unchanged and the buttons simply become hittable.
+
+   Two offenders the audit caught at 360px: the search input sat 27px tall
+   inside a 56px field — the surrounding padding belonged to a plain div, so
+   tapping it did nothing — and the "Open group" button was 22px.
+   ========================================================================== */
+@media (pointer:coarse), (max-width:900px){
+  /* The search input carries no class, so it has to be matched by element —
+     `.search .input` silently matched nothing and left it 27px tall. */
+  .search input,
+  .field input,
+  .input{ min-height:44px; }
+  .plate__cta{ min-height:40px; }
+  .dsw{ width:38px; height:38px; }
+}
