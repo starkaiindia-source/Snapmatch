@@ -1,0 +1,28 @@
+# ============================================================================
+# Files that must not reach the Vercel deployment.
+# ============================================================================
+
+# Local preview server. With this at the repo root Vercel detects a Node
+# entrypoint and serves the WHOLE site through it as a serverless function.
+# Only index.html gets bundled into that lambda, so every stylesheet and
+# script 404s and the site renders blank. Ignoring it restores plain static
+# hosting from the repo root. `node server.js` still works locally.
+server.js
+
+# Build inputs and the full generated dataset. groups.ndjson carries the part
+# numbers and fitment lists that the subscription pays for, so these must not
+# be downloadable from the site. They are only needed locally by
+# scripts/import-firestore.js.
+# assets/search-index.json is deliberately NOT here: it holds the free
+# catalogue (model names, brands, years) and no paid fields.
+data/
+scripts/
+
+# Backend configuration — shipped with the Firebase CLI, not with the site.
+firebase.json
+firestore.rules
+firestore.indexes.json
+
+# Tooling
+.claude/
+README.md
