@@ -2926,8 +2926,22 @@
       '<span>Loading the device catalogue…</span></div>';
   }
 
-  SM.dataset.load().then(function () {
+  /* The catalogue and the Firebase config are fetched together — they are
+     independent, and doing them in sequence would add a round trip to every
+     visit. The config resolve is deliberately not allowed to fail the boot:
+     browsing, search and the catalogue all work without Firebase, and the site
+     should not go dark because sign-in is unavailable. */
+  Promise.all([
+    SM.dataset.load(),
+    SM.fb.loadConfig().catch(function () { return null; })
+  ]).then(function () {
     SM.__rebind.forEach(function (fn) { fn(); });
+
+    /* Restores a signed-in session before the first render, so a returning
+       subscriber does not see the signed-out shell flash past. */
+    if (SM.fb.isConfigured()) {
+      SM.fb.restore().then(function () { renderShellBits(); });
+    }
     /* Recent searches resolve stored ids against the catalogue, so this has to
        come after it exists — reading them at boot was what crashed the page. */
     state.recent = loadRecent();

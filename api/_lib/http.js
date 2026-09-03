@@ -15,12 +15,14 @@
 const { auth } = require('./firebase');
 
 /* ------------------------------------------------------------------ replies */
-function json(res, status, body) {
+/* `cache` is opt-in and deliberately awkward to reach for. Billing answers are
+   per-user and time-sensitive — a cached "you are active" would outlive the
+   subscription it describes — so no-store is the default and a route has to
+   ask for anything else. Only genuinely public, near-static responses should. */
+function json(res, status, body, cache) {
   res.status(status)
     .setHeader('Content-Type', 'application/json; charset=utf-8');
-  /* Billing answers are per-user and time-sensitive; a cached "you are active"
-     would outlive the subscription it describes. */
-  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Cache-Control', cache || 'no-store, max-age=0');
   res.end(JSON.stringify(body));
 }
 

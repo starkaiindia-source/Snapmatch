@@ -2361,12 +2361,23 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    the app names a user.
 
    CONFIGURATION
-     Fill in FIREBASE_CONFIG below from
+     Nothing is hardcoded here. The config comes from /api/firebase-config,
+     which reads it from the Vercel environment:
+
+       FIREBASE_PROJECT_ID       mobilepartsfinder
+       FIREBASE_API_KEY
+       FIREBASE_APP_ID
+       FIREBASE_MESSAGING_SENDER_ID    (optional)
+       FIREBASE_STORAGE_BUCKET         (derived from the project id if unset)
+       FIREBASE_MEASUREMENT_ID         (optional)
+
+     Values come from
        Firebase console -> Project settings -> General -> Your apps -> SDK setup
-     Those values are PUBLIC by design. They identify the project to the
-     browser; what protects the data is Firestore rules and the authorised-
-     domain list, not secrecy. The service-account key — the dangerous one —
-     stays on the server and never appears in this directory.
+
+     They are PUBLIC by design: they identify the project to the browser and
+     the SDK cannot reach it without them. What protects the data is Firestore
+     rules and the authorised-domain list, not secrecy. The service-account
+     key — the dangerous one — stays on the server and never appears here.
 
      Also add www.mobilepartsfinder.com under
        Authentication -> Settings -> Authorised domains
@@ -2384,20 +2395,46 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   'use strict';
   var SM = (global.SM = global.SM || {});
 
-  /* Two of these are fixed by the project id and are filled in. The other two
-     come from the console and are the only thing left to paste:
-       Firebase console -> Project settings -> General -> Your apps -> SDK setup
+  /* ------------------------------------------------------------------ config
+     Fetched from /api/firebase-config, which reads it from the Vercel
+     environment. Nothing is hardcoded here.
 
-     All four are PUBLIC. They identify the project to the browser; what
-     protects the data is Firestore rules and the authorised-domain list, not
-     secrecy. The dangerous credential is the service-account key, and that
-     lives in the Vercel environment, never in this directory. */
-  var FIREBASE_CONFIG = {
-    apiKey: '',                                     /* <-- paste */
-    authDomain: 'mobilepartsfinder.firebaseapp.com',
-    projectId: 'mobilepartsfinder',
-    appId: ''                                       /* <-- paste */
-  };
+     Being plain about what this is: the Firebase web config is NOT a secret.
+     Every value in it ships to every visitor by design — the SDK cannot reach
+     the project without it, and `apiKey` is a project identifier rather than a
+     credential. Keeping it in the environment means one place to change and
+     nothing to edit in source; what actually protects the data is Firestore
+     Security Rules and the authorised-domain list.
+
+     The genuinely dangerous credential is the service-account key the billing
+     functions use. That never leaves the server. */
+  var config = null;
+  var configLoad = null;
+  var configState = { checked: false, configured: false, missing: [] };
+
+  function loadConfig() {
+    if (configLoad) return configLoad;
+    configLoad = fetch('/api/firebase-config')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        configState.checked = true;
+        configState.configured = !!d.configured;
+        configState.missing = d.missing || [];
+        if (d.configured) config = d.config;
+        return config;
+      })
+      .catch(function (err) {
+        /* A failed fetch is "not configured", not a crash: the rest of the
+           site — catalogue, search, browsing — works without Firebase, and
+           should not go down because sign-in is unavailable. */
+        configState.checked = true;
+        configState.configured = false;
+        configState.missing = ['/api/firebase-config unreachable'];
+        console.warn('[firebase] config unavailable:', err && err.message);
+        return null;
+      });
+    return configLoad;
+  }
 
   var SDK_VERSION = '10.14.1';
   var SDK = [
@@ -2409,8 +2446,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   var listeners = [];
   var currentUser = null;
 
+  /* Synchronous, so every existing caller keeps working. It answers from the
+     config already fetched at boot; before that it is honestly false. */
   function isConfigured() {
-    return !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.authDomain && FIREBASE_CONFIG.projectId);
+    return !!(config && config.apiKey && config.projectId);
   }
 
   function loadScript(src) {
@@ -2427,15 +2466,25 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* Loads the SDK once and wires the auth listener. Repeat calls share the
      same promise, so two buttons pressed together do not load it twice. */
   function ready() {
-    if (!isConfigured()) return Promise.reject(new Error('firebase-not-configured'));
     if (loading) return loading;
 
-    loading = SDK.reduce(function (chain, src) {
-      return chain.then(function () { return loadScript(src); });
-    }, Promise.resolve()).then(function () {
+    /* One place initialises Firebase, once. Config first, then the SDK, then
+       initializeApp — and only if no app exists, because a second
+       initializeApp with the same name throws. */
+    loading = loadConfig().then(function (cfg) {
+      if (!cfg) {
+        var e = new Error('firebase-not-configured');
+        e.code = 'unconfigured';
+        e.missing = configState.missing;
+        throw e;
+      }
+      return SDK.reduce(function (chain, src) {
+        return chain.then(function () { return loadScript(src); });
+      }, Promise.resolve());
+    }).then(function () {
       var fb = global.firebase;
       if (!fb) throw new Error('firebase sdk did not load');
-      if (!fb.apps.length) fb.initializeApp(FIREBASE_CONFIG);
+      if (!fb.apps.length) fb.initializeApp(config);
 
       fb.auth().onAuthStateChanged(function (user) {
         currentUser = user || null;
@@ -2454,7 +2503,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   SM.fb = {
     isConfigured: isConfigured,
-    config: FIREBASE_CONFIG,
+    /* Read-only view for diagnostics. Never the source of truth — `config` is. */
+    configState: configState,
+    projectId: function () { return config ? config.projectId : null; },
+    loadConfig: loadConfig,
+    app: function () { return global.firebase && global.firebase.apps[0]; },
+    ready: ready,
 
     /** Google sign-in. Opens the real account chooser. */
     signIn: function () {
@@ -2501,12 +2555,221 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
     /** Wakes the SDK so a returning session is restored without a click. */
     restore: function () {
-      if (!isConfigured()) return Promise.resolve(null);
       return ready().then(function (fb) {
         return new Promise(function (resolve) {
           var off = fb.auth().onAuthStateChanged(function (u) { off(); resolve(u || null); });
         });
       }).catch(function () { return null; });
+    }
+  };
+})(window);
+
+
+/* === src/data/firestore.js === */
+/* ============================================================================
+   Mobile Parts Finder · firestore.js — the Firestore read layer
+   ----------------------------------------------------------------------------
+   The repository between the UI and Cloud Firestore. Screens never touch the
+   SDK; they call SM.store, and this decides where an answer comes from.
+
+   ----------------------------------------------------------------------------
+   WHAT COMES FROM WHERE, AND WHY
+
+   The catalogue — 4,933 devices, 3,340 groups, brands, categories — is served
+   as one CDN file and NOT read from Firestore. That is a deliberate split, not
+   leftover mock data:
+
+     · it is the same real export, byte for byte, that the importer writes to
+       Firestore; nothing about it is invented
+     · browsing and search touch thousands of records. As Firestore reads that
+       is thousands of billed operations per session and a network round trip
+       per keystroke; as one 211 KB cached file it is zero reads and instant
+     · it is public data. Reads that need no permission gain nothing from
+       going through a permission system
+
+   Firestore owns what the CDN cannot: anything per-user, anything writable,
+   and anything paid.
+
+     users/{uid}                    the signed-in shop's own profile
+     subscriptions, payments        billing history, written only by the server
+     groupDetails/{groupId}         PAID — part number and member list
+     deviceGroups/{deviceId}        PAID — which groups a device belongs to
+
+   The paid collections are closed to unsubscribed clients by the rules in
+   firestore.rules, so this layer cannot read them for a visitor even if a bug
+   asked it to. The paywall is in the database, not in this file.
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  var FIRESTORE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js';
+  var dbLoad = null;
+
+  /* Loads the Firestore SDK on first use. Most visits never sign in and never
+     need it, so it is not part of the boot payload. */
+  function store() {
+    if (dbLoad) return dbLoad;
+    dbLoad = SM.fb.ready().then(function (fb) {
+      if (fb.firestore) return fb.firestore();
+      return new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = FIRESTORE_SDK;
+        s.async = true;
+        s.onload = function () { resolve(global.firebase.firestore()); };
+        s.onerror = function () { reject(new Error('firestore sdk failed to load')); };
+        document.head.appendChild(s);
+      });
+    }).catch(function (err) {
+      dbLoad = null;              /* let a later attempt retry */
+      throw err;
+    });
+    return dbLoad;
+  }
+
+  /* Firestore hands back Timestamps; the UI wants epoch milliseconds. Doing it
+     here means no screen has to know Firestore's types exist. */
+  function ms(v) {
+    if (v == null) return null;
+    if (typeof v === 'number') return v;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    if (v.seconds != null) return v.seconds * 1000;
+    return null;
+  }
+
+  SM.store = {
+    available: function () { return SM.fb.isConfigured(); },
+
+    /* ------------------------------------------------------------- profile */
+
+    /** The signed-in shop's own record. Rules allow only its owner. */
+    getUser: function (uid) {
+      return store().then(function (db) {
+        return db.collection('users').doc(uid).get();
+      }).then(function (snap) {
+        if (!snap.exists) return null;
+        var d = snap.data();
+        return Object.assign({}, d, {
+          subscriptionStartedAt: ms(d.subscriptionStartedAt),
+          subscriptionExpiresAt: ms(d.subscriptionExpiresAt),
+          updatedAt: ms(d.updatedAt)
+        });
+      });
+    },
+
+    /**
+     * Creates or updates the shop profile.
+     * Subscription fields are deliberately not writable here — the rules
+     * reject them, and a client that could grant itself a plan is the whole
+     * attack the billing design exists to prevent.
+     */
+    saveUser: function (uid, profile) {
+      var SAFE = ['displayName', 'shopName', 'proprietor', 'country', 'mobile',
+                  'dial', 'address', 'photoUrl', 'location', 'email'];
+      var patch = {};
+      SAFE.forEach(function (k) { if (profile[k] !== undefined) patch[k] = profile[k]; });
+      patch.updatedAt = Date.now();
+
+      return store().then(function (db) {
+        return db.collection('users').doc(uid).set(patch, { merge: true });
+      }).then(function () { return patch; });
+    },
+
+    /* ---------------------------------------------------------------- paid */
+
+    /**
+     * Which groups a device belongs to, per category — the paid answer.
+     * Rules refuse this without an active subscription, so a rejection here is
+     * the paywall working rather than an error to paper over.
+     *
+     * @returns {Promise<{byCategory:Object}|null>} null when not subscribed
+     */
+    deviceGroups: function (deviceId) {
+      return store().then(function (db) {
+        return db.collection('deviceGroups').doc(deviceId).get();
+      }).then(function (snap) {
+        return snap.exists ? snap.data() : null;
+      }).catch(function (err) {
+        if (err && err.code === 'permission-denied') return null;
+        throw err;
+      });
+    },
+
+    /**
+     * Part number and full member list for one group. Paid, same as above.
+     * @returns {Promise<object|null>} null when not subscribed
+     */
+    groupDetail: function (groupId) {
+      return store().then(function (db) {
+        return db.collection('groupDetails').doc(groupId).get();
+      }).then(function (snap) {
+        return snap.exists ? snap.data() : null;
+      }).catch(function (err) {
+        if (err && err.code === 'permission-denied') return null;
+        throw err;
+      });
+    },
+
+    /** Several groups at once, for a device page that lists all its parts. */
+    groupDetails: function (groupIds) {
+      if (!groupIds || !groupIds.length) return Promise.resolve([]);
+      return store().then(function (db) {
+        /* Firestore has no multi-get in the compat SDK, and `in` caps at 30,
+           so this fans out. Callers pass a device's groups — single digits —
+           not the whole catalogue. */
+        return Promise.all(groupIds.slice(0, 60).map(function (id) {
+          return db.collection('groupDetails').doc(id).get()
+            .then(function (s) { return s.exists ? Object.assign({ id: id }, s.data()) : null; })
+            .catch(function (e) {
+              if (e && e.code === 'permission-denied') return null;
+              throw e;
+            });
+        }));
+      }).then(function (rows) { return rows.filter(Boolean); });
+    },
+
+    /* ------------------------------------------------------------- history */
+
+    /** The shop's own recent searches. Owner-only by rule. */
+    recentSearches: function (uid, limit) {
+      return store().then(function (db) {
+        return db.collection('users').doc(uid).collection('recent')
+          .orderBy('at', 'desc').limit(limit || 10).get();
+      }).then(function (snap) {
+        return snap.docs.map(function (d) {
+          var x = d.data();
+          return { id: d.id, modelId: x.modelId, query: x.query, at: ms(x.at) };
+        });
+      }).catch(function () { return []; });   /* history is a nicety, never a blocker */
+    },
+
+    pushSearch: function (uid, modelId, query) {
+      return store().then(function (db) {
+        return db.collection('users').doc(uid).collection('recent').doc(modelId).set({
+          modelId: modelId, query: query || '', at: Date.now()
+        });
+      }).catch(function () { /* losing a history row must not break a search */ });
+    },
+
+    /* -------------------------------------------------------------- health */
+
+    /**
+     * One cheap read that proves the whole chain: config -> SDK -> project ->
+     * rules. Used by the diagnostics rather than guessing from a blank screen.
+     */
+    check: function () {
+      return store().then(function (db) {
+        return db.collection('catalog').doc('meta').get();
+      }).then(function (snap) {
+        return {
+          ok: true,
+          projectId: SM.fb.projectId(),
+          catalogMeta: snap.exists ? snap.data() : null,
+          imported: snap.exists
+        };
+      }).catch(function (err) {
+        return { ok: false, code: err && err.code, message: err && err.message };
+      });
     }
   };
 })(window);
@@ -7070,8 +7333,22 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '<span>Loading the device catalogue…</span></div>';
   }
 
-  SM.dataset.load().then(function () {
+  /* The catalogue and the Firebase config are fetched together — they are
+     independent, and doing them in sequence would add a round trip to every
+     visit. The config resolve is deliberately not allowed to fail the boot:
+     browsing, search and the catalogue all work without Firebase, and the site
+     should not go dark because sign-in is unavailable. */
+  Promise.all([
+    SM.dataset.load(),
+    SM.fb.loadConfig().catch(function () { return null; })
+  ]).then(function () {
     SM.__rebind.forEach(function (fn) { fn(); });
+
+    /* Restores a signed-in session before the first render, so a returning
+       subscriber does not see the signed-out shell flash past. */
+    if (SM.fb.isConfigured()) {
+      SM.fb.restore().then(function () { renderShellBits(); });
+    }
     /* Recent searches resolve stored ids against the catalogue, so this has to
        come after it exists — reading them at boot was what crashed the page. */
     state.recent = loadRecent();

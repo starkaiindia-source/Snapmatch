@@ -8,12 +8,23 @@
    the app names a user.
 
    CONFIGURATION
-     Fill in FIREBASE_CONFIG below from
+     Nothing is hardcoded here. The config comes from /api/firebase-config,
+     which reads it from the Vercel environment:
+
+       FIREBASE_PROJECT_ID       mobilepartsfinder
+       FIREBASE_API_KEY
+       FIREBASE_APP_ID
+       FIREBASE_MESSAGING_SENDER_ID    (optional)
+       FIREBASE_STORAGE_BUCKET         (derived from the project id if unset)
+       FIREBASE_MEASUREMENT_ID         (optional)
+
+     Values come from
        Firebase console -> Project settings -> General -> Your apps -> SDK setup
-     Those values are PUBLIC by design. They identify the project to the
-     browser; what protects the data is Firestore rules and the authorised-
-     domain list, not secrecy. The service-account key — the dangerous one —
-     stays on the server and never appears in this directory.
+
+     They are PUBLIC by design: they identify the project to the browser and
+     the SDK cannot reach it without them. What protects the data is Firestore
+     rules and the authorised-domain list, not secrecy. The service-account
+     key — the dangerous one — stays on the server and never appears here.
 
      Also add www.mobilepartsfinder.com under
        Authentication -> Settings -> Authorised domains
@@ -31,20 +42,46 @@
   'use strict';
   var SM = (global.SM = global.SM || {});
 
-  /* Two of these are fixed by the project id and are filled in. The other two
-     come from the console and are the only thing left to paste:
-       Firebase console -> Project settings -> General -> Your apps -> SDK setup
+  /* ------------------------------------------------------------------ config
+     Fetched from /api/firebase-config, which reads it from the Vercel
+     environment. Nothing is hardcoded here.
 
-     All four are PUBLIC. They identify the project to the browser; what
-     protects the data is Firestore rules and the authorised-domain list, not
-     secrecy. The dangerous credential is the service-account key, and that
-     lives in the Vercel environment, never in this directory. */
-  var FIREBASE_CONFIG = {
-    apiKey: '',                                     /* <-- paste */
-    authDomain: 'mobilepartsfinder.firebaseapp.com',
-    projectId: 'mobilepartsfinder',
-    appId: ''                                       /* <-- paste */
-  };
+     Being plain about what this is: the Firebase web config is NOT a secret.
+     Every value in it ships to every visitor by design — the SDK cannot reach
+     the project without it, and `apiKey` is a project identifier rather than a
+     credential. Keeping it in the environment means one place to change and
+     nothing to edit in source; what actually protects the data is Firestore
+     Security Rules and the authorised-domain list.
+
+     The genuinely dangerous credential is the service-account key the billing
+     functions use. That never leaves the server. */
+  var config = null;
+  var configLoad = null;
+  var configState = { checked: false, configured: false, missing: [] };
+
+  function loadConfig() {
+    if (configLoad) return configLoad;
+    configLoad = fetch('/api/firebase-config')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        configState.checked = true;
+        configState.configured = !!d.configured;
+        configState.missing = d.missing || [];
+        if (d.configured) config = d.config;
+        return config;
+      })
+      .catch(function (err) {
+        /* A failed fetch is "not configured", not a crash: the rest of the
+           site — catalogue, search, browsing — works without Firebase, and
+           should not go down because sign-in is unavailable. */
+        configState.checked = true;
+        configState.configured = false;
+        configState.missing = ['/api/firebase-config unreachable'];
+        console.warn('[firebase] config unavailable:', err && err.message);
+        return null;
+      });
+    return configLoad;
+  }
 
   var SDK_VERSION = '10.14.1';
   var SDK = [
@@ -56,8 +93,10 @@
   var listeners = [];
   var currentUser = null;
 
+  /* Synchronous, so every existing caller keeps working. It answers from the
+     config already fetched at boot; before that it is honestly false. */
   function isConfigured() {
-    return !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.authDomain && FIREBASE_CONFIG.projectId);
+    return !!(config && config.apiKey && config.projectId);
   }
 
   function loadScript(src) {
@@ -74,15 +113,25 @@
   /* Loads the SDK once and wires the auth listener. Repeat calls share the
      same promise, so two buttons pressed together do not load it twice. */
   function ready() {
-    if (!isConfigured()) return Promise.reject(new Error('firebase-not-configured'));
     if (loading) return loading;
 
-    loading = SDK.reduce(function (chain, src) {
-      return chain.then(function () { return loadScript(src); });
-    }, Promise.resolve()).then(function () {
+    /* One place initialises Firebase, once. Config first, then the SDK, then
+       initializeApp — and only if no app exists, because a second
+       initializeApp with the same name throws. */
+    loading = loadConfig().then(function (cfg) {
+      if (!cfg) {
+        var e = new Error('firebase-not-configured');
+        e.code = 'unconfigured';
+        e.missing = configState.missing;
+        throw e;
+      }
+      return SDK.reduce(function (chain, src) {
+        return chain.then(function () { return loadScript(src); });
+      }, Promise.resolve());
+    }).then(function () {
       var fb = global.firebase;
       if (!fb) throw new Error('firebase sdk did not load');
-      if (!fb.apps.length) fb.initializeApp(FIREBASE_CONFIG);
+      if (!fb.apps.length) fb.initializeApp(config);
 
       fb.auth().onAuthStateChanged(function (user) {
         currentUser = user || null;
@@ -101,7 +150,12 @@
 
   SM.fb = {
     isConfigured: isConfigured,
-    config: FIREBASE_CONFIG,
+    /* Read-only view for diagnostics. Never the source of truth — `config` is. */
+    configState: configState,
+    projectId: function () { return config ? config.projectId : null; },
+    loadConfig: loadConfig,
+    app: function () { return global.firebase && global.firebase.apps[0]; },
+    ready: ready,
 
     /** Google sign-in. Opens the real account chooser. */
     signIn: function () {
@@ -148,7 +202,6 @@
 
     /** Wakes the SDK so a returning session is restored without a click. */
     restore: function () {
-      if (!isConfigured()) return Promise.resolve(null);
       return ready().then(function (fb) {
         return new Promise(function (resolve) {
           var off = fb.auth().onAuthStateChanged(function (u) { off(); resolve(u || null); });

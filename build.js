@@ -17,6 +17,7 @@ const JS = [
   'src/data/brand-marks.js',
   'src/data/countries.js',
   'src/data/firebase.js',
+  'src/data/firestore.js',
   'src/data/billing.js',
   'src/data/auth.js',
   'src/data/api.js',
