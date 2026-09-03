@@ -338,7 +338,16 @@
       }, LAT.normal);
     },
 
-    signOut: function () { writeSub(null); refresh(); return respond(current, LAT.fast); },
+    /* Signing out has to end the Firebase session too. Clearing only the local
+       record leaves a live ID token behind, so the next billing call would
+       still authenticate as the user who just signed out. */
+    signOut: function () {
+      writeSub(null);
+      var done = (SM.fb && SM.fb.isConfigured())
+        ? SM.fb.signOut().catch(function () { /* already gone is fine */ })
+        : Promise.resolve();
+      return done.then(function () { refresh(); return current; });
+    },
 
     updateProfile: function (patch) {
       if (!current.sub) return respond({ error: 'not-signed-in' }, LAT.fast);
@@ -394,20 +403,10 @@
         });
       }
 
-      /* ---- sample path: no gateway configured --------------------------
-         Development only. Granting paid access with no payment is a useful
-         shortcut while building the account screens and an open door on a
-         public domain, so on any real host this refuses instead. */
-      if (!SM.isLocalHost || !SM.isLocalHost()) {
-        return respond({ error: 'payments-not-configured' }, LAT.fast);
-      }
-      var days = PLAN_DAYS[planId] || 30;
-      var now = Date.now();
-      SM.auth.saveProfile(current.sub, {
-        subscription: { plan: planId, startedAt: now, expiresAt: now + days * DAY, cancelledAt: null, sample: true }
-      });
-      refresh();
-      return respond({ ok: true, session: current, sample: true }, LAT.slow);
+      /* No gateway configured. Nothing is granted — there is no sample
+         activation any more. A subscription that no payment backs is worse
+         than an error, because it looks like it worked. */
+      return respond({ error: 'payments-not-configured' }, LAT.fast);
     },
 
     /* Cancelling stops the renewal; access runs to the paid-for expiry date

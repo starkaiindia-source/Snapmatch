@@ -2050,29 +2050,6 @@
       return;
     }
 
-    if (s.type === 'gdemo') {
-      /* Honest fallback: with no OAuth client ID the device's real Google
-         accounts are unreachable, so this is plainly labelled as a stand-in. */
-      var demoAccounts = [
-        { sub: 'demo-1', email: 'shop.owner@gmail.com', name: 'Shop Owner' },
-        { sub: 'demo-2', email: 'sharma.mobilecare@gmail.com', name: 'Sharma Mobile Care' }
-      ];
-      return paintSheet(host, 'Google Sign-In not configured yet',
-        '<div class="notice notice--amber">' + icon('alert') +
-        '<span><b>This is not the Google account chooser.</b> Reaching the Google accounts on ' +
-        'your device needs an OAuth client ID from Google Cloud Console, set as ' +
-        '<code>GOOGLE_CLIENT_ID</code> in <code>src/data/auth.js</code>, with this site listed ' +
-        'under authorised JavaScript origins. Once it is set, this button opens the real ' +
-        'Google chooser instead.</span></div>' +
-        '<span class="t-lab" style="display:block;margin:16px 0 8px">Continue with a stand-in account</span>' +
-        '<div class="devlist">' + demoAccounts.map(function (a) {
-          return '<button class="dev" data-act="demo-google-pick" data-identity="' + esc(JSON.stringify(a)) + '">' +
-            '<span class="avatar avatar--sm">' + esc(initials(a.name)) + '</span>' +
-            '<span class="dev__n">' + esc(a.email) + '</span>' +
-            '<span class="dev__b">' + esc(a.name) + '</span></button>';
-        }).join('') + '</div>',
-        '<button class="btn btn--outline btn--block" data-act="close-sheet">Cancel</button>');
-    }
 
     if (s.type === 'model') {
       host.innerHTML = '<div class="scrim" data-act="close-sheet"></div><div class="sheet"><div class="sheet__grab"></div>' +
@@ -2313,7 +2290,7 @@
 
   var authMode = 'signin';
   /* sheets that live in memory rather than in the URL */
-  var LOCAL_SHEETS = ['filters', 'country', 'gdemo', 'editprofile'];
+  var LOCAL_SHEETS = ['filters', 'country', 'editprofile'];
 
   /* leave the result view and restore the normal Finder home page */
   function exitResult() {
@@ -2666,7 +2643,6 @@
         if (state.pendingIdentity) { finishGoogle(state.pendingIdentity, true); state.pendingIdentity = null; break; }
         startGoogle(true);
         break;
-      case 'demo-google-pick': finishGoogle(JSON.parse(t.getAttribute('data-identity')), authMode === 'signup'); break;
     }
   });
 
@@ -2858,18 +2834,11 @@
     }, function (err) {
       if (btn) { btn.classList.remove('is-busy'); btn.disabled = false; }
       if (err && err.code === 'unconfigured') {
-        /* No client ID, so the device's real Google accounts are unreachable.
-           On localhost that opens the clearly-labelled stand-in chooser so the
-           account screens can be built. On a public domain it must not: a
-           stand-in identity there is a real visitor signing in as a made-up
-           shop, and with no payment backend that is a free subscription. */
-        if (SM.isLocalHost && SM.isLocalHost()) {
-          state.sheet = { type: 'gdemo', signup: isSignup };
-          renderSheet();
-        } else {
-          authMsg('Sign-in is not switched on yet. The Google client ID has ' +
-                  'still to be configured for this site.');
-        }
+        /* Firebase Auth is not reachable. There is deliberately no stand-in
+           account any more: a pretend identity would let someone hold a
+           subscription no payment backs, and real sign-in now works. */
+        authMsg('Sign-in is unavailable right now. Reload the page, and if it ' +
+                'persists the site configuration needs checking.');
         return;
       }
       if (err && err.code === 'cancelled') { toast('Sign-in cancelled'); return; }

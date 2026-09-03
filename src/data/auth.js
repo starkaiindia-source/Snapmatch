@@ -109,6 +109,31 @@
        Resolves with { sub, email, name, picture } or rejects:
          code 'unconfigured' | 'cancelled' | 'network' | 'failed'          */
     signInWithGoogle: function () {
+      /* Firebase Authentication is the real path and takes precedence the
+         moment it is configured. It hands back a verified ID token, which is
+         what every billing endpoint requires — the GIS path below only ever
+         produced claims this app decoded for itself, which proves nothing to
+         a server. */
+      if (SM.fb && SM.fb.isConfigured()) {
+        return SM.fb.signIn().then(function (user) {
+          return {
+            sub: user.uid,
+            email: user.email || '',
+            name: user.displayName || '',
+            picture: user.photoURL || '',
+            emailVerified: !!user.emailVerified
+          };
+        }, function (err) {
+          var e = new Error(
+            err && err.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled'
+              : err && err.code === 'auth/unauthorized-domain'
+                ? 'This domain is not on the Firebase authorised-domain list.'
+                : (err && err.message) || 'Google sign-in failed.');
+          e.code = err && err.code === 'auth/popup-closed-by-user' ? 'cancelled' : 'failed';
+          throw e;
+        });
+      }
+
       if (!GOOGLE_CLIENT_ID) {
         var e = new Error('Google Sign-In is not configured yet.');
         e.code = 'unconfigured';
