@@ -363,7 +363,13 @@
         });
       }
 
-      /* ---- sample path: no gateway configured -------------------------- */
+      /* ---- sample path: no gateway configured --------------------------
+         Development only. Granting paid access with no payment is a useful
+         shortcut while building the account screens and an open door on a
+         public domain, so on any real host this refuses instead. */
+      if (!SM.isLocalHost || !SM.isLocalHost()) {
+        return respond({ error: 'payments-not-configured' }, LAT.fast);
+      }
       var days = PLAN_DAYS[planId] || 30;
       var now = Date.now();
       SM.auth.saveProfile(current.sub, {

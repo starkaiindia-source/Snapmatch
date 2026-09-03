@@ -52,6 +52,19 @@
   var VERIFY_ENDPOINT = '';                  /* <-- backend token verifier    */
   var GSI_SRC = 'https://accounts.google.com/gsi/client';
 
+  /* The stand-in account chooser is a DEVELOPMENT aid. It exists so the account
+     screens can be built before an OAuth client ID is issued — but on a public
+     host it would let any visitor sign in as a made-up shop and, with no
+     payment backend wired up, activate a subscription for nothing.
+
+     So it is confined to localhost. On a real domain an unconfigured sign-in
+     says so and does nothing, which is the honest failure. */
+  function isLocalHost() {
+    var h = global.location && global.location.hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || /\.local$/.test(h || '');
+  }
+  SM.isLocalHost = isLocalHost;
+
   var PROFILE_KEY = 'mpf.profiles.v1';
 
   function readStore() {

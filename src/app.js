@@ -2855,9 +2855,18 @@
     }, function (err) {
       if (btn) { btn.classList.remove('is-busy'); btn.disabled = false; }
       if (err && err.code === 'unconfigured') {
-        /* no client ID -> we cannot reach the device's Google accounts */
-        state.sheet = { type: 'gdemo', signup: isSignup };
-        renderSheet();
+        /* No client ID, so the device's real Google accounts are unreachable.
+           On localhost that opens the clearly-labelled stand-in chooser so the
+           account screens can be built. On a public domain it must not: a
+           stand-in identity there is a real visitor signing in as a made-up
+           shop, and with no payment backend that is a free subscription. */
+        if (SM.isLocalHost && SM.isLocalHost()) {
+          state.sheet = { type: 'gdemo', signup: isSignup };
+          renderSheet();
+        } else {
+          authMsg('Sign-in is not switched on yet. The Google client ID has ' +
+                  'still to be configured for this site.');
+        }
         return;
       }
       if (err && err.code === 'cancelled') { toast('Sign-in cancelled'); return; }

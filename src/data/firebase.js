@@ -31,12 +31,19 @@
   'use strict';
   var SM = (global.SM = global.SM || {});
 
-  /* <-- paste the web app config here */
+  /* Two of these are fixed by the project id and are filled in. The other two
+     come from the console and are the only thing left to paste:
+       Firebase console -> Project settings -> General -> Your apps -> SDK setup
+
+     All four are PUBLIC. They identify the project to the browser; what
+     protects the data is Firestore rules and the authorised-domain list, not
+     secrecy. The dangerous credential is the service-account key, and that
+     lives in the Vercel environment, never in this directory. */
   var FIREBASE_CONFIG = {
-    apiKey: '',
-    authDomain: '',            /* e.g. mobilepartsfinder.firebaseapp.com */
-    projectId: '',             /* e.g. mobilepartsfinder                 */
-    appId: ''
+    apiKey: '',                                     /* <-- paste */
+    authDomain: 'mobilepartsfinder.firebaseapp.com',
+    projectId: 'mobilepartsfinder',
+    appId: ''                                       /* <-- paste */
   };
 
   var SDK_VERSION = '10.14.1';

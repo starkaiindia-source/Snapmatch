@@ -2372,12 +2372,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   'use strict';
   var SM = (global.SM = global.SM || {});
 
-  /* <-- paste the web app config here */
+  /* Two of these are fixed by the project id and are filled in. The other two
+     come from the console and are the only thing left to paste:
+       Firebase console -> Project settings -> General -> Your apps -> SDK setup
+
+     All four are PUBLIC. They identify the project to the browser; what
+     protects the data is Firestore rules and the authorised-domain list, not
+     secrecy. The dangerous credential is the service-account key, and that
+     lives in the Vercel environment, never in this directory. */
   var FIREBASE_CONFIG = {
-    apiKey: '',
-    authDomain: '',            /* e.g. mobilepartsfinder.firebaseapp.com */
-    projectId: '',             /* e.g. mobilepartsfinder                 */
-    appId: ''
+    apiKey: '',                                     /* <-- paste */
+    authDomain: 'mobilepartsfinder.firebaseapp.com',
+    projectId: 'mobilepartsfinder',
+    appId: ''                                       /* <-- paste */
   };
 
   var SDK_VERSION = '10.14.1';
@@ -2731,6 +2738,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   var GOOGLE_CLIENT_ID = '';                 /* <-- paste the client ID here */
   var VERIFY_ENDPOINT = '';                  /* <-- backend token verifier    */
   var GSI_SRC = 'https://accounts.google.com/gsi/client';
+
+  /* The stand-in account chooser is a DEVELOPMENT aid. It exists so the account
+     screens can be built before an OAuth client ID is issued — but on a public
+     host it would let any visitor sign in as a made-up shop and, with no
+     payment backend wired up, activate a subscription for nothing.
+
+     So it is confined to localhost. On a real domain an unconfigured sign-in
+     says so and does nothing, which is the honest failure. */
+  function isLocalHost() {
+    var h = global.location && global.location.hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || /\.local$/.test(h || '');
+  }
+  SM.isLocalHost = isLocalHost;
 
   var PROFILE_KEY = 'mpf.profiles.v1';
 
@@ -3200,7 +3220,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         });
       }
 
-      /* ---- sample path: no gateway configured -------------------------- */
+      /* ---- sample path: no gateway configured --------------------------
+         Development only. Granting paid access with no payment is a useful
+         shortcut while building the account screens and an open door on a
+         public domain, so on any real host this refuses instead. */
+      if (!SM.isLocalHost || !SM.isLocalHost()) {
+        return respond({ error: 'payments-not-configured' }, LAT.fast);
+      }
       var days = PLAN_DAYS[planId] || 30;
       var now = Date.now();
       SM.auth.saveProfile(current.sub, {
@@ -6926,9 +6952,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     }, function (err) {
       if (btn) { btn.classList.remove('is-busy'); btn.disabled = false; }
       if (err && err.code === 'unconfigured') {
-        /* no client ID -> we cannot reach the device's Google accounts */
-        state.sheet = { type: 'gdemo', signup: isSignup };
-        renderSheet();
+        /* No client ID, so the device's real Google accounts are unreachable.
+           On localhost that opens the clearly-labelled stand-in chooser so the
+           account screens can be built. On a public domain it must not: a
+           stand-in identity there is a real visitor signing in as a made-up
+           shop, and with no payment backend that is a free subscription. */
+        if (SM.isLocalHost && SM.isLocalHost()) {
+          state.sheet = { type: 'gdemo', signup: isSignup };
+          renderSheet();
+        } else {
+          authMsg('Sign-in is not switched on yet. The Google client ID has ' +
+                  'still to be configured for this site.');
+        }
         return;
       }
       if (err && err.code === 'cancelled') { toast('Sign-in cancelled'); return; }
