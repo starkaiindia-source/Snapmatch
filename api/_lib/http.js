@@ -70,13 +70,19 @@ async function requireUser(req, res) {
       name: decoded.name || null
     };
   } catch (err) {
+    /* A missing service account throws from inside this same try, and
+       reporting THAT as "invalid token" sends you hunting a token problem when
+       the real fault is an unset environment variable. Configuration failures
+       are re-thrown so the caller answers 500 with the real cause in the log;
+       only genuine token failures become a 401. */
+    if (!err || !String(err.code || '').startsWith('auth/')) throw err;
+
     /* Expired is the ordinary case — the client refreshes and retries — so it
        is not logged as an error. Anything else is worth seeing. */
-    if (err && err.code !== 'auth/id-token-expired') {
-      console.warn('[billing:auth]', err && err.code, err && err.message);
+    if (err.code !== 'auth/id-token-expired') {
+      console.warn('[billing:auth]', err.code, err.message);
     }
-    unauthorised(res, err && err.code === 'auth/id-token-expired'
-      ? 'token expired' : 'invalid token');
+    unauthorised(res, err.code === 'auth/id-token-expired' ? 'token expired' : 'invalid token');
     return null;
   }
 }
