@@ -1786,7 +1786,32 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     { b: 'huawei', base: 'Nova ', nums: [12, 11, 10], sfx: ['', ' Pro'], tier: 'mid', year: function (n) { return 2012 + n; } },
     { b: 'huawei', base: 'Mate ', nums: [60, 50], sfx: ['', ' Pro'], tier: 'flag', year: function (n) { return 2018 + n / 10 | 0; } },
     // ---- Nothing
-    { b: 'nothing', names: ['Phone (2)', 'Phone (2a)', 'Phone (2a) Plus', 'Phone (1)', 'CMF Phone 1'], tier: 'mid', y: 2023 }
+    { b: 'nothing', names: ['Phone (2)', 'Phone (2a)', 'Phone (2a) Plus', 'Phone (1)', 'CMF Phone 1'], tier: 'mid', y: 2023 },
+
+    /* ------------------------------------------------------------- tablets
+       `kind` becomes deviceType. Without these families the brand dashboard's
+       tablet and smartwatch columns would always read zero, and those counts
+       are the point of that layout. */
+    { b: 'samsung', base: 'Galaxy Tab S', nums: [10, 9, 8], sfx: ['', ' Ultra', ' FE'], tier: 'flag', kind: 'tablet', year: function (n) { return 2015 + n; } },
+    { b: 'samsung', base: 'Galaxy Tab A', nums: [9, 8], sfx: ['', ' Plus'], tier: 'mid', kind: 'tablet', year: function (n) { return 2015 + n; } },
+    { b: 'apple', names: ['iPad Pro 13 (M4)', 'iPad Pro 11 (M4)', 'iPad Air 13 (M2)', 'iPad Air 11 (M2)', 'iPad (10th generation)', 'iPad mini (6th generation)'], tier: 'flag', kind: 'tablet', y: 2024 },
+    { b: 'xiaomi', names: ['Pad 6S Pro', 'Pad 6', 'Pad 5'], tier: 'mid', kind: 'tablet', y: 2023 },
+    { b: 'oneplus', names: ['Pad 2', 'Pad Go'], tier: 'mid', kind: 'tablet', y: 2024 },
+    { b: 'realme', names: ['Pad 2', 'Pad X'], tier: 'mid', kind: 'tablet', y: 2023 },
+    { b: 'oppo', names: ['Pad Air 2', 'Pad 2'], tier: 'mid', kind: 'tablet', y: 2023 },
+    { b: 'vivo', names: ['Pad 3 Pro', 'Pad 2'], tier: 'mid', kind: 'tablet', y: 2024 },
+    { b: 'motorola', names: ['Tab G70', 'Tab G62'], tier: 'entry', kind: 'tablet', y: 2023 },
+    { b: 'huawei', names: ['MatePad 11.5', 'MatePad SE'], tier: 'mid', kind: 'tablet', y: 2023 },
+
+    /* -------------------------------------------------------- smartwatches */
+    { b: 'samsung', base: 'Galaxy Watch', nums: [7, 6, 5], sfx: ['', ' Classic'], tier: 'flag', kind: 'watch', year: function (n) { return 2017 + n; } },
+    { b: 'apple', names: ['Watch Series 10', 'Watch Series 9', 'Watch Ultra 2', 'Watch SE (2nd generation)'], tier: 'flag', kind: 'watch', y: 2024 },
+    { b: 'xiaomi', names: ['Watch S3', 'Watch 2 Pro', 'Redmi Watch 4'], tier: 'mid', kind: 'watch', y: 2024 },
+    { b: 'oneplus', names: ['Watch 2R', 'Watch 2'], tier: 'mid', kind: 'watch', y: 2024 },
+    { b: 'realme', names: ['Watch 3 Pro', 'Watch S2'], tier: 'entry', kind: 'watch', y: 2023 },
+    { b: 'google', names: ['Pixel Watch 3', 'Pixel Watch 2'], tier: 'flag', kind: 'watch', y: 2024 },
+    { b: 'nothing', names: ['CMF Watch Pro 2'], tier: 'entry', kind: 'watch', y: 2024 },
+    { b: 'huawei', names: ['Watch GT 5', 'Watch Fit 3'], tier: 'mid', kind: 'watch', y: 2024 }
   ];
 
   /* ---------------------------------------------------------- spec helpers */
@@ -1804,7 +1829,16 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   var PROTECTION = ['Corning Gorilla Glass Victus 2', 'Corning Gorilla Glass 5', 'Corning Gorilla Glass 3', 'Panda Glass', 'Ceramic Shield', 'Asahi Dragontrail'];
 
-  function baseSize(name, tier, r) {
+  function baseSize(name, tier, r, kind) {
+    /* A watch is not a small phone and a tablet is not a big one — sizing them
+       off the phone curve gave a Galaxy Watch a 6.5-inch screen. */
+    if (kind === 'watch') return round(1.3 + r() * 0.6, 2);
+    if (kind === 'tablet') {
+      /* Tablet names usually carry their own size: "MatePad 11.5", "iPad Pro 13". */
+      var declared = String(name).match(/\b(\d{1,2}(?:\.\d)?)\b/);
+      if (declared && +declared[1] >= 7 && +declared[1] <= 14) return +declared[1];
+      return round(10.1 + r() * 3, 1);
+    }
     if (/mini/i.test(name)) return 5.4;
     if (/SE \(/i.test(name)) return 4.7;
     if (/Fold/i.test(name)) return 7.6;
@@ -1873,7 +1907,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* Builds the full specification block for one model. `r` is the model's own
      seeded PRNG and must be the same one used for its dimensions, so a phone's
      screen size and its battery stay consistent with each other. */
-  function makeSpecs(brand, modelName, tier, year, size, r) {
+  function makeSpecs(brand, modelName, tier, year, size, r, kind) {
     var isApple = brand.id === 'apple';
     var pool = CHIPSETS[brand.id] || CHIPSETS._default;
     var chipset = pick(r, pool[tier] || pool.mid);
@@ -1901,6 +1935,43 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       'Accelerometer', 'Gyroscope', 'Proximity', 'Ambient light', 'Compass'];
     if (tier === 'flag') sensors.push('Barometer');
 
+    /* ---------------------------------------------------------- variants
+       Every RAM x storage pair the model ships in, each with its own price.
+       Real line-ups charge for memory, so the step is proportional rather than
+       flat: doubling storage on a flagship costs more than on a budget phone.
+       A watch has one configuration and no variant picker. */
+    var ramList = ram.slice(0, intIn(r, 2, ram.length));
+    var romList = rom.slice(0, intIn(r, 2, rom.length));
+    if (kind === 'watch') { ramList = ramList.slice(0, 1); romList = romList.slice(0, 1); }
+
+    var basePrice = Math.round((
+      kind === 'watch' ? intIn(r, 8000, 45000)
+        : kind === 'tablet' ? intIn(r, 12000, 95000)
+          : tier === 'flag' ? intIn(r, 54000, 165000)
+            : tier === 'mid' ? intIn(r, 14000, 34000)
+              : intIn(r, 6500, 13500)) / 100) * 100;
+
+    var stepPerGbRam = tier === 'flag' ? 900 : tier === 'mid' ? 450 : 250;
+    var stepPerGbRom = tier === 'flag' ? 28 : tier === 'mid' ? 16 : 9;
+
+    var variants = [];
+    ramList.forEach(function (gbRam) {
+      romList.forEach(function (gbRom) {
+        var price = basePrice
+          + (gbRam - ramList[0]) * stepPerGbRam
+          + (gbRom - romList[0]) * stepPerGbRom;
+        variants.push({
+          id: gbRam + '-' + gbRom,
+          ramGb: gbRam,
+          storageGb: gbRom,
+          priceInr: Math.round(price / 100) * 100,
+          /* The largest configuration of an older phone is the one shops stop
+             stocking first, so it is the one marked unavailable. */
+          available: !(year < 2023 && gbRom === romList[romList.length - 1] && romList.length > 1)
+        });
+      });
+    });
+
     var fiveG = (year >= 2020 && tier !== 'entry') || year >= 2022;
 
     return {
@@ -1908,8 +1979,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       cpu: '8-core CPU · ' + (tier === 'flag' ? 'up to 3.3 GHz' : tier === 'mid' ? 'up to 2.4 GHz' : 'up to 2.0 GHz'),
       gpu: GPUS[chipset] || 'Integrated GPU',
       fabrication: tier === 'flag' ? pick(r, ['3 nm', '4 nm']) : tier === 'mid' ? '6 nm' : '12 nm',
-      ramVariantsGb: ram.slice(0, intIn(r, 2, ram.length)),
-      storageVariantsGb: rom.slice(0, intIn(r, 2, rom.length)),
+      ramVariantsGb: ramList,
+      storageVariantsGb: romList,
       expandable: !isApple && tier !== 'flag',
       colors: COLOUR_POOL.slice(start, start + colourCount),
       cameraRear: rear,
@@ -1930,17 +2001,21 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       usb: isApple && year < 2023 ? 'Lightning' : 'USB Type-C',
       headphoneJack: !isApple && tier === 'entry',
       sensors: sensors,
-      /* launch price in rupees — a sample figure, not a researched one */
-      launchPriceInr: Math.round((tier === 'flag' ? intIn(r, 54000, 165000)
-        : tier === 'mid' ? intIn(r, 14000, 34000) : intIn(r, 6500, 13500)) / 100) * 100,
+      /* Launch price is the price of the BASE variant. Every other RAM and
+         storage combination is priced relative to it in `variants` below, so
+         the detail page can update the figure as the buyer changes the
+         configuration instead of showing one price for every SKU.
+         Sample figures, not researched ones. */
+      launchPriceInr: basePrice,
+      variants: variants,
       status: year >= 2022 ? 'Available' : 'Discontinued'
     };
   }
 
-  function makeModel(brand, modelName, tier, year) {
+  function makeModel(brand, modelName, tier, year, kind) {
     var full = brand.name + ' ' + modelName;
     var r = seeded('model:' + full);
-    var size = baseSize(modelName, tier, r);
+    var size = baseSize(modelName, tier, r, kind);
     var res = size < 5 ? { w: 750, h: 1334, r: '16:9' }
       : tier === 'flag' ? pick(r, RESOLUTIONS.slice(0, 6))
         : tier === 'mid' ? pick(r, RESOLUTIONS.slice(0, 3).concat(RESOLUTIONS.slice(6)))
@@ -1958,6 +2033,15 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       fullName: full,
       search: full.toLowerCase() + ' ' + modelName.toLowerCase().replace(/[^a-z0-9]/g, ''),
       tier: tier,
+      deviceType: kind || 'phone',
+      /* Flat or curved is the single most useful fact when fitting a tempered
+         glass or a back cover — a curved panel takes a different part
+         entirely. Curved edges belong to premium phones, so the draw is
+         weighted by tier and never applies to a tablet or a watch. */
+      screenCurve: (kind && kind !== 'phone') ? 'flat'
+        : tier === 'flag' ? (r() < 0.62 ? 'curved' : 'flat')
+          : tier === 'mid' ? (r() < 0.18 ? 'curved' : 'flat')
+            : 'flat',
       releaseYear: year,
       releaseMonth: MONTHS[intIn(r, 0, 11)],
       releaseDate: MONTHS[intIn(r, 0, 11)] + ' ' + year,
@@ -1973,7 +2057,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       weight: wt + ' g',
       protection: pick(r, PROTECTION),
       sim: pick(r, ['Dual SIM (Nano + Nano)', 'Dual SIM (Nano + eSIM)', 'Single SIM (Nano)']),
-      specs: makeSpecs(brand, modelName, tier, year, size, r),
+      specs: makeSpecs(brand, modelName, tier, year, size, r, kind || 'phone'),
       _size: size,
       popularity: Math.round((2026 - year) * -12 + r() * 40 + (tier === 'flag' ? 30 : tier === 'mid' ? 22 : 8))
     };
@@ -1989,7 +2073,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       var brand = brandMap[fam.b];
       if (fam.names) {
         fam.names.forEach(function (nm, i) {
-          push(brand, nm, fam.tier, fam.y - (i > 2 ? 1 : 0));
+          push(brand, nm, fam.tier, fam.y - (i > 2 ? 1 : 0), fam.kind);
         });
         return;
       }
@@ -1997,13 +2081,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         var numStr = fam.pad ? String(n).padStart(fam.pad, '0') : String(n);
         fam.sfx.forEach(function (s) {
           var nm = (fam.pre || '') + fam.base + numStr + s;
-          push(brand, nm, fam.tier, fam.year(n));
+          push(brand, nm, fam.tier, fam.year(n), fam.kind);
         });
       });
     });
 
-    function push(brand, nm, tier, year) {
-      var m = makeModel(brand, nm, tier, Math.max(2016, Math.min(2026, year || 2023)));
+    function push(brand, nm, tier, year, kind) {
+      var m = makeModel(brand, nm, tier, Math.max(2016, Math.min(2026, year || 2023)), kind);
       if (seen[m.id]) return;
       seen[m.id] = 1;
       out.push(m);
@@ -2113,7 +2197,23 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   var brandById = Object.create(null);
   BRANDS.forEach(function (b) {
-    b.modelCount = models.filter(function (m) { return m.brandId === b.id; }).length;
+    var mine = models.filter(function (m) { return m.brandId === b.id; });
+    b.modelCount = mine.length;
+
+    /* Rollup the brand dashboard reads. Counted once here rather than filtered
+       per card on every render — 27 cards each scanning 344 models is work the
+       browser should not repeat on a resize.
+
+       `phones` is the headline; flat and curved split it, because that split is
+       what decides which tempered glass or back cover fits. */
+    b.counts = {
+      total: mine.length,
+      phones: mine.filter(function (m) { return m.deviceType === 'phone'; }).length,
+      flat: mine.filter(function (m) { return m.deviceType === 'phone' && m.screenCurve === 'flat'; }).length,
+      curved: mine.filter(function (m) { return m.deviceType === 'phone' && m.screenCurve === 'curved'; }).length,
+      tablets: mine.filter(function (m) { return m.deviceType === 'tablet'; }).length,
+      watches: mine.filter(function (m) { return m.deviceType === 'watch'; }).length
+    };
     /* groups whose MASTER model belongs to this brand — matches how the brand
        filter in listGroups() selects, so the count always equals the result. */
     b.groupCount = groups.filter(function (g) {
