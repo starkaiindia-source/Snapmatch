@@ -1553,6 +1553,74 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .dsw{ width:38px; height:38px; }
 }
 
+/* ============================================================================
+   BRAND DASHBOARD TILE
+   ----------------------------------------------------------------------------
+   The tile earns the space it takes: logo and name, then the counts in the
+   order that matters when pricing a repair — phones first and largest, split
+   flat/curved, then the other device classes.
+
+   Cards are a fixed minimum height so a brand with no tablets does not sit
+   half as tall as one that has them. Ragged card heights across a grid read as
+   a broken layout, not as information.
+   ========================================================================== */
+.brandcard{
+  display:flex; flex-direction:column; gap:10px; min-height:168px;
+}
+.brandcard__top{ display:flex; align-items:center; gap:11px; min-width:0; }
+.brandcard__id{ display:flex; flex-direction:column; min-width:0; }
+.brandcard__n{
+  font-family:var(--f-display); font-weight:800; font-size:15px; letter-spacing:-.02em;
+  color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.brandcard__c{ font-size:11.5px; color:var(--ink-3); }
+
+/* the headline number */
+.brandcard__lead{ display:flex; align-items:baseline; gap:6px; margin-top:auto; }
+.brandcard__lead b{
+  font-family:var(--f-display); font-weight:800; font-size:30px; line-height:1;
+  letter-spacing:-.035em; color:var(--ink); font-variant-numeric:tabular-nums;
+}
+.brandcard__lead span{
+  font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink-3);
+}
+
+/* Flat vs curved, drawn to scale. The curved remainder is the track itself, so
+   the two segments cannot disagree with each other. */
+.curvebar{
+  display:block; height:5px; border-radius:99px; overflow:hidden;
+  background:var(--b1, var(--teal-600)); opacity:.9;
+}
+.curvebar__flat{ display:block; height:100%; background:var(--ink-3); opacity:.55; }
+
+.brandcard__split{ display:flex; gap:12px; flex-wrap:wrap; }
+.brandcard__extra{
+  display:flex; gap:12px; flex-wrap:wrap;
+  padding-top:9px; border-top:1px solid var(--line);
+}
+.bcs{ font-size:11.5px; color:var(--ink-3); white-space:nowrap; }
+.bcs b{
+  font-weight:800; color:var(--ink-2); font-variant-numeric:tabular-nums;
+  margin-right:2px;
+}
+/* A dot in each label ties the number to its half of the bar. */
+.bcs--flat::before, .bcs--curved::before{
+  content:''; display:inline-block; width:7px; height:7px; border-radius:99px;
+  margin-right:5px; vertical-align:middle;
+}
+.bcs--flat::before{ background:var(--ink-3); opacity:.55; }
+.bcs--curved::before{ background:var(--b1, var(--teal-600)); }
+
+/* On the narrowest phones the tile drops the split bar rather than squeezing
+   two labels onto one 150px line. */
+@media (max-width:400px){
+  .brandcard{ min-height:150px; }
+  .brandcard__lead b{ font-size:26px; }
+  .brandcard__split{ gap:8px; }
+  .bcs{ font-size:11px; }
+}
+
 </style>
 <div id="app" class="app"></div>
 <script>
@@ -3936,11 +4004,52 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   };
 
   /* ---------------------------------------------------------- brand/model */
+  /* A brand tile is a small dashboard, not a label.
+     The counts are ordered by how much they matter to someone pricing a
+     repair: phones first and largest, split into flat and curved because that
+     split decides which glass and which back cover fit, then tablets and
+     watches, then the total.
+
+     The split is drawn as a proportional bar as well as written as numbers.
+     "32 flat, 13 curved" needs reading; the bar is comparable at a glance
+     across a grid of 27 brands, which is how the page is actually used. */
   C.brandCard = function (b) {
-    return '<button type="button" class="brandcard" data-act="open-brand" data-id="' + b.id + '" style="--b1:' + b.color + '">' +
-      SM.brandLogo(b, 'blogo--lg') +
-      '<div class="brandcard__n">' + esc(b.name) + '</div>' +
-      '<div class="brandcard__c">' + b.modelCount + ' models</div>' +
+    var c = b.counts || { total: b.modelCount, phones: b.modelCount, flat: 0, curved: 0, tablets: 0, watches: 0 };
+    var phones = c.phones || 0;
+    var flatPct = phones ? Math.round((c.flat / phones) * 100) : 0;
+
+    /* Only the classes this brand actually sells get a chip — a row of
+       "0 tablets · 0 watches" is noise on the brands that make neither. */
+    var extras = [];
+    if (c.tablets) extras.push('<span class="bcs"><b>' + c.tablets + '</b> tablet' + (c.tablets === 1 ? '' : 's') + '</span>');
+    if (c.watches) extras.push('<span class="bcs"><b>' + c.watches + '</b> watch' + (c.watches === 1 ? '' : 'es') + '</span>');
+
+    return '<button type="button" class="brandcard" data-act="open-brand" data-id="' + b.id + '" ' +
+      'style="--b1:' + b.color + '" aria-label="' + esc(b.name) + ', ' + c.total + ' devices">' +
+
+      '<span class="brandcard__top">' +
+        SM.brandLogo(b, 'blogo--lg') +
+        '<span class="brandcard__id">' +
+          '<span class="brandcard__n">' + esc(b.name) + '</span>' +
+          '<span class="brandcard__c">' + c.total + ' device' + (c.total === 1 ? '' : 's') + '</span>' +
+        '</span>' +
+      '</span>' +
+
+      (phones
+        ? '<span class="brandcard__lead">' +
+            '<b>' + phones + '</b><span>phone' + (phones === 1 ? '' : 's') + '</span>' +
+          '</span>' +
+          '<span class="curvebar" role="img" aria-label="' +
+            c.flat + ' flat, ' + c.curved + ' curved">' +
+            '<span class="curvebar__flat" style="width:' + flatPct + '%"></span>' +
+          '</span>' +
+          '<span class="brandcard__split">' +
+            '<span class="bcs bcs--flat"><b>' + c.flat + '</b> flat</span>' +
+            '<span class="bcs bcs--curved"><b>' + c.curved + '</b> curved</span>' +
+          '</span>'
+        : '') +
+
+      (extras.length ? '<span class="brandcard__extra">' + extras.join('') + '</span>' : '') +
       '</button>';
   };
 

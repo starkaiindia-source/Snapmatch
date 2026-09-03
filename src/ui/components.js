@@ -190,11 +190,52 @@
   };
 
   /* ---------------------------------------------------------- brand/model */
+  /* A brand tile is a small dashboard, not a label.
+     The counts are ordered by how much they matter to someone pricing a
+     repair: phones first and largest, split into flat and curved because that
+     split decides which glass and which back cover fit, then tablets and
+     watches, then the total.
+
+     The split is drawn as a proportional bar as well as written as numbers.
+     "32 flat, 13 curved" needs reading; the bar is comparable at a glance
+     across a grid of 27 brands, which is how the page is actually used. */
   C.brandCard = function (b) {
-    return '<button type="button" class="brandcard" data-act="open-brand" data-id="' + b.id + '" style="--b1:' + b.color + '">' +
-      SM.brandLogo(b, 'blogo--lg') +
-      '<div class="brandcard__n">' + esc(b.name) + '</div>' +
-      '<div class="brandcard__c">' + b.modelCount + ' models</div>' +
+    var c = b.counts || { total: b.modelCount, phones: b.modelCount, flat: 0, curved: 0, tablets: 0, watches: 0 };
+    var phones = c.phones || 0;
+    var flatPct = phones ? Math.round((c.flat / phones) * 100) : 0;
+
+    /* Only the classes this brand actually sells get a chip — a row of
+       "0 tablets · 0 watches" is noise on the brands that make neither. */
+    var extras = [];
+    if (c.tablets) extras.push('<span class="bcs"><b>' + c.tablets + '</b> tablet' + (c.tablets === 1 ? '' : 's') + '</span>');
+    if (c.watches) extras.push('<span class="bcs"><b>' + c.watches + '</b> watch' + (c.watches === 1 ? '' : 'es') + '</span>');
+
+    return '<button type="button" class="brandcard" data-act="open-brand" data-id="' + b.id + '" ' +
+      'style="--b1:' + b.color + '" aria-label="' + esc(b.name) + ', ' + c.total + ' devices">' +
+
+      '<span class="brandcard__top">' +
+        SM.brandLogo(b, 'blogo--lg') +
+        '<span class="brandcard__id">' +
+          '<span class="brandcard__n">' + esc(b.name) + '</span>' +
+          '<span class="brandcard__c">' + c.total + ' device' + (c.total === 1 ? '' : 's') + '</span>' +
+        '</span>' +
+      '</span>' +
+
+      (phones
+        ? '<span class="brandcard__lead">' +
+            '<b>' + phones + '</b><span>phone' + (phones === 1 ? '' : 's') + '</span>' +
+          '</span>' +
+          '<span class="curvebar" role="img" aria-label="' +
+            c.flat + ' flat, ' + c.curved + ' curved">' +
+            '<span class="curvebar__flat" style="width:' + flatPct + '%"></span>' +
+          '</span>' +
+          '<span class="brandcard__split">' +
+            '<span class="bcs bcs--flat"><b>' + c.flat + '</b> flat</span>' +
+            '<span class="bcs bcs--curved"><b>' + c.curved + '</b> curved</span>' +
+          '</span>'
+        : '') +
+
+      (extras.length ? '<span class="brandcard__extra">' + extras.join('') + '</span>' : '') +
       '</button>';
   };
 
