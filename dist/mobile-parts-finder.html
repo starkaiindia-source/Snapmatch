@@ -1836,6 +1836,85 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .dcard:hover{ transform:none; }
 }
 
+/* ============================================================================
+   DEVICE PAGE — hero balance and the variant picker
+   ----------------------------------------------------------------------------
+   The highlight cards used to sit below the fold while the right half of the
+   hero stood empty. They are part of the hero now, in a three-column band, so
+   the specs that decide a repair quote are the first thing read.
+   ========================================================================== */
+
+/* A real content container. Without this the page ran to the browser edge on
+   a wide window and looked unfinished. */
+.dev-page .wrap{
+  max-width:1240px; margin-inline:auto;
+  padding-inline:clamp(16px, 4vw, 32px);
+}
+
+/* ------------------------------------------------------------ highlights */
+.dkeys{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (min-width:700px){ .dkeys{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+/* Six cards over two rows of three keeps every card the same height; four
+   across leaves a two-card orphan row on a wide screen. */
+@media (min-width:1024px){ .dkeys{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; } }
+.dkey__s{ line-height:1.4; }
+
+/* --------------------------------------------------------- variant picker */
+.vpick{
+  display:flex; flex-direction:column; gap:11px;
+  padding:14px; margin-bottom:18px;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:var(--r);
+}
+.vpick__row{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.vpick__l{
+  font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--ink-3); width:52px; flex:none;
+}
+.vpick__chips{ display:flex; gap:6px; flex-wrap:wrap; }
+
+.vchip{
+  min-height:36px; padding:0 13px; cursor:pointer;
+  background:var(--surface); color:var(--ink-2);
+  border:1px solid var(--line); border-radius:9px;
+  font:inherit; font-size:12.5px; font-weight:700;
+  font-variant-numeric:tabular-nums;
+  transition:border-color .14s, color .14s, background .14s;
+}
+.vchip:hover:not(:disabled){ border-color:var(--ink-3); color:var(--ink); }
+.vchip.is-on{
+  border-color:var(--teal-500); background:var(--teal-100);
+  color:var(--teal-700); box-shadow:inset 0 0 0 1px var(--teal-500);
+}
+/* A pair that is not sold stays visible but dead — hiding it would make the
+   row jump every time RAM changes. */
+.vchip:disabled{ opacity:.4; cursor:not-allowed; text-decoration:line-through; }
+.vchip:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+
+.vpick__out{
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  padding-top:11px; border-top:1px solid var(--line);
+}
+.vprice{
+  font-family:var(--f-display); font-weight:800; font-size:21px;
+  letter-spacing:-.025em; color:var(--ink); font-variant-numeric:tabular-nums;
+}
+.vmeta{ font-size:12.5px; color:var(--ink-3); }
+.vstock{
+  display:inline-flex; align-items:center; gap:4px; margin-left:auto;
+  font-size:11.5px; font-weight:700;
+}
+.vstock svg{ width:13px; height:13px; }
+.vstock.is-in{ color:var(--teal-700); }
+.vstock.is-out{ color:var(--ink-3); }
+
+@media (max-width:520px){
+  .vpick__l{ width:100%; }
+  .vstock{ margin-left:0; width:100%; }
+  .vchip{ min-height:40px; }
+}
+
+@media (prefers-reduced-motion:reduce){ .vchip{ transition:none; } }
+
 </style>
 </head>
 <body>
@@ -4418,6 +4497,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     theme: store('mpf.theme') || 'system',
     deviceColour: 0,        /* which finish the device page is showing */
     deviceId: null,
+    deviceVariant: null,  /* {ramGb, storageGb} the detail page is showing */
     route: { name: 'finder', params: {} },
     base: '#/finder',
     finder: {
@@ -5272,8 +5352,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     groups: function (a, b) { return groupCountOf(b) - groupCountOf(a); }
   };
 
-  function activeFilterCount(f) {
-    return Object.keys(f).filter(function (k) { return f[k]; }).length;
+  /* Named for the model page specifically: `activeFilterCount` already exists
+     for the finder's brand panel, and a second declaration of it silently wins
+     — the finder then called this one with no argument and threw on every
+     render. */
+  function activeModelFilterCount(f) {
+    return Object.keys(f || {}).filter(function (k) { return f[k]; }).length;
   }
 
   /* ------------------------------------------------------------------ views */
@@ -5362,7 +5446,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   function brandControlsHTML(b, years) {
     var m = state.models;
     var f = m.filters;
-    var n = activeFilterCount(f);
+    var n = activeModelFilterCount(f);
 
     return '<div class="bctl">' +
       selectHTML('deviceType', 'Type', f.deviceType, [
@@ -6099,10 +6183,83 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '<dl class="dsec__b">' + body + '</dl></section>';
   }
 
+  /* ------------------------------------------------------------- variants
+     The configuration picker. RAM and storage are chosen separately because
+     that is how a buyer thinks about them, but they are not independent: not
+     every pair is sold. Picking a RAM that has no build at the current storage
+     moves storage to the nearest one that exists rather than showing a price
+     for a phone nobody makes. */
+  function variantsOf(m) { return (m.specs && m.specs.variants) || []; }
+
+  function findVariant(m, ramGb, storageGb) {
+    var vs = variantsOf(m);
+    return vs.find(function (v) { return v.ramGb === ramGb && v.storageGb === storageGb; }) || null;
+  }
+
+  /* The variant currently selected, falling back to the cheapest build. */
+  function currentVariant(m) {
+    var vs = variantsOf(m);
+    if (!vs.length) return null;
+    var sel = state.deviceVariant;
+    if (sel) {
+      var hit = findVariant(m, sel.ramGb, sel.storageGb);
+      if (hit) return hit;
+    }
+    return vs[0];
+  }
+
+  function variantPickerHTML(m) {
+    var vs = variantsOf(m);
+    if (vs.length < 2) return '';
+    var cur = currentVariant(m);
+    var rams = Array.from(new Set(vs.map(function (v) { return v.ramGb; })));
+    var roms = Array.from(new Set(vs.map(function (v) { return v.storageGb; })));
+
+    var fmtRom = function (g) { return g >= 1024 ? (g / 1024) + ' TB' : g + ' GB'; };
+
+    var chip = function (kind, value, label, on, enabled) {
+      return '<button type="button" class="vchip' + (on ? ' is-on' : '') + '" ' +
+        'data-act="pick-variant" data-kind="' + kind + '" data-value="' + value + '" ' +
+        (enabled ? '' : 'disabled ') +
+        'aria-pressed="' + (on ? 'true' : 'false') + '">' + label + '</button>';
+    };
+
+    return '<div class="vpick">' +
+      '<div class="vpick__row">' +
+        '<span class="vpick__l">RAM</span>' +
+        '<div class="vpick__chips">' + rams.map(function (r) {
+          return chip('ram', r, r + ' GB', cur.ramGb === r, true);
+        }).join('') + '</div>' +
+      '</div>' +
+      '<div class="vpick__row">' +
+        '<span class="vpick__l">Storage</span>' +
+        '<div class="vpick__chips">' + roms.map(function (g) {
+          /* A storage that does not exist at the chosen RAM is shown but
+             disabled — hiding it would make the row jump on every RAM click. */
+          var v = findVariant(m, cur.ramGb, g);
+          return chip('storage', g, fmtRom(g), cur.storageGb === g, !!v);
+        }).join('') + '</div>' +
+      '</div>' +
+      '<div class="vpick__out" id="variantOut">' + variantOutHTML(m, cur) + '</div>' +
+      '</div>';
+  }
+
+  function variantOutHTML(m, v) {
+    if (!v) return '';
+    return '<span class="vprice">₹' + nf(v.priceInr) + '</span>' +
+      '<span class="vmeta">' + v.ramGb + ' GB · ' +
+        (v.storageGb >= 1024 ? (v.storageGb / 1024) + ' TB' : v.storageGb + ' GB') + '</span>' +
+      '<span class="vstock ' + (v.available ? 'is-in' : 'is-out') + '">' +
+        icon(v.available ? 'check' : 'alert') +
+        (v.available ? 'Available' : 'Not in stock') + '</span>';
+  }
+
   function renderDevice(page, id) {
     page.innerHTML = '<div class="wrap dev-page">' + C.skelRows(5) + '</div>';
 
-    if (state.deviceId !== id) { state.deviceId = id; state.deviceColour = 0; }
+    if (state.deviceId !== id) {
+      state.deviceId = id; state.deviceColour = 0; state.deviceVariant = null;
+    }
 
     api.getModel(id).then(function (r) {
       if (!r) { go('#/models'); return; }
@@ -6158,7 +6315,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
           /* ------------------------------------------------------------ hero */
           '<div class="dhero">' +
-            '<div class="dshot">' + deviceShotHTML(m, ci) + '</div>' +
+            '<div class="dshot">' + SM.art.device(m, ci) + '</div>' +
             '<div class="dintro">' +
               '<div class="dintro__brand">' + SM.brandLogo(b, 'blogo--sm') +
                 '<span>' + esc(m.brand) + '</span></div>' +
@@ -6166,8 +6323,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
               '<div class="dintro__meta">' + meta + '</div>' +
               (sp.launchPriceInr
                 ? '<div class="dprice"><span class="dprice__n">₹' + nf(sp.launchPriceInr) + '</span>' +
-                  '<span class="dprice__l">launch price</span></div>'
+                  '<span class="dprice__l">from · launch price</span></div>'
                 : '') +
+              variantPickerHTML(m) +
               (swatches
                 ? '<div class="dcolours"><span class="t-lab">' +
                   esc((sp.colors || []).length) + ' colour' + ((sp.colors || []).length === 1 ? '' : 's') +
@@ -6185,12 +6343,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
             '</div>' +
           '</div>' +
 
-          /* ------------------------------- the four specs that decide a quote */
+          /* The specs that decide a repair quote, beside the device rather than
+             below the fold — a three-column band so the hero balances instead
+             of leaving the right half of a desktop window empty. */
           '<div class="dkeys">' +
-            keySpecHTML('phone', 'Display', m.displaySize + '"', m.screenType) +
-            keySpecHTML('cpu', 'Processor', sp.chipset, sp.fabrication) +
-            keySpecHTML('camera', 'Main camera', mainCam.mp + ' MP', rear.length + ' rear cameras') +
-            keySpecHTML('battery', 'Battery', nf(sp.batteryMah) + ' mAh', sp.chargingWatts + 'W charging') +
+            keySpecHTML('phone', 'Display', m.displaySize + '"',
+              m.screenResolution + ' · ' + m.screenType + ' · ' + m.screenRatio) +
+            keySpecHTML('cpu', 'Processor', sp.chipset, sp.cpu + ' · ' + sp.gpu) +
+            keySpecHTML('camera', 'Main camera', mainCam.mp + ' MP',
+              rear.length + ' rear · ' + sp.cameraFront.mp + ' MP front') +
+            keySpecHTML('battery', 'Battery', nf(sp.batteryMah) + ' mAh',
+              sp.chargingWatts + 'W' + (sp.wirelessCharging ? ' · wireless' : '')) +
+            keySpecHTML('layers', 'Memory', ramTxt, romTxt) +
+            keySpecHTML('signal', 'Network', sp.network, sp.wifi) +
           '</div>' +
 
           /* --------------------------------------------------- full spec sheet */
@@ -6668,6 +6833,35 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       case 'dev-back':
         if (history.length > 1) history.back(); else go('#/models');
         break;
+      case 'pick-variant': {
+        var dm = db.modelById[state.deviceId];
+        if (!dm) break;
+        var kind = t.getAttribute('data-kind');
+        var val = Number(t.getAttribute('data-value'));
+        var cur = currentVariant(dm);
+        var want = { ramGb: cur.ramGb, storageGb: cur.storageGb };
+        want[kind === 'ram' ? 'ramGb' : 'storageGb'] = val;
+
+        /* Changing RAM can land on a pair that is not sold. Rather than show a
+           price for a phone nobody makes, fall back to the nearest storage
+           that does exist at the chosen RAM. */
+        if (!findVariant(dm, want.ramGb, want.storageGb)) {
+          var alt = variantsOf(dm).filter(function (v) { return v.ramGb === want.ramGb; });
+          if (!alt.length) break;
+          alt.sort(function (a, b) {
+            return Math.abs(a.storageGb - want.storageGb) - Math.abs(b.storageGb - want.storageGb);
+          });
+          want.storageGb = alt[0].storageGb;
+        }
+        state.deviceVariant = want;
+
+        /* Repaint only the picker — re-rendering the page would throw away the
+           reader's scroll position halfway down a spec sheet. */
+        var pick = document.querySelector('.vpick');
+        if (pick) pick.outerHTML = variantPickerHTML(dm);
+        break;
+      }
+
       case 'dev-colour': {
         /* Repaint only the handset and the swatch row. Re-rendering the whole
            page would throw away the reader's scroll position mid-spec-sheet. */

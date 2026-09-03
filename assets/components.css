@@ -1229,3 +1229,82 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .dcard, .drow, .vswitch__b, .dtable tbody tr{ transition:none; }
   .dcard:hover{ transform:none; }
 }
+
+/* ============================================================================
+   DEVICE PAGE — hero balance and the variant picker
+   ----------------------------------------------------------------------------
+   The highlight cards used to sit below the fold while the right half of the
+   hero stood empty. They are part of the hero now, in a three-column band, so
+   the specs that decide a repair quote are the first thing read.
+   ========================================================================== */
+
+/* A real content container. Without this the page ran to the browser edge on
+   a wide window and looked unfinished. */
+.dev-page .wrap{
+  max-width:1240px; margin-inline:auto;
+  padding-inline:clamp(16px, 4vw, 32px);
+}
+
+/* ------------------------------------------------------------ highlights */
+.dkeys{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (min-width:700px){ .dkeys{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+/* Six cards over two rows of three keeps every card the same height; four
+   across leaves a two-card orphan row on a wide screen. */
+@media (min-width:1024px){ .dkeys{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; } }
+.dkey__s{ line-height:1.4; }
+
+/* --------------------------------------------------------- variant picker */
+.vpick{
+  display:flex; flex-direction:column; gap:11px;
+  padding:14px; margin-bottom:18px;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:var(--r);
+}
+.vpick__row{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.vpick__l{
+  font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--ink-3); width:52px; flex:none;
+}
+.vpick__chips{ display:flex; gap:6px; flex-wrap:wrap; }
+
+.vchip{
+  min-height:36px; padding:0 13px; cursor:pointer;
+  background:var(--surface); color:var(--ink-2);
+  border:1px solid var(--line); border-radius:9px;
+  font:inherit; font-size:12.5px; font-weight:700;
+  font-variant-numeric:tabular-nums;
+  transition:border-color .14s, color .14s, background .14s;
+}
+.vchip:hover:not(:disabled){ border-color:var(--ink-3); color:var(--ink); }
+.vchip.is-on{
+  border-color:var(--teal-500); background:var(--teal-100);
+  color:var(--teal-700); box-shadow:inset 0 0 0 1px var(--teal-500);
+}
+/* A pair that is not sold stays visible but dead — hiding it would make the
+   row jump every time RAM changes. */
+.vchip:disabled{ opacity:.4; cursor:not-allowed; text-decoration:line-through; }
+.vchip:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+
+.vpick__out{
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  padding-top:11px; border-top:1px solid var(--line);
+}
+.vprice{
+  font-family:var(--f-display); font-weight:800; font-size:21px;
+  letter-spacing:-.025em; color:var(--ink); font-variant-numeric:tabular-nums;
+}
+.vmeta{ font-size:12.5px; color:var(--ink-3); }
+.vstock{
+  display:inline-flex; align-items:center; gap:4px; margin-left:auto;
+  font-size:11.5px; font-weight:700;
+}
+.vstock svg{ width:13px; height:13px; }
+.vstock.is-in{ color:var(--teal-700); }
+.vstock.is-out{ color:var(--ink-3); }
+
+@media (max-width:520px){
+  .vpick__l{ width:100%; }
+  .vstock{ margin-left:0; width:100%; }
+  .vchip{ min-height:40px; }
+}
+
+@media (prefers-reduced-motion:reduce){ .vchip{ transition:none; } }
