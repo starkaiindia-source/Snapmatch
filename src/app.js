@@ -530,7 +530,10 @@
 
   function loadGroups(reset) {
     var f = state.finder;
-    if (reset) { f.page = 1; f.rows = []; }
+    /* Firestore pages with a cursor, not a page number — there is no OFFSET
+       that skips for free, so "page 10" would re-read pages 1-9. The cursor is
+       the last document of the previous page and is cleared on a new query. */
+    if (reset) { f.page = 1; f.rows = []; f.cursor = null; }
     f.busy = true;
     var res = document.getElementById('results');
     if (reset && res) res.innerHTML = C.skelPlates(6);
@@ -538,9 +541,11 @@
     if (reset) { var sc = wsScroller(); if (sc) sc.scrollTop = 0; }
     api.listGroups({
       q: f.filters.q, brandId: f.filters.brandId, categoryId: f.filters.catId,
-      sort: f.filters.sort, page: f.page, pageSize: 12
+      sort: f.filters.sort, page: f.page, pageSize: 12, cursor: f.cursor
     }).then(function (r) {
       f.busy = false; f.total = r.total; f.hasMore = r.hasMore;
+      f.cursor = r.cursor || null;
+      f.source = r.source || 'catalogue';
       f.rows = reset ? r.items : f.rows.concat(r.items);
       paintGroups();
     });

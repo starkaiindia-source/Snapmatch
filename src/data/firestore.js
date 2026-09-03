@@ -160,6 +160,82 @@
       }).then(function (rows) { return rows.filter(Boolean); });
     },
 
+    /* ------------------------------------------------------------ catalogue
+
+       Compatibility groups, read straight from Firestore and paged with a
+       cursor. A page costs `limit` document reads — twelve, not the 3,340 a
+       whole-collection fetch would bill — and the composite indexes deployed
+       from firestore.indexes.json are what make the filters cheap:
+
+         categoryId + groupNo
+         masterBrandId + groupNo
+         categoryId + masterBrandId + groupNo
+
+       Cursors rather than offsets, because Firestore has no OFFSET that skips
+       for free: page 10 of an offset query still reads pages 1-9. startAfter
+       resumes exactly where the last page stopped.
+
+       Only the PUBLIC preview lives in /groups — no part number, no member
+       list — so this query is readable by a signed-out visitor and cannot leak
+       the paid half whatever it asks for. */
+    listGroups: function (opts) {
+      opts = opts || {};
+      return store().then(function (db) {
+        var q = db.collection('groups');
+
+        if (opts.categoryId && opts.categoryId !== 'all') q = q.where('categoryId', '==', opts.categoryId);
+        if (opts.brandId && opts.brandId !== 'all') q = q.where('masterBrandId', '==', opts.brandId);
+
+        /* Sorting has to line up with an index that exists, so an unknown sort
+           falls back to groupNo rather than throwing FAILED_PRECONDITION at a
+           reader who just opened the page. */
+        if (opts.sort === 'most') q = q.orderBy('memberCount', 'desc').orderBy('groupNo');
+        else if (opts.sort === 'least') q = q.orderBy('memberCount', 'asc').orderBy('groupNo');
+        else q = q.orderBy('groupNo');
+
+        if (opts.cursor) q = q.startAfter(opts.cursor);
+        return q.limit((opts.limit || 12) + 1).get();
+      }).then(function (snap) {
+        var docs = snap.docs;
+        var limit = opts.limit || 12;
+        /* One extra row is fetched purely to answer "is there more?" without a
+           second count query, and dropped before returning. */
+        var hasMore = docs.length > limit;
+        var page = hasMore ? docs.slice(0, limit) : docs;
+
+        return {
+          items: page.map(function (d) {
+            var g = d.data();
+            return {
+              groupId: d.id,
+              groupNumber: g.groupNo,
+              serialNumber: g.serialNo || g.groupNo,
+              categoryId: g.categoryId,
+              categoryName: g.categoryName,
+              masterModelId: g.masterModelId,
+              masterModelName: g.masterModelName,
+              masterBrandId: g.masterBrandId,
+              compatibleCount: g.memberCount,
+              /* the paid half is not in this collection at all */
+              partCode: null,
+              compatibleDeviceIds: null,
+              memberNames: null,
+              createdOn: null
+            };
+          }),
+          cursor: page.length ? page[page.length - 1] : null,
+          hasMore: hasMore
+        };
+      });
+    },
+
+    /* One group's public preview. */
+    group: function (groupId) {
+      return store().then(function (db) {
+        return db.collection('groups').doc(groupId).get();
+      }).then(function (snap) { return snap.exists ? snap.data() : null; });
+    },
+
     /* ------------------------------------------------------------- history */
 
     /** The shop's own recent searches. Owner-only by rule. */

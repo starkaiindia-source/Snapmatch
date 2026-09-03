@@ -63,6 +63,56 @@
     };
   }
 
+  /* The CDN-catalogue path: used when Firestore is unreachable, and always for
+     free-text search, which Firestore cannot do without a token index. */
+  function localListGroups(opts) {
+
+    opts = opts || {};
+    var q = norm(opts.q);
+    var list = db.groups.filter(function (g) {
+      if (opts.categoryId && opts.categoryId !== 'all' && g.categoryId !== opts.categoryId) return false;
+      if (opts.brandId && opts.brandId !== 'all' && db.modelById[g.masterModelId].brandId !== opts.brandId) return false;
+      if (opts.minCount && g.compatibleCount < opts.minCount) return false;
+      if (q) {
+        var hit = norm(g.groupNumber).indexOf(q) > -1 ||
+          norm(g.partCode).indexOf(q) > -1 ||
+          norm(g.serialNumber).indexOf(q) > -1 ||
+          norm(db.modelById[g.masterModelId].fullName).indexOf(q) > -1;
+        /* Group text only. Matching on member names needs the member list,
+           which the public catalogue does not carry — and leaking it one
+           query at a time is still leaking it. */
+        if (!hit && g.compatibleDeviceIds) {
+          hit = g.compatibleDeviceIds.some(function (id) {
+            return norm(db.modelById[id].fullName).indexOf(q) > -1;
+          });
+        }
+        if (!hit) return false;
+      }
+      return true;
+    });
+
+    var sort = opts.sort || 'default';
+    if (sort === 'most') list = list.slice().sort(function (a, b) { return b.compatibleCount - a.compatibleCount; });
+    else if (sort === 'least') list = list.slice().sort(function (a, b) { return a.compatibleCount - b.compatibleCount; });
+    else if (sort === 'az') list = list.slice().sort(function (a, b) {
+      return db.modelById[a.masterModelId].fullName.localeCompare(db.modelById[b.masterModelId].fullName);
+    });
+
+    var res = page(list, opts.page, opts.pageSize || 12);
+    res.items = res.items.map(hydrate);
+    return respond(res, LAT.normal);
+  }
+
+  /* How many groups match, from the in-memory catalogue. Used so the header
+     can say "3,340 groups" without paying for a Firestore aggregation. */
+  function countGroups(opts) {
+    return db.groups.filter(function (g) {
+      if (opts.categoryId && opts.categoryId !== 'all' && g.categoryId !== opts.categoryId) return false;
+      if (opts.brandId && opts.brandId !== 'all' && g.masterBrandId !== opts.brandId) return false;
+      return true;
+    }).length;
+  }
+
   /* ------------------------------------------------------------------ read */
   var api = {
     stats: function () { return respond(db.stats, LAT.instant); },
@@ -126,42 +176,53 @@
       return respond(starts.concat(contains).slice(0, limit || 8), LAT.fast);
     },
 
+    /* Reads from Firestore when it is available, and from the CDN catalogue
+       when it is not — same records either way, since the bundle is built from
+       the same export the importer writes.
+
+       Firestore is the source of truth: a group edited in the console shows up
+       on the next page load without rebuilding anything. It is paged with a
+       cursor, so a page costs twelve document reads rather than the 3,340 a
+       whole-collection read would bill.
+
+       Free-text search stays local. Firestore cannot do substring matching, so
+       "pura 80" would need either a token index per query or reading the
+       collection to filter it — the first is a schema for one feature, the
+       second is 3,340 reads per keystroke. */
     listGroups: function (opts) {
       opts = opts || {};
       var q = norm(opts.q);
-      var list = db.groups.filter(function (g) {
-        if (opts.categoryId && opts.categoryId !== 'all' && g.categoryId !== opts.categoryId) return false;
-        if (opts.brandId && opts.brandId !== 'all' && db.modelById[g.masterModelId].brandId !== opts.brandId) return false;
-        if (opts.minCount && g.compatibleCount < opts.minCount) return false;
-        if (q) {
-          var hit = norm(g.groupNumber).indexOf(q) > -1 ||
-            norm(g.partCode).indexOf(q) > -1 ||
-            norm(g.serialNumber).indexOf(q) > -1 ||
-            norm(db.modelById[g.masterModelId].fullName).indexOf(q) > -1;
-          /* Group text only. Matching on member names needs the member list,
-             which the public catalogue does not carry — and leaking it one
-             query at a time is still leaking it. */
-          if (!hit && g.compatibleDeviceIds) {
-            hit = g.compatibleDeviceIds.some(function (id) {
-              return norm(db.modelById[id].fullName).indexOf(q) > -1;
-            });
-          }
-          if (!hit) return false;
-        }
-        return true;
-      });
 
-      var sort = opts.sort || 'default';
-      if (sort === 'most') list = list.slice().sort(function (a, b) { return b.compatibleCount - a.compatibleCount; });
-      else if (sort === 'least') list = list.slice().sort(function (a, b) { return a.compatibleCount - b.compatibleCount; });
-      else if (sort === 'az') list = list.slice().sort(function (a, b) {
-        return db.modelById[a.masterModelId].fullName.localeCompare(db.modelById[b.masterModelId].fullName);
-      });
-
-      var res = page(list, opts.page, opts.pageSize || 12);
-      res.items = res.items.map(hydrate);
-      return respond(res, LAT.normal);
+      if (!q && SM.store && SM.store.available()) {
+        return SM.store.listGroups({
+          categoryId: opts.categoryId,
+          brandId: opts.brandId,
+          sort: opts.sort,
+          limit: opts.pageSize || 12,
+          cursor: opts.cursor || null
+        }).then(function (r) {
+          return {
+            items: r.items,
+            cursor: r.cursor,
+            hasMore: r.hasMore,
+            /* The total comes from the catalogue counts rather than a COUNT
+               query — Firestore bills aggregation too, and the figure is the
+               same. */
+            total: countGroups(opts),
+            source: 'firestore'
+          };
+        }).catch(function (err) {
+          /* Offline or a rules change should degrade to the local catalogue,
+             not to an empty page. */
+          console.warn('[groups] firestore read failed, using catalogue:', err && err.code);
+          return localListGroups(opts);
+        });
+      }
+      return localListGroups(opts);
     },
+
+    listGroupsLocal: function (opts) { return localListGroups(opts); },
+
 
     getGroup: function (groupId) {
       var g = db.groupById[groupId];

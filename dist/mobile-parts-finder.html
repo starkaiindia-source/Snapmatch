@@ -2728,6 +2728,82 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       }).then(function (rows) { return rows.filter(Boolean); });
     },
 
+    /* ------------------------------------------------------------ catalogue
+
+       Compatibility groups, read straight from Firestore and paged with a
+       cursor. A page costs `limit` document reads — twelve, not the 3,340 a
+       whole-collection fetch would bill — and the composite indexes deployed
+       from firestore.indexes.json are what make the filters cheap:
+
+         categoryId + groupNo
+         masterBrandId + groupNo
+         categoryId + masterBrandId + groupNo
+
+       Cursors rather than offsets, because Firestore has no OFFSET that skips
+       for free: page 10 of an offset query still reads pages 1-9. startAfter
+       resumes exactly where the last page stopped.
+
+       Only the PUBLIC preview lives in /groups — no part number, no member
+       list — so this query is readable by a signed-out visitor and cannot leak
+       the paid half whatever it asks for. */
+    listGroups: function (opts) {
+      opts = opts || {};
+      return store().then(function (db) {
+        var q = db.collection('groups');
+
+        if (opts.categoryId && opts.categoryId !== 'all') q = q.where('categoryId', '==', opts.categoryId);
+        if (opts.brandId && opts.brandId !== 'all') q = q.where('masterBrandId', '==', opts.brandId);
+
+        /* Sorting has to line up with an index that exists, so an unknown sort
+           falls back to groupNo rather than throwing FAILED_PRECONDITION at a
+           reader who just opened the page. */
+        if (opts.sort === 'most') q = q.orderBy('memberCount', 'desc').orderBy('groupNo');
+        else if (opts.sort === 'least') q = q.orderBy('memberCount', 'asc').orderBy('groupNo');
+        else q = q.orderBy('groupNo');
+
+        if (opts.cursor) q = q.startAfter(opts.cursor);
+        return q.limit((opts.limit || 12) + 1).get();
+      }).then(function (snap) {
+        var docs = snap.docs;
+        var limit = opts.limit || 12;
+        /* One extra row is fetched purely to answer "is there more?" without a
+           second count query, and dropped before returning. */
+        var hasMore = docs.length > limit;
+        var page = hasMore ? docs.slice(0, limit) : docs;
+
+        return {
+          items: page.map(function (d) {
+            var g = d.data();
+            return {
+              groupId: d.id,
+              groupNumber: g.groupNo,
+              serialNumber: g.serialNo || g.groupNo,
+              categoryId: g.categoryId,
+              categoryName: g.categoryName,
+              masterModelId: g.masterModelId,
+              masterModelName: g.masterModelName,
+              masterBrandId: g.masterBrandId,
+              compatibleCount: g.memberCount,
+              /* the paid half is not in this collection at all */
+              partCode: null,
+              compatibleDeviceIds: null,
+              memberNames: null,
+              createdOn: null
+            };
+          }),
+          cursor: page.length ? page[page.length - 1] : null,
+          hasMore: hasMore
+        };
+      });
+    },
+
+    /* One group's public preview. */
+    group: function (groupId) {
+      return store().then(function (db) {
+        return db.collection('groups').doc(groupId).get();
+      }).then(function (snap) { return snap.exists ? snap.data() : null; });
+    },
+
     /* ------------------------------------------------------------- history */
 
     /** The shop's own recent searches. Owner-only by rule. */
@@ -3220,6 +3296,56 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     };
   }
 
+  /* The CDN-catalogue path: used when Firestore is unreachable, and always for
+     free-text search, which Firestore cannot do without a token index. */
+  function localListGroups(opts) {
+
+    opts = opts || {};
+    var q = norm(opts.q);
+    var list = db.groups.filter(function (g) {
+      if (opts.categoryId && opts.categoryId !== 'all' && g.categoryId !== opts.categoryId) return false;
+      if (opts.brandId && opts.brandId !== 'all' && db.modelById[g.masterModelId].brandId !== opts.brandId) return false;
+      if (opts.minCount && g.compatibleCount < opts.minCount) return false;
+      if (q) {
+        var hit = norm(g.groupNumber).indexOf(q) > -1 ||
+          norm(g.partCode).indexOf(q) > -1 ||
+          norm(g.serialNumber).indexOf(q) > -1 ||
+          norm(db.modelById[g.masterModelId].fullName).indexOf(q) > -1;
+        /* Group text only. Matching on member names needs the member list,
+           which the public catalogue does not carry — and leaking it one
+           query at a time is still leaking it. */
+        if (!hit && g.compatibleDeviceIds) {
+          hit = g.compatibleDeviceIds.some(function (id) {
+            return norm(db.modelById[id].fullName).indexOf(q) > -1;
+          });
+        }
+        if (!hit) return false;
+      }
+      return true;
+    });
+
+    var sort = opts.sort || 'default';
+    if (sort === 'most') list = list.slice().sort(function (a, b) { return b.compatibleCount - a.compatibleCount; });
+    else if (sort === 'least') list = list.slice().sort(function (a, b) { return a.compatibleCount - b.compatibleCount; });
+    else if (sort === 'az') list = list.slice().sort(function (a, b) {
+      return db.modelById[a.masterModelId].fullName.localeCompare(db.modelById[b.masterModelId].fullName);
+    });
+
+    var res = page(list, opts.page, opts.pageSize || 12);
+    res.items = res.items.map(hydrate);
+    return respond(res, LAT.normal);
+  }
+
+  /* How many groups match, from the in-memory catalogue. Used so the header
+     can say "3,340 groups" without paying for a Firestore aggregation. */
+  function countGroups(opts) {
+    return db.groups.filter(function (g) {
+      if (opts.categoryId && opts.categoryId !== 'all' && g.categoryId !== opts.categoryId) return false;
+      if (opts.brandId && opts.brandId !== 'all' && g.masterBrandId !== opts.brandId) return false;
+      return true;
+    }).length;
+  }
+
   /* ------------------------------------------------------------------ read */
   var api = {
     stats: function () { return respond(db.stats, LAT.instant); },
@@ -3283,42 +3409,53 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return respond(starts.concat(contains).slice(0, limit || 8), LAT.fast);
     },
 
+    /* Reads from Firestore when it is available, and from the CDN catalogue
+       when it is not — same records either way, since the bundle is built from
+       the same export the importer writes.
+
+       Firestore is the source of truth: a group edited in the console shows up
+       on the next page load without rebuilding anything. It is paged with a
+       cursor, so a page costs twelve document reads rather than the 3,340 a
+       whole-collection read would bill.
+
+       Free-text search stays local. Firestore cannot do substring matching, so
+       "pura 80" would need either a token index per query or reading the
+       collection to filter it — the first is a schema for one feature, the
+       second is 3,340 reads per keystroke. */
     listGroups: function (opts) {
       opts = opts || {};
       var q = norm(opts.q);
-      var list = db.groups.filter(function (g) {
-        if (opts.categoryId && opts.categoryId !== 'all' && g.categoryId !== opts.categoryId) return false;
-        if (opts.brandId && opts.brandId !== 'all' && db.modelById[g.masterModelId].brandId !== opts.brandId) return false;
-        if (opts.minCount && g.compatibleCount < opts.minCount) return false;
-        if (q) {
-          var hit = norm(g.groupNumber).indexOf(q) > -1 ||
-            norm(g.partCode).indexOf(q) > -1 ||
-            norm(g.serialNumber).indexOf(q) > -1 ||
-            norm(db.modelById[g.masterModelId].fullName).indexOf(q) > -1;
-          /* Group text only. Matching on member names needs the member list,
-             which the public catalogue does not carry — and leaking it one
-             query at a time is still leaking it. */
-          if (!hit && g.compatibleDeviceIds) {
-            hit = g.compatibleDeviceIds.some(function (id) {
-              return norm(db.modelById[id].fullName).indexOf(q) > -1;
-            });
-          }
-          if (!hit) return false;
-        }
-        return true;
-      });
 
-      var sort = opts.sort || 'default';
-      if (sort === 'most') list = list.slice().sort(function (a, b) { return b.compatibleCount - a.compatibleCount; });
-      else if (sort === 'least') list = list.slice().sort(function (a, b) { return a.compatibleCount - b.compatibleCount; });
-      else if (sort === 'az') list = list.slice().sort(function (a, b) {
-        return db.modelById[a.masterModelId].fullName.localeCompare(db.modelById[b.masterModelId].fullName);
-      });
-
-      var res = page(list, opts.page, opts.pageSize || 12);
-      res.items = res.items.map(hydrate);
-      return respond(res, LAT.normal);
+      if (!q && SM.store && SM.store.available()) {
+        return SM.store.listGroups({
+          categoryId: opts.categoryId,
+          brandId: opts.brandId,
+          sort: opts.sort,
+          limit: opts.pageSize || 12,
+          cursor: opts.cursor || null
+        }).then(function (r) {
+          return {
+            items: r.items,
+            cursor: r.cursor,
+            hasMore: r.hasMore,
+            /* The total comes from the catalogue counts rather than a COUNT
+               query — Firestore bills aggregation too, and the figure is the
+               same. */
+            total: countGroups(opts),
+            source: 'firestore'
+          };
+        }).catch(function (err) {
+          /* Offline or a rules change should degrade to the local catalogue,
+             not to an empty page. */
+          console.warn('[groups] firestore read failed, using catalogue:', err && err.code);
+          return localListGroups(opts);
+        });
+      }
+      return localListGroups(opts);
     },
+
+    listGroupsLocal: function (opts) { return localListGroups(opts); },
+
 
     getGroup: function (groupId) {
       var g = db.groupById[groupId];
@@ -4252,7 +4389,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           var hit = opts.highlightId && d.id === opts.highlightId;
           return '<span class="devchip' + (hit ? ' devchip--hit' : '') + '">' + esc(d.fullName) + '</span>';
         }).join('') + (hidden > 0 ? '<span class="devchip devchip--more">+' + hidden + ' more</span>' : '')
-        : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>') +
+        : locked
+          /* The member list is behind the paywall, so the card cannot name the
+             others. Saying "fits X only" would be a plain contradiction of the
+             count printed directly above it — and wrong, since the group has
+             more members. It says what is true instead: how many, and that
+             seeing them is what a plan is for. */
+          ? (hidden > 0
+              ? '<span class="devchip devchip--more">' + icon('lock') + hidden +
+                ' more ' + (hidden === 1 ? 'device' : 'devices') + ' — subscribe to see</span>'
+              : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>')
+          : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>') +
       '</div>' +
       '</div>' +
       '<div class="plate__foot">' +
@@ -4961,7 +5108,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   function loadGroups(reset) {
     var f = state.finder;
-    if (reset) { f.page = 1; f.rows = []; }
+    /* Firestore pages with a cursor, not a page number — there is no OFFSET
+       that skips for free, so "page 10" would re-read pages 1-9. The cursor is
+       the last document of the previous page and is cleared on a new query. */
+    if (reset) { f.page = 1; f.rows = []; f.cursor = null; }
     f.busy = true;
     var res = document.getElementById('results');
     if (reset && res) res.innerHTML = C.skelPlates(6);
@@ -4969,9 +5119,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     if (reset) { var sc = wsScroller(); if (sc) sc.scrollTop = 0; }
     api.listGroups({
       q: f.filters.q, brandId: f.filters.brandId, categoryId: f.filters.catId,
-      sort: f.filters.sort, page: f.page, pageSize: 12
+      sort: f.filters.sort, page: f.page, pageSize: 12, cursor: f.cursor
     }).then(function (r) {
       f.busy = false; f.total = r.total; f.hasMore = r.hasMore;
+      f.cursor = r.cursor || null;
+      f.source = r.source || 'catalogue';
       f.rows = reset ? r.items : f.rows.concat(r.items);
       paintGroups();
     });

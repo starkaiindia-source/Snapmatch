@@ -137,7 +137,17 @@
           var hit = opts.highlightId && d.id === opts.highlightId;
           return '<span class="devchip' + (hit ? ' devchip--hit' : '') + '">' + esc(d.fullName) + '</span>';
         }).join('') + (hidden > 0 ? '<span class="devchip devchip--more">+' + hidden + ' more</span>' : '')
-        : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>') +
+        : locked
+          /* The member list is behind the paywall, so the card cannot name the
+             others. Saying "fits X only" would be a plain contradiction of the
+             count printed directly above it — and wrong, since the group has
+             more members. It says what is true instead: how many, and that
+             seeing them is what a plan is for. */
+          ? (hidden > 0
+              ? '<span class="devchip devchip--more">' + icon('lock') + hidden +
+                ' more ' + (hidden === 1 ? 'device' : 'devices') + ' — subscribe to see</span>'
+              : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>')
+          : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>') +
       '</div>' +
       '</div>' +
       '<div class="plate__foot">' +
