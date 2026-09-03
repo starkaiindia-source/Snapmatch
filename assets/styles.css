@@ -542,6 +542,32 @@ ul{ margin:0; padding:0; list-style:none; }
 .blogo--img{ background:#fff; border:1px solid var(--line); padding:3px; }
 .blogo--img img{ width:100%; height:100%; object-fit:contain; display:block; }
 
+/* Official vector mark. The chip stays light in BOTH themes — brand colours are
+   specified against white, so reproducing them on a dark ground would misrender
+   the brand and sink the dark marks (Apple, Honor, Asus) into the page. */
+.blogo--mark{
+  background:var(--pthumb-bg); border:1px solid var(--line);
+  padding:8px; color:var(--bmk);
+}
+/* Padding must be absolute, not a percentage: percentage padding resolves
+   against the CONTAINING BLOCK's width, not the chip's, so on a wide card it
+   swallowed the whole 38px chip and left the logo 0px tall. */
+.blogo--mark.blogo--lg{ padding:12px; }
+.blogo--mark.blogo--sm{ padding:6px; }
+.blogo--mark svg{ width:100%; height:100%; display:block; fill:var(--bmk); }
+
+/* Wordmark shown only for a brand with no official mark available. Set in the
+   display face rather than faked as a logo, so it reads as a name, not a badge
+   pretending to be someone's identity. */
+.blogo--word{
+  background:var(--pthumb-bg); border:1px solid var(--line);
+  color:var(--ink); font-family:var(--f-display); font-weight:800;
+  font-size:11px; letter-spacing:-.03em; padding:0 4px; text-align:center;
+  line-height:1.05; overflow:hidden; word-break:break-word; hyphens:auto;
+}
+.blogo--word.blogo--lg{ font-size:14px; }
+.blogo--word.blogo--sm{ font-size:8.5px; letter-spacing:-.02em; }
+
 /* history marker for recent-search rows in the dropdown */
 .sug__hist{
   width:38px; height:38px; border-radius:11px; flex:none; display:grid; place-items:center;

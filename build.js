@@ -14,6 +14,7 @@ const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 const CSS = ['assets/styles.css', 'assets/components.css'];
 const JS = [
   'src/data/mock-data.js',
+  'src/data/brand-marks.js',
   'src/data/countries.js',
   'src/data/auth.js',
   'src/data/api.js',

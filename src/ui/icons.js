@@ -85,8 +85,68 @@
 
   /* Two-letter monogram on the brand's own gradient. Previously Apple used the
      U+F8FF private-use glyph, which renders as a blank box off Apple platforms. */
+  /* ------------------------------------------------------------ brand marks
+     ONE resolution path for every brand mark on the site, in priority order:
+
+       1. a licensed file the owner registered   SM.art.registerBrand(id, url)
+       2. the inlined official vector mark       SM.brandMarks (CC0, bundled)
+       3. a typeset wordmark                     no official mark exists
+
+     Every call site goes through here — the brand rail, the finder panel, the
+     models grid, the search dropdown — so a brand looks the same everywhere and
+     a newly registered logo appears in all of them at once. SM.art.brand()
+     delegates to this rather than duplicating the order.
+
+     The wordmark is reached ONLY for a brand with no official mark, never as a
+     stand-in for one that failed to load: a wrong logo is worse than a name. */
+  SM.brandFiles = SM.brandFiles || {};
+
   SM.brandLogo = function (brand, cls) {
-    return '<span class="blogo ' + (cls || '') + '" style="background:linear-gradient(135deg,' + brand.color + ',' + brand.color2 + ')">' +
-      brand.name.slice(0, 2).toUpperCase() + '</span>';
+    var b = brand || {};
+    var name = String(b.name || '');
+    var klass = cls || '';
+
+    var file = SM.brandFiles[b.id];
+    if (file) {
+      /* The id and class ride on the element rather than being interpolated
+         into the handler — nesting quotes inside an inline onerror is how you
+         ship a broken attribute that only fails when the image 404s. */
+      return '<span class="blogo blogo--img ' + klass + '">' +
+        '<img src="' + file + '" alt="' + name + '" loading="lazy" ' +
+        'data-brand="' + b.id + '" data-cls="' + klass + '" ' +
+        'onerror="SM.brandImgFailed(this)" /></span>';
+    }
+
+    var mark = SM.brandMarks && SM.brandMarks[b.id];
+    if (mark) {
+      return '<span class="blogo blogo--mark ' + klass + '" style="--bmk:#' + mark.h + '">' +
+        '<svg viewBox="0 0 24 24" role="img" aria-label="' + name + '">' +
+        '<path d="' + mark.p + '"/></svg></span>';
+    }
+
+    return SM.brandWordmark(b, klass);
+  };
+
+  /* A registered logo file failed to load. Fall back to the wordmark rather
+     than leaving a broken image — but keep it out of the mark registry, so a
+     transient network failure does not permanently demote the brand. */
+  SM.brandImgFailed = function (img) {
+    var id = img.getAttribute('data-brand');
+    var cls = img.getAttribute('data-cls') || '';
+    var brand = (SM.db && SM.db.brandById && SM.db.brandById[id]) || { id: id, name: id };
+    var span = img.parentNode;
+    if (span && span.parentNode) span.outerHTML = SM.brandWordmark(brand, cls);
+  };
+
+  /* A brand's actual name, set in the display face — not a two-letter monogram
+     on a coloured tile, which reads as a logo we invented. The brand's own
+     colour tints the rule underneath so the rail stays scannable. */
+  SM.brandWordmark = function (brand, cls) {
+    var b = brand || {};
+    var name = String(b.name || '');
+    var short = name.length > 9 ? name.slice(0, 2).toUpperCase() : name;
+    return '<span class="blogo blogo--word ' + (cls || '') + '" ' +
+      'style="box-shadow:inset 0 -2px 0 ' + (b.color || 'transparent') + '" ' +
+      'title="' + name + ' — no official mark available">' + short + '</span>';
   };
 })(window);

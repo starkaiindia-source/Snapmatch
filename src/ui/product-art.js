@@ -239,7 +239,7 @@
 
     /* swap a drawn render for a photographed one, without touching components */
     registerCategory: function (id, url) { catImages[id] = url; },
-    registerBrand: function (id, url) { brandLogos[id] = url; },
+    registerBrand: function (id, url) { SM.brandFiles[id] = url; },
 
     /* categoryId -> product render, wrapped in a light product thumbnail */
     category: function (categoryId, cls) {
@@ -261,14 +261,8 @@
       return d.firstChild;
     },
 
-    /* brandId -> real logo when one is registered, else the monogram chip */
-    brand: function (brand, cls) {
-      var url = brandLogos[brand.id];
-      if (!url) return SM.brandLogo(brand, cls);
-      return '<span class="blogo blogo--img ' + (cls || '') + '">' +
-        '<img src="' + esc(url) + '" alt="' + esc(brand.name) + '" loading="lazy" ' +
-        'onerror="this.parentNode.outerHTML=SM.brandLogo(SM.db.brandById[\'' + esc(brand.id) + '\'],\'' + esc(cls || '') + '\')" />' +
-        '</span>';
-    }
+    /* Delegates to SM.brandLogo, which owns the file -> vector -> wordmark
+       order. Kept as an alias because callers and docs already use it. */
+    brand: function (brand, cls) { return SM.brandLogo(brand, cls); }
   };
 })(window);
