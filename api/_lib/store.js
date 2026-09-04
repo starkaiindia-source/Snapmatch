@@ -72,6 +72,45 @@ async function getOrder(orderId) {
   return snap.exists ? snap.data() : null;
 }
 
+/* ------------------------------------------------------------------ profile */
+
+/* The four fields a shop must have before it can be charged. Checkout asks for
+   a phone number when we do not send one, which is the extra "Contact details"
+   step the buyer sees — so the number is not merely nice to have, it is what
+   removes a screen from the payment flow. */
+const REQUIRED_PROFILE = ['mobileShopName', 'proprietorName', 'mobileNumber', 'country'];
+
+async function readProfile(uid) {
+  const snap = await db().collection('users').doc(uid).get();
+  return snap.exists ? snap.data() : null;
+}
+
+/**
+ * What Razorpay Checkout needs to skip its contact step, plus an honest
+ * verdict on whether the profile is complete.
+ *
+ * The verdict is computed here, on the server, from the stored document —
+ * not from anything the browser sent — because it decides whether a payment
+ * may start at all.
+ */
+function prefillFrom(profile, user) {
+  const missing = REQUIRED_PROFILE.filter(k => {
+    const v = profile && profile[k];
+    return v == null || String(v).trim() === '';
+  });
+  return {
+    complete: missing.length === 0,
+    missing,
+    prefill: {
+      name: (profile && (profile.proprietorName || profile.mobileShopName)) || user.name || '',
+      email: user.email || (profile && profile.email) || '',
+      /* E.164 where we have it — Checkout matches the number to a saved
+         Razorpay account far more reliably in that form. */
+      contact: (profile && (profile.mobileNumberE164 || profile.mobileNumber)) || ''
+    }
+  };
+}
+
 /* --------------------------------------------------------------- activation */
 
 /**
@@ -267,6 +306,9 @@ async function listSubscriptions(uid, limit = 12) {
 }
 
 module.exports = {
+  readProfile,
+  prefillFrom,
+  REQUIRED_PROFILE,
   recordPendingOrder, getOrder, activateSubscription,
   recordFailure, readAccess, listSubscriptions
 };

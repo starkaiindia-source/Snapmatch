@@ -1446,11 +1446,28 @@
   }
 
   function saveProfile() {
-    if (!edit.shopName.trim() || !edit.proprietor.trim()) {
-      toast('Shop name and proprietor name are required', 'alert'); return;
+    /* The four the payment flow depends on. The phone number is here because
+       Razorpay Checkout inserts its own contact step when we cannot send one —
+       collecting it once removes a screen from every future purchase. */
+    var missing = [];
+    if (!edit.shopName.trim()) missing.push('shop name');
+    if (!edit.proprietor.trim()) missing.push('proprietor name');
+    if (!edit.country) missing.push('country');
+    if (!SM.countries.validNumber(edit.country, edit.mobile)) missing.push('a valid mobile number');
+    if (missing.length) {
+      toast('Still needed: ' + missing.join(', '), 'alert');
+      return;
     }
     var c = SM.countries.byCode(edit.country);
+    var digits = String(edit.mobile).replace(/\D/g, '');
+    var e164 = c && c.dial ? '+' + String(c.dial).replace(/\D/g, '') + digits : '';
     S.updateProfile({
+      /* Names the server reads when it builds the Checkout prefill. */
+      mobileShopName: edit.shopName.trim(),
+      proprietorName: edit.proprietor.trim(),
+      mobileNumber: edit.mobile.trim(),
+      mobileNumberE164: e164,
+      countryCode: edit.country,
       shopName: edit.shopName.trim(), proprietor: edit.proprietor.trim(),
       country: edit.country, countryName: c && c.name, dial: c && c.dial,
       mobile: edit.mobile.trim(), photo: edit.photo || '',
@@ -1461,10 +1478,46 @@
         country: c && c.name
       }
     }).then(function () {
-      state.sheet = null; renderSheet();
-      renderShellBits();
-      renderAccount(document.getElementById('page'));
-      toast('Profile updated');
+      /* Mirror to Firestore. The local copy keeps the UI instant; the server
+         reads Firestore when it decides whether a payment may start, so a
+         profile that only ever lived in localStorage would be complete on
+         screen and incomplete at checkout. */
+      var uid = SM.fb && SM.fb.user() && SM.fb.user().uid;
+      var mirrored = (uid && SM.store && SM.store.available())
+        ? SM.store.saveUser(uid, {
+            displayName: edit.proprietor.trim(),
+            shopName: edit.shopName.trim(),
+            proprietor: edit.proprietor.trim(),
+            mobileShopName: edit.shopName.trim(),
+            proprietorName: edit.proprietor.trim(),
+            mobileNumber: edit.mobile.trim(),
+            mobileNumberE164: e164,
+            country: c && c.name,
+            countryCode: edit.country,
+            address: edit.area.trim() || edit.city.trim() ? edit.city.trim() : null,
+            profileCompleted: true
+          })
+        : Promise.resolve();
+
+      return mirrored.then(function () {
+        state.sheet = null; renderSheet();
+        renderShellBits();
+        renderAccount(document.getElementById('page'));
+
+        /* Straight back to the plan they picked before the form appeared. */
+        var plan = state.pendingPlan;
+        if (plan) {
+          state.pendingPlan = null;
+          toast('Profile saved — opening payment');
+          var btn = document.querySelector('[data-act="subscribe"][data-id="' + plan + '"]');
+          if (btn) btn.click(); else go('#/plans');
+        } else {
+          toast('Profile updated');
+        }
+      }, function (err) {
+        console.error('[profile] firestore mirror failed', err);
+        toast('Saved on this device, but not to your account — retry', 'alert');
+      });
     });
   }
 
@@ -2590,6 +2643,21 @@
              owner staring at it, and not us reading a bug report. Each failure
              now says which step broke and what to do about it. */
           var msg = err && err.message;
+
+          /* The server refused to start a payment because the shop profile is
+             missing something Checkout needs — most often the phone number,
+             which is exactly what its extra "Contact details" step asks for.
+             Open the form, remember which plan was chosen, and come straight
+             back to it once the profile is saved. */
+          if (msg === 'profile-incomplete') {
+            state.pendingPlan = id;
+            state.pendingPlanMissing = (err.data && err.data.missing) || [];
+            state.sheet = { type: 'editprofile' };
+            renderSheet();
+            toast('A few shop details first — then straight to payment');
+            return;
+          }
+
           var say =
             msg === 'signin-required'      ? 'Sign in again to activate a plan'
           : msg === 'checkout-unavailable' ? 'Razorpay Checkout did not load — check the connection and retry'

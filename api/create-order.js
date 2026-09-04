@@ -17,8 +17,8 @@
 
 const Razorpay = require('razorpay');
 const { getPlan } = require('./_lib/plans');
-const { recordPendingOrder } = require('./_lib/store');
-const { ok, bad, fail, requireMethod, requireUser, body } = require('./_lib/http');
+const { recordPendingOrder, readProfile, prefillFrom } = require('./_lib/store');
+const { ok, bad, json, fail, requireMethod, requireUser, body } = require('./_lib/http');
 
 module.exports = async function handler(req, res) {
   if (!requireMethod(req, res, 'POST')) return;
@@ -43,6 +43,21 @@ module.exports = async function handler(req, res) {
     /* `receipt` is capped at 40 characters by Razorpay, and a uid alone can be
        28, so it is truncated deliberately rather than by accident. */
     const receipt = `mpf_${plan.id}_${user.uid.slice(0, 18)}_${now.toString(36)}`.slice(0, 40);
+
+    /* Refuse to start a payment the buyer cannot finish cleanly. Without a
+       stored phone number Checkout inserts its own contact step, and a shop
+       that has not told us its name is one we cannot put on an invoice. The
+       response names the missing fields so the UI can open the right form and
+       come straight back to this plan. */
+    const profile = await readProfile(user.uid);
+    const pre = prefillFrom(profile, user);
+    if (!pre.complete) {
+      return json(res, 409, {
+        error: 'profile-incomplete',
+        missing: pre.missing,
+        planId: plan.id
+      });
+    }
 
     const order = await razorpay.orders.create({
       amount: plan.amountPaise,
@@ -74,7 +89,7 @@ module.exports = async function handler(req, res) {
       /* The key ID is public by design — it identifies the merchant to
          Checkout. The SECRET never appears in any response. */
       keyId,
-      prefill: { email: user.email || '', name: user.name || '' }
+      prefill: pre.prefill
     });
   } catch (err) {
     return fail(res, err, 'create-order');
