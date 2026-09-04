@@ -168,7 +168,20 @@
       var doc = { uid: uid, updatedAt: Date.now() };
       this.WRITABLE.forEach(function (k) {
         var v = patch[k];
-        if (v !== undefined && v !== null && String(v).trim() !== '') doc[k] = v;
+        if (v === undefined || v === null) return;
+        /* An empty string is not a correction, it is an absent field. Writing
+           one would blank a detail the shop entered on another device — and a
+           form that opened without being seeded sends nothing BUT empties. */
+        if (typeof v === 'string' && v.trim() === '') return;
+        /* Same for an address object whose parts are all blank: {} over a
+           stored address is a deletion nobody asked for. */
+        if (k === 'address' && typeof v === 'object') {
+          var hasAny = Object.keys(v).some(function (part) {
+            return typeof v[part] === 'string' && v[part].trim() !== '';
+          });
+          if (!hasAny) return;
+        }
+        doc[k] = v;
       });
 
       if (googleUser) {

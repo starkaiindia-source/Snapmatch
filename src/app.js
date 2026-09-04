@@ -1286,7 +1286,9 @@
   /* ------------------------------------------------- registration form state */
   var reg = {
     country: 'IN', mobile: '', shopName: '', proprietor: '',
-    flat: '', area: '', city: '', district: '', stateName: '', touched: {}
+    flat: '', area: '', city: '', district: '', stateName: '',
+    addrOpen: false,          /* the address section starts collapsed */
+    touched: {}
   };
   /* mandatory only — the address is optional and must never block sign-up */
   var REG_FIELDS = [
@@ -1295,17 +1297,32 @@
     { k: 'proprietor', label: 'Proprietor name' }
   ];
   var ADDRESS_FIELDS = ['flat', 'area', 'city', 'district', 'stateName'];
+
+  /* The ONLY four things a shop must give us. Everything else — every address
+     field — is optional and must never hold up an account.
+
+     The rules used to be stricter than reality. "Too short" rejected a shop
+     called X, and the proprietor field demanded two words, so Kishore could not
+     sign up while Kishore Raj could. Neither rule described anything true about
+     names or shop names; they just described what the author happened to type
+     while testing. A name is whatever the person says it is. */
   function regError(k) {
-    if (ADDRESS_FIELDS.indexOf(k) > -1) return '';   /* optional */
+    if (ADDRESS_FIELDS.indexOf(k) > -1) return '';   /* optional, always */
     var v = String(reg[k] || '').trim();
+
     if (k === 'mobile') {
       if (!v) return 'Enter your mobile number';
-      if (!SM.countries.validNumber(v.replace(/\D/g, ''))) return 'Enter a valid mobile number';
+      /* Country-aware. The old check ignored the country entirely, so it had
+         one opinion for the whole world and it was India's. */
+      if (!SM.countries.validNumber(reg.country, v)) {
+        var c = SM.countries.byCode(reg.country);
+        return c ? 'Enter a valid ' + c.name + ' mobile number' : 'Enter a valid mobile number';
+      }
       return '';
     }
+
+    /* One meaningful character is enough. */
     if (!v) return 'Required';
-    if (v.length < 2) return 'Too short';
-    if (k === 'proprietor' && v.split(/\s+/).length < 2) return 'Enter the full name';
     return '';
   }
   function regValid() {
@@ -1411,18 +1428,38 @@
       '</div>' +
 
       field('shopName', 'Shop name', { ph: 'Sharma Mobile Care' }) +
-      field('proprietor', 'Proprietor name (full name)', { ph: 'Rajesh Kumar Sharma' }) +
+      field('proprietor', 'Proprietor name', { ph: 'Rajesh Sharma' }) +
 
-      '<div class="regform__sub"><span class="t-lab">Shop address</span>' +
-      '<span class="t-xs muted">optional · ' + esc(c ? c.name : '—') + '</span></div>' +
-      field('flat', 'Flat / building number', { ph: '12B, Ganesh Complex' }) +
-      field('area', 'Area / colony', { ph: 'Gandhi Nagar' }) +
-      '<div class="ffield--pair">' + field('city', 'City', { ph: 'Coimbatore' }) +
-      field('district', 'District', { ph: 'Coimbatore' }) + '</div>' +
-      field('stateName', 'State', { ph: 'Tamil Nadu' }) +
+      /* Collapsed, because it is optional and five always-visible fields read
+         as five more things that must be filled in. Nothing inside it can ever
+         block the button below. */
+      '<div class="addrfold' + (reg.addrOpen ? ' is-open' : '') + '">' +
+      '<button type="button" class="addrfold__t" data-act="toggle-address" ' +
+      'aria-expanded="' + (reg.addrOpen ? 'true' : 'false') + '">' +
+      icon(reg.addrOpen ? 'chevronDown' : 'plus') +
+      '<span class="grow">Add shop address</span>' +
+      '<span class="t-xs muted">Optional</span></button>' +
+      (reg.addrOpen
+        ? '<div class="addrfold__b">' +
+          '<p class="t-xs muted" style="margin:0 0 10px">Used on invoices and for delivery. ' +
+          'You can add it later from your account.</p>' +
+          field('flat', 'Flat / building number', { ph: '12B, Ganesh Complex' }) +
+          field('area', 'Area / colony', { ph: 'Gandhi Nagar' }) +
+          '<div class="ffield--pair">' + field('city', 'City', { ph: 'Coimbatore' }) +
+          field('district', 'District', { ph: 'Coimbatore' }) + '</div>' +
+          field('stateName', 'State', { ph: 'Tamil Nadu' }) +
+          '</div>'
+        : '') +
+      '</div>' +
       '</div>' +
 
-      '<div style="margin-top:16px">' +
+      '<div id="authMsg"></div>' +
+      '<p class="t-xs muted" id="regHint" style="margin-top:12px">' + regHintHTML() + '</p>' +
+
+      /* Sticky, so it is reachable without scrolling to the end of a form the
+         user may never open the bottom half of. It sits inside the card and
+         above the mobile tab bar, and the form keeps its own scroll. */
+      '<div class="regcta">' +
         (acct
           /* Already authenticated — this saves the profile. Showing another
              "Continue with Google" here would send the user through the
@@ -1431,9 +1468,32 @@
             (ready ? '' : ' disabled') + '>' + icon('check') +
             'Continue as ' + esc(acct.email) + '</button>'
           : googleBtn('Continue with Google', 'google-signup', !ready)) +
-      '</div>' +
-      '<div id="authMsg"></div>' +
-      '<p class="t-xs muted" id="regHint" style="margin-top:12px">' + regHintHTML() + '</p>';
+      '</div>';
+  }
+
+  /* Enables or disables whichever submit button the form is currently showing.
+
+     THIS IS THE BUG the sign-up form was stuck on. The input handler only ever
+     looked for `.gbtn` — the "Continue with Google" button — and updated that.
+     But once Google has already answered, the form renders a plain primary
+     button reading "Continue as <email>" instead, which carries no such class.
+     querySelector returned null, nothing was updated, and the `disabled`
+     attribute set during the initial render stayed set for ever: every field
+     filled, the hint underneath reading "All details complete", and the button
+     still dead.
+
+     Asking for the button inside .regcta finds it whichever of the two it is. */
+  function syncRegCta() {
+    var host = document.querySelector('.regcta');
+    if (!host) return;
+    var btn = host.querySelector('button');
+    if (!btn) return;
+
+    var ok = regValid();
+    btn.disabled = !ok;
+    btn.setAttribute('aria-disabled', String(!ok));
+    /* .gbtn shows its disabled state through a class rather than the attribute. */
+    btn.classList.toggle('is-disabled', !ok && btn.classList.contains('gbtn'));
   }
 
   function regHintHTML() {
@@ -1448,8 +1508,46 @@
     if (state.route.name === 'account' && S.get().status === 'guest') renderAccount(page);
   }
 
+  /* The per-country phone rules arrive after the form has already been drawn,
+     and they are stricter than the fallback that was in force while it loaded.
+     Re-check once, so a number accepted by the placeholder rule is not left
+     looking valid when the real rule disagrees. */
+  SM.countries.onValidatorReady(function () {
+    if (state.route.name !== 'account') return;
+    syncRegCta();
+    var hint = document.getElementById('regHint');
+    if (hint) hint.innerHTML = regHintHTML();
+  });
+
   /* ----------------------------------------------------- profile editing -- */
   var edit = {};
+
+  /* Fills the edit form from the profile that is actually stored.
+
+     It has to be called before the sheet is opened, from EVERY path that opens
+     it. The payment path did not: it set state.sheet and rendered, leaving
+     `edit` holding whatever it last held — an empty object on a fresh page
+     load. So a shop sent to "just confirm your details before paying" was shown
+     a completely blank form, and saving it would have written those blanks over
+     a perfectly good Firestore profile. */
+  function seedEditForm() {
+    var ps = S.get().profile || {};
+    var addr = ps.address || {};
+    edit = {
+      shopName: ps.shopName || ps.mobileShopName || '',
+      proprietor: ps.proprietor || ps.proprietorName || '',
+      country: ps.country || ps.countryCode || 'IN',
+      mobile: ps.mobile || ps.mobileNumber || '',
+      flat: addr.flat || '', area: addr.area || '',
+      city: addr.city || '', district: addr.district || '',
+      stateName: addr.state || '',
+      photo: ps.photo || ps.profilePhotoURL || '',
+      photoURL: ps.profilePhotoURL || '',
+      photoPath: ps.profilePhotoPath || null,
+      location: ps.location || null
+    };
+    return edit;
+  }
 
   function editSheetHTML() {
     var c = SM.countries.byCode(edit.country);
@@ -1474,7 +1572,7 @@
 
       '<div class="ffield"><label class="t-lab" for="ed_shopName">Shop name</label>' +
       '<input class="input" id="ed_shopName" data-edit="shopName" value="' + esc(edit.shopName) + '" /></div>' +
-      '<div class="ffield"><label class="t-lab" for="ed_proprietor">Proprietor name (full name)</label>' +
+      '<div class="ffield"><label class="t-lab" for="ed_proprietor">Proprietor name</label>' +
       '<input class="input" id="ed_proprietor" data-edit="proprietor" value="' + esc(edit.proprietor) + '" /></div>' +
 
       '<div class="ffield"><label class="t-lab">Country &amp; mobile number</label>' +
@@ -1580,14 +1678,20 @@
     if (!edit.shopName.trim()) missing.push('shop name');
     if (!edit.proprietor.trim()) missing.push('proprietor name');
     if (!edit.country) missing.push('country');
+    /* This call always passed two arguments; validNumber took one, and tested
+       the FIRST — the country code — as if it were the digits. "IN" is not six
+       to fourteen digits, so Save reported "a valid mobile number" as missing
+       every single time and the profile could never be saved from this sheet.
+       That is the loop behind being asked for shop details again at checkout:
+       the payment needed the profile, the sheet could not write it, so the
+       payment asked again. */
     if (!SM.countries.validNumber(edit.country, edit.mobile)) missing.push('a valid mobile number');
     if (missing.length) {
       toast('Still needed: ' + missing.join(', '), 'alert');
       return;
     }
     var c = SM.countries.byCode(edit.country);
-    var digits = String(edit.mobile).replace(/\D/g, '');
-    var e164 = c && c.dial ? '+' + String(c.dial).replace(/\D/g, '') + digits : '';
+    var e164 = SM.countries.toE164(edit.country, edit.mobile);
     S.updateProfile({
       /* Names the server reads when it builds the Checkout prefill. */
       mobileShopName: edit.shopName.trim(),
@@ -1610,6 +1714,12 @@
          profile that only ever lived in localStorage would be complete on
          screen and incomplete at checkout. */
       var uid = SM.fb && SM.fb.user() && SM.fb.user().uid;
+      var editParts = {
+        flat: edit.flat.trim(), area: edit.area.trim(), city: edit.city.trim(),
+        district: edit.district.trim(), state: edit.stateName.trim()
+      };
+      var editHasAddress = Object.keys(editParts).some(function (k) { return editParts[k]; });
+
       var shop = {
         mobileShopName: edit.shopName.trim(),
         proprietorName: edit.proprietor.trim(),
@@ -1617,11 +1727,11 @@
         mobileNumberE164: e164,
         country: (c && c.name) || '',
         countryCode: edit.country,
-        address: {
-          flat: edit.flat.trim(), area: edit.area.trim(), city: edit.city.trim(),
-          district: edit.district.trim(), state: edit.stateName.trim(),
-          country: (c && c.name) || ''
-        },
+        /* Undefined, not an empty object: an untouched address must leave the
+           stored one alone rather than replacing it with a country. */
+        address: editHasAddress
+          ? Object.assign({}, editParts, { country: (c && c.name) || '' })
+          : undefined,
         /* Only a genuinely uploaded photo is recorded. A local preview is not a
            stored photo, and writing its data URL here would put an unusable
            value in front of every other device. */
@@ -2285,6 +2395,42 @@
       '<button class="btn btn--outline grow" data-act="reset-filters">Reset</button>' +
       '<button class="btn btn--primary grow" data-act="close-sheet">Show ' + nf(state.finder.total) + ' groups</button>');
 
+    /* Shown once, straight after the profile is saved. It exists because the
+       previous behaviour was to redirect: the account was created and the user
+       was thrown to the Finder, with nothing confirming what had been stored or
+       that they were now signed in. Staying put and showing the record is the
+       reassurance that step needs, and navigation stays theirs. */
+    if (s.type === 'welcome') {
+      var w = S.get();
+      var rows = [
+        ['Google account', w.email],
+        ['Mobile shop name', w.shopName],
+        ['Proprietor', w.proprietor],
+        ['Mobile', w.mobile]
+      ].filter(function (r) { return r[1]; });
+
+      return paintSheet(host,
+        '<div class="row" style="gap:9px;flex-wrap:wrap">' +
+        '<span class="pill pill--ok">' + icon('checkCircle') + 'Account created</span></div>',
+        '<div class="stack" style="gap:14px">' +
+        '<div>' +
+        '<h3 class="t-h3" style="margin:0">You are signed in</h3>' +
+        '<p class="t-sub" style="margin-top:6px">Your shop details are saved to your ' +
+        'Google account, so they follow you to every device at the counter.</p>' +
+        '</div>' +
+        '<div class="idgrid" style="grid-template-columns:repeat(1,minmax(0,1fr))">' +
+        rows.map(function (r) {
+          return '<div class="idcell"><span>' + esc(r[0]) + '</span>' +
+            '<b style="font-family:var(--f-ui);font-size:14px;word-break:break-word">' +
+            esc(r[1]) + '</b></div>';
+        }).join('') +
+        '</div></div>',
+        '<button class="btn btn--outline" data-act="close-sheet">Close</button>' +
+        '<button class="btn btn--primary grow" data-act="welcome-continue">' +
+        'Continue' + icon('arrowRight') + '</button>',
+        true);
+    }
+
     if (s.type === 'editprofile') {
       return paintSheet(host, 'Edit shop profile', editSheetHTML(),
         '<button class="btn btn--outline" data-act="close-sheet">Cancel</button>' +
@@ -2880,9 +3026,44 @@
           if (msg === 'profile-incomplete') {
             state.pendingPlan = id;
             state.pendingPlanMissing = (err.data && err.data.missing) || [];
-            state.sheet = { type: 'editprofile' };
-            renderSheet();
-            toast('A few shop details first — then straight to payment');
+
+            /* Ask Firestore before believing it.
+
+               The server read users/{uid} a moment ago and found something
+               missing, but this browser may be holding a stale copy — a profile
+               completed on a phone, a sign-up that finished after this tab
+               loaded. Re-reading costs one document and is the difference
+               between "confirm two details" and "fill this entire form again",
+               which is what a shop that had already filled it in was seeing. */
+            var u = SM.fb && SM.fb.user();
+            var recheck = (u && SM.store && SM.store.available())
+              ? SM.store.loadProfile(u.uid).catch(function () { return null; })
+              : Promise.resolve(null);
+
+            recheck.then(function (fresh) {
+              var stillMissing = state.pendingPlanMissing;
+              if (fresh && fresh.profileCompleted && fresh.country) {
+                /* It IS complete — the server was reading an older document, or
+                   this tab was. Refresh the session and go straight back to the
+                   payment rather than asking for anything. */
+                SM.debug.log('billing', 'profile was complete after all — retrying payment', { uid: u.uid });
+                return S.initializeAuthenticatedUser(u).then(function () {
+                  state.pendingPlan = null;
+                  toast('Opening payment…');
+                  var again = document.querySelector('[data-act="subscribe"][data-id="' + id + '"]');
+                  if (again) again.click();
+                });
+              }
+
+              /* Genuinely incomplete. Open the form PREFILLED with everything
+                 already known, so only the gaps need typing. */
+              seedEditForm();
+              state.sheet = { type: 'editprofile' };
+              renderSheet();
+              toast(stillMissing.length === 1
+                ? 'One more detail, then straight to payment'
+                : 'A few shop details first — then straight to payment');
+            });
             return;
           }
 
@@ -2936,19 +3117,23 @@
           }
         });
         break;
-      case 'edit-profile': {
-        var ps = S.get().profile || {};
-        edit = {
-          shopName: ps.shopName || '', proprietor: ps.proprietor || '',
-          country: ps.country || 'IN', mobile: ps.mobile || '',
-          flat: (ps.address || {}).flat || '', area: (ps.address || {}).area || '',
-          city: (ps.address || {}).city || '', district: (ps.address || {}).district || '',
-          stateName: (ps.address || {}).state || '',
-          photo: ps.photo || '', location: ps.location || null
-        };
+      case 'edit-profile':
+        seedEditForm();
         state.sheet = { type: 'editprofile' }; renderSheet();
         break;
-      }
+      case 'welcome-continue':
+        /* Close, and honour a destination the user chose BEFORE signing up —
+           picking a plan and being asked to sign in first, say. Absent that,
+           they stay where they are: navigation is theirs. */
+        state.sheet = null; renderSheet();
+        if (state.afterSignIn) { var dest = state.afterSignIn; state.afterSignIn = null; go(dest); }
+        break;
+
+      case 'toggle-address':
+        reg.addrOpen = !reg.addrOpen;
+        repaintAuth();
+        break;
+
       case 'pick-edit-country': state.sheet = { type: 'country', forEdit: true }; renderSheet(); break;
       case 'clear-photo': edit.photo = ''; state.sheet = { type: 'editprofile' }; renderSheet(); break;
       case 'use-location': captureLocation(); break;
@@ -3009,7 +3194,10 @@
         } else {
           reg.country = id;
           state.sheet = null; renderSheet();
+          /* A number valid for one country is not valid for the next, so the
+             whole form is redrawn rather than just the flag. */
           repaintAuth();
+          syncRegCta();
         }
         break;
 
@@ -3073,13 +3261,7 @@
       var rk = el.getAttribute('data-reg');
       reg[rk] = (rk === 'mobile') ? el.value.replace(/[^\d\s-]/g, '') : el.value;
       if (rk === 'mobile' && el.value !== reg.mobile) el.value = reg.mobile;
-      var gb = document.querySelector('.gbtn');
-      if (gb) {
-        var ok = regValid();
-        gb.classList.toggle('is-disabled', !ok);
-        gb.disabled = !ok;
-        gb.setAttribute('aria-disabled', String(!ok));
-      }
+      syncRegCta();
       var hint = document.getElementById('regHint');
       if (hint) hint.innerHTML = regHintHTML();
       if (reg.touched[rk]) {
@@ -3259,16 +3441,27 @@
   }
 
   function finishGoogle(identity, isSignup) {
+    var rc = SM.countries.byCode(reg.country) || {};
+
+    /* The address is built ONLY when a part of it was actually filled in.
+       Building it unconditionally sent {flat:'', area:'', …, country:'India'}
+       for everyone who left the optional section closed — an address consisting
+       of a country, stored on every account, and one more thing for the profile
+       screen to render as if the shop had entered it. */
+    var addrParts = {
+      flat: reg.flat.trim(), area: reg.area.trim(), city: reg.city.trim(),
+      district: reg.district.trim(), state: reg.stateName.trim()
+    };
+    var hasAddress = Object.keys(addrParts).some(function (k) { return addrParts[k]; });
+
     var registration = isSignup ? {
       shopName: reg.shopName.trim(), proprietor: reg.proprietor.trim(),
-      country: reg.country, countryName: (SM.countries.byCode(reg.country) || {}).name,
-      dial: (SM.countries.byCode(reg.country) || {}).dial,
+      country: reg.country, countryName: rc.name,
+      dial: rc.dial,
       mobile: reg.mobile.trim(),
-      address: {
-        flat: reg.flat.trim(), area: reg.area.trim(), city: reg.city.trim(),
-        district: reg.district.trim(), state: reg.stateName.trim(),
-        country: (SM.countries.byCode(reg.country) || {}).name
-      }
+      address: hasAddress
+        ? Object.assign({}, addrParts, { country: rc.name })
+        : null
     } : null;
 
     SM.debug.log('auth', 'sign-in complete, resolving profile', {
@@ -3312,9 +3505,17 @@
       state.pendingIdentity = null;
       renderShellBits();
       renderAccount(document.getElementById('page'));
-      toast(res && res.saved ? 'Account created — your details are saved'
-          : res && res.isNew ? 'Account created — welcome'
-          : 'Signed in');
+
+      if (res && res.saved) {
+        /* Stay on the account page and show what was stored. The user is not
+           sent anywhere — a redirect straight after sign-up left them on the
+           Finder wondering whether anything had been saved at all. */
+        state.sheet = { type: 'welcome' };
+        renderSheet();
+        return;
+      }
+
+      toast(res && res.isNew ? 'Account created — welcome' : 'Signed in');
       if (state.afterSignIn) { var go2 = state.afterSignIn; state.afterSignIn = null; go(go2); }
     }, function (err) {
       signupInFlight = false;

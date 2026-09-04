@@ -125,6 +125,9 @@ function sanitiseProfile(input) {
         ['flat', 'area', 'city', 'district', 'state', 'country'].forEach(part => {
           if (typeof v[part] === 'string' && v[part].trim()) a[part] = v[part].trim().slice(0, 120);
         });
+        /* An all-blank address is not an address. Merging {} over a stored one
+           would delete it, and a form opened without being seeded sends exactly
+           that. */
         if (Object.keys(a).length) out.address = a;
       } else if (typeof v === 'string' && v.trim()) {
         out.address = v.trim().slice(0, 240);

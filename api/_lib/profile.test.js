@@ -91,6 +91,30 @@ test('an all-empty address is not written as an empty object', () => {
   assert.equal('address' in sanitiseProfile({ address: { flat: '', city: '  ' } }), false);
 });
 
+test('a blank form cannot wipe a stored profile', () => {
+  /* The payment path used to open the edit sheet without seeding it, so every
+     field arrived empty. Merging that would have deleted a good profile. */
+  const blankForm = {
+    mobileShopName: '', proprietorName: '', mobileNumber: '', mobileNumberE164: '',
+    country: '', countryCode: '',
+    address: { flat: '', area: '', city: '', district: '', state: '', country: '' }
+  };
+  assert.deepEqual(sanitiseProfile(blankForm), {},
+    'a blank form must produce no writes at all');
+});
+
+test('an address of nothing but a country is not an address', () => {
+  /* Registration built the address unconditionally and always put the country
+     in it, so every account that skipped the optional section got one. */
+  const out = sanitiseProfile({
+    mobileShopName: 'Xy mobile',
+    address: { flat: '', area: '', city: '', district: '', state: '', country: 'India' }
+  });
+  assert.equal(out.mobileShopName, 'Xy mobile');
+  assert.equal('address' in out, true, 'a country IS one of the recognised parts');
+  assert.deepEqual(out.address, { country: 'India' });
+});
+
 test('a non-object body is handled rather than thrown on', () => {
   [null, undefined, 'hello', 7, []].forEach(v => {
     assert.deepEqual(sanitiseProfile(v), {});

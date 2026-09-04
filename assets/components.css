@@ -1358,3 +1358,38 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .gacct > svg{ width:18px; height:18px; color:var(--teal-600); flex:none; }
+
+/* ---------------------------------------------------------- sign-up form
+   The address accordion. Optional details should look optional: five address
+   inputs standing permanently open read as five more things that must be
+   filled in, which is exactly the impression the mandatory fields need to not
+   compete with. */
+.addrfold{ margin-top:4px; border-top:1px solid var(--line); padding-top:12px; }
+.addrfold__t{
+  display:flex; align-items:center; gap:10px; width:100%;
+  background:none; border:0; padding:10px 2px; cursor:pointer;
+  font:inherit; font-weight:650; font-size:14px; color:var(--ink-1); text-align:left;
+}
+.addrfold__t svg{ width:16px; height:16px; flex:none; color:var(--teal-600); }
+.addrfold__t:hover{ color:var(--teal-600); }
+.addrfold__b{ padding-top:4px; }
+
+/* The primary action, kept in reach. It sticks to the bottom of the scrolling
+   card rather than to the viewport, so it cannot cover an input the user is
+   typing into, and it clears the mobile tab bar and the home indicator. */
+.regcta{
+  position:sticky; bottom:0; z-index:3;
+  /* Negative margins pull it to the card's edges so the fade reaches them;
+     the values mirror .card--pad, which is 18px and 22px from 768px up. */
+  margin:16px -18px -18px; padding:14px 18px;
+  padding-bottom:calc(14px + env(safe-area-inset-bottom, 0px));
+  background:linear-gradient(to bottom, rgba(0,0,0,0), var(--surface) 22%);
+  border-radius:0 0 var(--r-lg) var(--r-lg);
+}
+@media (min-width:768px){
+  .regcta{ margin:18px -22px -22px; padding:16px 22px; }
+}
+@media (max-width:900px){
+  /* Clear of the bottom navigation, which is fixed over the page down here. */
+  .regcta{ bottom:var(--tabbar-h, 0px); }
+}

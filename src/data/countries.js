@@ -71,6 +71,59 @@
   var BY_CODE = Object.create(null);
   LIST.forEach(function (c) { BY_CODE[c.code] = c; });
 
+  /* ------------------------------------------------------- phone validation
+
+     A mobile number is only valid RELATIVE TO A COUNTRY. This used to be one
+     regex — six to fourteen digits, country ignored — which is wrong in both
+     directions: it accepted 8608979020 as a United States number and it had no
+     opinion at all about Singapore's eight digits or the UAE's nine.
+
+     libphonenumber-js carries Google's own per-country metadata, so the rules
+     come from the same source every telecom uses rather than from a list of
+     digit counts someone guessed and nobody maintains.
+
+     IT IS LOADED LAZILY AND IS NEVER REQUIRED. Most visits never open the
+     sign-up form, it is ~175 KB, and — more importantly — a sign-up must not
+     become impossible because a CDN is slow or blocked. Until it arrives, and
+     for ever if it never does, the fallback below applies the only rule that
+     holds everywhere: E.164 allows at most 15 digits including the country
+     code, and no national number is shorter than four. That is permissive on
+     purpose. Refusing a real shop's real number is a worse failure than
+     accepting a typo the payment gateway will reject a moment later. */
+
+  var LIB_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/libphonenumber-js/1.11.4/libphonenumber-js.min.js';
+  var libLoad = null;
+  var lib = null;
+  var libListeners = [];
+
+  function digitsOf(v) { return String(v == null ? '' : v).replace(/\D/g, ''); }
+
+  function loadValidator() {
+    if (lib) return Promise.resolve(lib);
+    if (libLoad) return libLoad;
+    if (typeof document === 'undefined') return Promise.resolve(null);
+
+    libLoad = new Promise(function (resolve) {
+      var el = document.createElement('script');
+      el.src = LIB_SRC;
+      el.async = true;
+      el.onload = function () {
+        lib = global.libphonenumber || null;
+        resolve(lib);
+        /* Validation just got stricter than it was a moment ago, so anything
+           showing a validity state needs to look again. */
+        var waiting = libListeners; libListeners = [];
+        waiting.forEach(function (fn) { try { fn(lib); } catch (e) { /* never break a form */ } });
+      };
+      el.onerror = function () {
+        libLoad = null;                       /* a later attempt may succeed */
+        resolve(null);                        /* NOT a rejection: the fallback stands */
+      };
+      document.head.appendChild(el);
+    });
+    return libLoad;
+  }
+
   SM.countries = {
     all: LIST,
     byCode: function (code) { return BY_CODE[code] || null; },
@@ -85,9 +138,61 @@
       });
       return starts.concat(has);
     },
-    /* national number length sanity check (without the dialling code) */
-    validNumber: function (digits) {
-      return /^[0-9]{6,14}$/.test(digits || '');
-    }
+
+    /** Starts the metadata download. Safe to call repeatedly. */
+    preloadValidator: loadValidator,
+
+    /** Called once the metadata lands, so a form can re-check what it drew. */
+    onValidatorReady: function (fn) {
+      if (lib) { fn(lib); return; }
+      libListeners.push(fn);
+      loadValidator();
+    },
+
+    /** True once the real per-country rules are in force. */
+    validatorReady: function () { return !!lib; },
+
+    /**
+     * Is this a valid mobile number for that country?
+     *
+     * @param {string} countryCode ISO alpha-2, e.g. "IN"
+     * @param {string} input       what the user typed, in national form
+     */
+    validNumber: function (countryCode, input) {
+      var digits = digitsOf(input);
+      if (!digits) return false;
+
+      if (lib && countryCode && BY_CODE[countryCode]) {
+        try {
+          var parsed = lib.parsePhoneNumberFromString(digits, countryCode);
+          return !!(parsed && parsed.isValid());
+        } catch (e) {
+          /* Unknown region or malformed input — fall through to the length
+             check rather than failing the form on a library edge case. */
+        }
+      }
+      return digits.length >= 4 && digits.length <= 15;
+    },
+
+    /**
+     * The number in E.164, or '' when it cannot be formed.
+     * Falls back to dial code + digits, which is what E.164 is.
+     */
+    toE164: function (countryCode, input) {
+      var digits = digitsOf(input);
+      if (!digits) return '';
+
+      if (lib && countryCode && BY_CODE[countryCode]) {
+        try {
+          var parsed = lib.parsePhoneNumberFromString(digits, countryCode);
+          if (parsed && parsed.number) return parsed.number;
+        } catch (e) { /* fall through */ }
+      }
+      var c = BY_CODE[countryCode];
+      return c && c.dial ? '+' + digitsOf(c.dial) + digits : '';
+    },
+
+    /** Digits only, as typed — what gets stored as the national number. */
+    nationalDigits: digitsOf
   };
 })(window);
