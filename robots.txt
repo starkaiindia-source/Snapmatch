@@ -1,0 +1,13 @@
+# Mobile Parts Finder
+# Everything public is crawlable, including CSS and JavaScript — blocking those
+# stops Google rendering the page and is a common way to hurt a site by accident.
+
+User-agent: *
+Allow: /
+
+# Private or non-content routes. Nothing here is useful in a search result.
+Disallow: /account
+Disallow: /api/
+Disallow: /__/
+
+Sitemap: https://www.mobilepartsfinder.com/sitemap.xml

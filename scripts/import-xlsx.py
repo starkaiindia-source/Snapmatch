@@ -177,7 +177,7 @@ def ident(s):
 
 def key_of(brand, name):
     """Identity. Brand is part of it, so a title cannot drift across brands."""
-    return ident(brand) + "" + ident(name)
+    return ident(brand) + "|" + ident(name)
 
 
 def main():

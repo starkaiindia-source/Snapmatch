@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="512" height="512" role="img" aria-label="Mobile Parts Finder">
+  <title>Mobile Parts Finder</title>
+  <defs>
+    <linearGradient id="mpfPlate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0F766E"/>
+      <stop offset="55%" stop-color="#12A08C"/>
+      <stop offset="100%" stop-color="#10D0A8"/>
+    </linearGradient>
+    <linearGradient id="mpfPart" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FF8A3D"/>
+      <stop offset="100%" stop-color="#FFC46B"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="14" fill="url(#mpfPlate)"/>
+  <circle cx="20.5" cy="20.5" r="11.6" fill="#fff" fill-opacity=".18"/>
+  <rect x="16.6" y="13.2" width="7.8" height="14.6" rx="2.2" fill="url(#mpfPart)"/>
+  <path d="M18.5 15.4h4" stroke="#8A4A12" stroke-opacity=".55" stroke-width="1.1" stroke-linecap="round"/>
+  <circle cx="20.5" cy="20.5" r="11.6" fill="none" stroke="#fff" stroke-width="3.2"/>
+  <path d="M29.4 29.4 37 37" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/>
+</svg>

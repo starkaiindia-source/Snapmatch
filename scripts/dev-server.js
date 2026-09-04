@@ -117,10 +117,28 @@ http.createServer((req, res) => {
   if (api) { runApi(api[1], req, res); return; }
 
   if (p === '/') p = '/index.html';
-  const file = path.join(ROOT, p);
+  let file = path.join(ROOT, p);
   if (!file.startsWith(ROOT)) { res.writeHead(403); res.end('forbidden'); return; }
+
+  /* Directory -> its index.html, which is how the pre-rendered SEO pages are
+     addressed: /models/apple is models/apple/index.html on disk. */
+  if (fs.existsSync(file) && fs.statSync(file).isDirectory()) {
+    file = path.join(file, 'index.html');
+  }
+
   fs.readFile(file, (err, buf) => {
-    if (err) { res.writeHead(404); res.end('not found'); return; }
+    if (err) {
+      /* Clean URLs the app owns but that have no file — /model/samsung-galaxy-a11,
+         /group/bt-0001 — are served the app shell, the same fallback Vercel is
+         configured to do. Without it a refresh on any deep link is a 404. */
+      if (!path.extname(p)) {
+        const shell = fs.readFileSync(path.join(ROOT, 'index.html'));
+        res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
+        res.end(shell);
+        return;
+      }
+      res.writeHead(404); res.end('not found'); return;
+    }
     res.writeHead(200, {
       'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
       'Cache-Control': 'no-store'

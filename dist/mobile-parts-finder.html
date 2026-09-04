@@ -2433,7 +2433,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     /** One fetch, cached. Resolves with SM.db. */
     load: function () {
       if (loaded) return loaded;
-      loaded = fetch('assets/dataset.json')
+      /* Absolute. A relative path resolves against the current URL, so on a
+         clean route like /models/apple the browser asked for
+         /models/assets/dataset.json and the catalogue never loaded. */
+      loaded = fetch('/assets/dataset.json')
         .then(function (res) {
           if (!res.ok) throw new Error('dataset ' + res.status);
           return res.json();
@@ -5832,7 +5835,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     deviceId: null,
     deviceVariant: null,  /* {ramGb, storageGb} the detail page is showing */
     route: { name: 'finder', params: {} },
-    base: '#/finder',
+    base: '/finder',
     finder: {
       modelId: null, catId: null, query: '', matchShown: 6, avail: null,
       filters: { q: '', brandId: 'all', catId: 'all', sort: 'default' },
@@ -5891,17 +5894,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   /* ------------------------------------------------------------------ shell */
   var NAV = [
-    { id: 'finder', href: '#/finder', label: 'Device Finder', short: 'Finder', icon: 'search' },
-    { id: 'models', href: '#/models', label: 'All Mobile Models', short: 'Models', icon: 'grid' },
-    { id: 'plans', href: '#/plans', label: 'Plans', short: 'Plans', icon: 'crown' },
-    { id: 'account', href: '#/account', label: 'Account', short: 'Account', icon: 'user' }
+    { id: 'finder', href: '/finder', label: 'Device Finder', short: 'Finder', icon: 'search' },
+    { id: 'models', href: '/models', label: 'All Mobile Models', short: 'Models', icon: 'grid' },
+    { id: 'plans', href: '/plans', label: 'Plans', short: 'Plans', icon: 'crown' },
+    { id: 'account', href: '/account', label: 'Account', short: 'Account', icon: 'user' }
   ];
 
   function mountShell() {
     document.getElementById('app').innerHTML =
       '<header class="topbar"><div class="shell topbar__in">' +
       '<div class="topbar__lead">' +
-      '<a class="logo" href="#/finder" aria-label="Mobile Parts Finder home">' + SM.logoMark(34) +
+      '<a class="logo" href="/finder" aria-label="Mobile Parts Finder home">' + SM.logoMark(34) +
       '<span class="logo__word">Mobile Parts <em>Finder</em></span></a>' +
       '<nav class="nav" id="nav"></nav>' +
       '</div>' +
@@ -5934,9 +5937,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var end = '<button class="iconbtn" data-act="open-filters" title="Filters" aria-label="Filter groups">' + icon('sliders') + '</button>' +
       '<button class="iconbtn" data-act="theme" title="Switch theme" aria-label="Switch colour theme">' + icon(dark ? 'sun' : 'moon') + '</button>';
     if (s.status === 'guest') {
-      end += '<a class="btn btn--primary btn--sm" href="#/account">Sign in</a>';
+      end += '<a class="btn btn--primary btn--sm" href="/account">Sign in</a>';
     } else {
-      end += '<a class="avatar" href="#/account" title="' + esc(s.name) + '">' + esc(initials(s.name)) + '</a>';
+      end += '<a class="avatar" href="/account" title="' + esc(s.name) + '">' + esc(initials(s.name)) + '</a>';
     }
     document.getElementById('topEnd').innerHTML = end;
 
@@ -5949,11 +5952,54 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   }
 
   /* ----------------------------------------------------------------- router */
-  function parseHash() {
-    var h = (location.hash || '#/finder').replace(/^#\/?/, '');
-    var parts = h.split('/').filter(Boolean);
+  /* ------------------------------------------------------------- URL shape
+
+     Clean paths are the canonical form — /models/apple, /categories/cc-board,
+     /finder. Hash URLs still work, because every link shared before this change
+     is one, and they are rewritten to the clean equivalent on arrival so a page
+     never has two addresses at once.
+
+     A search engine needs one URL per page, and it needs that URL to be the one
+     it can put in a result. #/models/apple is a fragment: to a crawler the
+     whole site is one page called "/". */
+
+  /* Routes the APP owns and renders.
+
+     Deliberately not everything the site serves. /universal-tempered-glass,
+     /categories/cc-board and /mobile-parts-finder are pre-rendered pages with
+     their own content; the app has no screen for them and must leave them
+     alone. Listing them here made the app rewrite the URL to /finder and paint
+     the finder over the page — the address bar said one thing and the screen
+     said another, which is the exact problem clean URLs were added to fix. */
+  var ROUTES = { finder: 1, models: 1, model: 1, plans: 1, account: 1, group: 1 };
+
+  /** True when this URL is a page the app renders. */
+  function ownsPath(url) {
+    var raw = String(url || '').replace(/^#\/?/, '').replace(/^\/+/, '').split(/[?#]/)[0];
+    var first = raw.split('/').filter(Boolean)[0];
+    return !first || !!ROUTES[first];
+  }
+
+  function toPath(route) {
+    var parts = [route.name].concat(route.params || []).filter(Boolean);
+    if (!parts.length || parts[0] === 'finder') return '/finder';
+    return '/' + parts.map(encodeURIComponent).join('/');
+  }
+
+  /* Accepts either shape, so existing call sites passing '#/plans' keep working
+     and nothing had to be rewritten twice. */
+  function toRoute(url) {
+    var raw = String(url || '').replace(/^#\/?/, '').replace(/^\/+/, '').split(/[?#]/)[0];
+    var parts = raw.split('/').filter(Boolean).map(decodeURIComponent);
     var name = parts[0] || 'finder';
+    if (!ROUTES[name]) return { name: 'finder', params: [] };
     return { name: name, params: parts.slice(1) };
+  }
+
+  function parseHash() {
+    /* A hash wins when present: it means an old link was opened, and boot()
+       converts it to the clean path immediately afterwards. */
+    return toRoute(location.hash ? location.hash : location.pathname);
   }
 
   function route() {
@@ -5971,19 +6017,134 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     document.getElementById('overlay').innerHTML = '';
     document.body.style.overflow = '';
     state.route = r;
-    state.base = location.hash || '#/finder';
+    state.base = toPath(r);
     renderShellBits();
     renderPage(r);
     window.scrollTo({ top: 0, behavior: 'instant' in document.documentElement.style ? 'instant' : 'auto' });
   }
 
-  function go(hash) { location.hash = hash; }
+  /* Navigation writes a clean path through the History API. Nothing sets
+     location.hash any more, which is what stops the address bar flipping back
+     to a fragment the moment the app takes over a pre-rendered page. */
+  /* Real <a href> so a crawler can follow it and a person can middle-click it,
+     intercepted so the app navigates without a reload. Modifier clicks and
+     anything targeting another window are left to the browser. */
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var a = e.target.closest && e.target.closest('a[href]');
+    if (!a) return;
+    if (a.target && a.target !== '_self') return;
+    if (a.hasAttribute('download') || a.getAttribute('rel') === 'external') return;
+
+    var href = a.getAttribute('href') || '';
+    if (/^(https?:)?\/\//.test(href) || /^(mailto|tel):/.test(href)) return;
+    if (href.indexOf('/') !== 0 && href.indexOf('#/') !== 0) return;
+
+    var r = toRoute(href);
+    /* Only intercept what the app can actually render. A link to
+       /sitemap.xml or /robots.txt must reach the server. */
+    if (!ROUTES[r.name]) return;
+
+    e.preventDefault();
+    go(href);
+  });
+
+  function go(url) {
+    var r = toRoute(url);
+    var path = toPath(r);
+    if (location.pathname !== path || location.hash) {
+      history.pushState(null, '', path);
+    }
+    route();
+  }
+
   function closeSheet() {
     if (history.length > 1 && state.base) history.back();
-    else go(state.base || '#/finder');
+    else go(state.base || '/finder');
+  }
+
+  /* ------------------------------------------------------------------ SEO
+
+     A pre-rendered page arrives with the right <title>, description and
+     canonical already in the HTML — that is what a crawler and every social
+     card reads. But once the app is running, moving from /finder to
+     /models/samsung changes the page without reloading it, and those tags would
+     still describe the page the visitor arrived on.
+
+     So they are rewritten on every route change. Googlebot renders the app, and
+     what it renders should describe the URL it is looking at. */
+  var SEO_ORIGIN = 'https://www.mobilepartsfinder.com';
+
+  function seoFor(r) {
+    var brand = r.name === 'models' && r.params[0] ? db.brandById[r.params[0]] : null;
+    var model = r.name === 'model' && r.params[0] ? db.modelById[r.params[0]] : null;
+    var n = function (x) { return nf(x); };
+
+    if (model) {
+      return {
+        title: model.fullName + ' — Compatible Spare Parts & Models | Mobile Parts Finder',
+        desc: model.fullName + ': compatible tempered glass, back cover, combo display, ' +
+              'CC board, middle frame and battery groups, with the other phone models ' +
+              'that take the same parts.'
+      };
+    }
+    if (brand) {
+      return {
+        title: brand.name + ' Mobile Models & Compatible Parts Finder | Mobile Parts Finder',
+        desc: n(brand.modelCount) + ' ' + brand.name + ' models with compatible tempered ' +
+              'glass, back cover, combo display, CC board, middle frame and battery groups.'
+      };
+    }
+    if (r.name === 'models') {
+      return {
+        title: 'All Mobile Models — ' + n(db.stats.models) + ' Phones by Brand | Mobile Parts Finder',
+        desc: 'Browse ' + n(db.stats.models) + ' phone models across ' + db.stats.brandsWithModels +
+              ' brands with dimensions, display size, battery and the parts that fit each one.'
+      };
+    }
+    if (r.name === 'plans') {
+      return { title: 'Plans — Mobile Parts Finder for Mobile Shops',
+               desc: 'Monthly and yearly plans for Mobile Parts Finder.' };
+    }
+    if (r.name === 'account') {
+      return { title: 'Your Account | Mobile Parts Finder', desc: null, noindex: true };
+    }
+    return {
+      title: 'Mobile Compatibility Finder — Match a Phone to Its Parts | Mobile Parts Finder',
+      desc: 'Search ' + n(db.stats.models) + ' phone models and get every compatibility ' +
+            'group the handset belongs to.'
+    };
+  }
+
+  function applySeo(r) {
+    if (!db || !db.stats) return;              /* catalogue not loaded yet */
+    var meta = seoFor(r);
+    document.title = meta.title;
+
+    var set = function (sel, attr, value) {
+      var el = document.head.querySelector(sel);
+      if (!el) return;
+      if (value == null) el.remove(); else el.setAttribute(attr, value);
+    };
+    if (meta.desc) set('meta[name="description"]', 'content', meta.desc);
+    set('meta[property="og:title"]', 'content', meta.title);
+    if (meta.desc) set('meta[property="og:description"]', 'content', meta.desc);
+    set('meta[name="twitter:title"]', 'content', meta.title);
+
+    var url = SEO_ORIGIN + toPath(r);
+    set('link[rel="canonical"]', 'href', url);
+    set('meta[property="og:url"]', 'content', url);
+
+    /* The account page is a signed-in screen; it has nothing to offer a search
+       result and robots.txt disallows it. Saying so here as well costs nothing
+       and covers the case where it is reached by a link. */
+    var robots = document.head.querySelector('meta[name="robots"]');
+    if (robots) robots.setAttribute('content',
+      meta.noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large');
   }
 
   function renderPage(r) {
+    applySeo(r);
     var page = document.getElementById('page');
     if (r.name === 'models') return renderModels(page, r.params[0]);
     if (r.name === 'model') return renderDevice(page, r.params[0]);
@@ -6576,7 +6737,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   function renderBrandGrid() {
     document.getElementById('modelsBody').innerHTML =
       '<div class="sec" style="margin-top:0"><div class="sec__head"><div class="sec__title">' +
-      '<h2>All mobile models</h2><span class="sec__count">' + nf(db.stats.models) + ' models · ' + db.stats.brandsWithModels + ' brands</span>' +
+      '<h1>All mobile models</h1><span class="sec__count">' + nf(db.stats.models) + ' models · ' + db.stats.brandsWithModels + ' brands</span>' +
       '</div></div>' +
       '<label class="field" style="margin-bottom:16px">' + icon('search') +
       '<input class="input" id="mq" placeholder="Search every model across all brands…" value="' + esc(state.models.q) + '" aria-label="Search all models" /></label>' +
@@ -6857,7 +7018,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* ------------------------------------------------------------------- page */
   function renderBrandModels(brandId) {
     var b = db.brandById[brandId];
-    if (!b) { go('#/models'); return; }
+    if (!b) { go('/models'); return; }
     var m = state.models;
     var c = b.counts || {};
 
@@ -6870,14 +7031,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
     document.getElementById('modelsBody').innerHTML =
       '<div class="crumbs" style="margin-bottom:14px">' +
-      '<button data-act="nav" data-href="#/models">All brands</button>' + icon('chevronRight') +
+      '<button data-act="nav" data-href="/models">All brands</button>' + icon('chevronRight') +
       '<span style="color:var(--ink)">' + esc(b.name) + '</span></div>' +
 
       '<div class="bhead" style="--b1:' + b.color + '">' +
         '<div class="bhead__id">' +
           SM.brandLogo(b, 'blogo--lg') +
           '<div>' +
-            '<h2 class="bhead__n">' + esc(b.name) + '</h2>' +
+            /* The page's H1: on /models/apple the brand IS the subject of the
+               page. It was an h2 only because it sits inside a section header,
+               which left the route with no H1 at all once the app mounted over
+               the pre-rendered one. */
+            '<h1 class="bhead__n">' + esc(b.name) + '</h1>' +
             '<p class="bhead__c">' + c.total + ' devices · ' + (c.phones || 0) + ' phones' +
               (c.tablets ? ' · ' + c.tablets + ' tablets' : '') +
               (c.watches ? ' · ' + c.watches + ' watches' : '') + '</p>' +
@@ -7594,7 +7759,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           state.pendingPlan = null;
           toast('Profile saved — opening payment');
           var btn = document.querySelector('[data-act="subscribe"][data-id="' + plan + '"]');
-          if (btn) btn.click(); else go('#/plans');
+          if (btn) btn.click(); else go('/plans');
         } else {
           toast('Profile updated');
         }
@@ -7751,7 +7916,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         '<span>Renewal is off. Your plan stays active until ' + esc(sub.endLabel) + ', then the account moves to Expired.</span></div>') +
 
       '<div class="row wrap" style="gap:8px;margin-top:16px">' +
-      '<button class="btn btn--outline btn--sm" data-act="nav" data-href="#/plans">' + icon('crown') + 'Change plan</button>' +
+      '<button class="btn btn--outline btn--sm" data-act="nav" data-href="/plans">' + icon('crown') + 'Change plan</button>' +
       (sub.willRenew
         ? '<button class="btn btn--ghost btn--sm" data-act="cancel-sub">Cancel subscription</button>'
         : '<button class="btn btn--ghost btn--sm" data-act="resume-sub">Resume renewal</button>') +
@@ -8021,7 +8186,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     }
 
     api.getModel(id).then(function (r) {
-      if (!r) { go('#/models'); return; }
+      if (!r) { go('/models'); return; }
       var m = r.model;
       var b = db.brandById[m.brandId] || { id: m.brandId, name: m.brand };
       var sp = m.specs;
@@ -8555,7 +8720,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     pushRecent(id);
     closeSuggest();
     syncSearchInputs(true);
-    if (state.route.name !== 'finder') go('#/finder');
+    if (state.route.name !== 'finder') go('/finder');
     else renderFinder(document.getElementById('page'));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -8569,7 +8734,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var f = state.finder;
     f.modelId = null; f.catId = null; f.query = ''; f.matchShown = 6; f.avail = null;
     closeSuggest();
-    if (location.hash.indexOf('#/finder') !== 0) { go('#/finder'); }
+    if (state.route.name !== 'finder') { go('/finder'); }
     else { renderFinder(document.getElementById('page')); }
     syncSearchInputs(true);
     window.scrollTo({ top: 0 });
@@ -8578,7 +8743,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   document.addEventListener('click', function (e) {
     /* the Finder tab / nav link must never leave the user stuck in a result:
        the hash is already #/finder, so no hashchange would fire on its own */
-    var finderLink = e.target.closest('a[href="#/finder"]');
+    var finderLink = e.target.closest('a[href="/finder"]');
     if (finderLink && state.finder.modelId) {
       e.preventDefault();
       exitResult();
@@ -8662,17 +8827,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       }
       case 'open-filters':
         /* the filters act on the Device Finder, so land there first */
-        if (state.route.name !== 'finder') { go('#/finder'); }
+        if (state.route.name !== 'finder') { go('/finder'); }
         state.sheet = { type: 'filters' }; renderSheet();
         break;
       case 'more-groups': state.finder.page++; loadGroups(false); break;
 
       /* overlays */
-      case 'open-group': go('#/group/' + id); break;
+      case 'open-group': go('/group/' + id); break;
 
       /* device page */
       case 'dev-back':
-        if (history.length > 1) history.back(); else go('#/models');
+        if (history.length > 1) history.back(); else go('/models');
         break;
       case 'pick-variant': {
         var dm = db.modelById[state.deviceId];
@@ -8725,21 +8890,21 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         }
         break;
       }
-      case 'open-model': go('#/model/' + id); break;
+      case 'open-model': go('/model/' + id); break;
       case 'find-parts':
         state.sheet = null;
         document.getElementById('overlay').innerHTML = '';
         document.body.style.overflow = '';
         state.finder.modelId = id; state.finder.catId = null;
         state.finder.query = db.modelById[id].fullName;
-        go('#/finder');
+        go('/finder');
         break;
       case 'find-with-cat': {
         var mid = state.sheet && state.sheet.id;
         state.sheet = null; document.getElementById('overlay').innerHTML = ''; document.body.style.overflow = '';
         state.finder.modelId = mid; state.finder.catId = id;
         state.finder.query = db.modelById[mid].fullName;
-        go('#/finder');
+        go('/finder');
         break;
       }
       case 'more-devs':
@@ -8756,7 +8921,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         break;
 
       /* models page */
-      case 'open-brand': go('#/models/' + id); break;
+      case 'open-brand': go('/models/' + id); break;
       case 'more-models': state.models.page++; loadBrandModels(false); break;
 
       case 'model-view': {
@@ -8796,19 +8961,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         state.finder.modelId = null; state.finder.catId = null; state.finder.query = '';
         state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'default' };
         closeSuggest(); syncSearchInputs(true);
-        if (location.hash.indexOf('#/finder') === 0) renderFinder(document.getElementById('page'));
-        else go('#/finder');
+        if (state.route.name === 'finder') renderFinder(document.getElementById('page'));
+        else go('/finder');
         break;
 
       /* plans + account */
-      case 'go-plans': go('#/plans'); break;
+      case 'go-plans': go('/plans'); break;
       case 'subscribe':
         /* a plan belongs to a signed-in identity, so sign in first */
         if (!S.canSubscribe()) {
-          state.afterSignIn = '#/plans';
+          state.afterSignIn = '/plans';
           authMode = 'signin';        /* most people arriving here already have an account */
           toast('Sign in to activate a plan', 'lock');
-          go('#/account');
+          go('/account');
           break;
         }
         t.disabled = true;
@@ -8855,8 +9020,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           renderShellBits();
           toast(live ? 'Payment verified — plan active' : 'Plan active — no payment was taken');
           /* the hash may already be #/account, which would not re-render */
-          if (location.hash.indexOf('#/account') === 0) renderAccount(document.getElementById('page'));
-          else go('#/account');
+          if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+          else go('/account');
         }).catch(function (err) {
           t.disabled = false;
           t.innerHTML = restoreCta;
@@ -9000,7 +9165,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
            periodFor extends from the current expiry rather than from today, so
            no paid-for days are lost. */
         toast('Choose a plan to extend — your remaining days are carried over');
-        go('#/plans');
+        go('/plans');
         break;
 
       case 'cancel-sub':
@@ -9490,12 +9655,34 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     });
   }
   SM.art.mount();
-  if (!location.hash) location.replace('#/finder');
+  /* A legacy #/... link, or a bare /, becomes the clean path before anything
+     renders — so the address bar, the canonical tag and what the app shows all
+     agree from the first paint. replaceState rather than push: arriving at an
+     old URL should not put an extra entry in the back button. */
+  (function normaliseUrl() {
+    /* Only for pages the app renders. A pre-rendered SEO page keeps its own
+       URL and its own content — rewriting it here would replace a real page
+       with the finder. */
+    if (!location.hash && !ownsPath(location.pathname)) return;
+    var want = toPath(parseHash());
+    if (location.hash || location.pathname !== want) {
+      try { history.replaceState(null, '', want); }
+      catch (e) { /* file:// has no History API; the hash path still works */ }
+    }
+  }());
 
   /* The shell reads db.stats for the header counts, so it cannot mount before
      the catalogue arrives. A brand mark and a line of text hold the page in
      the meantime — ~280 KB gzipped, so this is brief, but a blank window while
      it downloads would look broken. */
+  /* On a pre-rendered page the app has no screen for, stop here. The static
+     content stays, its links are real and its URL is untouched — the app has
+     nothing to add and everything to break. */
+  if (!ownsPath(location.pathname) && document.getElementById('seoContent')) {
+    SM.debug.log('boot', 'pre-rendered page, app standing down', { path: location.pathname });
+    return;
+  }
+
   var app = document.getElementById('app');
   if (app) {
     app.innerHTML = '<div class="bootwait">' + SM.logoMark(44) +
@@ -9563,7 +9750,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
        come after it exists — reading them at boot was what crashed the page. */
     state.recent = loadRecent();
     mountShell();
-    window.addEventListener('hashchange', route);
+    /* Back and forward now move between paths, not fragments. */
+    window.addEventListener('popstate', route);
     route();
   }).catch(function (err) {
     console.error('[dataset]', (err && err.stack) || err);

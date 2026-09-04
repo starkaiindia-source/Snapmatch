@@ -36,3 +36,8 @@
 
 # Tests run in CI and locally, not in a function bundle.
 /api/_lib/*.test.js
+
+# Generated SEO output IS deployed (finder/, models/, categories/, the landing
+# pages, robots.txt, sitemap.xml, site.webmanifest and the brand icons) — it is
+# the pre-rendered HTML search engines and social cards read. Rebuild it with
+#   node scripts/build-seo.js && python scripts/build-icons.py

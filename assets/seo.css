@@ -1,0 +1,82 @@
+/* ============================================================================
+   Mobile Parts Finder · seo.css
+   ----------------------------------------------------------------------------
+   Styles the pre-rendered content that a search engine reads and a visitor sees
+   for the moment before the app mounts over it — and permanently, if scripts
+   never run.
+
+   It deliberately reuses the site's own tokens from styles.css rather than
+   inventing a second palette, so the fallback looks like the product rather
+   than like a plain document that happens to share a domain.
+   ========================================================================== */
+
+.seo{
+  max-width:1080px; margin:0 auto; padding:20px 20px 64px;
+  color:var(--ink-1); font-family:var(--f-ui, system-ui, sans-serif);
+  line-height:1.6;
+}
+
+.seo__bar{
+  display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  padding:14px 0 20px; border-bottom:1px solid var(--line);
+}
+.seo__brand{
+  display:inline-flex; align-items:center; gap:10px;
+  font-weight:800; font-size:18px; color:var(--ink-1); text-decoration:none;
+}
+.seo__brand b{ color:var(--teal-600); }
+.seo__nav{ display:flex; gap:16px; flex-wrap:wrap; margin-left:auto; }
+.seo__nav a{ color:var(--ink-2); text-decoration:none; font-weight:600; font-size:14.5px; }
+.seo__nav a:hover{ color:var(--teal-600); }
+
+.seo__crumbs ol{ display:flex; flex-wrap:wrap; gap:8px; list-style:none; padding:16px 0 0; margin:0; }
+.seo__crumbs li{ font-size:13.5px; color:var(--ink-3); }
+.seo__crumbs li + li::before{ content:"/"; margin-right:8px; color:var(--ink-3); }
+.seo__crumbs a{ color:var(--ink-2); text-decoration:none; }
+.seo__crumbs a:hover{ color:var(--teal-600); }
+
+.seo__main h1{
+  font-family:var(--f-display, inherit);
+  font-size:clamp(26px, 4.2vw, 40px); line-height:1.15;
+  margin:22px 0 12px; color:var(--ink-1);
+}
+.seo__main h2{
+  font-family:var(--f-display, inherit);
+  font-size:clamp(19px, 2.4vw, 24px); margin:34px 0 10px; color:var(--ink-1);
+}
+.seo__main p{ margin:0 0 14px; max-width:72ch; color:var(--ink-2); }
+.seo__lede{ font-size:17px; color:var(--ink-1) !important; }
+.seo__main a{ color:var(--teal-600); }
+.seo__also{ margin-top:26px; font-size:14px; }
+
+/* Headline numbers. Real counts from the catalogue, not decoration. */
+.seo__stats{
+  display:flex; flex-wrap:wrap; gap:10px; list-style:none; padding:0; margin:20px 0 8px;
+}
+.seo__stats li{
+  flex:1 1 150px; padding:14px 16px; border:1px solid var(--line);
+  border-radius:var(--r-sm); background:var(--surface);
+}
+.seo__stats b{ display:block; font-size:24px; font-weight:800; color:var(--teal-600); }
+.seo__stats span{ font-size:13px; color:var(--ink-3); }
+
+.seo__grid{
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr));
+  gap:10px; list-style:none; padding:0; margin:14px 0 8px;
+}
+.seo__grid a{
+  display:block; padding:12px 14px; border:1px solid var(--line);
+  border-radius:var(--r-sm); background:var(--surface);
+  text-decoration:none; color:var(--ink-1);
+}
+.seo__grid a:hover{ border-color:var(--teal-600); }
+.seo__grid b{ display:block; font-weight:700; font-size:15px; }
+.seo__grid span{ font-size:13px; color:var(--ink-3); }
+
+.seo__foot{
+  margin-top:48px; padding-top:22px; border-top:1px solid var(--line);
+  font-size:14px; color:var(--ink-3);
+}
+.seo__foot nav{ display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; }
+.seo__foot a{ color:var(--ink-2); text-decoration:none; }
+.seo__foot a:hover{ color:var(--teal-600); }

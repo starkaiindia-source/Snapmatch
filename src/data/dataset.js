@@ -311,7 +311,10 @@
     /** One fetch, cached. Resolves with SM.db. */
     load: function () {
       if (loaded) return loaded;
-      loaded = fetch('assets/dataset.json')
+      /* Absolute. A relative path resolves against the current URL, so on a
+         clean route like /models/apple the browser asked for
+         /models/assets/dataset.json and the catalogue never loaded. */
+      loaded = fetch('/assets/dataset.json')
         .then(function (res) {
           if (!res.ok) throw new Error('dataset ' + res.status);
           return res.json();
