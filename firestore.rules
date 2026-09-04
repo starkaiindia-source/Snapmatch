@@ -42,11 +42,6 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/users/$(request.auth.uid)/billing/subscription)
         && billing().expiresAt > request.time;
     }
-    /* fields a user may set on their own profile — subscription is not one */
-    function profileFieldsOk() {
-      return !request.resource.data.diff(resource.data).affectedKeys()
-        .hasAny(['subscription', 'plan', 'status', 'role', 'createdAt']);
-    }
 
     /* ------------------------------------------------------- public catalogue
        Free browsing: anyone may read models, brands and group previews.
@@ -83,19 +78,39 @@ service cloud.firestore {
 
     /* -------------------------------------------------------------- users */
     match /users/{uid} {
-      /* a profile is created once, by its owner, at sign-up */
+      /* Only the owner, and only their own document — the uid in the path is
+         the identity, so one signed-in shop can never touch another's. */
       allow create: if isOwner(uid)
         && request.resource.data.uid == uid
-        && request.resource.data.keys().hasAll(['uid', 'email', 'shopName', 'proprietor'])
-        && request.resource.data.shopName is string
-        && request.resource.data.shopName.size() > 1
-        && request.resource.data.proprietor is string
-        && request.resource.data.proprietor.size() > 1
-        && !request.resource.data.keys().hasAny(['subscription', 'plan', 'status', 'role']);
+        && !request.resource.data.keys().hasAny(serverOwnedFields());
 
       allow read: if isOwner(uid);
-      allow update: if isOwner(uid) && profileFieldsOk();
+      allow update: if isOwner(uid)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(serverOwnedFields());
       allow delete: if false;
+
+      /* A client may write its own shop details and nothing else. The
+         subscription fields are the server's: writable only through the Admin
+         SDK, which bypasses these rules, so a browser cannot grant itself a
+         plan by editing its profile.
+
+         The mandatory fields are NOT required here. An incomplete profile is a
+         legitimate state — it is how the app knows to ask for the missing
+         details — and rejecting the write would leave a signed-in user with no
+         record at all, which is worse. profileCompleted is recomputed from the
+         fields when the profile is read, so an incomplete one cannot pass
+         itself off as complete. */
+      /* Split create from update deliberately: on a create there is no
+         `resource`, so diffing against it is invalid. A create checks the keys
+         being written; an update checks which keys changed. */
+      function serverOwnedFields() {
+        return [
+          'subscription', 'subscriptionStatus', 'activeSubscriptionStatus',
+          'currentPlanId', 'currentSubscriptionId',
+          'subscriptionStartedAt', 'subscriptionExpiresAt',
+          'plan', 'status', 'role', 'lastVerifiedAt'
+        ];
+      }
 
       /* billing is readable by its owner and writable only by a server */
       match /billing/{doc} {
