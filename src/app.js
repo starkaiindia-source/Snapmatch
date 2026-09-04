@@ -2992,10 +2992,29 @@
   ]).then(function () {
     SM.__rebind.forEach(function (fn) { fn(); });
 
-    /* Restores a signed-in session before the first render, so a returning
-       subscriber does not see the signed-out shell flash past. */
+    /* Restore the session, then resolve identity from Firestore before the
+       account screen paints. Rendering from the local cache first is what let
+       a stale profile from one device keep showing after the same Google
+       account had been used on another. */
     if (SM.fb.isConfigured()) {
-      SM.fb.restore().then(function () { renderShellBits(); });
+      SM.fb.restore().then(function (fbUser) {
+        if (!fbUser) { renderShellBits(); return; }
+        return S.initializeAuthenticatedUser(fbUser).then(function (r) {
+          renderShellBits();
+          if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+
+          /* A signed-in account with no usable profile has to finish signing
+             up — but only once the server has actually said so. */
+          if (!r.complete && !r.offline) {
+            authMode = 'signup';
+            state.pendingIdentity = {
+              sub: fbUser.uid, email: fbUser.email || '',
+              name: fbUser.displayName || '', picture: fbUser.photoURL || ''
+            };
+            if (state.route.name === 'account') repaintAuth();
+          }
+        });
+      }).catch(function (e) { console.warn('[boot] identity', e); renderShellBits(); });
     }
     /* Recent searches resolve stored ids against the catalogue, so this has to
        come after it exists — reading them at boot was what crashed the page. */

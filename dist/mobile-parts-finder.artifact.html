@@ -3704,6 +3704,86 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* Completes a sign-in once the profile question is settled. Writes the
      registration to Firestore when there is one, so the record exists for
      every other device before the user goes anywhere near checkout. */
+  /* ---------------------------------------------------- canonical identity
+
+     ONE place decides who the signed-in user is. Sign-in, session restore and
+     a page reload all come through here, so the Sign in page and the Create
+     account page cannot drift into different answers.
+
+     users/{uid} is the truth. The local copy exists so the account screen can
+     paint before the network answers — it is a cache, and a cache that
+     disagrees with the server is wrong by definition.
+
+     This is the bug it fixes: a profile written on one device before the
+     Firestore layer existed lived only in that browser. The desktop kept
+     showing it forever because nothing ever compared it with the server, so
+     one Google account appeared as two different shops. The cache now carries
+     the uid it belongs to and is overwritten by whatever users/{uid} says.
+
+     @param {object} fbUser  the Firebase user, already resolved
+     @returns {Promise<{profile:object|null, complete:boolean, isNew:boolean}>}
+  */
+  function initializeAuthenticatedUser(fbUser) {
+    if (!fbUser || !SM.store || !SM.store.available()) {
+      return Promise.resolve({ profile: null, complete: false, isNew: false });
+    }
+    var uid = fbUser.uid;
+
+    return SM.store.loadProfile(uid).then(function (remote) {
+      var cached = SM.auth.findProfile(uid);
+
+      /* A cached profile belonging to a different account must never be shown.
+         Signing in as someone else on a shared counter machine would otherwise
+         display the previous shop's details. */
+      if (cached && cached.uid && cached.uid !== uid) cached = null;
+
+      if (remote) {
+        SM.auth.saveProfile(uid, {
+          uid: uid,
+          email: remote.email || fbUser.email,
+          googleName: remote.googleDisplayName || fbUser.displayName || '',
+          picture: remote.profilePhotoURL || fbUser.photoURL || '',
+          shopName: remote.mobileShopName,
+          proprietor: remote.proprietorName,
+          mobile: remote.mobileNumber,
+          country: remote.countryCode,
+          countryName: remote.country,
+          address: remote.address
+        });
+      } else if (cached) {
+        /* Firestore has nothing and this browser does: the profile predates
+           the server layer. Push it up so every other device gets it, rather
+           than making the shop type it all again. Only ever an upload of real
+           data the user already entered — nothing is invented. */
+        if (cached.shopName && cached.proprietor) {
+          SM.store.saveProfile(uid, {
+            mobileShopName: cached.shopName,
+            proprietorName: cached.proprietor,
+            mobileNumber: cached.mobile || '',
+            country: cached.countryName || '',
+            countryCode: cached.country || '',
+            address: cached.address || null
+          }, fbUser).catch(function (e) {
+            console.warn('[identity] could not migrate the local profile', e && e.code);
+          });
+        }
+      }
+
+      writeSub(uid);
+      refresh();
+
+      var p = remote || cached;
+      var complete = !!(p && (p.profileCompleted ||
+        ((p.mobileShopName || p.shopName) && (p.proprietorName || p.proprietor) && (p.mobileNumber || p.mobile))));
+      return { profile: p || null, complete: complete, isNew: !remote && !cached };
+    }).catch(function (err) {
+      console.warn('[identity] profile load failed', err && err.code);
+      refresh();
+      return { profile: SM.auth.findProfile(uid) || null, complete: false, isNew: false, offline: true };
+    });
+  }
+  SM.session_initializeAuthenticatedUser = initializeAuthenticatedUser;
+
   function finishSignIn(identity, registration, profile) {
     var existing = profile || SM.auth.findProfile(identity.sub);
 
@@ -3764,6 +3844,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
        users/{uid} is read FIRST, so the same Google account on a second device
        finds the same profile instead of looking like a new shop. The local
        copy is refreshed from it and used only as a cache afterwards. */
+    /* The one identity entry point. Every screen and both auth pages use it. */
+    initializeAuthenticatedUser: function (fbUser) { return initializeAuthenticatedUser(fbUser); },
+
     signInWithGoogle: function (identity, registration) {
       var remote = (SM.store && SM.store.available())
         ? SM.store.loadProfile(identity.sub).catch(function (e) {
@@ -7762,10 +7845,29 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   ]).then(function () {
     SM.__rebind.forEach(function (fn) { fn(); });
 
-    /* Restores a signed-in session before the first render, so a returning
-       subscriber does not see the signed-out shell flash past. */
+    /* Restore the session, then resolve identity from Firestore before the
+       account screen paints. Rendering from the local cache first is what let
+       a stale profile from one device keep showing after the same Google
+       account had been used on another. */
     if (SM.fb.isConfigured()) {
-      SM.fb.restore().then(function () { renderShellBits(); });
+      SM.fb.restore().then(function (fbUser) {
+        if (!fbUser) { renderShellBits(); return; }
+        return S.initializeAuthenticatedUser(fbUser).then(function (r) {
+          renderShellBits();
+          if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+
+          /* A signed-in account with no usable profile has to finish signing
+             up — but only once the server has actually said so. */
+          if (!r.complete && !r.offline) {
+            authMode = 'signup';
+            state.pendingIdentity = {
+              sub: fbUser.uid, email: fbUser.email || '',
+              name: fbUser.displayName || '', picture: fbUser.photoURL || ''
+            };
+            if (state.route.name === 'account') repaintAuth();
+          }
+        });
+      }).catch(function (e) { console.warn('[boot] identity', e); renderShellBits(); });
     }
     /* Recent searches resolve stored ids against the catalogue, so this has to
        come after it exists — reading them at boot was what crashed the page. */
