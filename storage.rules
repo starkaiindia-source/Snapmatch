@@ -1,0 +1,42 @@
+rules_version = '2';
+
+/* ============================================================================
+   Mobile Parts Finder — Firebase Storage rules
+
+   The only thing stored here is a shop's own profile photo. Everything else
+   the app serves is static and comes from the CDN.
+
+   The path carries the owner: users/{uid}/profile/<file>. A signed-in shop may
+   write inside its own folder and nowhere else, so one user cannot overwrite
+   another's photo by guessing a filename.
+
+   Reads are public. A profile photo appears in the account header of whoever
+   is looking at it, and gating it behind a token would mean minting one on
+   every render for an image the owner chose to show. Nothing private is stored
+   here — no documents, no exports, no part data.
+
+   Two limits are enforced rather than trusted to the UI: 5 MB, and an image
+   content type. Without them this bucket is free hosting for anything.
+   ========================================================================== */
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    match /users/{uid}/profile/{file} {
+      allow read: if true;
+
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+
+      /* Replacing a photo is a write; removing one is the owner's to make. */
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    /* Anything outside a user's own profile folder is closed. */
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

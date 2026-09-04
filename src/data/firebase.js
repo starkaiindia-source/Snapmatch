@@ -131,7 +131,22 @@
     }).then(function () {
       var fb = global.firebase;
       if (!fb) throw new Error('firebase sdk did not load');
+      /* Exactly one app, ever. A second initializeApp with the same name
+         throws, and two apps would mean two auth states disagreeing. */
       if (!fb.apps.length) fb.initializeApp(config);
+
+      /* Survive a tab close, not just a reload — a shop signs in once at the
+         counter and expects to stay signed in. */
+      try { fb.auth().setPersistence(fb.auth.Auth.Persistence.LOCAL); } catch (e) { /* older SDK */ }
+
+      /* A redirect sign-in finishes HERE, on the next page load, not in the
+         call that started it. Without this the user comes back from Google to
+         a page that never notices they signed in. */
+      fb.auth().getRedirectResult().catch(function (err) {
+        if (err && err.code && err.code !== 'auth/no-auth-event') {
+          console.warn('[auth] redirect result', err.code);
+        }
+      });
 
       fb.auth().onAuthStateChanged(function (user) {
         currentUser = user || null;
@@ -157,13 +172,40 @@
     app: function () { return global.firebase && global.firebase.apps[0]; },
     ready: ready,
 
-    /** Google sign-in. Opens the real account chooser. */
+    /**
+     * Google sign-in.
+     *
+     * Popup on desktop, redirect on mobile. Mobile browsers block or discard
+     * auth popups often enough that treating popup as the default there leaves
+     * users stuck on a screen that looks broken; a redirect always completes,
+     * at the cost of leaving the page. A popup that fails for a
+     * popup-shaped reason falls back to redirect rather than surfacing an
+     * error the user cannot act on.
+     *
+     * A redirect resolves to null — the real result arrives via
+     * getRedirectResult after the page reloads.
+     */
     signIn: function () {
       return ready().then(function (fb) {
         var provider = new fb.auth.GoogleAuthProvider();
         provider.setCustomParameters({ prompt: 'select_account' });
+
+        var coarse = global.matchMedia && global.matchMedia('(pointer:coarse)').matches;
+        var smallScreen = global.innerWidth < 820;
+        if (coarse && smallScreen) {
+          return fb.auth().signInWithRedirect(provider).then(function () { return null; });
+        }
+
         return fb.auth().signInWithPopup(provider).then(function (result) {
           return result.user;
+        }, function (err) {
+          var code = err && err.code;
+          if (code === 'auth/popup-blocked' ||
+              code === 'auth/operation-not-supported-in-this-environment' ||
+              code === 'auth/cancelled-popup-request') {
+            return fb.auth().signInWithRedirect(provider).then(function () { return null; });
+          }
+          throw err;
         });
       });
     },

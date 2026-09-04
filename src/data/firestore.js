@@ -201,6 +201,46 @@
       }).then(function (snap) { return self.normaliseProfile(snap.data()); });
     },
 
+    /* -------------------------------------------------------------- storage
+
+       The profile photo, and nothing else. Firestore stores the URL; the bytes
+       go to Storage, because a base64 image inside a document counts against
+       the 1 MB document limit and is re-downloaded on every profile read.
+
+       Uploads land in users/{uid}/profile/, which is the path the Storage
+       rules key ownership on — a shop can write inside its own folder and
+       nowhere else. */
+    uploadProfilePhoto: function (uid, file) {
+      if (!file) return Promise.reject(new Error('no file'));
+      if (!/^image\//.test(file.type)) {
+        return Promise.reject(new Error('That file is not an image'));
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        return Promise.reject(new Error('Image is larger than 5 MB'));
+      }
+
+      return SM.fb.ready().then(function (fb) {
+        if (fb.storage) return fb;
+        return new Promise(function (resolve, reject) {
+          var el = document.createElement('script');
+          el.src = 'https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js';
+          el.async = true;
+          el.onload = function () { resolve(global.firebase); };
+          el.onerror = function () { reject(new Error('storage sdk failed to load')); };
+          document.head.appendChild(el);
+        });
+      }).then(function (fb) {
+        /* One file per shop, overwritten on change. Keeping every upload would
+           accumulate orphans nothing ever points at. */
+        var ext = (file.type.split('/')[1] || 'jpg').replace(/[^a-z0-9]/gi, '');
+        var path = 'users/' + uid + '/profile/photo.' + ext;
+        var ref = fb.storage().ref(path);
+        return ref.put(file, { contentType: file.type })
+          .then(function () { return ref.getDownloadURL(); })
+          .then(function (url) { return { url: url, path: path }; });
+      });
+    },
+
     /* ---------------------------------------------------------------- paid */
 
     /**

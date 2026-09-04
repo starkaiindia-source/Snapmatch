@@ -116,6 +116,14 @@
          a server. */
       if (SM.fb && SM.fb.isConfigured()) {
         return SM.fb.signIn().then(function (user) {
+          /* A redirect sign-in resolves to null: the browser is on its way to
+             Google and the result lands on the next page load. Anything that
+             looks like a failure here would be wrong. */
+          if (!user) {
+            var pending = new Error('redirecting to Google');
+            pending.code = 'redirecting';
+            throw pending;
+          }
           return {
             sub: user.uid,
             email: user.email || '',

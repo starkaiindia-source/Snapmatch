@@ -1273,8 +1273,30 @@
     var c = SM.countries.byCode(reg.country);
     var ready = regValid();
     var missing = REG_FIELDS.filter(function (f) { return regError(f.k); });
-    return '<h2 class="t-h1">Create your Mobile Parts Finder account</h2>' +
-      '<p class="t-sub" style="margin-top:6px">Tell us about your shop, then finish with your Google account.</p>' +
+    /* Set once Google has already answered. From here the account is decided;
+       all that is missing is the shop's own details. */
+    var acct = state.pendingIdentity;
+
+    return (acct
+      ? '<h2 class="t-h1">Finish setting up your shop</h2>' +
+        '<p class="t-sub" style="margin-top:6px">Signed in as the account below. ' +
+        'Three details and you are done.</p>' +
+        /* The Gmail is shown, not asked for — the user has already chosen it,
+           and asking again is the step this screen exists to remove. */
+        '<div class="gacct">' +
+          '<span class="gacct__av">' +
+            (acct.picture
+              ? '<img src="' + esc(acct.picture) + '" alt="" referrerpolicy="no-referrer" />'
+              : esc(initials(acct.name || acct.email))) +
+          '</span>' +
+          '<span class="gacct__b">' +
+            '<span class="gacct__l">Google account</span>' +
+            '<span class="gacct__e">' + esc(acct.email) + '</span>' +
+          '</span>' +
+          icon('checkCircle') +
+        '</div>'
+      : '<h2 class="t-h1">Create your Mobile Parts Finder account</h2>' +
+        '<p class="t-sub" style="margin-top:6px">Tell us about your shop, then finish with your Google account.</p>') +
 
       '<div class="regform">' +
       /* country + mobile share one row */
@@ -1304,7 +1326,16 @@
       field('stateName', 'State', { ph: 'Tamil Nadu' }) +
       '</div>' +
 
-      '<div style="margin-top:16px">' + googleBtn('Continue with Google', 'google-signup', !ready) + '</div>' +
+      '<div style="margin-top:16px">' +
+        (acct
+          /* Already authenticated — this saves the profile. Showing another
+             "Continue with Google" here would send the user through the
+             account chooser a second time for no reason. */
+          ? '<button class="btn btn--primary btn--lg btn--block" data-act="finish-signup"' +
+            (ready ? '' : ' disabled') + '>' + icon('check') +
+            'Continue as ' + esc(acct.email) + '</button>'
+          : googleBtn('Continue with Google', 'google-signup', !ready)) +
+      '</div>' +
       '<div id="authMsg"></div>' +
       '<p class="t-xs muted" id="regHint" style="margin-top:12px">' + regHintHTML() + '</p>';
   }
@@ -1342,7 +1373,7 @@
       '<input type="file" id="photoInput" accept="image/*" style="display:none" /></label>' +
       (edit.photo ? '<button class="btn btn--ghost btn--sm" data-act="clear-photo">' + icon('close') + 'Remove</button>' : '') +
       '</div>' +
-      '<p class="t-xs muted" style="margin-top:6px">Stored on this device with your profile. Resized to 256px.</p>' +
+      '<p class="t-xs muted" style="margin-top:6px">Uploaded to your account, so it follows you to every device.</p>' +
       '</div></div>' +
 
       '<div class="ffield"><label class="t-lab" for="ed_shopName">Shop name</label>' +
@@ -1484,7 +1515,7 @@
          screen and incomplete at checkout. */
       var uid = SM.fb && SM.fb.user() && SM.fb.user().uid;
       var mirrored = (uid && SM.store && SM.store.available())
-        ? SM.store.saveUser(uid, {
+        ? SM.store.saveProfile(uid, {
             displayName: edit.proprietor.trim(),
             shopName: edit.shopName.trim(),
             proprietor: edit.proprietor.trim(),
@@ -1495,8 +1526,12 @@
             country: c && c.name,
             countryCode: edit.country,
             address: edit.area.trim() || edit.city.trim() ? edit.city.trim() : null,
-            profileCompleted: true
-          })
+            /* Only a genuinely uploaded photo is recorded. A local preview is
+               not a stored photo, and writing its data URL here would put an
+               unusable value in front of every other device. */
+            profilePhotoURL: edit.photoURL || undefined,
+            profilePhotoPath: edit.photoPath || undefined
+          }, SM.fb.user())
         : Promise.resolve();
 
       return mirrored.then(function () {
@@ -2722,6 +2757,18 @@
         break;
 
       case 'google-signin': startGoogle(false); break;
+      /* Already through Google; this only saves the profile. */
+      case 'finish-signup': {
+        if (!regValid()) { toast('Fill the three required details first', 'alert'); break; }
+        var who = state.pendingIdentity;
+        if (!who) { toast('Sign in again to continue', 'alert'); break; }
+        t.disabled = true;
+        t.innerHTML = icon('refresh') + 'Saving…';
+        state.pendingIdentity = null;
+        finishGoogle(who, true);
+        break;
+      }
+
       case 'google-signup':
         REG_FIELDS.forEach(function (f) { reg.touched[f.k] = true; });
         if (!regValid()) { repaintAuth(); toast('Complete the highlighted fields first', 'alert'); break; }
@@ -2837,6 +2884,25 @@
   document.addEventListener('change', function (e) {
     if (e.target.id === 'photoInput') {
       var f = e.target.files && e.target.files[0];
+      /* Show the local preview immediately, then upload. The preview is what
+         makes the picker feel instant; the upload is what makes the photo
+         exist on the shop's other devices. */
+      var uid = SM.fb && SM.fb.user() && SM.fb.user().uid;
+      if (uid && SM.store && SM.store.available() && f) {
+        SM.store.uploadProfilePhoto(uid, f).then(function (r) {
+          edit.photoURL = r.url;
+          edit.photoPath = r.path;
+          toast('Photo uploaded');
+        }, function (err) {
+          /* Never claim an upload worked. The local preview stays so the form
+             is not disrupted, but the stored URL is left unset so the profile
+             save cannot record a photo that is not there. */
+          edit.photoURL = null;
+          edit.photoPath = null;
+          console.error('[photo] upload failed', err);
+          toast((err && err.message) || 'Photo upload failed — saved on this device only', 'alert');
+        });
+      }
       readPhoto(f).then(function (dataUrl) {
         edit.photo = dataUrl;
         state.sheet = { type: 'editprofile' }; renderSheet();
@@ -2927,6 +2993,9 @@
                 'persists the site configuration needs checking.');
         return;
       }
+      /* The page is navigating to Google; leave the button as it is rather
+         than flashing an error the user will never finish reading. */
+      if (err && err.code === 'redirecting') return;
       if (err && err.code === 'cancelled') { toast('Sign-in cancelled'); return; }
       authMsg(esc(err && err.message ? err.message : 'Google sign-in failed. Try again.'));
     });
