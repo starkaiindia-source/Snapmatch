@@ -73,15 +73,58 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const order = await razorpay.orders.create({
-      amount: plan.amountPaise,
-      currency: plan.currency,
-      receipt,
-      /* Notes travel back on the webhook, which has no Authorization header.
-         They are how a webhook learns whose subscription this is — and they
-         are cross-checked against our own stored order, never trusted alone. */
-      notes: { uid: user.uid, planId: plan.id, email: user.email || '' }
-    });
+    /* Razorpay's own refusals are NOT server errors, and reporting them as one
+       is what produced "Something went wrong starting the payment" for every
+       cause alike — a rejected key, an unactivated live account, a currency the
+       account cannot take. Those are three different things to go and fix, and
+       the browser could not tell them apart because the reason never left this
+       function.
+
+       The description Razorpay returns is operator-facing text of its own
+       ("Authentication failed", "Your account is not activated for live
+       payments"). It carries no credential — the secret is never echoed by the
+       API — so passing it through is safe, and it is the single most useful
+       sentence in the whole flow. */
+    let order;
+    try {
+      order = await razorpay.orders.create({
+        amount: plan.amountPaise,
+        currency: plan.currency,
+        receipt,
+        /* Notes travel back on the webhook, which has no Authorization header.
+           They are how a webhook learns whose subscription this is — and they
+           are cross-checked against our own stored order, never trusted alone. */
+        notes: { uid: user.uid, planId: plan.id, email: user.email || '' }
+      });
+    } catch (rzpErr) {
+      const detail = (rzpErr && rzpErr.error) || {};
+      const status = Number(rzpErr && rzpErr.statusCode) || 0;
+
+      console.error('[billing:create-order] Razorpay refused the order', {
+        mode: razorpayMode(),
+        statusCode: status,
+        code: detail.code || null,
+        description: detail.description || (rzpErr && rzpErr.message) || null,
+        reason: detail.reason || null,
+        field: detail.field || null,
+        planId: plan.id,
+        amountPaise: plan.amountPaise
+      });
+
+      /* 502: we are fine, the gateway refused us. A 500 would say the fault is
+         in this code and send whoever reads it hunting the wrong thing. */
+      return json(res, 502, {
+        error: 'razorpay-refused',
+        /* Razorpay's words, not ours — vague enough to be safe, specific
+           enough to act on. */
+        detail: detail.description || (rzpErr && rzpErr.message) || 'the payment gateway refused the order',
+        code: detail.code || null,
+        reason: detail.reason || null,
+        field: detail.field || null,
+        gatewayStatus: status || null,
+        mode: razorpayMode()
+      });
+    }
 
     await recordPendingOrder({
       orderId: order.id,

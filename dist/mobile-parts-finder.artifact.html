@@ -3780,12 +3780,32 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
             emailVerified: !!user.emailVerified
           };
         }, function (err) {
-          var e = new Error(
-            err && err.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled'
-              : err && err.code === 'auth/unauthorized-domain'
-                ? 'This domain is not on the Firebase authorised-domain list.'
-                : (err && err.message) || 'Google sign-in failed.');
-          e.code = err && err.code === 'auth/popup-closed-by-user' ? 'cancelled' : 'failed';
+          var code = err && err.code;
+          var host = (global.location && global.location.hostname) || 'this domain';
+
+          /* Name the domain. "This domain is not on the authorised list" is
+             true and useless — the fix is one paste into one console field, and
+             whoever reads this needs to know WHICH host to paste. It bites
+             hardest on Vercel preview URLs, which change with every deployment
+             and are never on the list. */
+          var message =
+            code === 'auth/popup-closed-by-user' || code === 'auth/user-cancelled'
+              ? 'Sign-in cancelled'
+          : code === 'auth/unauthorized-domain'
+              ? 'Google sign-in is not allowed from ' + host + '. Add it under ' +
+                'Firebase console → Authentication → Settings → Authorised domains, ' +
+                'or open the site on its own domain instead of this preview URL.'
+          : code === 'auth/operation-not-allowed'
+              ? 'Google sign-in is switched off for this Firebase project. Enable ' +
+                'the Google provider under Authentication → Sign-in method.'
+          : code === 'auth/network-request-failed'
+              ? 'Could not reach Google. Check the connection and try again.'
+          : (err && err.message) || 'Google sign-in failed.';
+
+          var e = new Error(message);
+          e.code = (code === 'auth/popup-closed-by-user' || code === 'auth/user-cancelled')
+            ? 'cancelled' : 'failed';
+          e.authCode = code || null;
           throw e;
         });
       }
@@ -4217,7 +4237,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       email: profile.email || '',
       picture: profile.picture || '',
       photo: profile.photo || '',
-      mobile: profile.mobile ? ((profile.dial || '') + ' ' + profile.mobile) : '',
+      /* The dial code is missing whenever the profile came back from Firestore
+         rather than from the sign-up form, and concatenating it blindly put a
+         leading space in front of every returning user's number. */
+      mobile: profile.mobile
+        ? (profile.dial ? profile.dial + ' ' + profile.mobile : String(profile.mobile))
+        : '',
       since: profile.createdAt ? fmtDate(new Date(profile.createdAt)) : '',
       subscription: null, plan: null, renewsOn: null
     };
@@ -4323,6 +4348,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       if (cached && cached.uid && cached.uid !== uid) cached = null;
 
       if (remote) {
+        /* The dial code is not stored — countryCode is — so it is looked up
+           again here. Without it the account page shows a bare number for
+           every user whose profile came back from Firestore rather than from
+           the form they filled in on this device. */
+        var rc = SM.countries.byCode(remote.countryCode) || {};
         SM.auth.saveProfile(uid, {
           uid: uid,
           email: remote.email || fbUser.email,
@@ -4331,9 +4361,14 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           shopName: remote.mobileShopName,
           proprietor: remote.proprietorName,
           mobile: remote.mobileNumber,
+          dial: rc.dial || null,
           country: remote.countryCode,
           countryName: remote.country,
-          address: remote.address
+          address: remote.address,
+          /* The day the shop joined, as Firestore records it. Without carrying
+             it across, the account page showed no "member since" for anyone
+             whose profile was loaded rather than created on this device. */
+          createdAt: remote.createdAt || null
         });
       } else if (cached) {
         /* Firestore has nothing and this browser does: the profile predates
@@ -4373,60 +4408,132 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   }
   SM.session_initializeAuthenticatedUser = initializeAuthenticatedUser;
 
+  /* ------------------------------------------------- registration, persisted
+
+     Writes the new shop's profile and RESOLVES ONLY WHEN FIRESTORE HAS IT.
+
+     This is the bug the account-creation flow was built on. Both writes used to
+     be fired and forgotten — `.catch()` on each, nothing awaited — and the
+     caller returned "Account created — welcome" a fixed 190 ms later whether
+     either had landed or not. A rejected write (a rules change, an offline
+     moment, an unauthorised domain) left a shop that existed in localStorage
+     and nowhere else: complete on that screen, absent on every other device,
+     and asked to sign up again the next time.
+
+     Two paths, because they fail for different reasons and rarely together:
+     the server write goes through the Admin SDK so no security rule can refuse
+     it, and the direct write needs no backend. EITHER landing is a real
+     profile. Only if BOTH fail is this a failure, and then it says so instead
+     of pretending.
+
+     @returns {Promise<object|null>} the stored profile, read back from Firestore
+  */
+  function persistRegistration(identity, registration) {
+    var c = SM.countries.byCode(registration.country) || {};
+    var digits = String(registration.mobile || '').replace(/\D/g, '');
+    var shop = {
+      mobileShopName: registration.shopName,
+      proprietorName: registration.proprietor,
+      /* Exactly what the user typed. An absent number stays absent — it is how
+         checkout knows to ask — and inventing one would put a fabricated
+         number on a real invoice. */
+      mobileNumber: registration.mobile,
+      mobileNumberE164: c.dial && digits ? '+' + String(c.dial).replace(/\D/g, '') + digits : '',
+      country: c.name || registration.countryName,
+      countryCode: registration.country,
+      address: registration.address || null
+    };
+
+    var serverOk = false, clientOk = false;
+    var reasons = [];
+
+    var viaServer = SM.billing
+      ? SM.billing.syncProfile({ photoURL: identity.picture || null, profile: shop })
+          .then(function (r) {
+            serverOk = true;
+            SM.debug.log('signup', 'profile written server side', { uid: r.uid, complete: r.profileCompleted });
+            return r;
+          }, function (e) {
+            reasons.push('server: ' + ((e && e.message) || 'unreachable'));
+            SM.debug.warn('signup', 'server profile write failed',
+                          { status: e && e.status, error: e && e.message });
+            return null;
+          })
+      : Promise.resolve(null);
+
+    var viaClient = (SM.store && SM.store.available() && SM.fb.user())
+      ? SM.store.saveProfile(identity.sub, shop, SM.fb.user())
+          .then(function (p) {
+            clientOk = true;
+            SM.debug.log('signup', 'profile written from the browser', { uid: identity.sub });
+            return p;
+          }, function (e) {
+            reasons.push('client: ' + ((e && e.code) || (e && e.message) || 'failed'));
+            SM.debug.warn('signup', 'direct profile write failed', { code: e && e.code });
+            return null;
+          })
+      : Promise.resolve(null);
+
+    return Promise.all([viaServer, viaClient]).then(function () {
+      if (!serverOk && !clientOk) {
+        var err = new Error('profile-save-failed');
+        err.code = 'profile-save-failed';
+        err.reasons = reasons;
+        throw err;
+      }
+      /* Read it back rather than trusting the write. What the account screen
+         shows is then the document as Firestore actually holds it. */
+      return SM.store.loadProfile(identity.sub).catch(function (e) {
+        SM.debug.warn('signup', 'profile saved but could not be read back', { code: e && e.code });
+        return null;
+      });
+    });
+  }
+
+  /* Completes a sign-in once the profile question is settled.
+
+     Always returns a promise. For a registration it settles only after
+     Firestore has the record — the local cache is written afterwards, from
+     what came back, so the cache can never be ahead of the server. */
   function finishSignIn(identity, registration, profile) {
     var existing = profile || SM.auth.findProfile(identity.sub);
 
-    if (registration) {
-      SM.auth.saveProfile(identity.sub, Object.assign({
-        email: identity.email, googleName: identity.name, picture: identity.picture,
-        createdAt: Date.now(), subscription: null
-      }, registration));
-
-      if (SM.store && SM.store.available() && SM.fb.user()) {
-        var c = SM.countries.byCode(registration.country) || {};
-        var digits = String(registration.mobile || '').replace(/\D/g, '');
-        var shop = {
-          mobileShopName: registration.shopName,
-          proprietorName: registration.proprietor,
-          mobileNumber: registration.mobile,
-          mobileNumberE164: c.dial && digits ? '+' + String(c.dial).replace(/\D/g, '') + digits : '',
-          country: c.name || registration.countryName,
-          countryCode: registration.country,
-          address: registration.address || null
-        };
-
-        /* Two paths to the same document, on purpose. The direct write keeps
-           the account screen instant; the server write cannot be swallowed by a
-           security rule and is what guarantees the record exists. Both are
-           merges of the same fields, so whichever lands second is a no-op
-           rather than a conflict. */
-        SM.store.saveProfile(identity.sub, shop, SM.fb.user()).catch(function (e) {
-          SM.debug.warn('auth', 'direct profile write failed', { code: e && e.code });
-        });
-        if (SM.billing) {
-          SM.billing.syncProfile({ photoURL: identity.picture || null, profile: shop })
-            .then(function (r) {
-              SM.debug.log('auth', 'registration persisted server side',
-                           { uid: r.uid, complete: r.profileCompleted });
-            })
-            .catch(function (e) {
-              SM.debug.warn('auth', 'server profile write failed',
-                            { status: e && e.status, error: e && e.message });
-            });
-        }
+    if (!registration) {
+      if (identity.email && existing && existing.email !== identity.email) {
+        SM.auth.saveProfile(identity.sub, { email: identity.email });
       }
-    } else if (identity.email && existing && existing.email !== identity.email) {
-      SM.auth.saveProfile(identity.sub, { email: identity.email });
+      writeSub(identity.sub);
+      refresh();
+      return respond({
+        session: current, isNew: !existing,
+        restored: !!(existing && existing.subscription)
+      }, LAT.normal);
     }
 
-    writeSub(identity.sub);
-    refresh();
-    return respond({
-      session: current, isNew: !existing,
-      restored: !!(existing && existing.subscription)
-    }, LAT.normal);
-  }
+    return persistRegistration(identity, registration).then(function (stored) {
+      /* Cache AFTER the server confirmed, and prefer the stored document's own
+         values over the form's. */
+      SM.auth.saveProfile(identity.sub, {
+        uid: identity.sub,
+        email: (stored && stored.email) || identity.email,
+        googleName: identity.name,
+        picture: (stored && stored.profilePhotoURL) || identity.picture,
+        shopName: (stored && stored.mobileShopName) || registration.shopName,
+        proprietor: (stored && stored.proprietorName) || registration.proprietor,
+        mobile: (stored && stored.mobileNumber) || registration.mobile,
+        country: (stored && stored.countryCode) || registration.country,
+        countryName: (stored && stored.country) || registration.countryName,
+        dial: registration.dial,
+        address: (stored && stored.address) || registration.address || null,
+        createdAt: (stored && stored.createdAt) || Date.now(),
+        subscription: null
+      });
 
+      writeSub(identity.sub);
+      refresh();
+      return { session: current, isNew: !existing, profile: stored, saved: true };
+    });
+  }
 
   /* keep the derived state honest while the tab stays open */
   setInterval(function () {
@@ -8426,8 +8533,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
              500 stays a 500: something genuinely failed, and claiming it was a
              configuration problem would send whoever reads the report hunting
              the wrong thing. */
+          var d = (err && err.data) || {};
+
+          /* Razorpay refused the order and said why. Its own description is
+             what the shop and whoever configured the account both need — "your
+             account is not activated for live payments" is a different job from
+             "authentication failed", and both used to read as the same
+             sentence. */
           var say =
-            msg === 'payments-unconfigured'  ? 'Payments are not switched on for this site yet'
+            msg === 'razorpay-refused'       ? 'Razorpay could not start this payment: ' +
+                                                 (d.detail || 'it refused the order') +
+                                                 ' — nothing was charged'
+          : msg === 'payments-unconfigured'  ? 'Payments are not switched on for this site yet'
           : msg === 'signin-required'        ? 'Sign in again to activate a plan'
           : msg === 'checkout-unavailable'   ? 'Razorpay Checkout did not load — check the connection and retry'
           : msg === 'unknown plan'           ? 'That plan is no longer available'
@@ -8449,6 +8566,14 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
             SM.billing.health().then(function (h) {
               console.error('[subscribe] payment backend not configured. Missing:',
                             (h && h.missing) || (err.data && err.data.missing) || 'unknown');
+            });
+          }
+          if (msg === 'razorpay-refused') {
+            /* The whole of Razorpay's answer, in one place, for whoever has to
+               go and fix the account. */
+            console.error('[subscribe] Razorpay refused the order:', {
+              detail: d.detail, code: d.code, reason: d.reason,
+              field: d.field, gatewayStatus: d.gatewayStatus, mode: d.mode
             });
           }
         });
@@ -8532,22 +8657,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
       case 'google-signin': startGoogle(false); break;
       /* Already through Google; this only saves the profile. */
-      case 'finish-signup': {
-        if (!regValid()) { toast('Fill the three required details first', 'alert'); break; }
-        var who = state.pendingIdentity;
-        if (!who) { toast('Sign in again to continue', 'alert'); break; }
-        t.disabled = true;
-        t.innerHTML = icon('refresh') + 'Saving…';
-        state.pendingIdentity = null;
-        finishGoogle(who, true);
+      /* Already through Google; this only saves the profile. */
+      case 'finish-signup':
+        submitRegistration(t, state.pendingIdentity);
         break;
-      }
 
       case 'google-signup':
+        /* Already authenticated and only missing the shop profile — same
+           guarded path as the button above. Otherwise Google comes first. */
+        if (state.pendingIdentity) { submitRegistration(t, state.pendingIdentity); break; }
         REG_FIELDS.forEach(function (f) { reg.touched[f.k] = true; });
         if (!regValid()) { repaintAuth(); toast('Complete the highlighted fields first', 'alert'); break; }
-        /* already authenticated, just missing the shop profile */
-        if (state.pendingIdentity) { finishGoogle(state.pendingIdentity, true); state.pendingIdentity = null; break; }
         startGoogle(true);
         break;
     }
@@ -8810,6 +8930,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       : resolveSignIn(identity);
 
     settle.then(function (res) {
+      signupInFlight = false;
       if (res && res.needsRegistration) {
         /* known Google account, no shop profile yet — send them to the form */
         authMode = 'signup';
@@ -8828,16 +8949,84 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         authMsg('That Google account has no shop profile yet. Fill in your shop details below to finish creating it.');
         return;
       }
+      /* Cleared HERE, not before the write — a failed save keeps the identity
+         so the same details can be resubmitted. */
+      state.pendingIdentity = null;
       renderShellBits();
       renderAccount(document.getElementById('page'));
-      toast(res && res.isNew ? 'Account created — welcome' : 'Signed in');
+      toast(res && res.saved ? 'Account created — your details are saved'
+          : res && res.isNew ? 'Account created — welcome'
+          : 'Signed in');
       if (state.afterSignIn) { var go2 = state.afterSignIn; state.afterSignIn = null; go(go2); }
     }, function (err) {
-      SM.debug.warn('auth', 'could not complete sign-in', { message: err && err.message });
-      var btn = document.querySelector('.gbtn');
-      if (btn) { btn.classList.remove('is-busy'); btn.disabled = false; }
+      signupInFlight = false;
+      SM.debug.warn('auth', 'could not complete sign-in',
+                    { code: err && err.code, message: err && err.message, reasons: err && err.reasons });
+
+      /* The account was NOT created. Say so, put the button back, and keep the
+         identity so the same details can be submitted again with one tap —
+         this used to toast "Account created — welcome" over a failed write. */
+      restoreSignupButton();
+      if (err && err.code === 'profile-save-failed') {
+        state.pendingIdentity = identity;
+        authMsg('Your details could not be saved to your account, so it has not been created. ' +
+                'Check the connection and press Create account again.' +
+                (err.reasons && err.reasons.length
+                  ? ' <span class="muted">(' + esc(err.reasons.join('; ')) + ')</span>'
+                  : ''));
+        toast('Account not created — nothing was saved', 'alert');
+        return;
+      }
+      if (err && err.code === 'profile-unreadable') {
+        authMsg('Signed in, but your account could not be read from the server. ' +
+                'Check the connection and try again — your details are safe, and ' +
+                'nothing needs re-entering.');
+        toast('Could not load your account — try again', 'alert');
+        return;
+      }
       authMsg('Signed in with Google, but your profile could not be loaded. Check the connection and reload.');
     });
+  }
+
+  /* One registration at a time. Two taps on Create account used to run the
+     whole flow twice against the same uid. The writes merge, so it did not
+     duplicate a document, but it did fire two Firestore writes and two toasts
+     for one action. */
+  var signupInFlight = false;
+
+  function restoreSignupButton() {
+    var btn = document.querySelector('[data-act="finish-signup"], [data-act="google-signup"]');
+    if (btn) {
+      btn.disabled = false;
+      if (btn.dataset.label) btn.innerHTML = btn.dataset.label;
+    }
+    var g = document.querySelector('.gbtn');
+    if (g) { g.classList.remove('is-busy'); g.disabled = false; }
+  }
+
+  /* Validates, locks the button, and hands off. Shared by both buttons that can
+     submit the form so the guard and the loading state cannot drift apart. */
+  function submitRegistration(btn, identity) {
+    if (signupInFlight) return;
+    REG_FIELDS.forEach(function (f) { reg.touched[f.k] = true; });
+    if (!regValid()) {
+      repaintAuth();
+      toast('Complete the highlighted fields first', 'alert');
+      return;
+    }
+    if (!identity) { toast('Sign in again to continue', 'alert'); return; }
+
+    signupInFlight = true;
+    if (btn) {
+      btn.dataset.label = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = icon('refresh') + 'Saving your details…';
+    }
+    authMsg('');
+    /* pendingIdentity is NOT cleared here. It used to be, so a failed save left
+       nothing to retry with and the shop had to sign in again to re-enter
+       everything. It is cleared on success instead. */
+    finishGoogle(identity, true);
   }
 
   /* The plain sign-in half of finishGoogle: resolve identity exactly as boot
@@ -8861,6 +9050,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
          life, waiting for an answer that has already come back. */
       identitySettled = true;
       identityReady = Promise.resolve(r);
+
+      /* Firestore could not be read — offline, blocked, rules in flight. That
+         is NOT the same as "this account has no profile", and treating it as
+         one shows the sign-up form to a shop that already has an account and
+         invites it to enter everything a second time. Refuse to guess. */
+      if (r && r.offline) {
+        var offline = new Error('profile-unreadable');
+        offline.code = 'profile-unreadable';
+        throw offline;
+      }
+
       if (!r || !r.complete) {
         return { needsRegistration: true, identity: identity, existing: (r && r.profile) || null };
       }

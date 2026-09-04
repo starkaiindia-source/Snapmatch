@@ -366,7 +366,12 @@
       email: profile.email || '',
       picture: profile.picture || '',
       photo: profile.photo || '',
-      mobile: profile.mobile ? ((profile.dial || '') + ' ' + profile.mobile) : '',
+      /* The dial code is missing whenever the profile came back from Firestore
+         rather than from the sign-up form, and concatenating it blindly put a
+         leading space in front of every returning user's number. */
+      mobile: profile.mobile
+        ? (profile.dial ? profile.dial + ' ' + profile.mobile : String(profile.mobile))
+        : '',
       since: profile.createdAt ? fmtDate(new Date(profile.createdAt)) : '',
       subscription: null, plan: null, renewsOn: null
     };
@@ -472,6 +477,11 @@
       if (cached && cached.uid && cached.uid !== uid) cached = null;
 
       if (remote) {
+        /* The dial code is not stored — countryCode is — so it is looked up
+           again here. Without it the account page shows a bare number for
+           every user whose profile came back from Firestore rather than from
+           the form they filled in on this device. */
+        var rc = SM.countries.byCode(remote.countryCode) || {};
         SM.auth.saveProfile(uid, {
           uid: uid,
           email: remote.email || fbUser.email,
@@ -480,9 +490,14 @@
           shopName: remote.mobileShopName,
           proprietor: remote.proprietorName,
           mobile: remote.mobileNumber,
+          dial: rc.dial || null,
           country: remote.countryCode,
           countryName: remote.country,
-          address: remote.address
+          address: remote.address,
+          /* The day the shop joined, as Firestore records it. Without carrying
+             it across, the account page showed no "member since" for anyone
+             whose profile was loaded rather than created on this device. */
+          createdAt: remote.createdAt || null
         });
       } else if (cached) {
         /* Firestore has nothing and this browser does: the profile predates
@@ -522,60 +537,132 @@
   }
   SM.session_initializeAuthenticatedUser = initializeAuthenticatedUser;
 
+  /* ------------------------------------------------- registration, persisted
+
+     Writes the new shop's profile and RESOLVES ONLY WHEN FIRESTORE HAS IT.
+
+     This is the bug the account-creation flow was built on. Both writes used to
+     be fired and forgotten — `.catch()` on each, nothing awaited — and the
+     caller returned "Account created — welcome" a fixed 190 ms later whether
+     either had landed or not. A rejected write (a rules change, an offline
+     moment, an unauthorised domain) left a shop that existed in localStorage
+     and nowhere else: complete on that screen, absent on every other device,
+     and asked to sign up again the next time.
+
+     Two paths, because they fail for different reasons and rarely together:
+     the server write goes through the Admin SDK so no security rule can refuse
+     it, and the direct write needs no backend. EITHER landing is a real
+     profile. Only if BOTH fail is this a failure, and then it says so instead
+     of pretending.
+
+     @returns {Promise<object|null>} the stored profile, read back from Firestore
+  */
+  function persistRegistration(identity, registration) {
+    var c = SM.countries.byCode(registration.country) || {};
+    var digits = String(registration.mobile || '').replace(/\D/g, '');
+    var shop = {
+      mobileShopName: registration.shopName,
+      proprietorName: registration.proprietor,
+      /* Exactly what the user typed. An absent number stays absent — it is how
+         checkout knows to ask — and inventing one would put a fabricated
+         number on a real invoice. */
+      mobileNumber: registration.mobile,
+      mobileNumberE164: c.dial && digits ? '+' + String(c.dial).replace(/\D/g, '') + digits : '',
+      country: c.name || registration.countryName,
+      countryCode: registration.country,
+      address: registration.address || null
+    };
+
+    var serverOk = false, clientOk = false;
+    var reasons = [];
+
+    var viaServer = SM.billing
+      ? SM.billing.syncProfile({ photoURL: identity.picture || null, profile: shop })
+          .then(function (r) {
+            serverOk = true;
+            SM.debug.log('signup', 'profile written server side', { uid: r.uid, complete: r.profileCompleted });
+            return r;
+          }, function (e) {
+            reasons.push('server: ' + ((e && e.message) || 'unreachable'));
+            SM.debug.warn('signup', 'server profile write failed',
+                          { status: e && e.status, error: e && e.message });
+            return null;
+          })
+      : Promise.resolve(null);
+
+    var viaClient = (SM.store && SM.store.available() && SM.fb.user())
+      ? SM.store.saveProfile(identity.sub, shop, SM.fb.user())
+          .then(function (p) {
+            clientOk = true;
+            SM.debug.log('signup', 'profile written from the browser', { uid: identity.sub });
+            return p;
+          }, function (e) {
+            reasons.push('client: ' + ((e && e.code) || (e && e.message) || 'failed'));
+            SM.debug.warn('signup', 'direct profile write failed', { code: e && e.code });
+            return null;
+          })
+      : Promise.resolve(null);
+
+    return Promise.all([viaServer, viaClient]).then(function () {
+      if (!serverOk && !clientOk) {
+        var err = new Error('profile-save-failed');
+        err.code = 'profile-save-failed';
+        err.reasons = reasons;
+        throw err;
+      }
+      /* Read it back rather than trusting the write. What the account screen
+         shows is then the document as Firestore actually holds it. */
+      return SM.store.loadProfile(identity.sub).catch(function (e) {
+        SM.debug.warn('signup', 'profile saved but could not be read back', { code: e && e.code });
+        return null;
+      });
+    });
+  }
+
+  /* Completes a sign-in once the profile question is settled.
+
+     Always returns a promise. For a registration it settles only after
+     Firestore has the record — the local cache is written afterwards, from
+     what came back, so the cache can never be ahead of the server. */
   function finishSignIn(identity, registration, profile) {
     var existing = profile || SM.auth.findProfile(identity.sub);
 
-    if (registration) {
-      SM.auth.saveProfile(identity.sub, Object.assign({
-        email: identity.email, googleName: identity.name, picture: identity.picture,
-        createdAt: Date.now(), subscription: null
-      }, registration));
-
-      if (SM.store && SM.store.available() && SM.fb.user()) {
-        var c = SM.countries.byCode(registration.country) || {};
-        var digits = String(registration.mobile || '').replace(/\D/g, '');
-        var shop = {
-          mobileShopName: registration.shopName,
-          proprietorName: registration.proprietor,
-          mobileNumber: registration.mobile,
-          mobileNumberE164: c.dial && digits ? '+' + String(c.dial).replace(/\D/g, '') + digits : '',
-          country: c.name || registration.countryName,
-          countryCode: registration.country,
-          address: registration.address || null
-        };
-
-        /* Two paths to the same document, on purpose. The direct write keeps
-           the account screen instant; the server write cannot be swallowed by a
-           security rule and is what guarantees the record exists. Both are
-           merges of the same fields, so whichever lands second is a no-op
-           rather than a conflict. */
-        SM.store.saveProfile(identity.sub, shop, SM.fb.user()).catch(function (e) {
-          SM.debug.warn('auth', 'direct profile write failed', { code: e && e.code });
-        });
-        if (SM.billing) {
-          SM.billing.syncProfile({ photoURL: identity.picture || null, profile: shop })
-            .then(function (r) {
-              SM.debug.log('auth', 'registration persisted server side',
-                           { uid: r.uid, complete: r.profileCompleted });
-            })
-            .catch(function (e) {
-              SM.debug.warn('auth', 'server profile write failed',
-                            { status: e && e.status, error: e && e.message });
-            });
-        }
+    if (!registration) {
+      if (identity.email && existing && existing.email !== identity.email) {
+        SM.auth.saveProfile(identity.sub, { email: identity.email });
       }
-    } else if (identity.email && existing && existing.email !== identity.email) {
-      SM.auth.saveProfile(identity.sub, { email: identity.email });
+      writeSub(identity.sub);
+      refresh();
+      return respond({
+        session: current, isNew: !existing,
+        restored: !!(existing && existing.subscription)
+      }, LAT.normal);
     }
 
-    writeSub(identity.sub);
-    refresh();
-    return respond({
-      session: current, isNew: !existing,
-      restored: !!(existing && existing.subscription)
-    }, LAT.normal);
-  }
+    return persistRegistration(identity, registration).then(function (stored) {
+      /* Cache AFTER the server confirmed, and prefer the stored document's own
+         values over the form's. */
+      SM.auth.saveProfile(identity.sub, {
+        uid: identity.sub,
+        email: (stored && stored.email) || identity.email,
+        googleName: identity.name,
+        picture: (stored && stored.profilePhotoURL) || identity.picture,
+        shopName: (stored && stored.mobileShopName) || registration.shopName,
+        proprietor: (stored && stored.proprietorName) || registration.proprietor,
+        mobile: (stored && stored.mobileNumber) || registration.mobile,
+        country: (stored && stored.countryCode) || registration.country,
+        countryName: (stored && stored.country) || registration.countryName,
+        dial: registration.dial,
+        address: (stored && stored.address) || registration.address || null,
+        createdAt: (stored && stored.createdAt) || Date.now(),
+        subscription: null
+      });
 
+      writeSub(identity.sub);
+      refresh();
+      return { session: current, isNew: !existing, profile: stored, saved: true };
+    });
+  }
 
   /* keep the derived state honest while the tab stays open */
   setInterval(function () {

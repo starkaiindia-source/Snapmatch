@@ -2891,8 +2891,18 @@
              500 stays a 500: something genuinely failed, and claiming it was a
              configuration problem would send whoever reads the report hunting
              the wrong thing. */
+          var d = (err && err.data) || {};
+
+          /* Razorpay refused the order and said why. Its own description is
+             what the shop and whoever configured the account both need — "your
+             account is not activated for live payments" is a different job from
+             "authentication failed", and both used to read as the same
+             sentence. */
           var say =
-            msg === 'payments-unconfigured'  ? 'Payments are not switched on for this site yet'
+            msg === 'razorpay-refused'       ? 'Razorpay could not start this payment: ' +
+                                                 (d.detail || 'it refused the order') +
+                                                 ' — nothing was charged'
+          : msg === 'payments-unconfigured'  ? 'Payments are not switched on for this site yet'
           : msg === 'signin-required'        ? 'Sign in again to activate a plan'
           : msg === 'checkout-unavailable'   ? 'Razorpay Checkout did not load — check the connection and retry'
           : msg === 'unknown plan'           ? 'That plan is no longer available'
@@ -2914,6 +2924,14 @@
             SM.billing.health().then(function (h) {
               console.error('[subscribe] payment backend not configured. Missing:',
                             (h && h.missing) || (err.data && err.data.missing) || 'unknown');
+            });
+          }
+          if (msg === 'razorpay-refused') {
+            /* The whole of Razorpay's answer, in one place, for whoever has to
+               go and fix the account. */
+            console.error('[subscribe] Razorpay refused the order:', {
+              detail: d.detail, code: d.code, reason: d.reason,
+              field: d.field, gatewayStatus: d.gatewayStatus, mode: d.mode
             });
           }
         });
@@ -2997,22 +3015,17 @@
 
       case 'google-signin': startGoogle(false); break;
       /* Already through Google; this only saves the profile. */
-      case 'finish-signup': {
-        if (!regValid()) { toast('Fill the three required details first', 'alert'); break; }
-        var who = state.pendingIdentity;
-        if (!who) { toast('Sign in again to continue', 'alert'); break; }
-        t.disabled = true;
-        t.innerHTML = icon('refresh') + 'Saving…';
-        state.pendingIdentity = null;
-        finishGoogle(who, true);
+      /* Already through Google; this only saves the profile. */
+      case 'finish-signup':
+        submitRegistration(t, state.pendingIdentity);
         break;
-      }
 
       case 'google-signup':
+        /* Already authenticated and only missing the shop profile — same
+           guarded path as the button above. Otherwise Google comes first. */
+        if (state.pendingIdentity) { submitRegistration(t, state.pendingIdentity); break; }
         REG_FIELDS.forEach(function (f) { reg.touched[f.k] = true; });
         if (!regValid()) { repaintAuth(); toast('Complete the highlighted fields first', 'alert'); break; }
-        /* already authenticated, just missing the shop profile */
-        if (state.pendingIdentity) { finishGoogle(state.pendingIdentity, true); state.pendingIdentity = null; break; }
         startGoogle(true);
         break;
     }
@@ -3275,6 +3288,7 @@
       : resolveSignIn(identity);
 
     settle.then(function (res) {
+      signupInFlight = false;
       if (res && res.needsRegistration) {
         /* known Google account, no shop profile yet — send them to the form */
         authMode = 'signup';
@@ -3293,16 +3307,84 @@
         authMsg('That Google account has no shop profile yet. Fill in your shop details below to finish creating it.');
         return;
       }
+      /* Cleared HERE, not before the write — a failed save keeps the identity
+         so the same details can be resubmitted. */
+      state.pendingIdentity = null;
       renderShellBits();
       renderAccount(document.getElementById('page'));
-      toast(res && res.isNew ? 'Account created — welcome' : 'Signed in');
+      toast(res && res.saved ? 'Account created — your details are saved'
+          : res && res.isNew ? 'Account created — welcome'
+          : 'Signed in');
       if (state.afterSignIn) { var go2 = state.afterSignIn; state.afterSignIn = null; go(go2); }
     }, function (err) {
-      SM.debug.warn('auth', 'could not complete sign-in', { message: err && err.message });
-      var btn = document.querySelector('.gbtn');
-      if (btn) { btn.classList.remove('is-busy'); btn.disabled = false; }
+      signupInFlight = false;
+      SM.debug.warn('auth', 'could not complete sign-in',
+                    { code: err && err.code, message: err && err.message, reasons: err && err.reasons });
+
+      /* The account was NOT created. Say so, put the button back, and keep the
+         identity so the same details can be submitted again with one tap —
+         this used to toast "Account created — welcome" over a failed write. */
+      restoreSignupButton();
+      if (err && err.code === 'profile-save-failed') {
+        state.pendingIdentity = identity;
+        authMsg('Your details could not be saved to your account, so it has not been created. ' +
+                'Check the connection and press Create account again.' +
+                (err.reasons && err.reasons.length
+                  ? ' <span class="muted">(' + esc(err.reasons.join('; ')) + ')</span>'
+                  : ''));
+        toast('Account not created — nothing was saved', 'alert');
+        return;
+      }
+      if (err && err.code === 'profile-unreadable') {
+        authMsg('Signed in, but your account could not be read from the server. ' +
+                'Check the connection and try again — your details are safe, and ' +
+                'nothing needs re-entering.');
+        toast('Could not load your account — try again', 'alert');
+        return;
+      }
       authMsg('Signed in with Google, but your profile could not be loaded. Check the connection and reload.');
     });
+  }
+
+  /* One registration at a time. Two taps on Create account used to run the
+     whole flow twice against the same uid. The writes merge, so it did not
+     duplicate a document, but it did fire two Firestore writes and two toasts
+     for one action. */
+  var signupInFlight = false;
+
+  function restoreSignupButton() {
+    var btn = document.querySelector('[data-act="finish-signup"], [data-act="google-signup"]');
+    if (btn) {
+      btn.disabled = false;
+      if (btn.dataset.label) btn.innerHTML = btn.dataset.label;
+    }
+    var g = document.querySelector('.gbtn');
+    if (g) { g.classList.remove('is-busy'); g.disabled = false; }
+  }
+
+  /* Validates, locks the button, and hands off. Shared by both buttons that can
+     submit the form so the guard and the loading state cannot drift apart. */
+  function submitRegistration(btn, identity) {
+    if (signupInFlight) return;
+    REG_FIELDS.forEach(function (f) { reg.touched[f.k] = true; });
+    if (!regValid()) {
+      repaintAuth();
+      toast('Complete the highlighted fields first', 'alert');
+      return;
+    }
+    if (!identity) { toast('Sign in again to continue', 'alert'); return; }
+
+    signupInFlight = true;
+    if (btn) {
+      btn.dataset.label = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = icon('refresh') + 'Saving your details…';
+    }
+    authMsg('');
+    /* pendingIdentity is NOT cleared here. It used to be, so a failed save left
+       nothing to retry with and the shop had to sign in again to re-enter
+       everything. It is cleared on success instead. */
+    finishGoogle(identity, true);
   }
 
   /* The plain sign-in half of finishGoogle: resolve identity exactly as boot
@@ -3326,6 +3408,17 @@
          life, waiting for an answer that has already come back. */
       identitySettled = true;
       identityReady = Promise.resolve(r);
+
+      /* Firestore could not be read — offline, blocked, rules in flight. That
+         is NOT the same as "this account has no profile", and treating it as
+         one shows the sign-up form to a shop that already has an account and
+         invites it to enter everything a second time. Refuse to guess. */
+      if (r && r.offline) {
+        var offline = new Error('profile-unreadable');
+        offline.code = 'profile-unreadable';
+        throw offline;
+      }
+
       if (!r || !r.complete) {
         return { needsRegistration: true, identity: identity, existing: (r && r.profile) || null };
       }

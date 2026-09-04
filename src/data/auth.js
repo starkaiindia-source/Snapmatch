@@ -132,12 +132,32 @@
             emailVerified: !!user.emailVerified
           };
         }, function (err) {
-          var e = new Error(
-            err && err.code === 'auth/popup-closed-by-user' ? 'Sign-in cancelled'
-              : err && err.code === 'auth/unauthorized-domain'
-                ? 'This domain is not on the Firebase authorised-domain list.'
-                : (err && err.message) || 'Google sign-in failed.');
-          e.code = err && err.code === 'auth/popup-closed-by-user' ? 'cancelled' : 'failed';
+          var code = err && err.code;
+          var host = (global.location && global.location.hostname) || 'this domain';
+
+          /* Name the domain. "This domain is not on the authorised list" is
+             true and useless — the fix is one paste into one console field, and
+             whoever reads this needs to know WHICH host to paste. It bites
+             hardest on Vercel preview URLs, which change with every deployment
+             and are never on the list. */
+          var message =
+            code === 'auth/popup-closed-by-user' || code === 'auth/user-cancelled'
+              ? 'Sign-in cancelled'
+          : code === 'auth/unauthorized-domain'
+              ? 'Google sign-in is not allowed from ' + host + '. Add it under ' +
+                'Firebase console → Authentication → Settings → Authorised domains, ' +
+                'or open the site on its own domain instead of this preview URL.'
+          : code === 'auth/operation-not-allowed'
+              ? 'Google sign-in is switched off for this Firebase project. Enable ' +
+                'the Google provider under Authentication → Sign-in method.'
+          : code === 'auth/network-request-failed'
+              ? 'Could not reach Google. Check the connection and try again.'
+          : (err && err.message) || 'Google sign-in failed.';
+
+          var e = new Error(message);
+          e.code = (code === 'auth/popup-closed-by-user' || code === 'auth/user-cancelled')
+            ? 'cancelled' : 'failed';
+          e.authCode = code || null;
           throw e;
         });
       }
