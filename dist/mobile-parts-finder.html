@@ -5362,16 +5362,48 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     },
 
     /* swap a drawn render for a photographed one, without touching components */
-    registerCategory: function (id, url) { catImages[id] = url; },
+    /* Points a category at its official picture.
+       `fallbackUrl` is the SAME official logo, deployed with the site — used
+       when the primary does not load, so a network problem shows the right
+       part rather than a drawn icon of a different one. */
+    registerCategory: function (id, url, fallbackUrl) {
+      catImages[id] = { url: url, fallback: fallbackUrl || null };
+    },
     registerBrand: function (id, url) { SM.brandFiles[id] = url; },
 
     /* categoryId -> product render, wrapped in a light product thumbnail */
-    category: function (categoryId, cls) {
+    /* THE one place a category picture is resolved. Every surface — the finder
+       rail, the category tiles, group cards, group sheets, category headers,
+       search results — already comes through here, so registering an official
+       logo once makes all of them correct at the same moment. No component
+       chooses its own icon, and the same category cannot end up showing two
+       different pictures in two places.
+
+       Spellings resolve through SM.categoryAssets, so "screen-guards",
+       "Screen Guard" and "tempered glass" all land on the same asset. */
+    category: function (categoryId, cls, label) {
+      var key = categoryId;
+      if (!catImages[key] && SM.categoryAssets) {
+        key = SM.categoryAssets.resolve(categoryId) || categoryId;
+      }
       var id = SYMBOLS[categoryId] ? categoryId : (categoryId === 'all' ? 'all' : 'spare-parts');
-      var inner = catImages[categoryId]
-        ? '<img class="pimg" src="' + esc(catImages[categoryId]) + '" alt="" loading="lazy" ' +
-          'onerror="this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))" />'
-        : this.svgMarkup(id);
+      var entry = catImages[key];
+      var inner;
+
+      if (entry) {
+        /* Two steps down, and the first step is the identical official file
+           served from this site. The drawn symbol appears only when both are
+           unreachable — a generic icon must never quietly stand in for a
+           specific part, because that is worse than showing nothing. */
+        var onerr = entry.fallback
+          ? 'if(this.dataset.fb){this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))}' +
+            'else{this.dataset.fb=1;this.src=\'' + esc(entry.fallback) + '\'}'
+          : 'this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))';
+        inner = '<img class="pimg" src="' + esc(entry.url) + '" alt="' + esc(label || '') + '" ' +
+          'loading="lazy" decoding="async" onerror="' + onerr + '" />';
+      } else {
+        inner = this.svgMarkup(id);
+      }
       return '<span class="pthumb ' + (cls || '') + '">' + inner + '</span>';
     },
 
@@ -5463,6 +5495,137 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 })(window);
 
 
+/* === src/data/category-assets.js === */
+/* ============================================================================
+   Mobile Parts Finder · category-assets.js — the official category logos
+   ----------------------------------------------------------------------------
+   GENERATED. Do not edit by hand.
+
+       python scripts/build-category-assets.py --src "<folder of masters>"
+       node scripts/upload-category-assets.js --project mobilepartsfinder
+
+   ONE MAPPING, EVERY SURFACE
+
+     Category logos are resolved here and nowhere else. Registering them into
+     SM.art means every existing call site — the finder rail, the category
+     tiles, group cards, group sheets, category headers, search results — shows
+     the same official picture for the same category, because they all already
+     go through SM.art.category(). No component picks its own icon.
+
+   ALIASES
+
+     The same category is spelled several ways across the source data and the
+     SEO pages: "screen-guards", "screen guard", "tempered glass". They all
+     resolve to one asset, so a naming variation can never produce a different
+     logo for the same part.
+
+   TWO URLS PER CATEGORY, AND WHY
+
+     storage  Firebase Storage — the system of record, and what the site loads.
+     bundled  the identical file deployed with the site.
+
+     The bundled copy is the fallback, and it is the SAME OFFICIAL LOGO, not a
+     generic stand-in. If Storage is slow, blocked or misconfigured the category
+     still shows its own picture rather than a drawn icon that means something
+     else.
+
+   Generated 2026-09-04T19:53:23.052Z
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  var ASSETS = {
+    'screen-guards': {
+      label: "Screen Guards",
+      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fscreen-guards%2Flogo-256.png?alt=media",
+      bundled: "/assets/categories/screen-guards.png"
+    },
+    'back-cover': {
+      label: "Back Cover",
+      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fback-cover%2Flogo-256.png?alt=media",
+      bundled: "/assets/categories/back-cover.png"
+    },
+    'combo-display': {
+      label: "Combo/Display",
+      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fcombo-display%2Flogo-256.png?alt=media",
+      bundled: "/assets/categories/combo-display.png"
+    },
+    'middle-frame': {
+      label: "Middle Frame",
+      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fmiddle-frame%2Flogo-256.png?alt=media",
+      bundled: "/assets/categories/middle-frame.png"
+    },
+    'cc-board': {
+      label: "CC Board",
+      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fcc-board%2Flogo-256.png?alt=media",
+      bundled: "/assets/categories/cc-board.png"
+    },
+    'battery': {
+      label: "Battery",
+      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fbattery%2Flogo-256.png?alt=media",
+      bundled: "/assets/categories/battery.png"
+    }
+  };
+
+  /* Spellings that mean the same category. The app's own ids are the keys of
+     ASSETS above; these are the variants that appear in source data, URLs and
+     copy. Normalised the same way on both sides, so case and punctuation do not
+     matter. */
+  var ALIASES = {
+    'screen-guards': ['screen', 'screens', 'screen guard', 'screen guards', 'screenguard',
+                      'tempered glass', 'temperedglass', 'glass', 'universal tempered glass',
+                      'sg'],
+    'back-cover':    ['back cover', 'backcover', 'cover', 'universal back cover', 'bc'],
+    'combo-display': ['combo display', 'combodisplay', 'combo/display', 'display', 'combo',
+                      'folder', 'lcd', 'cd'],
+    'middle-frame':  ['middle frame', 'middleframe', 'frame', 'mid frame', 'mf'],
+    'cc-board':      ['cc board', 'ccboard', 'charging board', 'charging connector board',
+                      'connector board', 'cc'],
+    'battery':       ['battery', 'batteries', 'bt']
+  };
+
+  function norm(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+
+  var LOOKUP = Object.create(null);
+  Object.keys(ASSETS).forEach(function (id) {
+    LOOKUP[norm(id)] = id;
+    LOOKUP[norm(ASSETS[id].label)] = id;
+    (ALIASES[id] || []).forEach(function (a) { LOOKUP[norm(a)] = id; });
+  });
+
+  SM.categoryAssets = {
+    /** Canonical category id for any spelling, or null. */
+    resolve: function (nameOrId) {
+      return LOOKUP[norm(nameOrId)] || null;
+    },
+
+    /** { storage, bundled, label } for a category, or null when there is none. */
+    get: function (nameOrId) {
+      var id = this.resolve(nameOrId);
+      return id ? ASSETS[id] : null;
+    },
+
+    /** Every category that has an official logo. */
+    ids: function () { return Object.keys(ASSETS); },
+
+    /**
+     * Registers every logo with SM.art, which is what the whole UI already
+     * calls. One call, and every surface is correct at once.
+     */
+    install: function () {
+      if (!SM.art || !SM.art.registerCategory) return false;
+      Object.keys(ASSETS).forEach(function (id) {
+        SM.art.registerCategory(id, ASSETS[id].storage, ASSETS[id].bundled);
+      });
+      return true;
+    }
+  };
+})(window);
+
+
 /* === src/ui/components.js === */
 /* ============================================================================
    Mobile Parts Finder · components.js
@@ -5548,7 +5711,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     return '<button type="button" class="cat' + (opts.active ? ' is-on' : '') + (off ? ' is-off' : '') + '" ' +
       'data-act="' + (opts.act || 'pick-cat') + '" data-id="' + cat.id + '" style="--c:' + cat.color + '"' + (off ? ' disabled' : '') + '>' +
       '<span class="cat__tick">' + icon('checkCircle') + '</span>' +
-      SM.art.category(cat.id, 'pthumb--cat') +
+      SM.art.category(cat.id, 'pthumb--cat', cat.name) +
       '<span class="cat__name">' + esc(cat.name) + '</span>' +
       '<span class="cat__n">' + (count == null ? cat.groupCount + ' groups' : count ? count + (count === 1 ? ' group' : ' groups') : 'No group yet') + '</span>' +
       '</button>';
@@ -5589,7 +5752,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '</div>' +
       '<div class="plate__body">' +
       /* the category render carries the visual identity — which part this is */
-      '<div class="plate__master">' + SM.art.category(cat.id, 'pthumb--plate') +
+      '<div class="plate__master">' + SM.art.category(cat.id, 'pthumb--plate', cat.name) +
       '<div class="grow">' +
       '<span class="masterflag">' + icon('crown') + 'Master model</span>' +
       '<h3 class="plate__mname">' + esc(master.fullName) + '</h3>' +
@@ -6359,7 +6522,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       var empty = count === 0;
       return '<button type="button" class="crail__item' + (on ? ' is-on' : '') + (empty ? ' is-empty' : '') + '" ' +
         'data-act="pick-cat-rail" data-id="' + id + '" aria-pressed="' + on + '"' + (empty ? ' disabled' : '') + '>' +
-        SM.art.category(id, 'pthumb--rail') +
+        SM.art.category(id, 'pthumb--rail', name) +
         '<span class="crail__name">' + esc(name) + '</span>' +
         '<span class="crail__n">' + (count == null ? '&nbsp;' : count) + '</span>' +
         '</button>';
@@ -6380,7 +6543,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       var on = sel === id;
       return '<button type="button" class="crail__item' + (on ? ' is-on' : '') + '" ' +
         'data-act="filter-cat" data-id="' + id + '" aria-pressed="' + on + '">' +
-        SM.art.category(id, 'pthumb--rail') +
+        SM.art.category(id, 'pthumb--rail', name) +
         '<span class="crail__name">' + esc(name) + '</span>' +
         '<span class="crail__n">' + count + '</span>' +
         '</button>';
@@ -6407,7 +6570,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return '<button type="button" class="ctile' + (on ? ' is-on' : '') + (wide ? ' ctile--wide' : '') + '" ' +
         'data-act="filter-cat" data-id="' + id + '" style="--c:' + color + '"' +
         (on ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
-        SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile') +
+        SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name) +
         '<span class="ctile__foot"><span class="ctile__name">' + esc(name) + '</span>' +
         '<span class="ctile__n">' + count + ' ' + (count === 1 ? 'group' : 'groups') + '</span></span>' +
         (on ? '<span class="ctile__tick">' + icon('check') + '</span>' : '') +
@@ -6666,7 +6829,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           var c = row.category;
           var n = rows.filter(function (r) { return r.group.categoryId === c.id; }).length;
           heading = '<div class="catgroup" style="--c:' + c.color + '">' +
-            SM.art.category(c.id, 'pthumb--head') +
+            SM.art.category(c.id, 'pthumb--head', c.name) +
             '<span class="catgroup__name">' + esc(c.name) + '</span>' +
             '<span class="catgroup__n">' + n + (n === 1 ? ' group' : ' groups') + '</span>' +
             '</div>';
@@ -9655,6 +9818,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     });
   }
   SM.art.mount();
+  /* Point every category at its official logo. One call, before the first
+     render, so no surface ever paints a drawn placeholder first and swaps. */
+  if (SM.categoryAssets) SM.categoryAssets.install();
   /* A legacy #/... link, or a bare /, becomes the clean path before anything
      renders — so the address bar, the canonical tag and what the app shows all
      agree from the first paint. replaceState rather than push: arriving at an

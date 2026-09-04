@@ -238,16 +238,48 @@
     },
 
     /* swap a drawn render for a photographed one, without touching components */
-    registerCategory: function (id, url) { catImages[id] = url; },
+    /* Points a category at its official picture.
+       `fallbackUrl` is the SAME official logo, deployed with the site — used
+       when the primary does not load, so a network problem shows the right
+       part rather than a drawn icon of a different one. */
+    registerCategory: function (id, url, fallbackUrl) {
+      catImages[id] = { url: url, fallback: fallbackUrl || null };
+    },
     registerBrand: function (id, url) { SM.brandFiles[id] = url; },
 
     /* categoryId -> product render, wrapped in a light product thumbnail */
-    category: function (categoryId, cls) {
+    /* THE one place a category picture is resolved. Every surface — the finder
+       rail, the category tiles, group cards, group sheets, category headers,
+       search results — already comes through here, so registering an official
+       logo once makes all of them correct at the same moment. No component
+       chooses its own icon, and the same category cannot end up showing two
+       different pictures in two places.
+
+       Spellings resolve through SM.categoryAssets, so "screen-guards",
+       "Screen Guard" and "tempered glass" all land on the same asset. */
+    category: function (categoryId, cls, label) {
+      var key = categoryId;
+      if (!catImages[key] && SM.categoryAssets) {
+        key = SM.categoryAssets.resolve(categoryId) || categoryId;
+      }
       var id = SYMBOLS[categoryId] ? categoryId : (categoryId === 'all' ? 'all' : 'spare-parts');
-      var inner = catImages[categoryId]
-        ? '<img class="pimg" src="' + esc(catImages[categoryId]) + '" alt="" loading="lazy" ' +
-          'onerror="this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))" />'
-        : this.svgMarkup(id);
+      var entry = catImages[key];
+      var inner;
+
+      if (entry) {
+        /* Two steps down, and the first step is the identical official file
+           served from this site. The drawn symbol appears only when both are
+           unreachable — a generic icon must never quietly stand in for a
+           specific part, because that is worse than showing nothing. */
+        var onerr = entry.fallback
+          ? 'if(this.dataset.fb){this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))}' +
+            'else{this.dataset.fb=1;this.src=\'' + esc(entry.fallback) + '\'}'
+          : 'this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))';
+        inner = '<img class="pimg" src="' + esc(entry.url) + '" alt="' + esc(label || '') + '" ' +
+          'loading="lazy" decoding="async" onerror="' + onerr + '" />';
+      } else {
+        inner = this.svgMarkup(id);
+      }
       return '<span class="pthumb ' + (cls || '') + '">' + inner + '</span>';
     },
 

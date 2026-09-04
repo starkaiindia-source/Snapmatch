@@ -538,7 +538,7 @@
       var empty = count === 0;
       return '<button type="button" class="crail__item' + (on ? ' is-on' : '') + (empty ? ' is-empty' : '') + '" ' +
         'data-act="pick-cat-rail" data-id="' + id + '" aria-pressed="' + on + '"' + (empty ? ' disabled' : '') + '>' +
-        SM.art.category(id, 'pthumb--rail') +
+        SM.art.category(id, 'pthumb--rail', name) +
         '<span class="crail__name">' + esc(name) + '</span>' +
         '<span class="crail__n">' + (count == null ? '&nbsp;' : count) + '</span>' +
         '</button>';
@@ -559,7 +559,7 @@
       var on = sel === id;
       return '<button type="button" class="crail__item' + (on ? ' is-on' : '') + '" ' +
         'data-act="filter-cat" data-id="' + id + '" aria-pressed="' + on + '">' +
-        SM.art.category(id, 'pthumb--rail') +
+        SM.art.category(id, 'pthumb--rail', name) +
         '<span class="crail__name">' + esc(name) + '</span>' +
         '<span class="crail__n">' + count + '</span>' +
         '</button>';
@@ -586,7 +586,7 @@
       return '<button type="button" class="ctile' + (on ? ' is-on' : '') + (wide ? ' ctile--wide' : '') + '" ' +
         'data-act="filter-cat" data-id="' + id + '" style="--c:' + color + '"' +
         (on ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
-        SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile') +
+        SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name) +
         '<span class="ctile__foot"><span class="ctile__name">' + esc(name) + '</span>' +
         '<span class="ctile__n">' + count + ' ' + (count === 1 ? 'group' : 'groups') + '</span></span>' +
         (on ? '<span class="ctile__tick">' + icon('check') + '</span>' : '') +
@@ -845,7 +845,7 @@
           var c = row.category;
           var n = rows.filter(function (r) { return r.group.categoryId === c.id; }).length;
           heading = '<div class="catgroup" style="--c:' + c.color + '">' +
-            SM.art.category(c.id, 'pthumb--head') +
+            SM.art.category(c.id, 'pthumb--head', c.name) +
             '<span class="catgroup__name">' + esc(c.name) + '</span>' +
             '<span class="catgroup__n">' + n + (n === 1 ? ' group' : ' groups') + '</span>' +
             '</div>';
@@ -3834,6 +3834,9 @@
     });
   }
   SM.art.mount();
+  /* Point every category at its official logo. One call, before the first
+     render, so no surface ever paints a drawn placeholder first and swaps. */
+  if (SM.categoryAssets) SM.categoryAssets.install();
   /* A legacy #/... link, or a bare /, becomes the clean path before anything
      renders — so the address bar, the canonical tag and what the app shows all
      agree from the first paint. replaceState rather than push: arriving at an

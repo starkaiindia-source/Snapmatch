@@ -82,7 +82,7 @@
     return '<button type="button" class="cat' + (opts.active ? ' is-on' : '') + (off ? ' is-off' : '') + '" ' +
       'data-act="' + (opts.act || 'pick-cat') + '" data-id="' + cat.id + '" style="--c:' + cat.color + '"' + (off ? ' disabled' : '') + '>' +
       '<span class="cat__tick">' + icon('checkCircle') + '</span>' +
-      SM.art.category(cat.id, 'pthumb--cat') +
+      SM.art.category(cat.id, 'pthumb--cat', cat.name) +
       '<span class="cat__name">' + esc(cat.name) + '</span>' +
       '<span class="cat__n">' + (count == null ? cat.groupCount + ' groups' : count ? count + (count === 1 ? ' group' : ' groups') : 'No group yet') + '</span>' +
       '</button>';
@@ -123,7 +123,7 @@
       '</div>' +
       '<div class="plate__body">' +
       /* the category render carries the visual identity — which part this is */
-      '<div class="plate__master">' + SM.art.category(cat.id, 'pthumb--plate') +
+      '<div class="plate__master">' + SM.art.category(cat.id, 'pthumb--plate', cat.name) +
       '<div class="grow">' +
       '<span class="masterflag">' + icon('crown') + 'Master model</span>' +
       '<h3 class="plate__mname">' + esc(master.fullName) + '</h3>' +

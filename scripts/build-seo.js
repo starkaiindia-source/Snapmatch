@@ -183,12 +183,20 @@ ${jsonld}
 
 /* The app boots over the top of the static content. Until it does — and for a
    crawler that never runs it — what is above stays on the page and is the real
-   answer, not a placeholder. */
+   answer, not a placeholder.
+
+   Absolute paths, because a relative one resolves against the current URL and
+   on /models/apple the browser would ask for /models/src/... and load nothing.
+
+   `defer` because these must not block parsing of the pre-rendered content
+   that is the whole point of the file; it preserves execution order, which is
+   what the SM.* globals depend on. */
 const APP_BOOT = [
   'src/data/debug.js', 'src/data/dataset.js', 'src/data/brand-marks.js',
   'src/data/countries.js', 'src/data/firebase.js', 'src/data/firestore.js',
   'src/data/billing.js', 'src/data/auth.js', 'src/data/api.js',
-  'src/ui/icons.js', 'src/ui/product-art.js', 'src/ui/components.js', 'src/app.js'
+  'src/ui/icons.js', 'src/ui/product-art.js', 'src/data/category-assets.js',
+  'src/ui/components.js', 'src/app.js'
 ].map(s => `<script src="/${s}" defer></script>`).join('\n');
 
 function shell(p) {

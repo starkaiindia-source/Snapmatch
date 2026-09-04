@@ -34,6 +34,19 @@ service firebase.storage {
       allow delete: if request.auth != null && request.auth.uid == uid;
     }
 
+    /* The official category logos: one picture per part category, shown on
+       every category tile, group card and category header on the site.
+
+       Public to read and closed to every client for writing — they are uploaded
+       by scripts/upload-category-assets.js through the Admin SDK, which bypasses
+       these rules. A signed URL would be the wrong tool: the pages that show
+       these are pre-rendered and CDN-cached, so an expiring token in the HTML
+       would mean the icons quietly stopped appearing one day. */
+    match /category-assets/{category}/{file} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     /* Anything outside a user's own profile folder is closed. */
     match /{allPaths=**} {
       allow read, write: if false;

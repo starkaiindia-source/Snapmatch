@@ -1,0 +1,54 @@
+{
+  "generatedAt": "2026-09-04T19:50:52.231965Z",
+  "widthPx": 256,
+  "categories": {
+    "screen-guards": {
+      "label": "Screen Guards",
+      "file": "assets/categories/screen-guards.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "4a69524cb5e82502",
+      "master": "57615.png"
+    },
+    "back-cover": {
+      "label": "Back Cover",
+      "file": "assets/categories/back-cover.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "dce57d0d78a19393",
+      "master": "5743.png"
+    },
+    "combo-display": {
+      "label": "Combo/Display",
+      "file": "assets/categories/combo-display.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "72478d26b5dbecd9",
+      "master": "57592.png"
+    },
+    "middle-frame": {
+      "label": "Middle Frame",
+      "file": "assets/categories/middle-frame.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "3153c2f9db81cb4d",
+      "master": "5791.png"
+    },
+    "cc-board": {
+      "label": "CC Board",
+      "file": "assets/categories/cc-board.png",
+      "width": 256,
+      "height": 205,
+      "sha256": "a095c6b869830648",
+      "master": "5850.png"
+    },
+    "battery": {
+      "label": "Battery",
+      "file": "assets/categories/battery.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "0444fb633ac8f45b",
+      "master": "5742.png"
+    }
+  }
+}
