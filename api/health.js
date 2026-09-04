@@ -35,13 +35,54 @@ module.exports = async function handler(req, res) {
   try {
     const cfg = report();
 
+    /* ?deep=1 goes further than "is the variable set" and actually talks to
+       Firestore — TWICE, on purpose.
+
+       One round trip proves the credentials work. The second proves the
+       handle is REUSABLE, which is the thing that was broken: db() applied
+       settings() on every call, and settings() may only run before the
+       instance has done any work. The second call threw, every request that
+       touched Firestore more than once died with a 500, and it surfaced as a
+       payment failure and a profile-save failure that looked unrelated.
+
+       It costs two document reads, so it is opt-in rather than part of the
+       default answer. The document it reads is the public catalogue meta —
+       nothing per-user, nothing that could leak. */
+    let firestore;
+    if (String(req.query && req.query.deep) === '1' && cfg.firebaseAdmin.configured) {
+      const started = Date.now();
+      try {
+        const { db } = require('./_lib/firebase');
+        const first = await db().collection('catalog').doc('meta').get();
+        const second = await db().collection('catalog').doc('meta').get();
+        firestore = {
+          ok: true,
+          reads: 2,
+          reusedHandle: true,
+          catalogMetaExists: first.exists && second.exists,
+          ms: Date.now() - started
+        };
+      } catch (err) {
+        firestore = {
+          ok: false,
+          /* The Firestore error verbatim. It names the fault — a bad key, a
+             rules refusal, an already-initialised handle — and none of those
+             strings carries a credential. */
+          error: (err && err.message) || String(err),
+          code: (err && err.code) || null,
+          ms: Date.now() - started
+        };
+      }
+    }
+
     /* 200 either way. This route reporting "not configured" is it working
        correctly, and a non-200 would make a monitor treat a truthful answer as
        an outage. `ok` in the body is the field to alert on. */
     return json(res, 200, {
       service: 'mobile-parts-finder',
       time: new Date().toISOString(),
-      ...cfg
+      ...cfg,
+      ...(firestore ? { firestore } : {})
     });
   } catch (err) {
     return fail(res, err, 'health');

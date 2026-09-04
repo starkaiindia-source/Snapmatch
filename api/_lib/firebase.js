@@ -70,9 +70,53 @@ function app() {
   return instance;
 }
 
+/**
+ * The Firestore handle. Settings are applied ONCE, on the way out of the very
+ * first call, and the instance is cached from then on.
+ *
+ * THIS FUNCTION USED TO CALL settings() EVERY TIME, AND THAT WAS THE BUG.
+ *
+ * `Firestore.settings()` may only be called before the instance has done any
+ * work; afterwards it throws
+ *
+ *     Firestore has already been initialized. You can only call settings()
+ *     once, and only before calling any other methods on a Firestore object.
+ *
+ * Ten call sites call db(), so the second one in any request threw — and on a
+ * warm serverless instance, where a previous request had already used
+ * Firestore, the FIRST one did. It surfaced as three different bug reports
+ * that were all this:
+ *
+ *   · create-order reads the profile and then records the pending order, two
+ *     db() calls in one request. The second always threw, the outer catch
+ *     turned it into a 500, and the browser said "Something went wrong
+ *     starting the payment". Razorpay was never reached.
+ *   · profile-sync calls db() once, so it worked on a cold start and threw on
+ *     every warm instance after it — "Saved on this device, but not to your
+ *     account", intermittently, which is what made it look like a rules or
+ *     token problem.
+ *   · and because the profile could never be saved, plan selection kept
+ *     finding it incomplete and kept asking for the same details again.
+ *
+ * The cache lives on globalThis for the same reason the app does: Vercel can
+ * re-evaluate a module inside a reused instance, and a module-scoped variable
+ * would reset while the underlying Firestore object did not.
+ */
+const DB_KEY = '__mpf_firestore__';
+
 function db() {
+  if (globalThis[DB_KEY]) return globalThis[DB_KEY];
+
   const d = app().firestore();
-  d.settings({ ignoreUndefinedProperties: true });
+  try {
+    d.settings({ ignoreUndefinedProperties: true });
+  } catch (err) {
+    /* Already started — by an earlier module evaluation holding its own
+       reference, say. The setting is not worth failing a request over; an
+       undefined field is a bug to fix at the call site, not here. */
+    console.warn('[firebase] firestore settings not applied:', err && err.message);
+  }
+  globalThis[DB_KEY] = d;
   return d;
 }
 

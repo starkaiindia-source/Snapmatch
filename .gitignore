@@ -20,7 +20,10 @@ serviceAccountKey*.json
 firebase-debug.log
 .firebase/
 
-# raw vendor exports (regenerate with scripts/dump-xlsx.py)
+# Raw vendor exports and the import report. Regenerate from the workbook with:
+#   python scripts/import-xlsx.py "<path>/All_Brands_Models.xlsx"
+# build-dataset.js needs data/raw/xlsx_models.json, so run that import before
+# the first build on a fresh clone.
 data/raw/
 
 # PoC output — regenerate with: node scripts/poc-apple.js
