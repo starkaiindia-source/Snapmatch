@@ -59,6 +59,22 @@ const STATS = {
   fitments: dataset.groups.reduce((n, r) => n + (r[dataset.groupCols.indexOf('cnt')] || 0), 0)
 };
 
+/* The model rows are positional to keep the bundle small; decode them once. */
+const MC = {};
+dataset.modelCols.forEach((k, i) => { MC[k] = i; });
+const MODELS = dataset.models.map(r => ({
+  id: r[MC.id], brandId: r[MC.b], name: r[MC.n],
+  releaseDate: r[MC.rd], year: r[MC.ry],
+  size: r[MC.sz], h: r[MC.h], w: r[MC.w], cm2: r[MC.cm2], ratio: r[MC.br],
+  mah: r[MC.mah], img: r[MC.img], src: r[MC.src], type: r[MC.dt],
+  screenType: r[MC.st], batteryPart: r[MC.bp], batteryVerified: r[MC.bv]
+}));
+const MODEL_GROUPS = dataset.modelGroups || {};
+const BRAND_BY_ID = {};
+dataset.brands.forEach(r => { BRAND_BY_ID[r[0]] = r[1]; });
+const CAT_BY_ID = {};
+dataset.categories.forEach(c => { CAT_BY_ID[c.id] = c.name; });
+
 const nf = n => Number(n).toLocaleString('en-IN');
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -592,6 +608,160 @@ function brandLandingPage() {
   };
 }
 
+/* ------------------------------------------------------------ model pages
+
+   4,933 of them, so every byte is multiplied by five thousand. They get a
+   trimmed shell: the same head and breadcrumb, but a two-link footer instead of
+   the full brand and category directories. That is the difference between a
+   49 MB deploy and a 22 MB one, and it costs a reader nothing.
+
+   The share image stays the site's own card rather than the device photo. The
+   photo is GSMArena's file on GSMArena's servers, and an og:image would hotlink
+   their bandwidth to every share of every model page.
+
+   Structured data is BreadcrumbList only. Product schema wants a price and an
+   availability this catalogue does not have, and inventing them to earn a rich
+   result is the kind of markup that gets a site's rich results switched off. */
+
+function modelHead(p) {
+  const canonical = ORIGIN + p.url;
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${esc(p.title)}</title>
+<meta name="description" content="${esc(p.description)}" />
+<link rel="canonical" href="${esc(canonical)}" />
+<meta name="theme-color" content="#0F766E" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="${esc(BRAND)}" />
+<meta property="og:title" content="${esc(p.title)}" />
+<meta property="og:description" content="${esc(p.description)}" />
+<meta property="og:url" content="${esc(canonical)}" />
+<meta property="og:image" content="${esc(OG_IMAGE)}" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="${esc(p.title)}" />
+<meta name="twitter:description" content="${esc(p.description)}" />
+<meta name="twitter:image" content="${esc(OG_IMAGE)}" />
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/assets/brand/icon-180.png" />
+<link rel="manifest" href="/site.webmanifest" />
+<link rel="stylesheet" href="/assets/styles.css" />
+<link rel="stylesheet" href="/assets/components.css" />
+<link rel="stylesheet" href="/assets/seo.css" />
+<script type="application/ld+json">${JSON.stringify(p.jsonld)}</script>
+</head>
+<body>
+<div class="seo" id="seoContent">
+<header class="seo__bar"><a class="seo__brand" href="/"><img src="/assets/brand/logo.svg" width="34" height="34" alt="Mobile Parts Finder logo" /><span>Mobile Parts <b>Finder</b></span></a>
+<nav class="seo__nav" aria-label="Main"><a href="/finder">Device Finder</a><a href="/models">All models</a></nav></header>
+${p.breadcrumbHTML}
+<main class="seo__main">
+${p.body}
+</main>
+<footer class="seo__foot"><p><strong>${esc(BRAND)}</strong> — spare-part compatibility for mobile shops, dealers and repair technicians. <a href="/">Home</a> · <a href="/finder">Device Finder</a> · <a href="/models">All brands</a></p></footer>
+</div>
+<div id="app" class="app" hidden></div>
+${APP_BOOT}
+<script>(function(){var s=document.getElementById('seoContent'),a=document.getElementById('app');var o=new MutationObserver(function(){if(a.childNodes.length){a.hidden=false;if(s)s.remove();o.disconnect();}});o.observe(a,{childList:true});})();</script>
+</body>
+</html>
+`;
+}
+
+/* "2020-05-01" is what a database stores; "1 May 2020" is what a person reads. */
+const MONTHS = ['January','February','March','April','May','June',
+                'July','August','September','October','November','December'];
+function fmtDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+  if (!m) return iso || null;
+  return Number(m[3]) + ' ' + MONTHS[Number(m[2]) - 1] + ' ' + m[1];
+}
+
+/** A spec row, or a hyphen. On this catalogue the gap is the point. */
+function specRow(label, value) {
+  const has = value != null && value !== '';
+  return `<tr><th scope="row">${esc(label)}</th><td${has ? '' : ' class="c-none"'}>${has ? esc(value) : '-'}</td></tr>`;
+}
+
+function modelPage(m) {
+  const url = '/model/' + m.id;
+  const brandName = BRAND_BY_ID[m.brandId] || m.brandId;
+  const groups = MODEL_GROUPS[m.id] || {};
+  const cats = Object.keys(groups).filter(k => (groups[k] || []).length);
+  const totalGroups = cats.reduce((n, k) => n + groups[k].length, 0);
+
+  /* The model name usually already starts with the brand; saying it twice reads
+     badly in a breadcrumb that is mostly the model name. */
+  const short = m.name.toLowerCase().indexOf(brandName.toLowerCase() + ' ') === 0
+    ? m.name.slice(brandName.length + 1) : m.name;
+
+  const trail = [
+    { name: 'Home', url: '/' },
+    { name: 'All mobile models', url: '/models' },
+    { name: brandName, url: '/models/' + m.brandId },
+    { name: short, url }
+  ];
+
+  const partsList = cats.length
+    ? '<ul class="seo__grid">' + cats.map(k =>
+        `<li><a href="/categories/${k}"><b>${esc(CAT_BY_ID[k] || k)}</b>` +
+        `<span>${groups[k].length} ${groups[k].length === 1 ? 'group' : 'groups'}</span></a></li>`
+      ).join('') + '</ul>'
+    : '<p>No compatibility group covers this model yet. It is in the catalogue and will be ' +
+      'matched as groups are added.</p>';
+
+  const body = `
+    <h1>${esc(m.name)} — compatible spare parts</h1>
+    <p class="seo__lede">Which tempered glass, back cover, combo display, middle frame,
+    CC board and battery fit the ${esc(m.name)}, and which other phone models take the
+    same parts.</p>
+    ${m.img ? `<p><img src="${esc(m.img)}" alt="${esc(m.name)}" width="180" loading="lazy" referrerpolicy="no-referrer" style="border-radius:12px" /></p>` : ''}
+
+    <h2>Parts that fit this model</h2>
+    ${totalGroups ? `<p>${esc(m.name)} appears in <strong>${totalGroups}</strong> compatibility
+    ${totalGroups === 1 ? 'group' : 'groups'} across ${cats.length}
+    part ${cats.length === 1 ? 'category' : 'categories'}.
+    <a href="/finder">Open the Device Finder</a> for the full fitment list and part codes.</p>` : ''}
+    ${partsList}
+
+    <h2>${esc(m.name)} specifications</h2>
+    <p>What the catalogue records. Fields the source does not carry are shown as “-”
+    rather than estimated.</p>
+    <table class="seo__spec"><tbody>
+      ${specRow('Brand', brandName)}
+      ${specRow('Device type', m.type)}
+      ${specRow('Released', fmtDate(m.releaseDate))}
+      ${specRow('Display size', m.size ? m.size + ' inches' : null)}
+      ${specRow('Screen type', m.screenType)}
+      ${specRow('Height', m.h ? m.h + ' mm' : null)}
+      ${specRow('Width', m.w ? m.w + ' mm' : null)}
+      ${specRow('Screen area', m.cm2 ? m.cm2 + ' cm²' : null)}
+      ${specRow('Body-to-screen ratio', m.ratio ? m.ratio + '%' : null)}
+      ${specRow('Battery', m.mah ? nf(m.mah) + ' mAh' : null)}
+      ${specRow('Battery part number', m.batteryPart
+          ? m.batteryPart + (m.batteryVerified ? ' (verified)' : ' (unverified)') : null)}
+    </tbody></table>
+
+    <p><a href="/models/${esc(m.brandId)}">All ${esc(brandName)} models</a> ·
+    <a href="/finder">Match another handset</a></p>`;
+
+  return {
+    url,
+    title: `${m.name} — Compatible Spare Parts & Models | ${BRAND}`,
+    description: `Compatible tempered glass, back cover, combo display, CC board, middle ` +
+      `frame and battery for the ${m.name}` +
+      (totalGroups ? ` — ${totalGroups} compatibility ${totalGroups === 1 ? 'group' : 'groups'}` : '') +
+      `, with the other models that take the same parts.`,
+    body,
+    breadcrumbHTML: breadcrumb(trail),
+    jsonld: [breadcrumbLd(trail)]
+  };
+}
+
 /* --------------------------------------------------------------------- run */
 
 function main() {
@@ -623,6 +793,20 @@ function main() {
     written++;
   });
 
+  /* ---- one page per device ---- */
+  const modelDir = path.join(ROOT, 'model');
+  fs.rmSync(modelDir, { recursive: true, force: true });   /* drop pages for models that left the catalogue */
+  let modelBytes = 0;
+  const modelPages = MODELS.map(modelPage);
+  modelPages.forEach(p => {
+    const dir = path.join(ROOT, p.url.replace(/^\//, ''));
+    fs.mkdirSync(dir, { recursive: true });
+    const html = modelHead(p);
+    fs.writeFileSync(path.join(dir, 'index.html'), html);
+    modelBytes += Buffer.byteLength(html);
+    written++;
+  });
+
   /* ---- sitemap: absolute, canonical, no private or duplicate routes ---- */
   const today = new Date().toISOString().slice(0, 10);
   const priority = u => u === '/' ? '1.0'
@@ -638,11 +822,34 @@ function main() {
     <priority>${priority(p.url)}</priority>
   </url>`).join('\n');
 
-  fs.writeFileSync(path.join(ROOT, 'sitemap.xml'),
+  /* Split, and indexed. One file would still be legal — the cap is 50,000 URLs —
+     but Search Console reports coverage per sitemap, and "pages" and "devices"
+     failing for different reasons is worth being able to see separately. */
+  fs.writeFileSync(path.join(ROOT, 'sitemap-pages.xml'),
 `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls}
 </urlset>
+`);
+
+  fs.writeFileSync(path.join(ROOT, 'sitemap-models.xml'),
+`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${modelPages.map(p => `  <url>
+    <loc>${ORIGIN}${p.url}</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>`).join('\n')}
+</urlset>
+`);
+
+  fs.writeFileSync(path.join(ROOT, 'sitemap.xml'),
+`<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>${ORIGIN}/sitemap-pages.xml</loc><lastmod>${today}</lastmod></sitemap>
+  <sitemap><loc>${ORIGIN}/sitemap-models.xml</loc><lastmod>${today}</lastmod></sitemap>
+</sitemapindex>
 `);
 
   /* ---- robots: crawl everything public, keep scripts and styles open ---- */
@@ -659,6 +866,8 @@ Disallow: /account
 Disallow: /api/
 Disallow: /__/
 
+# sitemap.xml is an index. It fans out to the pages and the device catalogue,
+# so Search Console reports coverage for the two separately.
 Sitemap: ${ORIGIN}/sitemap.xml
 `);
 
@@ -686,7 +895,9 @@ Sitemap: ${ORIGIN}/sitemap.xml
   console.log('    landing / index     5');
   console.log('    categories         ', CATS.length + 2, '(2 with a keyword URL as well)');
   console.log('    brands             ', BRANDS.length);
-  console.log('  sitemap URLs         ', pages.length - 1);
+  console.log('    device pages       ', modelPages.length,
+              '(' + (modelBytes / 1048576).toFixed(1) + ' MB)');
+  console.log('  sitemap URLs         ', (pages.length - 1) + modelPages.length);
   console.log('  ' + '-'.repeat(56));
   console.log('  sitemap.xml, robots.txt, site.webmanifest written');
   console.log('  canonical origin     ', ORIGIN);

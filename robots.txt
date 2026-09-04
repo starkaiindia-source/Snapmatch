@@ -10,4 +10,6 @@ Disallow: /account
 Disallow: /api/
 Disallow: /__/
 
+# sitemap.xml is an index. It fans out to the pages and the device catalogue,
+# so Search Console reports coverage for the two separately.
 Sitemap: https://www.mobilepartsfinder.com/sitemap.xml

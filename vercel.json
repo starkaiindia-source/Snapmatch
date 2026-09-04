@@ -1,34 +1,105 @@
 {
   "version": 2,
   "builds": [
-    { "src": "index.html", "use": "@vercel/static" },
-    { "src": "favicon.ico", "use": "@vercel/static" },
-    { "src": "favicon.svg", "use": "@vercel/static" },
-    { "src": "robots.txt", "use": "@vercel/static" },
-    { "src": "sitemap.xml", "use": "@vercel/static" },
-    { "src": "site.webmanifest", "use": "@vercel/static" },
-    { "src": "assets/**", "use": "@vercel/static" },
-    { "src": "src/**", "use": "@vercel/static" },
-
-    { "src": "finder/**", "use": "@vercel/static" },
-    { "src": "models/**", "use": "@vercel/static" },
-    { "src": "categories/**", "use": "@vercel/static" },
-    { "src": "plans/**", "use": "@vercel/static" },
-    { "src": "mobile-parts-finder/**", "use": "@vercel/static" },
-    { "src": "universal-tempered-glass/**", "use": "@vercel/static" },
-    { "src": "universal-back-cover/**", "use": "@vercel/static" },
-
-    { "src": "api/*.js", "use": "@vercel/node" }
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "favicon.ico",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "favicon.svg",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "robots.txt",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "sitemap.xml",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "sitemap-models.xml",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "sitemap-pages.xml",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "site.webmanifest",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "assets/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "src/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "finder/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "models/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "model/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "categories/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "plans/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "mobile-parts-finder/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "universal-tempered-glass/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "universal-back-cover/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "api/*.js",
+      "use": "@vercel/node"
+    }
   ],
   "routes": [
-    { "src": "/__/auth/(.*)", "dest": "https://mobilepartsfinder.firebaseapp.com/__/auth/$1" },
-
-    { "src": "/(.+)/$", "status": 308, "headers": { "Location": "/$1" } },
-
-    { "handle": "filesystem" },
-
-    { "src": "/api/([^/.]+)/?$", "dest": "/api/$1.js" },
-
-    { "src": "/(.*)", "dest": "/index.html" }
+    {
+      "src": "/__/auth/(.*)",
+      "dest": "https://mobilepartsfinder.firebaseapp.com/__/auth/$1"
+    },
+    {
+      "src": "/(.+)/$",
+      "status": 308,
+      "headers": {
+        "Location": "/$1"
+      }
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/api/([^/.]+)/?$",
+      "dest": "/api/$1.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
   ]
 }

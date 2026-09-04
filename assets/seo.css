@@ -80,3 +80,12 @@
 .seo__foot nav{ display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; }
 .seo__foot a{ color:var(--ink-2); text-decoration:none; }
 .seo__foot a:hover{ color:var(--teal-600); }
+
+/* The spec table on a pre-rendered device page. Two columns, no chrome — it is
+   a list of facts, and half of them are hyphens until the enrichment pass runs. */
+.seo__spec{ border-collapse:collapse; width:100%; max-width:560px; margin:8px 0 18px; }
+.seo__spec th,
+.seo__spec td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--line-soft); font-size:14.5px; }
+.seo__spec th{ font-weight:600; color:var(--ink-3); width:44%; }
+.seo__spec td{ color:var(--ink-1); }
+.seo__spec .c-none{ color:var(--ink-3); }
