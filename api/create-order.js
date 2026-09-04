@@ -18,7 +18,8 @@
 const Razorpay = require('razorpay');
 const { getPlan } = require('./_lib/plans');
 const { recordPendingOrder, readProfile, prefillFrom } = require('./_lib/store');
-const { ok, bad, json, fail, requireMethod, requireUser, body } = require('./_lib/http');
+const { paymentsConfigured, razorpayMode } = require('./_lib/config');
+const { ok, bad, json, fail, unavailable, requireMethod, requireUser, body } = require('./_lib/http');
 
 module.exports = async function handler(req, res) {
   if (!requireMethod(req, res, 'POST')) return;
@@ -30,12 +31,25 @@ module.exports = async function handler(req, res) {
     const plan = getPlan(body(req).planId);
     if (!plan) return bad(res, 'unknown plan');
 
+    /* Not a crash, and it must not look like one. An unset key is a deployment
+       that is not finished, so this answers 503 with a name the browser can act
+       on — previously it was a 500, indistinguishable from a real fault, and
+       the UI could only guess at the cause. /api/health reports the same state
+       without needing a sign-in or a button press. */
+    if (!paymentsConfigured()) {
+      console.error(
+        '[billing:create-order] payments unavailable — set RAZORPAY_KEY_ID and ' +
+        'RAZORPAY_KEY_SECRET in the Vercel project environment, then redeploy'
+      );
+      return unavailable(res, 'payments-unconfigured', {
+        missing: [
+          !process.env.RAZORPAY_KEY_ID && 'RAZORPAY_KEY_ID',
+          !process.env.RAZORPAY_KEY_SECRET && 'RAZORPAY_KEY_SECRET'
+        ].filter(Boolean)
+      });
+    }
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    if (!keyId || !keySecret) {
-      console.error('[billing:create-order] Razorpay keys are not configured');
-      return fail(res, new Error('RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET missing'), 'config');
-    }
 
     const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
     const now = Date.now();
@@ -89,6 +103,10 @@ module.exports = async function handler(req, res) {
       /* The key ID is public by design — it identifies the merchant to
          Checkout. The SECRET never appears in any response. */
       keyId,
+      /* Derived from that same public prefix. It is here so the browser console
+         says which mode a payment ran in — "it took the money" and "it took
+         test money" look identical otherwise. */
+      mode: razorpayMode(),
       prefill: pre.prefill
     });
   } catch (err) {

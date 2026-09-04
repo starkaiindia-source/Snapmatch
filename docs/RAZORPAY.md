@@ -19,8 +19,10 @@ pasted into a chat, a file, or a commit — including to me.
 | `api/subscription` | server-authoritative access check |
 | `api/cancel-subscription` | stops renewal, keeps paid-for access |
 | `api/plans` | public pricing, same source as the charge |
+| `api/profile-sync` | creates `users/{uid}` on sign-in, stamps `lastLoginAt` |
+| `api/health` | which environment variables are set — presence only |
 
-`node --test api/_lib/billing.test.js` — 18 tests, all passing. They cover
+`npm test` — 35 tests, all passing. They cover
 signature verification (genuine, forged, tampered, wrong secret, re-serialised
 body), calendar-month expiry including 31st→28th/29th clamping, early renewal
 extending from the existing expiry, lapsed renewal starting fresh, access
@@ -47,10 +49,16 @@ Names are in `.env.example`. Values come from:
   dashboard mangles the private key's newlines, base64 the file and use
   `FIREBASE_SERVICE_ACCOUNT_B64` instead; the code accepts either.
 
-Then the **public** Firebase web config, which goes in
-`src/data/firebase.js` (`FIREBASE_CONFIG`), not in an environment variable —
-it ships to the browser by design. Firebase console → Project settings →
-General → Your apps → SDK setup.
+Then the **public** Firebase web config: `FIREBASE_PROJECT_ID`,
+`FIREBASE_API_KEY`, `FIREBASE_APP_ID` and `FIREBASE_MESSAGING_SENDER_ID`. These
+are environment variables too — `/api/firebase-config` serves them to the
+browser, which is where they were always going. They are public by design: the
+SDK cannot reach the project without them, and `apiKey` is a project identifier
+rather than a credential. Firebase console → Project settings → General → Your
+apps → SDK setup.
+
+Check the whole set at any time with `curl https://www.mobilepartsfinder.com/api/health`,
+which reports presence — never a value — and names anything unset.
 
 Also add `www.mobilepartsfinder.com` under **Authentication → Settings →
 Authorised domains**, or the Google popup closes instantly with

@@ -8,11 +8,17 @@
    WHAT THE SOURCE ACTUALLY CONTAINS
      name · brand · release date · display size · height · width · screen area ·
      body ratio · battery · image · source URL,
-     plus 3,340 compatibility groups and 12,239 fitments.
+     plus 3,340 compatibility groups and 12,239 fitments — every group's part
+     code, serial number, master device and full member list.
+
+   PARTIALLY
+     screen type (260 devices), battery part number (288) and release status,
+     read from the category exports. Null elsewhere, and the UI omits the row
+     rather than filling it: a device nobody recorded is not a flat-screen one.
 
    WHAT IT DOES NOT
      chipset, CPU, GPU, RAM, storage, colours, cameras, OS, network, sensors,
-     price, variants, and whether the screen is flat or curved.
+     price, variants.
 
      Those are set to null and the UI omits them. They are NOT estimated,
      defaulted or filled from a lookalike model — a spec sheet that invents a
@@ -69,6 +75,12 @@
     var r = {};
     cols.forEach(function (c, i) { r[c] = row[i]; });
 
+    /* "Flat Screen" / "Curved Screen" as the source records it. The one-word
+       form the UI filters on is READ from that string, not inferred from
+       anything else — a device with no recorded screen type stays null rather
+       than becoming flat by default. */
+    var curve = r.st ? (/curved/i.test(r.st) ? 'curved' : 'flat') : null;
+
     var name = r.n;
     var brand = brandName || '';
     /* The export stores the full name with the brand on the front. */
@@ -98,9 +110,17 @@
       image: r.img,
       sourceUrl: r.src,
 
+      /* -------- carried by the category exports, for some devices --------
+         260 of 4,933 have a screen type and 288 a battery part number. The
+         rest are null and the UI omits the row: a blank is a fact about the
+         catalogue, an invented "Flat" is a claim about someone's phone. */
+      screenType: r.st || null,
+      screenCurve: curve,
+      batteryPartNo: r.bp || null,
+      batteryPartVerified: r.bv === true,
+      releaseStatus: r.rs || null,
+
       /* -------- absent from the source; never guessed ------------------- */
-      screenCurve: null,
-      screenType: null,
       screenResolution: null,
       screenRatio: null,
       refreshRate: null,
@@ -182,47 +202,71 @@
       gc.forEach(function (c, i) { g[c] = row[i]; });
       var master = modelById[g.mm];
       var cat = categoryById[g.cat];
+
+      /* Members ship as indexes into `models` — the same 12,239 fitments cost
+         about 60 KB that way and about 330 KB as slugs. Both arrays came out
+         of one build, so an index always names the row it was written for. */
+      var memberIds = (g.mem || []).map(function (i) {
+        var m = models[i];
+        return m ? m.id : null;
+      }).filter(Boolean);
+
       /* Field names match what the UI already reads. The export calls these
          memberIds and groupNo; renaming here rather than across the app keeps
          the change to one file and leaves every screen untouched. */
       return {
         groupId: g.id,
         groupNumber: g.no,
-        serialNumber: g.no,
+        /* Distinct values at last. Until now the client set all three from the
+           group number, so every sheet showed "BT-0001" as its part code, its
+           serial and its group — three labels over one value. */
+        serialNumber: g.sn || g.no,
         partCode: g.part || null,
+        /* The manufacturer's own code, where the source genuinely has one:
+           286 battery groups. null everywhere else, on purpose — the column it
+           came from holds "1" and "asdf" for the other five categories. */
+        oemPartNo: g.oem || null,
         categoryId: g.cat,
         categoryName: cat ? cat.name : g.cat,
         masterModelId: g.mm,
         masterModelName: master ? master.fullName : g.mm,
         masterBrandId: g.mb,
-        /* The member list is the paid answer and is NOT in this bundle.
-           Anything under assets/ is one unauthenticated GET away, so the
-           public copy carries only the count. The ids come from
-           /api/device-parts, behind a subscription. */
-        compatibleDeviceIds: null,
+        compatibleDeviceIds: memberIds,
         compatibleCount: g.cnt,
         createdOn: null,
-        memberNames: null
+        memberNames: memberIds.map(function (id) {
+          var m = modelById[id];
+          return m ? m.fullName : id;
+        })
       };
     });
 
     var groupById = Object.create(null);
     groups.forEach(function (g) { groupById[g.groupId] = g; });
 
-    /* device -> how many parts it has, per category. Counts are free; which
-       groups they are is what the subscription buys, so the public bundle
-       ships numbers and no ids. groupsByModel keeps its old shape — an array
-       whose LENGTH is right — because the whole UI reads .length off it. */
+    /* device -> the groups that fit it, as ids, and the per-category counts
+       the device page reads. Both come from the one map in the bundle, so a
+       count can never disagree with the list it counts. */
     var groupsByModel = Object.create(null);
-    var partCounts = bundle.modelGroupCounts || {};
-    Object.keys(partCounts).forEach(function (modelId) {
-      var byCat = partCounts[modelId];
-      var total = 0;
-      Object.keys(byCat).forEach(function (cat) { total += byCat[cat]; });
-      groupsByModel[modelId] = new Array(total);
+    var partCounts = Object.create(null);
+    var mg = bundle.modelGroups || {};
+    Object.keys(mg).forEach(function (modelId) {
+      var byCat = mg[modelId];
+      var all = [];
+      var counts = Object.create(null);
+      Object.keys(byCat).forEach(function (cat) {
+        var ids = byCat[cat] || [];
+        counts[cat] = ids.length;
+        all = all.concat(ids);
+      });
+      groupsByModel[modelId] = all;
+      partCounts[modelId] = counts;
     });
 
-    var links = groups.reduce(function (s, g) { return s + g.memberCount; }, 0);
+    /* Total fitments. It read g.memberCount, which this layer never sets — the
+       field is called compatibleCount here — so the figure had been NaN since
+       the rename. */
+    var links = groups.reduce(function (s, g) { return s + (g.compatibleCount || 0); }, 0);
 
     SM.db = {
       brands: brands,
@@ -242,6 +286,10 @@
       coverage: {
         present: bundle.fieldsPresent,
         absent: bundle.fieldsAbsent,
+        /* Recorded for some devices and not others. Named separately so the UI
+           can say "260 of 4,933" instead of either claiming the field or
+           denying it. */
+        partial: bundle.fieldsPartial || [],
         derived: bundle.fieldsDerived,
         source: bundle.source
       },

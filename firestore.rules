@@ -9,16 +9,17 @@ rules_version = '2';
      /brands/{id}             public   brand rollups
      /models/{id}             public   phone catalogue (free browsing)
      /groups/{id}             public   group PREVIEW — category, master, count
-     /groupDetails/{id}       PAID     part number, full member list
-     /modelGroups/{id}        PAID     model -> matching group ids
+     /groupDetails/{id}       public   part number, full member list
+     /modelGroups/{id}        public   model -> matching group ids
      /users/{uid}             owner    shop profile, self-editable
      /users/{uid}/billing/*   owner-read, server-write only
 
-   The paywall is enforced here, not only in the UI: the fields a subscriber
-   pays for live in their own collections, because Firestore rules cannot
-   protect individual fields of a document.
+   The catalogue — including part numbers and fitment lists — is open, matching
+   what assets/dataset.json ships. The collections stay split so the split can
+   be reinstated: narrow the runtime bundle first, then put hasActivePlan()
+   back on groupDetails, modelGroups and deviceGroups.
 
-   Subscription state is never client-writable. A signed-in user can read
+   Subscription state is never client-writable, and that has not changed. A signed-in user can read
    their own billing document but only a trusted server (Admin SDK or a
    Cloud Function) may create or change it — otherwise anyone could grant
    themselves a plan from the browser console.
@@ -37,6 +38,10 @@ service cloud.firestore {
     function billing() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)/billing/subscription).data;
     }
+    /* Currently called by nothing: the catalogue is open. Kept, with billing()
+       above it, because reinstating the paywall is a matter of naming it again
+       on groupDetails, modelGroups and deviceGroups — and rewriting it from
+       memory later is how a subscription check ends up subtly wrong. */
     function hasActivePlan() {
       return signedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid)/billing/subscription)
@@ -64,22 +69,57 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    /* --------------------------------------------------------- paid surface
-       The actual answer the product sells: which parts fit, the part number
-       and the full compatible-device list. */
+    /* ------------------------------------------------------- fitment detail
+       Part numbers and full compatible-device lists.
+
+       OPEN TO EVERYONE, by the owner's decision. Keeping them closed here
+       would achieve nothing anyway: the same records ship in
+       assets/dataset.json, which is a static file one unauthenticated GET
+       away. A rule that guards a copy while the original is public is not a
+       control, it is a false sense of one.
+
+       Restoring the paywall means narrowing scripts/build-runtime-bundle.js
+       FIRST and putting hasActivePlan() back here second — in that order, or
+       the rule tightens around data the browser already has. */
     match /groupDetails/{groupId} {
-      allow read: if hasActivePlan();
+      allow read: if true;
       allow write: if false;
     }
     match /modelGroups/{modelId} {
-      allow read: if hasActivePlan();
+      allow read: if true;
       allow write: if false;
     }
 
     /* -------------------------------------------------------------- users */
     match /users/{uid} {
+
+      /* The fields a browser may NEVER write, listed once and applied to both
+         create and update.
+
+         This is the line between "details a shop enters about itself" and
+         "facts about money". Everything below is written only through the
+         Admin SDK — by /api/verify-payment, the Razorpay webhook, or
+         /api/profile-sync — and the Admin SDK bypasses these rules entirely.
+         Blocking them here is what stops a signed-in user opening the console
+         and granting themselves a plan by editing their own profile.
+
+         Declared before the rules that call it: forward references are legal,
+         but reading a rule should not require scrolling past it. */
+      function serverOwnedFields() {
+        return [
+          'subscription', 'subscriptionStatus', 'activeSubscriptionStatus',
+          'subscriptionPlan', 'currentPlanId', 'currentSubscriptionId',
+          'subscriptionStartedAt', 'subscriptionExpiresAt',
+          'plan', 'status', 'role', 'accountStatus',
+          'lastVerifiedAt', 'lastLoginAt', 'emailVerified'
+        ];
+      }
+
       /* Only the owner, and only their own document — the uid in the path is
          the identity, so one signed-in shop can never touch another's. */
+      /* Split create from update deliberately: on a create there is no
+         `resource`, so diffing against it is invalid. A create checks the keys
+         being written; an update checks which keys changed. */
       allow create: if isOwner(uid)
         && request.resource.data.uid == uid
         && !request.resource.data.keys().hasAny(serverOwnedFields());
@@ -89,28 +129,13 @@ service cloud.firestore {
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(serverOwnedFields());
       allow delete: if false;
 
-      /* A client may write its own shop details and nothing else. The
-         subscription fields are the server's: writable only through the Admin
-         SDK, which bypasses these rules, so a browser cannot grant itself a
-         plan by editing its profile.
-
-         The mandatory fields are NOT required here. An incomplete profile is a
-         legitimate state — it is how the app knows to ask for the missing
+      /* The mandatory shop fields are NOT required here. An incomplete profile
+         is a legitimate state — it is how the app knows to ask for the missing
          details — and rejecting the write would leave a signed-in user with no
          record at all, which is worse. profileCompleted is recomputed from the
-         fields when the profile is read, so an incomplete one cannot pass
-         itself off as complete. */
-      /* Split create from update deliberately: on a create there is no
-         `resource`, so diffing against it is invalid. A create checks the keys
-         being written; an update checks which keys changed. */
-      function serverOwnedFields() {
-        return [
-          'subscription', 'subscriptionStatus', 'activeSubscriptionStatus',
-          'currentPlanId', 'currentSubscriptionId',
-          'subscriptionStartedAt', 'subscriptionExpiresAt',
-          'plan', 'status', 'role', 'lastVerifiedAt'
-        ];
-      }
+         fields whenever the profile is read, on the client and again on the
+         server before a payment starts, so an incomplete one cannot pass itself
+         off as complete. */
 
       /* billing is readable by its owner and writable only by a server */
       match /billing/{doc} {
@@ -153,10 +178,10 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    /* The device -> matching groups shortcut, under its new name. Same paid
-       gate as modelGroups, which stays until the client is migrated. */
+    /* The device -> matching groups shortcut, under its new name. Same terms
+       as modelGroups above, which stays until the client is migrated. */
     match /deviceGroups/{deviceId} {
-      allow read: if hasActivePlan();
+      allow read: if true;
       allow write: if false;
     }
 

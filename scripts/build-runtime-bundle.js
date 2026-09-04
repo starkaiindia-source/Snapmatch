@@ -64,7 +64,8 @@ function main() {
      `tokens` is dropped: search runs off the name, and shipping a pre-split
      token list for 4,933 models added ~600 KB for something computed in
      microseconds. nameLower is dropped for the same reason. */
-  const MODEL_COLS = ['id', 'b', 'n', 'rd', 'ry', 'sz', 'h', 'w', 'cm2', 'br', 'mah', 'img', 'src', 'dt'];
+  const MODEL_COLS = ['id', 'b', 'n', 'rd', 'ry', 'sz', 'h', 'w', 'cm2', 'br', 'mah',
+                      'img', 'src', 'dt', 'st', 'bp', 'bv', 'rs'];
   const modelRows = models.map(m => [
     m.id,
     m.brandId,
@@ -79,37 +80,59 @@ function main() {
     m.batteryMah ?? null,
     m.image || null,
     m.gsmarenaUrl || null,
-    deviceTypeOf(m.name)
+    deviceTypeOf(m.name),
+    /* From the category exports, not the workbook. Partial by nature — 260
+       devices have a screen type recorded and 288 a battery part number — and
+       null everywhere else, because a device nobody recorded is not a flat
+       one. */
+    m.screenType || null,
+    m.batteryPartNo || null,
+    m.batteryPartNo ? !!m.batteryPartVerified : null,
+    m.releaseStatus || null
   ]);
 
-  /* ---- groups: PUBLIC PREVIEW ONLY -----------------------------------------
-     The part number and the fitment list are the product. They are NOT in the
-     public bundle — anything under assets/ is one unauthenticated GET away,
-     and shipping them there made 3,173 part codes and 12,239 fitments free to
-     download, which leaves nothing to sell.
+  /* Members are shipped as INDEXES into `models`, not as ids. The same 12,239
+     fitments cost about 60 KB this way and about 330 KB as slugs, on a bundle
+     that is downloaded before the first render over the 4G connections this
+     audience actually uses. Both arrays come out of this one build, so the
+     index cannot drift from the row it names. */
+  const modelIndex = new Map(models.map((m, i) => [m.id, i]));
 
-     What stays is enough to browse and to see that an answer exists: the
-     category, the master device, and how many devices are in the group. The
-     answer itself comes from /api/device-parts, behind a subscription. */
-  const GROUP_COLS = ['id', 'no', 'cat', 'mm', 'mb', 'cnt'];
+  /* ---- groups: THE WHOLE RECORD -------------------------------------------
+     Part codes and fitment lists ship in the public bundle. That is the
+     owner's decision, made explicitly, and it is worth being clear about what
+     it means: anything under assets/ is one unauthenticated GET away, so the
+     complete catalogue — 3,340 part codes and 12,239 fitments — is downloadable
+     by anyone who opens the site, signed in or not, for ever. There is no
+     taking it back for copies already fetched.
+
+     The paid slice below is still written, so /api/device-parts keeps working
+     and the decision can be reversed for FUTURE visitors by narrowing these
+     columns again. Nothing else in the app depends on the split.
+
+     `sn` is the serial number. It used to be absent, which is why every group
+     sheet showed its group number three times over — as the group number, as
+     the serial, and as the part code. */
+  const GROUP_COLS = ['id', 'no', 'sn', 'part', 'oem', 'cat', 'mm', 'mb', 'cnt', 'mem'];
   const groupRows = groups.map(g => [
     g.id,
     g.groupNo,
+    g.serialNo,
+    g.partCode,
+    g.oemPartNo || null,
     g.categoryId,
     g.masterModelId,
     g.masterBrandId,
-    g.memberCount
+    g.memberCount,
+    (g.memberIds || []).map(id => modelIndex.get(id)).filter(i => i !== undefined)
   ]);
 
-  /* Device -> which categories have parts, and HOW MANY. The group ids are
-     withheld: knowing that a phone has 4 back-cover options is a reason to
-     subscribe, knowing which ones is the thing subscribed for. */
+  /* Device -> which groups fit it, per category, as group ids. The client
+     could rebuild this by walking every group's member list, but it is needed
+     on the very first render of a device page and walking 3,340 groups to
+     answer one question is work done 3,340 times too often. */
   const mgPublic = {};
-  modelGroups.forEach(r => {
-    const counts = {};
-    Object.keys(r.byCategory).forEach(cat => { counts[cat] = r.byCategory[cat].length; });
-    mgPublic[r.id] = counts;
-  });
+  modelGroups.forEach(r => { mgPublic[r.id] = r.byCategory; });
 
   const bundle = {
     v: meta.version,
@@ -123,8 +146,12 @@ function main() {
        so a name missing here shows up as an empty column rather than as a
        hidden one. */
     fieldsAbsent: ['chipset', 'cpu', 'gpu', 'ram', 'storage', 'colours', 'cameras',
-                   'os', 'network', 'sensors', 'screenCurve', 'screenResolution',
-                   'screenType', 'refreshRate', 'price', 'variants'],
+                   'os', 'network', 'sensors', 'screenResolution',
+                   'refreshRate', 'price', 'variants'],
+    /* screenType left the absent list because the exports actually carry it —
+       for 260 of 4,933 devices. Partial, and the UI omits the row where it is
+       null rather than filling it in. */
+    fieldsPartial: ['screenType', 'batteryPartNo', 'releaseStatus'],
     fieldsDerived: ['deviceType'],
     categories: meta.categories,
     brands: brands.map(b => [b.id, b.name, b.modelCount, b.groupCount]),
@@ -133,7 +160,7 @@ function main() {
     models: modelRows,
     groupCols: GROUP_COLS,
     groups: groupRows,
-    modelGroupCounts: mgPublic
+    modelGroups: mgPublic
   };
 
   const json = JSON.stringify(bundle);
@@ -147,9 +174,10 @@ function main() {
   const paid = {
     v: meta.version,
     generatedAt: new Date().toISOString(),
-    /* groupId -> { partNo, memberIds } */
+    /* groupId -> { partCode, oemPartNo, memberIds } */
     groups: Object.fromEntries(groups.map(g => [g.id, {
-      partNo: g.partNo || null,
+      partCode: g.partCode || null,
+      oemPartNo: g.oemPartNo || null,
       drawingName: g.drawingName || null,
       memberIds: g.memberIds || []
     }])),
@@ -171,7 +199,7 @@ function main() {
   console.log('  ' + '-'.repeat(50));
   console.log('  models     ', modelRows.length, JSON.stringify(counts));
   console.log('  groups     ', groupRows.length);
-  console.log('  devices    ', Object.keys(mgPublic).length, 'with part counts');
+  console.log('  devices    ', Object.keys(mgPublic).length, 'with group lists');
   console.log('  brands     ', bundle.brands.length);
   console.log('  categories ', bundle.categories.length);
   console.log('  ' + '-'.repeat(50));
@@ -180,8 +208,12 @@ function main() {
   console.log('  gzipped    ', kb(gz), ' <- what the browser downloads');
   console.log('  ' + '-'.repeat(50));
   console.log('  paid slice ', kb(paidBytes), '-> api/_data/parts.json (never served)');
-  console.log('  part codes ', groups.filter(g => g.partNo).length, 'held back');
-  console.log('  fitments   ', groups.reduce((s, g) => s + (g.memberIds || []).length, 0), 'held back');
+  console.log('  ' + '-'.repeat(50));
+  console.log('  PUBLIC: part codes', groups.filter(g => g.partCode).length,
+              '· OEM part numbers', groups.filter(g => g.oemPartNo).length,
+              '· fitments', groups.reduce((s, g) => s + (g.memberIds || []).length, 0));
+  console.log('  Everything above is in assets/dataset.json and downloadable');
+  console.log('  without signing in. That is the configured behaviour.');
   console.log();
 }
 

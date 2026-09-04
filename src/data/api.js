@@ -63,6 +63,37 @@
     };
   }
 
+  /* A group read from Firestore, put into the shape the cards expect.
+
+     The two sources carry the same fields — the CDN bundle is built from the
+     same export the importer writes — so hydrate() does the work. What this
+     adds is the guard: a group whose category or master model is not in the
+     loaded catalogue would hydrate to undefined and crash the renderer. That
+     happens legitimately, for a group added in the console since the bundle
+     was last built, so it is dropped with a warning rather than taking the
+     page down with it. */
+  function hydrateRemote(g) {
+    if (!g || !db.categoryById[g.categoryId] || !db.modelById[g.masterModelId]) {
+      SM.debug.warn('groups', 'skipping a group the local catalogue does not know', {
+        groupId: g && g.groupId, categoryId: g && g.categoryId, masterModelId: g && g.masterModelId
+      });
+      return null;
+    }
+    /* Both sources are built from the same export, so where the bundle already
+       holds this group its record is the complete one — part codes, member
+       list and all. Firestore's values win field by field where it has them,
+       which is what lets a group edited in the console show up without a
+       rebuild, and the bundle fills anything an older document is missing. */
+    var local = db.groupById[g.groupId];
+    if (local) {
+      var merged = {};
+      Object.keys(local).forEach(function (k) { merged[k] = local[k]; });
+      Object.keys(g).forEach(function (k) { if (g[k] != null) merged[k] = g[k]; });
+      return hydrate(merged);
+    }
+    return hydrate(g);
+  }
+
   /* The CDN-catalogue path: used when Firestore is unreachable, and always for
      free-text search, which Firestore cannot do without a token index. */
   function localListGroups(opts) {
@@ -202,7 +233,13 @@
           cursor: opts.cursor || null
         }).then(function (r) {
           return {
-            items: r.items,
+            /* HYDRATED, like every other path. The Firestore branch used to
+               return raw group records straight to the UI while the catalogue
+               branch returned {group, category, master, devices} — so C.plate
+               read `master.brandId` off undefined and the whole results list
+               threw. It happens on any finder view with no search text, which
+               is the default one. Same records, same shape, one renderer. */
+            items: r.items.map(hydrateRemote).filter(Boolean),
             cursor: r.cursor,
             hasMore: r.hasMore,
             /* The total comes from the catalogue counts rather than a COUNT
@@ -382,12 +419,51 @@
      @returns {Promise<{profile:object|null, complete:boolean, isNew:boolean}>}
   */
   function initializeAuthenticatedUser(fbUser) {
-    if (!fbUser || !SM.store || !SM.store.available()) {
+    if (!fbUser) {
+      SM.debug.log('identity', 'no user to initialise');
       return Promise.resolve({ profile: null, complete: false, isNew: false });
     }
     var uid = fbUser.uid;
+    SM.debug.log('identity', 'initialising', { uid: uid, email: fbUser.email || null });
 
-    return SM.store.loadProfile(uid).then(function (remote) {
+    if (!SM.store || !SM.store.available()) {
+      SM.debug.warn('identity', 'firestore unavailable — profile cannot be resolved');
+      return Promise.resolve({ profile: null, complete: false, isNew: false, offline: true });
+    }
+
+    /* THE WRITE THAT MAKES THE DOCUMENT EXIST.
+       Firebase Authentication creating a user creates nothing in Firestore —
+       they are separate products — so a sign-in that never reached the sign-up
+       form left an account with no record anywhere. That was the bug: visible
+       under Authentication -> Users, absent from the users collection.
+
+       It runs on the server through the Admin SDK, for two reasons. Security
+       rules cannot silently swallow it, which a client-side write can; and the
+       server-owned fields — the opening subscriptionStatus, accountStatus,
+       lastLoginAt — get written by the only party allowed to write them.
+
+       Its failure is not fatal. Firestore is still read below, and the browser
+       still writes its own shop details directly, so a profile-sync that cannot
+       reach the server degrades to what the app did before rather than blocking
+       the sign-in. */
+    var synced = SM.billing
+      ? SM.billing.syncProfile({ photoURL: fbUser.photoURL || null })
+          .then(function (r) {
+            SM.debug.log('identity', 'profile-sync ' + (r.created ? 'created' : 'updated'),
+                         { uid: r.uid, complete: r.profileCompleted, missing: r.missing });
+            return r;
+          })
+          .catch(function (err) {
+            SM.debug.warn('identity', 'profile-sync failed', {
+              status: err && err.status, error: err && err.message
+            });
+            return null;
+          })
+      : Promise.resolve(null);
+
+    return synced.then(function () {
+      return SM.store.loadProfile(uid);
+    }).then(function (remote) {
       var cached = SM.auth.findProfile(uid);
 
       /* A cached profile belonging to a different account must never be shown.
@@ -414,6 +490,7 @@
            than making the shop type it all again. Only ever an upload of real
            data the user already entered — nothing is invented. */
         if (cached.shopName && cached.proprietor) {
+          SM.debug.log('identity', 'migrating a local-only profile to Firestore', { uid: uid });
           SM.store.saveProfile(uid, {
             mobileShopName: cached.shopName,
             proprietorName: cached.proprietor,
@@ -422,7 +499,7 @@
             countryCode: cached.country || '',
             address: cached.address || null
           }, fbUser).catch(function (e) {
-            console.warn('[identity] could not migrate the local profile', e && e.code);
+            SM.debug.warn('identity', 'local profile migration failed', { code: e && e.code });
           });
         }
       }
@@ -433,9 +510,12 @@
       var p = remote || cached;
       var complete = !!(p && (p.profileCompleted ||
         ((p.mobileShopName || p.shopName) && (p.proprietorName || p.proprietor) && (p.mobileNumber || p.mobile))));
+      SM.debug.log('identity', 'resolved', {
+        uid: uid, source: remote ? 'firestore' : (cached ? 'local-cache' : 'none'), complete: complete
+      });
       return { profile: p || null, complete: complete, isNew: !remote && !cached };
     }).catch(function (err) {
-      console.warn('[identity] profile load failed', err && err.code);
+      SM.debug.warn('identity', 'profile load failed', { code: err && err.code, message: err && err.message });
       refresh();
       return { profile: SM.auth.findProfile(uid) || null, complete: false, isNew: false, offline: true };
     });
@@ -454,7 +534,7 @@
       if (SM.store && SM.store.available() && SM.fb.user()) {
         var c = SM.countries.byCode(registration.country) || {};
         var digits = String(registration.mobile || '').replace(/\D/g, '');
-        SM.store.saveProfile(identity.sub, {
+        var shop = {
           mobileShopName: registration.shopName,
           proprietorName: registration.proprietor,
           mobileNumber: registration.mobile,
@@ -462,9 +542,27 @@
           country: c.name || registration.countryName,
           countryCode: registration.country,
           address: registration.address || null
-        }, SM.fb.user()).catch(function (e) {
-          console.error('[auth] could not save profile to Firestore', e);
+        };
+
+        /* Two paths to the same document, on purpose. The direct write keeps
+           the account screen instant; the server write cannot be swallowed by a
+           security rule and is what guarantees the record exists. Both are
+           merges of the same fields, so whichever lands second is a no-op
+           rather than a conflict. */
+        SM.store.saveProfile(identity.sub, shop, SM.fb.user()).catch(function (e) {
+          SM.debug.warn('auth', 'direct profile write failed', { code: e && e.code });
         });
+        if (SM.billing) {
+          SM.billing.syncProfile({ photoURL: identity.picture || null, profile: shop })
+            .then(function (r) {
+              SM.debug.log('auth', 'registration persisted server side',
+                           { uid: r.uid, complete: r.profileCompleted });
+            })
+            .catch(function (e) {
+              SM.debug.warn('auth', 'server profile write failed',
+                            { status: e && e.status, error: e && e.message });
+            });
+        }
       }
     } else if (identity.email && existing && existing.email !== identity.email) {
       SM.auth.saveProfile(identity.sub, { email: identity.email });
@@ -618,7 +716,14 @@
        only after /api/verify-payment has confirmed the signature server side,
        and the state is then re-read from the server. */
     subscribe: function (planId, onStage) {
-      if (!current.signedIn) return respond({ error: 'signin-required' }, LAT.fast);
+      /* Every exit from this method carries `ok`. It used to resolve
+         `{ error: ... }` for the two refusals below, and the caller tests
+         `r.ok === false` — so a missing payment backend fell through the
+         failure branch and toasted "Plan active". Refusing to start a payment
+         and reporting success is the worst possible pair. */
+      if (!current.signedIn) {
+        return respond({ ok: false, result: { state: 'signin-required' } }, LAT.fast);
+      }
 
       if (this.hasPaymentBackend()) {
         var self = this;
@@ -630,22 +735,45 @@
         });
       }
 
-      /* No gateway configured. Nothing is granted — there is no sample
+      /* No gateway reachable. Nothing is granted — there is no sample
          activation any more. A subscription that no payment backs is worse
          than an error, because it looks like it worked. */
-      return respond({ error: 'payments-not-configured' }, LAT.fast);
+      SM.debug.warn('billing', 'subscribe refused — no payment backend', {
+        firebase: !!(SM.fb && SM.fb.isConfigured()), billing: !!SM.billing
+      });
+      return respond({ ok: false, result: { state: 'unavailable' } }, LAT.fast);
     },
 
     /* Cancelling stops the renewal; access runs to the paid-for expiry date
-       and the state flips to expired on its own after that. */
+       and the state flips to expired on its own after that.
+
+       It goes to the SERVER. This used to write cancelledAt into localStorage
+       and nothing else, so the screen said cancelled while the subscription
+       record was untouched — and /api/cancel-subscription, which does the real
+       thing, was never called by anything. A cancellation the server does not
+       know about is not a cancellation. */
     cancel: function () {
-      if (!current.sub || !current.subscription) return respond({ error: 'no-subscription' }, LAT.fast);
-      var s = current.profile.subscription;
-      SM.auth.saveProfile(current.sub, {
-        subscription: Object.assign({}, s, { cancelledAt: Date.now() })
+      if (!current.sub || !current.subscription) {
+        return respond({ ok: false, error: 'no-subscription' }, LAT.fast);
+      }
+
+      var self = this;
+      if (!this.hasPaymentBackend()) {
+        SM.debug.warn('billing', 'cancel refused — no backend to cancel against');
+        return respond({ ok: false, error: 'payments-unavailable' }, LAT.fast);
+      }
+
+      return SM.billing.cancel().then(function (r) {
+        SM.debug.log('billing', 'cancelled server side', { state: r && r.state, until: r && r.accessUntil });
+        /* Re-read rather than assume: the answer the UI shows must be the
+           server's record, not this call's optimism. */
+        return self.syncFromServer().then(function () {
+          return { ok: true, session: current, accessUntil: r && r.accessUntil };
+        });
+      }, function (err) {
+        SM.debug.warn('billing', 'cancel failed', { status: err && err.status, error: err && err.message });
+        return { ok: false, error: (err && err.message) || 'cancel-failed' };
       });
-      refresh();
-      return respond({ ok: true, session: current }, LAT.normal);
     },
 
     /* developer helper, deliberately not exposed in the UI — run
@@ -664,16 +792,32 @@
   };
 
 
+  /* The catalogue is open to everyone, so these lists no longer say
+     "unlocked" about anything. A plan card that sells access the app already
+     gives away is the one piece of copy that must not be left stale — a shop
+     paying ₹99 for "every compatibility group unlocked" would be paying for
+     what it already has.
+
+     What a plan is FOR, now, is a decision for the owner rather than for this
+     file. Until it is made these say only what is true today. */
   SM.PLANS = [
     {
       id: 'monthly', name: 'Monthly', price: 99, per: 'month', cadence: '₹99 billed every month',
       note: 'Best for trying Mobile Parts Finder in your shop.',
-      feats: ['Unlimited Device Finder searches', 'Every compatibility group unlocked', 'Full compatible-device lists', 'Part code, group & serial numbers', 'Works on counter phone, tablet & PC']
+      feats: ['The whole catalogue — 3,340 groups, 12,239 fitments',
+              'Unlimited Device Finder searches',
+              'Works on counter phone, tablet & PC',
+              'Supports the catalogue being kept up to date',
+              'Cancel any time — your paid days still run']
     },
     {
       id: 'yearly', name: 'Yearly', price: 799, per: 'year', cadence: '₹799 billed once a year', badge: 'Save ₹389',
       note: 'Works out to ₹67 a month — two months free.',
-      feats: ['Everything in Monthly', 'Two months free vs paying monthly', 'Priority access to new part categories', 'Bulk part-code export (coming soon)', 'Shop staff logins (coming soon)']
+      feats: ['Everything in Monthly',
+              'Two months free vs paying monthly',
+              'Priority access to new part categories',
+              'Bulk part-code export (coming soon)',
+              'Shop staff logins (coming soon)']
     }
   ];
 })(window);

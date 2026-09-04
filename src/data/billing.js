@@ -81,6 +81,37 @@
       return fetch('/api/plans').then(function (r) { return r.json(); });
     },
 
+    /**
+     * Is this deployment actually configured? Booleans only — no value of any
+     * environment variable is returned, here or by the route.
+     *
+     * It exists because "Payment service is not configured yet" was a guess
+     * made from an HTTP 500, and a 500 is equally consistent with a crash.
+     * Now the browser can ask directly, and so can anyone with curl.
+     */
+    health: function () {
+      return fetch('/api/health').then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false, unreachable: true }; });
+    },
+
+    /**
+     * Makes users/{uid} exist and stamps lastLoginAt. Called after every
+     * sign-in and every restored session.
+     *
+     * The browser also writes its own profile directly to Firestore, and still
+     * should — that is what keeps the account screen instant. But a write the
+     * client owns is a write that can silently not happen, and a shop signed in
+     * with no record anywhere is precisely the state this fixes. Running it
+     * through the server means security rules cannot swallow it, and the
+     * server-owned fields get set by the only party allowed to set them.
+     *
+     * @param {object} [payload] optional { photoURL, profile } — shop details
+     *        only; anything else in `profile` is dropped server side.
+     */
+    syncProfile: function (payload) {
+      return apiFetch('/api/profile-sync', { method: 'POST', body: payload || {} });
+    },
+
     /** The server's record of this account's access. The only source of truth. */
     status: function () {
       return apiFetch('/api/subscription');
@@ -102,18 +133,30 @@
      *          outcome, not an exception.
      */
     subscribe: function (planId, onStage) {
-      var stage = onStage || function () {};
+      var stage = function (name, detail) {
+        SM.debug.log('billing', 'stage ' + name, detail);
+        if (onStage) onStage(name, detail);
+      };
 
       return SM.fb.idToken().then(function (token) {
         if (!token) throw new Error('signin-required');
 
-        stage('creating-order');
+        stage('creating-order', { planId: planId });
         return Promise.all([
-          apiFetch('/api/create-order', { method: 'POST', body: { planId: planId } }),
+          apiFetch('/api/create-order', { method: 'POST', body: { planId: planId } })
+            .catch(function (err) {
+              SM.debug.warn('billing', 'create-order rejected',
+                            { status: err.status, error: err.message, data: err.data });
+              throw err;
+            }),
           loadCheckout()
         ]);
       }).then(function (results) {
         var order = results[0];
+        /* `mode` comes from the public key id's prefix. Worth logging: a test
+           payment and a live one look identical on screen. */
+        SM.debug.log('billing', 'order created',
+                     { orderId: order.orderId, amount: order.amount, mode: order.mode });
 
         return new Promise(function (resolve, reject) {
           var settled = false;

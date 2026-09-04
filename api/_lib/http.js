@@ -33,6 +33,18 @@ const forbidden = (res, message) => json(res, 403, { error: message });
 const notAllowed = (res) => json(res, 405, { error: 'method not allowed' });
 
 /**
+ * The route works; the deployment is not finished.
+ *
+ * Kept separate from `fail` on purpose. A 500 says "something broke and we do
+ * not know what", and the browser can only apologise vaguely. A 503 with a
+ * named reason says "this feature is switched off until an environment
+ * variable is set", which is a different sentence to the user, a different
+ * line in the log, and a different thing to go and do.
+ */
+const unavailable = (res, reason, extra) =>
+  json(res, 503, { error: reason, ...extra });
+
+/**
  * Anything unexpected becomes a 500 with an opaque body. Internal messages can
  * name collections, plan internals or key state, and none of that belongs in a
  * browser. The detail goes to the function log instead, where it is useful.
@@ -128,6 +140,6 @@ function body(req) {
 }
 
 module.exports = {
-  json, ok, bad, unauthorised, forbidden, notAllowed, fail,
+  json, ok, bad, unauthorised, forbidden, notAllowed, unavailable, fail,
   requireMethod, requireUser, readRawBody, body
 };

@@ -28,9 +28,9 @@
      /catalog/meta            dataset version + counts
      /brands/{id}
      /models/{id}             public catalogue
-     /groups/{id}             public preview  (no part no., no member list)
-     /groupDetails/{id}       paid: partNo, memberIds, memberNames
-     /modelGroups/{id}        paid: model -> group ids per category
+     /groups/{id}             full record: part codes and member lists included
+     /groupDetails/{id}       the same detail, kept for /api/device-parts
+     /modelGroups/{id}        model -> group ids per category
 
    The importer is idempotent: re-running overwrites documents by id and never
    duplicates. It does not delete documents that vanished from the source —
@@ -144,19 +144,27 @@ async function main() {
 
   if (want('groups')) {
     const groups = readNdjson('groups.ndjson');
-    /* public preview — safe for anyone to read */
+    /* The whole record, readable by anyone — the owner's decision, matching
+       what assets/dataset.json now ships. Keeping /groups thinner than the
+       bundle would only mean the Firestore path showed less than the file
+       sitting next to it, which is how the finder ended up rendering "1 more
+       device — not listed" over a member list the browser already had. */
     total += await writeAll('groups', groups, g => ({
       groupNo: g.groupNo, serialNo: g.serialNo,
+      partCode: g.partCode, oemPartNo: g.oemPartNo || null,
       categoryId: g.categoryId, categoryName: g.categoryName,
       masterModelId: g.masterModelId, masterModelName: g.masterModelName,
       masterBrandId: g.masterBrandId,
+      memberIds: g.memberIds, memberNames: g.memberNames,
       memberCount: g.memberCount,
       searchTokens: g.searchTokens
     }));
-    /* paid detail — gated by firestore.rules */
+    /* Still written. /api/device-parts reads it, and narrowing /groups again
+       later needs this collection to already be populated. */
     total += await writeAll('groupDetails', groups, g => ({
       groupNo: g.groupNo, categoryId: g.categoryId,
-      partNo: g.partNo, drawingName: g.drawingName,
+      partCode: g.partCode, oemPartNo: g.oemPartNo || null,
+      drawingName: g.drawingName,
       memberIds: g.memberIds, memberNames: g.memberNames,
       memberCount: g.memberCount
     }));

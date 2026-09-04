@@ -88,21 +88,34 @@ Group   { groupId, groupNumber, serialNumber, partCode, categoryId,
           masterModelId, compatibleDeviceIds[], compatibleCount, createdOn }
 ```
 
-### Auto-generated identifiers
+### Identifiers
 
-Generated in `mock-data.js`, never entered by hand:
+Three are issued by the build (`scripts/build-dataset.js`), one comes from the
+source:
 
-- **Group number** — `GRP-001`, sequential across all groups
-- **Serial number** — `MPF-SN-000001`, sequential
-- **Part code** — `TG-SAM-A55-001` = category code · brand code · model slug ·
-  per-category sequence. Verified unique across all 170 groups.
+- **Part code** — `MPF-BT-0001` = prefix · category code · per-category
+  sequence. Every group has one; it is what a shop writes on the bag.
+- **Group number** — `BT-0001`, per-category sequence
+- **Serial number** — `MPF-SN-000001`, sequential across every category
+- **Manufacturer part no.** — from the export's `modelNo`, and **only where it
+  is genuinely one**: 287 battery groups (`EB-BA115ABY`, `NT01`, `GVYZ7`). The
+  other five categories' column holds test data (`"1"` ×675 in middle-frame,
+  `"asdf"` ×56 in cc-board) or device names, and none of that is shown.
+  `data/build/missing-part-numbers.csv` lists the 3,054 groups still without one.
 
 ---
 
-## Sample data in this build
+## Data in this build
 
-288 models · 13 brands · 170 compatibility groups · 8 part categories ·
-3,463 device fitments.
+4,933 models · 22 brands · 3,340 compatibility groups · 6 part categories ·
+12,239 device fitments — the owner's own export, built by
+`scripts/build-dataset.js` from the six `*_export.json` files and the model
+workbook.
+
+Screen type (260 devices), battery part number (288) and release status come
+from the category exports and are shown where recorded. Processor, RAM, storage,
+cameras, colours and network are absent from the source and are left blank
+rather than estimated.
 
 Group sizes deliberately span the full range so the UI is proven against all of
 them: 13 model-specific groups of 1, most in the 2–30 range, and ten groups over
@@ -116,19 +129,23 @@ a production parts database.
 
 ## Access states
 
-All Mobile Models is free for everyone. Device Finder matching is the paid
-feature. Four states are implemented and switchable from the sliders icon in the
-header or the panel at the bottom of the Account page:
+**The catalogue is currently open to everyone** — models, groups, part codes and
+the full fitment lists, signed in or not. `assets/dataset.json` is a static file
+that carries all of it, so this is not a UI setting: see section 8 of
+`docs/GOING-LIVE.md` for what that means and the order to reverse it in.
 
-| State | Device Finder |
+| State | What changes |
 | --- | --- |
-| Guest | browse groups; match result and full fitment list locked |
-| Free user | same as guest, with an account |
-| Active subscriber | everything unlocked |
-| Expired | locked again, with a renewal prompt |
+| Guest | full access to the catalogue |
+| Free user | the same, with a saved shop profile |
+| Active subscriber | the same, plus a recorded plan |
+| Expired | the same; a renewal prompt on the account page |
 
-Plans are ₹99/month and ₹799/year. Choosing one only flips local state — **no
-payment gateway is connected and nothing is charged.**
+Plans are ₹99/month and ₹799/year and go through Razorpay, verified server-side
+(`api/create-order`, `api/verify-payment`, `api/razorpay-webhook`). A
+subscription is activated only after the server has checked the payment
+signature — never on the browser's say-so. The keys are set in the Vercel
+environment; `curl /api/health` reports whether they are.
 
 ---
 

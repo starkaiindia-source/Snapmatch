@@ -1316,6 +1316,24 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 }
 .bootwait svg{ opacity:.85; }
 
+/* Shown on the account screen while Firebase is still answering. It is not the
+   sign-in form on purpose: "still loading" and "signed out" are different
+   states, and drawing the second while the first is true is what a returning
+   user reads as being sent back to the login page.
+
+   The icon needs an explicit size because SM.icon() emits a viewBox and no
+   width — without one the svg fills its flex row and the card becomes a giant
+   arrow. */
+.authwait{ display:flex; align-items:center; gap:14px; }
+.authwait svg{
+  flex:none; width:22px; height:22px; color:var(--teal-600);
+  animation:authwait-spin 1.1s linear infinite;
+}
+@keyframes authwait-spin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce){
+  .authwait svg{ animation:none; }
+}
+
 /* The already-authenticated Google account, shown on the profile-completion
    form. It is a statement, not a control: the user has chosen this account and
    asking them to choose again is the step this screen removes. */

@@ -652,7 +652,6 @@
         return;
       }
 
-      var pro = S.isPro();
       var catCount = {};
       rows.forEach(function (r) { catCount[r.group.categoryId] = 1; });
       var nCats = Object.keys(catCount).length;
@@ -699,20 +698,15 @@
           ? '<button class="expandbtn" data-act="more-matches">' + icon('chevronDown') +
           'Show ' + Math.min(6, rows.length - shown.length) + ' more ' +
           '<span class="muted">(' + (rows.length - shown.length) + ' groups hidden)</span></button>'
-          : '') +
-        (pro ? '' : '<div style="margin-top:16px">' + C.paywall({
-          title: 'Unlock the full fitment list',
-          text: 'You can see that ' + m.fullName + ' has a match. An active plan reveals every compatible device, the part code and the group sheet you can show a customer.'
-        }) + '</div>');
+          : '');
     });
   }
 
   function matchCard(row, hitModel) {
     var g = row.group, cat = row.category, master = row.master;
-    var pro = S.isPro();
-    /* Null means the member list was not in the public catalogue at all — a
-       different thing from a free account seeing a shortened one. */
-    var preview = row.devices ? row.devices.slice(0, pro ? 8 : 4) : [];
+    /* Null means the member list is not in the catalogue at all — a different
+       thing from a group that genuinely has one member. */
+    var preview = row.devices ? row.devices.slice(0, 8) : [];
 
     return '<div class="match" style="margin-bottom:14px">' +
       '<div class="match__head">' +
@@ -725,15 +719,7 @@
       '<div class="match__body">' +
       '<div class="stack" style="gap:14px">' +
       C.masterCard(master, cat) +
-      /* never blur real data — either show the identifiers, or show a clear,
-         deliberate locked panel in their place */
-      (pro ? C.idGrid(g)
-        : '<div class="lockbox">' +
-        '<span class="lockbox__ico">' + icon('lock') + '</span>' +
-        '<span class="lockbox__body"><b>Part code, serial &amp; group number</b>' +
-        '<span>Included with any plan — from ₹99/month</span></span>' +
-        '<button class="btn btn--amber btn--sm" data-act="go-plans">Unlock</button>' +
-        '</div>') +
+      C.idGrid(g) +
       '</div>' +
       '<div class="stack" style="gap:12px">' +
       '<div class="complist__head">' +
@@ -743,10 +729,8 @@
       '</div>' +
       '<div class="devlist">' + C.deviceRows(preview, { masterId: master.id, hitId: hitModel.id }) + '</div>' +
       (g.compatibleCount > preview.length
-        ? (pro
-          ? '<button class="expandbtn" data-act="open-group" data-id="' + g.groupId + '">' +
+        ? '<button class="expandbtn" data-act="open-group" data-id="' + g.groupId + '">' +
           icon('layers') + 'View all ' + g.compatibleCount + ' compatible models</button>'
-          : '<button class="expandbtn" data-act="go-plans">' + icon('lock') + (g.compatibleCount - preview.length) + ' more devices — unlock with a plan</button>')
         : '') +
       '</div>' +
       '</div></div>';
@@ -763,7 +747,8 @@
 
     page.innerHTML = '<div class="shell" style="padding-top:20px">' +
       '<div class="notice notice--brand" style="margin-bottom:18px">' + icon('unlock') +
-      '<span><b>Free for everyone.</b> The full model database — brands, models and specifications — stays open. Device Finder matching is the paid part.</span></div>' +
+      '<span><b>Free for everyone.</b> The full model database — brands, models, ' +
+      'specifications and every compatibility group — is open to use.</span></div>' +
       '<div id="modelsBody"></div></div>';
 
     if (!brandId) renderBrandGrid();
@@ -910,7 +895,9 @@
           '<span class="dcard__n">' + esc(m.modelName) + '</span>' +
           '<span class="dcard__m">' + m.displaySize + '&Prime; · ' + m.releaseYear + '</span>' +
           '<span class="dcard__t">' +
-            '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>' +
+            (m.screenCurve
+            ? '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>'
+            : '') +
             (gc ? '<span class="tag">' + gc + ' part' + (gc === 1 ? '' : 's') + '</span>' : '') +
           '</span>' +
         '</span></button>';
@@ -925,11 +912,20 @@
         '<span class="drow__shot">' + SM.art.device(m, 0) + '</span>' +
         '<span class="drow__main">' +
           '<span class="drow__n">' + esc(m.fullName) + '</span>' +
-          '<span class="drow__m">' + m.displaySize + '&Prime; ' + esc(m.screenType) +
-            ' · ' + esc(sp.chipset || '') + ' · ' + nf(sp.batteryMah || 0) + ' mAh</span>' +
+          /* Built from what is actually recorded. chipset is null for every
+             device in this catalogue and screenType for most, so the fixed
+             " · null · " separators left the row reading "6.4″  ·  · 0 mAh". */
+          '<span class="drow__m">' +
+            [ m.displaySize ? esc(m.displaySize) + '&Prime;' : null,
+              m.screenType ? esc(m.screenType) : null,
+              sp.chipset ? esc(sp.chipset) : null,
+              sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null
+            ].filter(Boolean).join(' · ') + '</span>' +
         '</span>' +
         '<span class="drow__side">' +
-          '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>' +
+          (m.screenCurve
+            ? '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>'
+            : '') +
           '<span class="drow__y">' + m.releaseYear + '</span>' +
           (gc ? '<span class="tag tag--parts">' + gc + '</span>' : '') +
         '</span></button>';
@@ -994,8 +990,12 @@
     return '<div class="bctl">' +
       selectHTML('deviceType', 'Type', f.deviceType, [
         ['', 'All types'], ['phone', 'Phones'], ['tablet', 'Tablets'], ['watch', 'Watches']]) +
+      /* The exports record a screen type for 260 of 4,933 devices, so this
+         filter works — over what is RECORDED. "Flat only" showing 229 phones
+         does not mean the brand made 229 flat phones, and the labels say so
+         rather than letting the count imply it. */
       (dbHas('screenCurve') ? selectHTML('curve', 'Screen', f.curve, [
-        ['', 'Flat & curved'], ['flat', 'Flat only'], ['curved', 'Curved only']]) : '') +
+        ['', 'Any screen'], ['flat', 'Flat (recorded)'], ['curved', 'Curved (recorded)']]) : '') +
       selectHTML('year', 'Year', f.year,
         [['', 'Any year']].concat(years.map(function (y) { return [String(y), String(y)]; }))) +
       selectHTML('size', 'Size', f.size, [
@@ -1036,9 +1036,12 @@
     var m = state.models;
     var c = b.counts || {};
 
+    /* Devices with no release date produce a null year, and it was reaching the
+       dropdown as an option literally reading "null". */
     var years = Array.from(new Set(db.models
       .filter(function (x) { return x.brandId === brandId; })
-      .map(function (x) { return x.releaseYear; }))).sort(function (x, y) { return y - x; });
+      .map(function (x) { return x.releaseYear; })
+      .filter(function (y) { return y != null; }))).sort(function (x, y) { return y - x; });
 
     document.getElementById('modelsBody').innerHTML =
       '<div class="crumbs" style="margin-bottom:14px">' +
@@ -1080,7 +1083,8 @@
     if (!host || !b) return;
     var years = Array.from(new Set(db.models
       .filter(function (x) { return x.brandId === b.id; })
-      .map(function (x) { return x.releaseYear; }))).sort(function (x, y) { return y - x; });
+      .map(function (x) { return x.releaseYear; })
+      .filter(function (y) { return y != null; }))).sort(function (x, y) { return y - x; });
     host.innerHTML = brandControlsHTML(b, years);
   }
 
@@ -1151,7 +1155,8 @@
 
       '<div class="shell" style="margin-top:-18px;position:relative;z-index:2">' +
       (s.status === 'expired' ? '<div class="notice notice--amber" style="margin-bottom:16px">' + icon('alert') +
-        '<span><b>Your plan has expired.</b> Device Finder matching is locked until you renew. Everything in All Mobile Models still works.</span></div>' : '') +
+        '<span><b>Your plan has expired.</b> Renew to carry on supporting the ' +
+        'catalogue — everything in the app keeps working either way.</span></div>' : '') +
       '<div class="plans">' + SM.PLANS.map(function (p) {
         return C.planCard(p, { current: s.status === 'pro' && s.plan === p.id });
       }).join('') + '</div>' +
@@ -1160,13 +1165,19 @@
       '<div class="idgrid" style="grid-template-columns:repeat(1,minmax(0,1fr))">' +
       cmp('Browse all mobile models & specs', 'Free', 'Free') +
       cmp('Browse the compatibility group library', 'Free', 'Free') +
-      cmp('Match a model to its group', 'Locked', 'Included') +
-      cmp('Full compatible-device list', 'First few only', 'All devices') +
-      cmp('Part code, serial & group number', 'Hidden', 'Included') +
+      cmp('Match a model to its group', 'Free', 'Free') +
+      cmp('Full compatible-device list', 'Free', 'Free') +
+      cmp('Part code, serial & group number', 'Free', 'Free') +
       '</div></div>' +
 
+      /* Says what is actually true. The table above claimed four locks that
+         the app no longer has, and a plan page that describes a paywall the
+         product does not enforce is the one page that must not. */
       '<div class="notice" style="margin:18px 0 8px">' + icon('info') +
-      '<span><b>Prototype note.</b> No payment gateway is connected in this build. Choosing a plan only switches the local demo state so you can review the subscriber experience.</span></div>' +
+      '<span><b>The whole catalogue is currently open.</b> Every compatibility ' +
+      'group, part code and fitment list is free to use while Mobile Parts Finder ' +
+      'is being built out. A plan supports that work and keeps your account ' +
+      'ready for the staff logins and part-code export that are next.</span></div>' +
       '</div>';
   }
   function cmp(label, free, pro) {
@@ -1180,8 +1191,93 @@
   /* ==========================================================================
      PAGE · ACCOUNT
      ========================================================================== */
+  /* ------------------------------------------------------- identity gate
+
+     ONE promise that answers "do we know who this is yet?", covering both
+     halves of the question: Firebase resolving its auth state, and the profile
+     being read from Firestore. Screens wait on it instead of guessing.
+
+     `identitySettled` is the synchronous form, for render paths that cannot
+     await. It starts false and never goes back — once identity is known, it is
+     known for the life of the page.
+
+     Why both halves: an authenticated user whose profile has not loaded is
+     still not a user the account screen can draw. Splitting them is how a
+     screen ends up painting "signed out" during the gap. */
+  var identityReady = null;
+  var identitySettled = false;
+
+  /* True while the app still cannot say whether anyone is signed in.
+
+     There are two unknowns, not one, and both have to clear. Until the Firebase
+     config has been fetched we do not even know whether sign-in EXISTS on this
+     deployment — and `isConfigured()` answers false during that window, which
+     reads exactly like "signed out". Checking `configState.checked` first is
+     what stops a slow config endpoint painting the sign-in form at a user who
+     has a perfectly good session. */
+  function identityPending() {
+    if (!SM.fb.configState.checked) return true;
+    if (!SM.fb.isConfigured()) return false;      /* no sign-in here at all */
+    return !identitySettled;
+  }
+
+  function resolveIdentity() {
+    if (identityReady) return identityReady;
+
+    identityReady = SM.fb.loadConfig().then(function (cfg) {
+      /* Firebase is genuinely unavailable — no config, no sign-in, nobody to
+         resolve. Not an error: the catalogue works without it. */
+      if (!cfg) {
+        SM.debug.log('boot', 'firebase not configured — no identity to resolve');
+        return null;
+      }
+      return SM.fb.whenResolved().then(function (fbUser) {
+        SM.debug.log('boot', 'auth resolved', { signedIn: !!fbUser, uid: fbUser ? fbUser.uid : null });
+        if (!fbUser) return null;
+        return S.initializeAuthenticatedUser(fbUser);
+      });
+    }).catch(function (err) {
+      SM.debug.warn('boot', 'identity resolution failed', { message: err && err.message });
+      return null;
+    }).then(function (r) {
+      identitySettled = true;
+      return r;
+    });
+
+    return identityReady;
+  }
+
+  /* Shown while Firebase is still answering. It is deliberately NOT the
+     sign-in form: 'still loading' and 'signed out' are different states, and
+     painting the second while the first is true is what a returning user reads
+     as "it sent me back to the login page". That is the whole mobile bug —
+     most visible on the way back from Google, where the session arrives a
+     moment after the page does. */
+  function authPendingHTML() {
+    return '<div class="acct"><div class="card card--pad">' +
+      '<div class="authwait">' + icon('refresh') +
+      '<div class="grow" style="min-width:0">' +
+      '<h2 class="t-h1">Finishing sign-in…</h2>' +
+      '<p class="t-sub" style="margin-top:4px">Checking your Google account.</p>' +
+      '</div></div></div></div>';
+  }
+
   function renderAccount(page) {
     var s = S.get();
+
+    /* Nothing decides anything while identity is unresolved. resolveIdentity()
+       covers both halves — Firebase answering, and the profile being read —
+       because a user who is authenticated but whose profile has not loaded yet
+       is still not a user the account screen can draw. */
+    if (s.status === 'guest' && identityPending()) {
+      page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
+      resolveIdentity().then(function () {
+        /* Only if the user is still looking at this screen. */
+        if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+      });
+      return;
+    }
+
     page.innerHTML = '<div class="shell" style="padding-top:20px">' +
       (s.status === 'guest' ? authHTML() : profileHTML(s)) +
       '</div>';
@@ -1514,25 +1610,43 @@
          profile that only ever lived in localStorage would be complete on
          screen and incomplete at checkout. */
       var uid = SM.fb && SM.fb.user() && SM.fb.user().uid;
-      var mirrored = (uid && SM.store && SM.store.available())
-        ? SM.store.saveProfile(uid, {
-            displayName: edit.proprietor.trim(),
-            shopName: edit.shopName.trim(),
-            proprietor: edit.proprietor.trim(),
-            mobileShopName: edit.shopName.trim(),
-            proprietorName: edit.proprietor.trim(),
-            mobileNumber: edit.mobile.trim(),
-            mobileNumberE164: e164,
-            country: c && c.name,
-            countryCode: edit.country,
-            address: edit.area.trim() || edit.city.trim() ? edit.city.trim() : null,
-            /* Only a genuinely uploaded photo is recorded. A local preview is
-               not a stored photo, and writing its data URL here would put an
-               unusable value in front of every other device. */
-            profilePhotoURL: edit.photoURL || undefined,
-            profilePhotoPath: edit.photoPath || undefined
-          }, SM.fb.user())
-        : Promise.resolve();
+      var shop = {
+        mobileShopName: edit.shopName.trim(),
+        proprietorName: edit.proprietor.trim(),
+        mobileNumber: edit.mobile.trim(),
+        mobileNumberE164: e164,
+        country: (c && c.name) || '',
+        countryCode: edit.country,
+        address: {
+          flat: edit.flat.trim(), area: edit.area.trim(), city: edit.city.trim(),
+          district: edit.district.trim(), state: edit.stateName.trim(),
+          country: (c && c.name) || ''
+        },
+        /* Only a genuinely uploaded photo is recorded. A local preview is not a
+           stored photo, and writing its data URL here would put an unusable
+           value in front of every other device. */
+        profilePhotoURL: edit.photoURL || undefined,
+        profilePhotoPath: edit.photoPath || undefined
+      };
+
+      /* Both writes, and the SERVER one is the one that must succeed.
+         create-order reads users/{uid} to decide whether a payment may start,
+         so a profile that only reached this browser is complete on screen and
+         incomplete at checkout — which is the 409 the shop then cannot explain.
+         The direct write keeps the screen instant; the server write is what
+         makes the record real, and it cannot be swallowed by a security rule. */
+      var direct = (uid && SM.store && SM.store.available())
+        ? SM.store.saveProfile(uid, shop, SM.fb.user())
+            .catch(function (e) {
+              SM.debug.warn('profile', 'direct write failed, relying on the server', { code: e && e.code });
+              return null;
+            })
+        : Promise.resolve(null);
+
+      var mirrored = direct.then(function () {
+        if (!uid || !SM.billing) return null;
+        return SM.billing.syncProfile({ photoURL: edit.photoURL || null, profile: shop });
+      });
 
       return mirrored.then(function () {
         state.sheet = null; renderSheet();
@@ -1550,8 +1664,12 @@
           toast('Profile updated');
         }
       }, function (err) {
-        console.error('[profile] firestore mirror failed', err);
-        toast('Saved on this device, but not to your account — retry', 'alert');
+        SM.debug.warn('profile', 'profile did not reach the server', {
+          status: err && err.status, code: err && err.code, message: err && err.message
+        });
+        /* The sheet stays open on purpose: the details are still in the form,
+           so Save is one tap away rather than a retype. */
+        toast('Saved on this device, but not to your account — try Save again', 'alert');
       });
     });
   }
@@ -1613,14 +1731,21 @@
   function freeIncluded() { return [
     'Browse all ' + nf(db.stats.models) + ' phone models and their specs',
     'Browse every compatibility group in the catalogue',
-    'Search by model, part code or group number'
-  ]; }
-  var PRO_ONLY = [
+    'Search by model, part code or group number',
+    /* These four moved up from PRO_ONLY when the catalogue was opened. They
+       are shown to everyone now, signed in or not, so listing them with a
+       padlock would be the account screen describing a lock the app does not
+       have. */
     'Match a model to its compatibility group',
     'Full compatible-device list for every group',
     'Part code, serial number and group number',
     'Group sheets you can show a customer'
-  ];
+  ]; }
+  /* Nothing is plan-only at present. The list is kept rather than deleted
+     because the split still exists everywhere else — the rules, the paid
+     collections and /api/device-parts — and narrowing the catalogue again is a
+     matter of putting entries back here. */
+  var PRO_ONLY = [];
 
   function accessHTML() {
     return '<span class="t-lab">What your account can do</span>' +
@@ -1714,8 +1839,8 @@
       '<hr class="divider" style="margin:18px 0" />' +
       '<div class="notice notice--amber">' + icon('alert') +
       '<span><b>Your ' + esc(p ? p.name.toLowerCase() : '') + ' plan expired on ' + esc(sub ? sub.endLabel : '') + '.</b> ' +
-      'Device Finder matching, full fitment lists and part codes are no longer active. ' +
-      'Browsing models and groups stays free.</span></div>' +
+      'Nothing has been taken away — the catalogue, the fitment lists and the ' +
+      'part codes are all still open. Renew whenever you want to.</span></div>' +
 
       (sub ? '<div class="idgrid" style="margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
         '<div class="idcell"><span>Previous plan</span><b style="font-family:var(--f-ui);font-size:14px">' +
@@ -1807,6 +1932,13 @@
      silently omits half its sections looks incomplete; one that says which
      fields the source lacks is simply accurate, and tells the owner exactly
      what a richer import would add. */
+  /* What the catalogue knows, does not know, and knows only sometimes.
+
+     The third state is the one that was missing. Screen type, battery part
+     number and release status come from the category exports and cover some
+     devices and not others — calling them "not included" would be wrong on the
+     260 devices that have a screen type, and listing them as present would be
+     wrong on the other 4,673. */
   function coverageNoteHTML() {
     var cov = db.coverage;
     if (!cov || !cov.absent || !cov.absent.length) return '';
@@ -1814,13 +1946,24 @@
       chipset: 'processor', cpu: 'CPU', gpu: 'GPU', ram: 'RAM', storage: 'storage',
       colours: 'colours', cameras: 'cameras', os: 'software', network: 'network',
       sensors: 'sensors', screenCurve: 'flat/curved screen', price: 'price',
-      variants: 'RAM and storage variants', screenResolution: 'resolution'
+      variants: 'RAM and storage variants', screenResolution: 'resolution',
+      refreshRate: 'refresh rate',
+      screenType: 'screen type', batteryPartNo: 'battery part number',
+      releaseStatus: 'availability'
     };
     var names = cov.absent.map(function (f) { return LABEL[f] || f; });
+    var partial = (cov.partial || []).map(function (f) { return LABEL[f] || f; });
+
     return '<p class="dnote">' + icon('info') +
       '<span>This catalogue carries model, brand, release date, display size, ' +
       'dimensions and battery. It does not include ' + esc(names.join(', ')) +
-      ' — those fields are left out rather than estimated.</span></p>';
+      ' — those fields are left out rather than estimated.' +
+      (partial.length
+        ? ' ' + esc(partial.join(', ')) +
+          ' ' + (partial.length === 1 ? 'is' : 'are') +
+          ' recorded for some devices only, and shown where known.'
+        : '') +
+      '</span></p>';
   }
 
   function keySpecHTML(iconName, label, value, sub) {
@@ -2060,6 +2203,13 @@
             ])) +
             specBlockHTML('Battery & charging', 'battery', [
               ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null],
+              /* The manufacturer's own battery code, from the category export.
+                 Recorded for 288 devices; the flag says whether the owner has
+                 checked it, because an unverified code is still worth showing
+                 and still worth labelling as unverified. */
+              ['Battery part number', m.batteryPartNo
+                ? m.batteryPartNo + (m.batteryPartVerified ? ' (verified)' : ' (unverified)')
+                : null],
               ['Type', sp.batteryType],
               ['Wired charging', sp.chargingWatts ? sp.chargingWatts + 'W' : null],
               ['Wireless charging', sp.wirelessCharging == null ? null
@@ -2098,6 +2248,13 @@
                asks for. */
             specBlockHTML('Source', 'linkOut', [
               ['Released', m.releaseDate],
+              /* available / coming_soon / cancelled, as the export records it.
+                 "Available" is the ordinary case and saying so on every device
+                 is noise, so only the two that change what a shop would order
+                 are shown. */
+              ['Availability', m.releaseStatus && m.releaseStatus !== 'available'
+                ? m.releaseStatus.replace(/_/g, ' ')
+                : null],
               ['Catalogue entry', m.sourceUrl ? m.sourceUrl.replace(/^https?:\/\//, '') : null],
               ['Device type', m.deviceType + (m.typeDerived ? ' (read from the model name)' : '')]
             ]) +
@@ -2210,8 +2367,6 @@
 
   function paintGroupSheet(host, row) {
     var g = row.group, cat = row.category, master = row.master;
-    var pro = S.isPro();
-    var freeLimit = 8;
 
     var title = '<div class="row" style="gap:9px;flex-wrap:wrap">' +
       '<span class="pill" style="background:' + cat.color + '18;color:' + cat.color + '">' + icon(cat.icon) + esc(cat.name) + '</span>' +
@@ -2219,10 +2374,12 @@
 
     var body =
       '<div style="--c:' + cat.color + '">' + C.masterCard(master, cat) + '</div>' +
-      '<div><span class="t-lab" style="display:block;margin-bottom:9px">Auto-generated identifiers</span>' +
+      '<div><span class="t-lab" style="display:block;margin-bottom:9px">Identifiers</span>' +
       C.idGrid(g) +
       '<div class="row wrap" style="gap:8px;margin-top:10px">' +
-      copyBtn('Part code', g.partCode) + copyBtn('Serial', g.serialNumber) + copyBtn('Group', g.groupNumber) +
+      copyBtn('Part code', g.partCode) + copyBtn('Serial', g.serialNumber) +
+      copyBtn('Group', g.groupNumber) +
+      (g.oemPartNo ? copyBtn('Mfr part no', g.oemPartNo) : '') +
       '</div></div>' +
       '<div id="devSection"></div>';
 
@@ -2231,43 +2388,71 @@
       '<button class="btn btn--primary grow" data-act="find-parts" data-id="' + master.id + '">' + icon('search') + 'Find parts for master model</button>',
       true);
 
-    state.devView = { shown: pro ? 60 : freeLimit, q: '' };
+    state.devView = { shown: 60, q: '' };
     paintDevSection(row);
   }
 
+  /* A copy button with nothing to copy is a button that lies. Part code used to
+     be null for every group, so this rendered "Part code: " and put an empty
+     string on the clipboard. */
   function copyBtn(label, value) {
-    return '<button class="copybtn" data-act="copy" data-copy="' + esc(value) + '">' + icon('copy') + esc(label) + ': ' + esc(value) + '</button>';
+    if (value == null || String(value).trim() === '') return '';
+    return '<button class="copybtn" data-act="copy" data-copy="' + esc(value) + '">' +
+      icon('copy') + esc(label) + ': ' + esc(value) + '</button>';
   }
 
   function paintDevSection(row) {
     var host = document.getElementById('devSection');
     if (!host) return;
-    var g = row.group, master = row.master, pro = S.isPro();
+    var g = row.group, master = row.master;
     var v = state.devView;
     var q = v.q.toLowerCase();
+
+    /* null means the list was withheld; [] means the group genuinely has no
+       members. They are different states and used to render the same, so a
+       withheld list produced "Nothing in this group matches ''" — an empty
+       search result for a search nobody had typed. */
+    var withheld = row.devices == null;
     var all = row.devices || [];
     var list = q ? all.filter(function (d) { return d.fullName.toLowerCase().indexOf(q) > -1; }) : all;
     var shown = list.slice(0, v.shown);
     var remaining = list.length - shown.length;
 
+    var body;
+    if (withheld) {
+      body = C.paywall({
+        title: g.compatibleCount + ' compatible devices',
+        text: 'This group covers ' + g.compatibleCount + ' devices. Sign in to see which.'
+      });
+    } else if (list.length) {
+      body = '<div class="devlist">' + C.deviceRows(shown, { masterId: master.id }) + '</div>';
+    } else if (q) {
+      body = C.state({
+        icon: 'search',
+        title: 'Nothing in this group matches “' + v.q + '”',
+        text: 'Clear the search to see all ' + g.compatibleCount + ' devices.'
+      });
+    } else {
+      body = C.state({
+        icon: 'inbox',
+        title: 'No devices recorded in this group',
+        text: 'The catalogue has the group but not its member list yet.'
+      });
+    }
+
     host.innerHTML =
       '<div class="complist__head">' +
       '<span class="t-lab">Compatible devices</span>' +
       '<span class="pill pill--brand">' + g.compatibleCount + ' in this group</span>' +
-      (g.compatibleCount > 24 ? '<label class="field grow" style="min-width:180px">' + icon('search') +
+      (!withheld && g.compatibleCount > 24 ? '<label class="field grow" style="min-width:180px">' + icon('search') +
         '<input class="input" id="devq" placeholder="Find inside this group…" value="' + esc(v.q) + '" aria-label="Search compatible devices" /></label>' : '') +
       '</div>' +
-      (list.length
-        ? '<div class="devlist">' + C.deviceRows(shown, { masterId: master.id }) + '</div>'
-        : C.state({ icon: 'search', title: 'Nothing in this group matches “' + v.q + '”', text: 'Clear the search to see all ' + g.compatibleCount + ' devices.' })) +
+      body +
+      /* Paging, not a paywall. The whole list is here — this only keeps a
+         268-device group from laying out all at once on a counter phone. */
       (remaining > 0
-        ? (pro
-          ? '<button class="expandbtn" style="margin-top:10px" data-act="more-devs">' + icon('chevronDown') +
-          'Show ' + Math.min(60, remaining) + ' more <span class="muted">(' + remaining + ' hidden)</span></button>'
-          : '<div style="margin-top:12px">' + C.paywall({
-            title: remaining + ' more compatible devices',
-            text: 'This group covers ' + g.compatibleCount + ' devices in total. An active plan opens the complete list and its part codes.'
-          }) + '</div>')
+        ? '<button class="expandbtn" style="margin-top:10px" data-act="more-devs">' + icon('chevronDown') +
+          'Show ' + Math.min(60, remaining) + ' more <span class="muted">(' + remaining + ' left)</span></button>'
         : (list.length > 12 ? '<p class="t-xs muted" style="margin-top:10px">End of list — ' + list.length + ' devices shown.</p>' : ''));
   }
 
@@ -2660,6 +2845,14 @@
             if (st === 'cancelled') toast('Payment cancelled', 'alert');
             else if (st === 'verification-failed') {
               toast('Payment taken but not yet confirmed — it will activate shortly', 'alert');
+            } else if (st === 'signin-required') {
+              toast('Sign in again to activate a plan', 'alert');
+            } else if (st === 'unavailable') {
+              /* Reached only when the app cannot talk to the payment backend at
+                 all. It used to fall through this branch entirely and toast
+                 "Plan active", which told the shop they had bought something
+                 they had not. */
+              toast('Payments are not switched on for this site yet', 'alert');
             } else {
               toast((r.result && r.result.reason) || 'Payment failed', 'alert');
             }
@@ -2693,16 +2886,36 @@
             return;
           }
 
+          /* 503 with a name means the deployment is unfinished, not broken —
+             a different sentence to the shop and a different thing to fix. A
+             500 stays a 500: something genuinely failed, and claiming it was a
+             configuration problem would send whoever reads the report hunting
+             the wrong thing. */
           var say =
-            msg === 'signin-required'      ? 'Sign in again to activate a plan'
-          : msg === 'checkout-unavailable' ? 'Razorpay Checkout did not load — check the connection and retry'
-          : msg === 'unknown plan'         ? 'That plan is no longer available'
-          : (err && err.status === 401)    ? 'Your session expired — sign in again'
-          : (err && err.status === 500)    ? 'Payment service is not configured yet'
-          : msg                            ? 'Could not start payment: ' + msg
-                                           : 'Could not start payment';
+            msg === 'payments-unconfigured'  ? 'Payments are not switched on for this site yet'
+          : msg === 'signin-required'        ? 'Sign in again to activate a plan'
+          : msg === 'checkout-unavailable'   ? 'Razorpay Checkout did not load — check the connection and retry'
+          : msg === 'unknown plan'           ? 'That plan is no longer available'
+          : (err && err.status === 401)      ? 'Your session expired — sign in again'
+          : (err && err.status === 503)      ? 'Payments are temporarily unavailable — try again shortly'
+          : (err && err.status === 500)      ? 'Something went wrong starting the payment — nothing was charged'
+          : msg                              ? 'Could not start payment: ' + msg
+                                             : 'Could not start payment';
+          SM.debug.warn('billing', 'subscribe failed', {
+            status: err && err.status, message: msg, data: err && err.data
+          });
           console.error('[subscribe]', err);
           toast(say, 'alert');
+
+          /* An unconfigured deployment is worth naming precisely, once, in the
+             console — the toast has to stay short and the shop owner is not the
+             person who can fix it. */
+          if (msg === 'payments-unconfigured' && SM.billing) {
+            SM.billing.health().then(function (h) {
+              console.error('[subscribe] payment backend not configured. Missing:',
+                            (h && h.missing) || (err.data && err.data.missing) || 'unknown');
+            });
+          }
         });
         break;
       case 'edit-profile': {
@@ -2725,15 +2938,41 @@
       case 'save-profile': saveProfile(); break;
 
       case 'resume-sub':
-        S.updateProfile({
-          subscription: Object.assign({}, S.get().profile.subscription, { cancelledAt: null })
-        }).then(function () {
-          renderShellBits(); renderAccount(document.getElementById('page')); toast('Renewal turned back on');
-        });
+        /* There is no auto-renewal to switch back on: a plan is a one-off
+           order for a period, not a Razorpay recurring subscription. This used
+           to clear cancelledAt in localStorage and nothing else — the server
+           record stayed cancelled, the next sync put it straight back, and the
+           user had been told "Renewal turned back on" about a change that did
+           not exist anywhere.
+
+           Buying again is the real thing, and it does the right arithmetic:
+           periodFor extends from the current expiry rather than from today, so
+           no paid-for days are lost. */
+        toast('Choose a plan to extend — your remaining days are carried over');
+        go('#/plans');
         break;
 
       case 'cancel-sub':
-        S.cancel().then(function () { renderShellBits(); toast('Subscription marked expired', 'alert'); renderAccount(document.getElementById('page')); });
+        t.disabled = true;
+        S.cancel().then(function (r) {
+          t.disabled = false;
+          renderShellBits();
+          renderAccount(document.getElementById('page'));
+          if (r && r.ok) {
+            /* Access is NOT revoked — the shop paid for a period and keeps it.
+               The old message said "marked expired", which is both wrong and
+               alarming to someone who still has days left. The date comes from
+               the freshly re-synced session, so it is the server's. */
+            var until = (S.get().subscription || {}).endLabel;
+            toast(until
+              ? 'Renewal stopped — your plan runs to ' + until
+              : 'Renewal stopped — your plan runs to the end of the paid period');
+          } else if (r && r.error === 'payments-unavailable') {
+            toast('Cannot reach the billing service — try again shortly', 'alert');
+          } else {
+            toast((r && r.error) || 'Could not cancel — try again', 'alert');
+          }
+        });
         break;
       case 'signout':
         S.signOut().then(function () {
@@ -2859,7 +3098,7 @@
       } else if (!el.value && clr) clr.remove();
     }
     if (el.id === 'devq') {
-      state.devView.q = el.value; state.devView.shown = S.isPro() ? 60 : 8;
+      state.devView.q = el.value; state.devView.shown = 60;
       api.getGroup(state.sheet.id).then(function (r) {
         paintDevSection(r);
         var again = document.getElementById('devq');
@@ -2981,6 +3220,7 @@
     authMsg('');
     var btn = document.querySelector('.gbtn');
     if (btn) { btn.classList.add('is-busy'); btn.disabled = true; }
+    SM.debug.log('auth', 'Continue with Google pressed', { signup: !!isSignup });
     SM.auth.signInWithGoogle().then(function (identity) {
       finishGoogle(identity, isSignup);
     }, function (err) {
@@ -2995,8 +3235,12 @@
       }
       /* The page is navigating to Google; leave the button as it is rather
          than flashing an error the user will never finish reading. */
-      if (err && err.code === 'redirecting') return;
+      if (err && err.code === 'redirecting') {
+        SM.debug.log('auth', 'redirecting to Google — result arrives on the next page load');
+        return;
+      }
       if (err && err.code === 'cancelled') { toast('Sign-in cancelled'); return; }
+      SM.debug.warn('auth', 'sign-in rejected', { code: err && err.code, message: err && err.message });
       authMsg(esc(err && err.message ? err.message : 'Google sign-in failed. Try again.'));
     });
   }
@@ -3014,12 +3258,38 @@
       }
     } : null;
 
-    S.signInWithGoogle(identity, registration).then(function (res) {
+    SM.debug.log('auth', 'sign-in complete, resolving profile', {
+      uid: identity.sub, withRegistration: !!registration
+    });
+
+    /* A sign-in and a page reload must reach the same conclusion, so a plain
+       sign-in goes through the SAME resolver boot uses — which is also what
+       creates users/{uid} and stamps lastLoginAt. Previously this path had its
+       own logic and skipped both, so an existing shop signing in on a new
+       device wrote nothing at all.
+
+       A registration keeps the dedicated path, because it has shop details to
+       save before anything else can be decided. */
+    var settle = registration
+      ? S.signInWithGoogle(identity, registration)
+      : resolveSignIn(identity);
+
+    settle.then(function (res) {
       if (res && res.needsRegistration) {
         /* known Google account, no shop profile yet — send them to the form */
         authMode = 'signup';
         state.pendingIdentity = identity;
+
+        /* Prefilled from whatever is already stored, so a half-finished
+           profile does not ask for everything again. */
+        var p = res.existing || {};
+        reg.shopName = reg.shopName || p.mobileShopName || p.shopName || '';
+        reg.proprietor = reg.proprietor || p.proprietorName || p.proprietor || '';
+        reg.mobile = reg.mobile || p.mobileNumber || p.mobile || '';
+        if (p.countryCode) reg.country = p.countryCode;
+
         repaintAuth();
+        renderAccount(document.getElementById('page'));
         authMsg('That Google account has no shop profile yet. Fill in your shop details below to finish creating it.');
         return;
       }
@@ -3027,6 +3297,46 @@
       renderAccount(document.getElementById('page'));
       toast(res && res.isNew ? 'Account created — welcome' : 'Signed in');
       if (state.afterSignIn) { var go2 = state.afterSignIn; state.afterSignIn = null; go(go2); }
+    }, function (err) {
+      SM.debug.warn('auth', 'could not complete sign-in', { message: err && err.message });
+      var btn = document.querySelector('.gbtn');
+      if (btn) { btn.classList.remove('is-busy'); btn.disabled = false; }
+      authMsg('Signed in with Google, but your profile could not be loaded. Check the connection and reload.');
+    });
+  }
+
+  /* The plain sign-in half of finishGoogle: resolve identity exactly as boot
+     does, then report it in the shape finishGoogle expects. */
+  function resolveSignIn(identity) {
+    /* The gate is per page load, and a sign-in is a new answer to the question
+       it caches — so it is rebuilt rather than reused. */
+    identityReady = null;
+    identitySettled = false;
+
+    /* Normally the SDK has already published the new user by the time the
+       popup promise resolves. Not assumed: if it has not, wait for it rather
+       than resolving identity against a null and concluding "new account". */
+    var who = SM.fb.user() ? Promise.resolve(SM.fb.user()) : SM.fb.whenResolved();
+
+    return who.then(function (fbUser) {
+      return S.initializeAuthenticatedUser(fbUser);
+    }).then(function (r) {
+      /* Re-armed on BOTH paths. Leaving it false after a failure would strand
+         the account screen on "Finishing sign-in…" for the rest of the page's
+         life, waiting for an answer that has already come back. */
+      identitySettled = true;
+      identityReady = Promise.resolve(r);
+      if (!r || !r.complete) {
+        return { needsRegistration: true, identity: identity, existing: (r && r.profile) || null };
+      }
+      /* Access comes from the server, never from the cache this browser holds. */
+      return S.syncFromServer().then(function () {
+        return { session: S.get(), isNew: !!(r && r.isNew) };
+      });
+    }, function (err) {
+      identitySettled = true;
+      identityReady = Promise.resolve(null);
+      throw err;
     });
   }
 
@@ -3050,41 +3360,63 @@
       '<span>Loading the device catalogue…</span></div>';
   }
 
-  /* The catalogue and the Firebase config are fetched together — they are
-     independent, and doing them in sequence would add a round trip to every
-     visit. The config resolve is deliberately not allowed to fail the boot:
-     browsing, search and the catalogue all work without Firebase, and the site
-     should not go dark because sign-in is unavailable. */
-  Promise.all([
-    SM.dataset.load(),
-    SM.fb.loadConfig().catch(function () { return null; })
-  ]).then(function () {
+  /* The catalogue is what the shell needs; the Firebase config is not.
+
+     They used to be awaited together, which meant a slow /api/firebase-config
+     held the whole site on "Loading the device catalogue…" — browsing, search
+     and the catalogue all work without Firebase, so none of that should wait on
+     sign-in. It is started here so it runs alongside the download, and whoever
+     needs it (resolveIdentity) awaits it themselves. */
+  SM.fb.loadConfig().catch(function () { return null; });
+
+  SM.dataset.load().then(function () {
     SM.__rebind.forEach(function (fn) { fn(); });
 
-    /* Restore the session, then resolve identity from Firestore before the
-       account screen paints. Rendering from the local cache first is what let
-       a stale profile from one device keep showing after the same Google
-       account had been used on another. */
-    if (SM.fb.isConfigured()) {
-      SM.fb.restore().then(function (fbUser) {
-        if (!fbUser) { renderShellBits(); return; }
-        return S.initializeAuthenticatedUser(fbUser).then(function (r) {
+    /* Restore the session, then resolve identity from Firestore before any
+       screen decides whether this is a signed-in user. Rendering from the
+       local cache first is what let a stale profile from one device keep
+       showing after the same Google account had been used on another. */
+    resolveIdentity().then(function (r) {
+      renderShellBits();
+      if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+      if (!r) return;
+
+      /* A signed-in account with no usable profile has to finish signing up —
+         but only once the server has actually said so. A profile that merely
+         has not loaded yet is not a missing profile. */
+      if (!r.complete && !r.offline) {
+        var u = SM.fb.user();
+        authMode = 'signup';
+        state.pendingIdentity = {
+          sub: u ? u.uid : (r.profile && r.profile.uid) || '',
+          email: (u && u.email) || (r.profile && r.profile.email) || '',
+          name: (u && u.displayName) || '',
+          picture: (u && u.photoURL) || ''
+        };
+        /* Prefill from whatever the record already holds, so a shop that has
+           entered two of the three details is not asked for all three again.
+           Nothing is invented — an absent field stays absent. */
+        var p = r.profile || {};
+        reg.shopName = reg.shopName || p.mobileShopName || p.shopName || '';
+        reg.proprietor = reg.proprietor || p.proprietorName || p.proprietor || '';
+        reg.mobile = reg.mobile || p.mobileNumber || p.mobile || '';
+        if (p.countryCode) reg.country = p.countryCode;
+
+        SM.debug.log('boot', 'profile incomplete — asking for the missing details', {
+          has: { shop: !!reg.shopName, proprietor: !!reg.proprietor, mobile: !!reg.mobile }
+        });
+        if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+      } else if (r.complete) {
+        /* Pull the SERVER's record of access in. The account screen must show
+           the subscription the server believes in, not the one this browser
+           last cached. */
+        S.syncFromServer().then(function () {
           renderShellBits();
           if (state.route.name === 'account') renderAccount(document.getElementById('page'));
-
-          /* A signed-in account with no usable profile has to finish signing
-             up — but only once the server has actually said so. */
-          if (!r.complete && !r.offline) {
-            authMode = 'signup';
-            state.pendingIdentity = {
-              sub: fbUser.uid, email: fbUser.email || '',
-              name: fbUser.displayName || '', picture: fbUser.photoURL || ''
-            };
-            if (state.route.name === 'account') repaintAuth();
-          }
         });
-      }).catch(function (e) { console.warn('[boot] identity', e); renderShellBits(); });
-    }
+      }
+    });
+
     /* Recent searches resolve stored ids against the catalogue, so this has to
        come after it exists — reading them at boot was what crashed the page. */
     state.recent = loadRecent();

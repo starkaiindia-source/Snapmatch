@@ -85,6 +85,148 @@ async function readProfile(uid) {
   return snap.exists ? snap.data() : null;
 }
 
+/* Shop details the OWNER may set. Everything about a subscription is absent
+   from this list on purpose: those fields are the server's, written only by a
+   verified payment, and accepting one here would let a signed-in browser post
+   itself a plan. The list is also what /api/profile-sync accepts as input, so
+   there is exactly one definition of "a field a user may write". */
+const WRITABLE_PROFILE = [
+  'mobileShopName', 'proprietorName', 'mobileNumber', 'mobileNumberE164',
+  'country', 'countryCode', 'address', 'profilePhotoURL', 'profilePhotoPath'
+];
+
+/** True only when all four fields a payment needs are actually present. */
+function profileIsComplete(doc) {
+  return REQUIRED_PROFILE.every(k => {
+    const v = doc && doc[k];
+    return v != null && String(v).trim() !== '';
+  });
+}
+
+/**
+ * Keeps only writable fields, trimmed, with a length cap.
+ *
+ * `address` is the one non-string: the app stores it as an object of parts, so
+ * it is passed through as-is after a size check rather than being stringified.
+ * A cap exists at all because a document is billed by size and a 900 KB shop
+ * name is not a shop name.
+ */
+function sanitiseProfile(input) {
+  const out = {};
+  if (!input || typeof input !== 'object') return out;
+
+  WRITABLE_PROFILE.forEach(k => {
+    const v = input[k];
+    if (v === undefined || v === null) return;
+
+    if (k === 'address') {
+      if (typeof v === 'object') {
+        const a = {};
+        ['flat', 'area', 'city', 'district', 'state', 'country'].forEach(part => {
+          if (typeof v[part] === 'string' && v[part].trim()) a[part] = v[part].trim().slice(0, 120);
+        });
+        if (Object.keys(a).length) out.address = a;
+      } else if (typeof v === 'string' && v.trim()) {
+        out.address = v.trim().slice(0, 240);
+      }
+      return;
+    }
+
+    if (typeof v !== 'string') return;
+    const t = v.trim();
+    /* An empty string is not a correction, it is an absent field. Writing one
+       would blank a detail the shop entered on another device. */
+    if (t) out[k] = t.slice(0, 200);
+  });
+  return out;
+}
+
+/**
+ * Creates or refreshes users/{uid} for a signed-in account.
+ *
+ * This is what makes the profile document EXIST. Firebase Authentication
+ * creating a user does not create anything in Firestore — the two are separate
+ * products — so without a call like this a shop can be signed in, visible under
+ * Authentication -> Users, and have no profile anywhere. That was the bug: the
+ * document was only ever written when someone completed the sign-up form, and
+ * any path that skipped that form left no record at all.
+ *
+ * Running through the Admin SDK matters twice over. It bypasses security rules,
+ * so a rules mistake cannot silently swallow the write; and it is the only
+ * place allowed to touch the server-owned fields, which is why the initial
+ * subscriptionStatus is set here and not in the browser.
+ *
+ * WHAT IT WILL NOT DO
+ *   · overwrite shop details with blanks — sanitiseProfile drops empty values
+ *   · overwrite shop details with Google's — displayName from Google is stored
+ *     under its own key, and only fills the shared one when nothing is there
+ *   · restamp createdAt — written once, on the create, and never again
+ *   · touch any subscription field on an existing document
+ *   · invent a mobile number. A missing number stays missing; it is how the app
+ *     knows to ask, and a fabricated one would end up on a real invoice.
+ *
+ * @returns {Promise<{created:boolean, profile:object}>}
+ */
+async function syncProfile({ uid, email, displayName, photoURL, emailVerified,
+                             authProvider, profile, now }) {
+  const ref = db().collection('users').doc(uid);
+  const snap = await ref.get();
+  const existed = snap.exists;
+  const prior = existed ? snap.data() : {};
+
+  const doc = {
+    uid,
+    lastLoginAt: now,
+    updatedAt: now,
+    authProvider: authProvider || prior.authProvider || 'google',
+    ...sanitiseProfile(profile)
+  };
+
+  /* Identity comes from the verified ID token, never from the request body. */
+  if (email) doc.email = email;
+  if (typeof emailVerified === 'boolean') doc.emailVerified = emailVerified;
+
+  /* Google's name and picture change when the user changes them there, so they
+     are refreshed every sign-in — but into their own fields. The shop's own
+     details are entered by hand and are never overwritten by them. */
+  if (displayName) {
+    doc.googleDisplayName = displayName;
+    if (!prior.displayName) doc.displayName = displayName;
+  }
+  if (photoURL) {
+    doc.googlePhotoURL = photoURL;
+    /* profilePhotoURL is an upload the shop chose. Google's picture only fills
+       it while there has never been one. */
+    if (!prior.profilePhotoURL && !prior.profilePhotoPath) doc.profilePhotoURL = photoURL;
+  }
+
+  if (!existed) {
+    doc.createdAt = now;
+    doc.accountStatus = 'active';
+    /* Server-owned, and set exactly once: a brand new account has no plan.
+       Both names are written because readAccess reads activeSubscriptionStatus
+       and the app reads subscriptionStatus — writing one and reading the other
+       is how a subscription silently stops being recognised. */
+    doc.subscriptionStatus = 'none';
+    doc.activeSubscriptionStatus = 'none';
+    doc.subscriptionPlan = null;
+    doc.currentPlanId = null;
+    doc.subscriptionStartedAt = null;
+    doc.subscriptionExpiresAt = null;
+  } else if (!prior.accountStatus) {
+    doc.accountStatus = 'active';
+  }
+
+  /* Recomputed from the merged result rather than trusted from the request: a
+     client claiming profileCompleted on a record with no phone number would
+     otherwise walk straight into a Checkout that cannot prefill it. */
+  doc.profileCompleted = profileIsComplete({ ...prior, ...doc });
+
+  await ref.set(doc, { merge: true });
+  const after = await ref.get();
+  return { created: !existed, profile: after.data() || doc };
+}
+
 /**
  * What Razorpay Checkout needs to skip its contact step, plus an honest
  * verdict on whether the profile is complete.
@@ -214,9 +356,14 @@ async function activateSubscription({
       subscriptionStatus: 'active',
       activeSubscriptionStatus: 'active',
       currentPlanId: plan.id,
+      /* Same value as currentPlanId, under the name the account screen reads.
+         Two readers, two names, one write — the alternative is a subscription
+         that is active in one place and absent in the other. */
+      subscriptionPlan: plan.id,
       currentSubscriptionId: orderId,
       subscriptionStartedAt: startedAt,
       subscriptionExpiresAt: expiresAt,
+      accountStatus: 'active',
       lastVerifiedAt: now,
       updatedAt: now
     }, { merge: true });
@@ -287,7 +434,7 @@ async function readAccess(uid, now) {
 
   return {
     state,
-    plan: u.currentPlanId || null,
+    plan: u.currentPlanId || u.subscriptionPlan || null,
     subscriptionId: u.currentSubscriptionId || null,
     startedAt: u.subscriptionStartedAt ?? null,
     expiresAt: u.subscriptionExpiresAt ?? null,
@@ -308,7 +455,11 @@ async function listSubscriptions(uid, limit = 12) {
 module.exports = {
   readProfile,
   prefillFrom,
+  syncProfile,
+  sanitiseProfile,
+  profileIsComplete,
   REQUIRED_PROFILE,
+  WRITABLE_PROFILE,
   recordPendingOrder, getOrder, activateSubscription,
   recordFailure, readAccess, listSubscriptions
 };

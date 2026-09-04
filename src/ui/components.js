@@ -65,7 +65,11 @@
       (opts.recent ? '<span class="sug__hist">' + icon('history') + '</span>' : SM.brandLogo(b)) +
       '<span class="sug__body">' +
       '<span class="sug__name">' + mark(m.fullName, q) + '</span>' +
-      '<span class="sug__meta">' + esc(b.name) + ' <i></i> ' + m.displaySize + '&Prime; ' + esc(m.screenType) + ' <i></i> ' + esc(String(m.releaseYear)) + '</span>' +
+      '<span class="sug__meta">' +
+        [ esc(b.name),
+          m.displaySize ? esc(m.displaySize) + '&Prime;' + (m.screenType ? ' ' + esc(m.screenType) : '') : null,
+          m.releaseYear ? esc(String(m.releaseYear)) : null
+        ].filter(Boolean).join(' <i></i> ') + '</span>' +
       '</span>' +
       '<span class="sug__go">' + icon('arrowRight') + '</span>' +
       '</button>';
@@ -98,9 +102,9 @@
   C.plate = function (row, opts) {
     opts = opts || {};
     var g = row.group, cat = row.category, master = row.master;
-    /* row.devices is null when the catalogue is the public preview — the
-       member list is the paid answer. The count is still real, so the card
-       says how many devices are in the group and withholds which. */
+    /* row.devices is null only when a group's member list is genuinely absent
+       from the catalogue. It is no longer the normal case: the bundle carries
+       all 12,239 fitments. */
     var locked = !row.devices;
     var others = locked ? [] : row.devices.filter(function (d) { return d.id !== master.id; });
     var preview = others.slice(0, 3);
@@ -109,9 +113,12 @@
 
     return '<article class="plate" style="--c:' + cat.color + '" data-act="open-group" data-id="' + g.groupId + '" ' +
       'tabindex="0" role="button" aria-label="Open group ' + esc(g.groupNumber) + ' — ' + esc(master.fullName) + '">' +
+      /* Our part code leads: it is what a shop writes down. The manufacturer's
+         code takes its place where the catalogue has one, because that is the
+         string a supplier recognises. */
       '<div class="plate__strip">' +
       '<span>' + esc(g.groupNumber) + '</span><span class="sep">/</span>' +
-      '<span>' + esc(g.partCode) + '</span>' +
+      '<span>' + esc(g.oemPartNo || g.partCode || '—') + '</span>' +
       '<span class="plate__catbadge">' + esc(cat.short) + '</span>' +
       '</div>' +
       '<div class="plate__body">' +
@@ -120,7 +127,14 @@
       '<div class="grow">' +
       '<span class="masterflag">' + icon('crown') + 'Master model</span>' +
       '<h3 class="plate__mname">' + esc(master.fullName) + '</h3>' +
-      '<div class="plate__mmeta">' + master.displaySize + '&Prime; <i></i> ' + esc(master.screenType) + ' <i></i> ' + esc(String(master.releaseYear)) + '</div>' +
+      /* screenType is recorded for 260 of 4,933 devices, so the separators are
+         built from what is actually there. Printing "6.4″ <i></i>  <i></i> 2020"
+         left a floating divider with nothing on either side of it. */
+      '<div class="plate__mmeta">' +
+      [ master.displaySize ? esc(master.displaySize) + '&Prime;' : null,
+        master.screenType ? esc(master.screenType) : null,
+        master.releaseYear ? esc(String(master.releaseYear)) : null
+      ].filter(Boolean).join(' <i></i> ') + '</div>' +
       '</div></div>' +
 
       '<div class="fitline">' +
@@ -138,14 +152,12 @@
           return '<span class="devchip' + (hit ? ' devchip--hit' : '') + '">' + esc(d.fullName) + '</span>';
         }).join('') + (hidden > 0 ? '<span class="devchip devchip--more">+' + hidden + ' more</span>' : '')
         : locked
-          /* The member list is behind the paywall, so the card cannot name the
-             others. Saying "fits X only" would be a plain contradiction of the
-             count printed directly above it — and wrong, since the group has
-             more members. It says what is true instead: how many, and that
-             seeing them is what a plan is for. */
+          /* No member list for this group at all. Saying "fits X only" would
+             contradict the count printed directly above it, so the card says
+             what is true: how many, and that the names are not recorded. */
           ? (hidden > 0
-              ? '<span class="devchip devchip--more">' + icon('lock') + hidden +
-                ' more ' + (hidden === 1 ? 'device' : 'devices') + ' — subscribe to see</span>'
+              ? '<span class="devchip devchip--more">' + hidden +
+                ' more ' + (hidden === 1 ? 'device' : 'devices') + ' — not listed</span>'
               : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>')
           : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>') +
       '</div>' +
@@ -159,13 +171,23 @@
   };
 
   /* ------------------------------------------------------ identifier strip */
+  /* The four identifiers a counter actually uses, plus the manufacturer's own
+     code when the catalogue has one.
+
+     Three of these are ISSUED BY THIS CATALOGUE — group number, serial number
+     and part code — and the fourth, when present, is the manufacturer's. The
+     distinction matters at the counter: MPF-BT-0001 identifies the group in
+     this app, EB-BA115ABY is what a supplier recognises. They used to render
+     as one undifferentiated block, all three showing the same value. */
   C.idGrid = function (g) {
     var cat = SM.db.categoryById[g.categoryId];
     return '<div class="idgrid">' +
+      '<div class="idcell"><span>Part code</span><b>' + esc(g.partCode || '—') + '</b></div>' +
       '<div class="idcell"><span>Group number</span><b>' + esc(g.groupNumber) + '</b></div>' +
       '<div class="idcell"><span>Serial number</span><b>' + esc(g.serialNumber) + '</b></div>' +
-      '<div class="idcell"><span>Part code</span><b>' + esc(g.partCode) + '</b></div>' +
-      '<div class="idcell"><span>Category</span><b style="font-family:var(--f-ui);color:' + cat.color + '">' + esc(cat.name) + '</b></div>' +
+      (g.oemPartNo
+        ? '<div class="idcell"><span>Manufacturer part no.</span><b>' + esc(g.oemPartNo) + '</b></div>'
+        : '<div class="idcell"><span>Category</span><b style="font-family:var(--f-ui);color:' + cat.color + '">' + esc(cat.name) + '</b></div>') +
       '</div>';
   };
 
@@ -176,12 +198,19 @@
       '<div class="row" style="gap:9px">' + SM.brandLogo(b, 'blogo--sm') +
       '<span class="t-lab" style="color:rgba(214,255,244,.72)">Master model</span></div>' +
       '<h3>' + esc(master.fullName) + '</h3>' +
+      /* Only chips that have a value. screenType and screenResolution are null
+         for most devices, and esc(null) rendered an empty chip — a run of
+         blank pills that looked like a loading state that never finished. */
+      /* Escaped first, entity appended after — esc() turns the & of &Prime;
+         into &amp;Prime; and the card reads 6.4&Prime; in plain text. */
       '<div class="mspecs">' +
-      '<span class="mspec">' + master.displaySize + '&Prime; display</span>' +
-      '<span class="mspec">' + esc(master.screenType) + '</span>' +
-      '<span class="mspec">' + esc(master.screenResolution) + '</span>' +
-      '<span class="mspec">' + esc(master.releaseDate) + '</span>' +
-      (cat ? '<span class="mspec">' + esc(cat.name) + '</span>' : '') +
+      [ master.displaySize ? esc(master.displaySize) + '&Prime; display' : null,
+        master.screenType ? esc(master.screenType) : null,
+        master.screenResolution ? esc(master.screenResolution) : null,
+        master.releaseDate ? esc(master.releaseDate) : null,
+        cat ? esc(cat.name) : null
+      ].filter(Boolean)
+       .map(function (t) { return '<span class="mspec">' + t + '</span>'; }).join('') +
       '</div></div></div>';
   };
 

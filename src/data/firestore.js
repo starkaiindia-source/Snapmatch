@@ -74,39 +74,6 @@
 
     /* ------------------------------------------------------------- profile */
 
-    /** The signed-in shop's own record. Rules allow only its owner. */
-    getUser: function (uid) {
-      return store().then(function (db) {
-        return db.collection('users').doc(uid).get();
-      }).then(function (snap) {
-        if (!snap.exists) return null;
-        var d = snap.data();
-        return Object.assign({}, d, {
-          subscriptionStartedAt: ms(d.subscriptionStartedAt),
-          subscriptionExpiresAt: ms(d.subscriptionExpiresAt),
-          updatedAt: ms(d.updatedAt)
-        });
-      });
-    },
-
-    /**
-     * Creates or updates the shop profile.
-     * Subscription fields are deliberately not writable here — the rules
-     * reject them, and a client that could grant itself a plan is the whole
-     * attack the billing design exists to prevent.
-     */
-    saveUser: function (uid, profile) {
-      var SAFE = ['displayName', 'shopName', 'proprietor', 'country', 'mobile',
-                  'dial', 'address', 'photoUrl', 'location', 'email'];
-      var patch = {};
-      SAFE.forEach(function (k) { if (profile[k] !== undefined) patch[k] = profile[k]; });
-      patch.updatedAt = Date.now();
-
-      return store().then(function (db) {
-        return db.collection('users').doc(uid).set(patch, { merge: true });
-      }).then(function () { return patch; });
-    },
-
     /* ------------------------------------------------------- profile identity
 
        users/{uid} is the ONE record for a Google account. The Firebase UID is
@@ -145,12 +112,19 @@
            profileCompleted:true on a record missing a number cannot wave an
            incomplete profile through to checkout. */
         profileCompleted: !!(shop && prop && mob),
+        displayName: d.displayName || d.googleDisplayName || d.googleName || '',
+        authProvider: d.authProvider || 'google',
+        accountStatus: d.accountStatus || 'active',
+        /* Server-owned, read-only here. The client renders these; it never
+           writes them, and the rules would reject it if it tried. */
         subscriptionStatus: d.subscriptionStatus || d.activeSubscriptionStatus || 'none',
-        currentPlanId: d.currentPlanId || null,
+        subscriptionPlan: d.subscriptionPlan || d.currentPlanId || null,
+        currentPlanId: d.currentPlanId || d.subscriptionPlan || null,
         subscriptionStartedAt: ms(d.subscriptionStartedAt),
         subscriptionExpiresAt: ms(d.subscriptionExpiresAt),
         createdAt: ms(d.createdAt),
-        updatedAt: ms(d.updatedAt)
+        updatedAt: ms(d.updatedAt),
+        lastLoginAt: ms(d.lastLoginAt)
       };
     },
 
@@ -160,9 +134,26 @@
       return store().then(function (db) {
         return db.collection('users').doc(uid).get();
       }).then(function (snap) {
+        SM.debug.log('profile', 'read users/' + uid,
+                     { exists: snap.exists, complete: snap.exists ? !!snap.data().profileCompleted : false });
         return snap.exists ? self.normaliseProfile(snap.data()) : null;
+      }, function (err) {
+        SM.debug.warn('profile', 'read users/' + uid + ' FAILED',
+                      { code: err && err.code, message: err && err.message });
+        throw err;
       });
     },
+
+    /* Fields the CLIENT is allowed to write. Deliberately identical to
+       WRITABLE_PROFILE in api/_lib/store.js: two lists that drift apart is how
+       a field ends up saved on one path and dropped on the other.
+
+       Nothing about a subscription appears here. Those fields belong to the
+       server, the security rules reject them from a browser, and a client that
+       could grant itself a plan is the whole attack the billing design exists
+       to prevent. */
+    WRITABLE: ['mobileShopName', 'proprietorName', 'mobileNumber', 'mobileNumberE164',
+               'country', 'countryCode', 'address', 'profilePhotoURL', 'profilePhotoPath'],
 
     /**
      * Creates or updates users/{uid}.
@@ -174,16 +165,17 @@
      * put a fabricated number on a real invoice.
      */
     saveProfile: function (uid, patch, googleUser) {
-      var W = ['mobileShopName', 'proprietorName', 'mobileNumber', 'mobileNumberE164',
-               'country', 'countryCode', 'address', 'profilePhotoURL', 'profilePhotoPath'];
       var doc = { uid: uid, updatedAt: Date.now() };
-      W.forEach(function (k) {
+      this.WRITABLE.forEach(function (k) {
         var v = patch[k];
         if (v !== undefined && v !== null && String(v).trim() !== '') doc[k] = v;
       });
 
       if (googleUser) {
         doc.email = googleUser.email || '';
+        doc.authProvider = 'google';
+        /* Google's name and picture go in their own fields. The shop's own
+           details are typed by hand and must never be overwritten by them. */
         if (googleUser.displayName) doc.googleDisplayName = googleUser.displayName;
         if (googleUser.photoURL) doc.googlePhotoURL = googleUser.photoURL;
       }
@@ -196,9 +188,21 @@
           /* createdAt is written once and never again — an update must not
              restamp the day the shop joined. */
           if (!snap.exists) doc.createdAt = Date.now();
+          SM.debug.log('profile', snap.exists ? 'updating users/' + uid : 'creating users/' + uid,
+                       { fields: Object.keys(doc) });
           return ref.set(doc, { merge: true });
         }).then(function () { return ref.get(); });
-      }).then(function (snap) { return self.normaliseProfile(snap.data()); });
+      }).then(function (snap) {
+        SM.debug.log('profile', 'firestore write ok', { uid: uid });
+        return self.normaliseProfile(snap.data());
+      }, function (err) {
+        /* Loud on purpose. A rejected profile write is how a shop ends up
+           signed in with no record anywhere, and it used to happen silently. */
+        SM.debug.warn('profile', 'firestore write FAILED', {
+          uid: uid, code: err && err.code, message: err && err.message
+        });
+        throw err;
+      });
     },
 
     /* -------------------------------------------------------------- storage
@@ -350,10 +354,16 @@
               masterModelName: g.masterModelName,
               masterBrandId: g.masterBrandId,
               compatibleCount: g.memberCount,
-              /* the paid half is not in this collection at all */
-              partCode: null,
-              compatibleDeviceIds: null,
-              memberNames: null,
+              /* Read through rather than nulled. These used to be hard-coded
+                 null here because the collection genuinely did not carry them;
+                 it does now, and returning null for a field that is present is
+                 how the finder showed "not listed" over data it had. Still
+                 defaulted, so a document written by the older importer — which
+                 had no part code — reads as absent rather than undefined. */
+              partCode: g.partCode || null,
+              oemPartNo: g.oemPartNo || null,
+              compatibleDeviceIds: g.memberIds || null,
+              memberNames: g.memberNames || null,
               createdOn: null
             };
           }),
