@@ -1,6 +1,6 @@
 {
   "source": "C:/Users/stark/Downloads",
-  "startedAt": "2026-09-04T10:49:21.477Z",
+  "startedAt": "2026-09-04T15:34:55.401Z",
   "anomalies": {
     "duplicateModelRows": [],
     "emptyGroups": [
@@ -1259,5 +1259,11 @@
     "brands": 22,
     "fitments": 12239
   },
-  "finishedAt": "2026-09-04T10:49:21.945Z"
+  "brandDisplayNames": {
+    "CoolPad": "Coolpad",
+    "Huwave": "Huawei",
+    "Moto": "Motorola",
+    "zte": "ZTE"
+  },
+  "finishedAt": "2026-09-04T15:34:56.004Z"
 }

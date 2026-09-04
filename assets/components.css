@@ -1393,3 +1393,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* Clear of the bottom navigation, which is fixed over the page down here. */
   .regcta{ bottom:var(--tabbar-h, 0px); }
 }
+
+/* A spec the source workbook has a column for but no value for on this device.
+   Drawn rather than dropped, because "we have not recorded this yet" is a fact
+   the person enriching the catalogue needs to see. Muted so a page of real
+   values still reads as a page of real values. */
+.dspec.is-unknown dd{ color:var(--ink-3); font-variant-numeric:normal; }
+
+/* A launch price that has not been recorded. Shown as ₹0 rather than hidden,
+   so the field is visibly waiting for the enrichment pass — but muted, so it
+   never reads as a real price somebody could quote. */
+.dprice--unknown .dprice__n{ color:var(--ink-3); font-weight:600; }
+
+/* "Not recorded" in a table cell. Muted so a column of real values still scans
+   as real values, and a column of hyphens reads as a gap to fill. */
+.c-none{ color:var(--ink-3); }

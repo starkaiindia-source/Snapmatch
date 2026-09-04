@@ -943,20 +943,27 @@
     var rows = items.map(function (m) {
       var sp = m.specs || {};
       var gc = groupCountOf(m);
+      /* One hyphen for anything not recorded. Every column had its own idea of
+         what an absent value looks like: an em-dash here, "undefined&Prime;"
+         where displaySize was null, an empty tag element for screen curve, and
+         a bare " GB" for RAM and storage the catalogue has never carried. */
+      var dash = '<span class="c-none">-</span>';
       var cell = {
         device: '<span class="tcell-dev">' + SM.art.device(m, 0, 'dvc--xs') +
                 '<span>' + esc(m.modelName) + '</span></span>',
-        size: m.displaySize + '&Prime;',
-        curve: '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>',
-        year: String(m.releaseYear),
-        groups: gc ? String(gc) : '—',
-        chipset: esc(sp.chipset || '—'),
-        battery: sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : '—',
-        ram: (sp.ramVariantsGb || []).join('/') + ' GB',
-        storage: (sp.storageVariantsGb || []).join('/') + ' GB',
-        network: esc(sp.network || '—'),
-        camera: (sp.cameraRear && sp.cameraRear[0] ? sp.cameraRear[0].mp + ' MP' : '—'),
-        res: esc(m.screenResolution || '—')
+        size: m.displaySize ? esc(m.displaySize) + '&Prime;' : dash,
+        curve: m.screenCurve
+          ? '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>'
+          : dash,
+        year: m.releaseYear ? esc(String(m.releaseYear)) : dash,
+        groups: gc ? String(gc) : dash,
+        chipset: sp.chipset ? esc(sp.chipset) : dash,
+        battery: sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : dash,
+        ram: (sp.ramVariantsGb || []).length ? esc(sp.ramVariantsGb.join('/')) + ' GB' : dash,
+        storage: (sp.storageVariantsGb || []).length ? esc(sp.storageVariantsGb.join('/')) + ' GB' : dash,
+        network: sp.network ? esc(sp.network) : dash,
+        camera: (sp.cameraRear && sp.cameraRear[0]) ? esc(sp.cameraRear[0].mp) + ' MP' : dash,
+        res: m.screenResolution ? esc(m.screenResolution) : dash
       };
       return '<tr data-act="open-model" data-id="' + esc(m.id) + '" tabindex="0">' +
         tableCols().map(function (c) {
@@ -2089,11 +2096,28 @@
   /* A titled block of label/value rows. Rows whose value is null are dropped
      rather than shown empty, so a sparse device does not render a wall of
      dashes. */
+  /* A row marked IMPORTED is one the source workbook has a column for. When
+     this particular device's cell was empty the row is still drawn, showing a
+     hyphen, because that absence is a fact worth seeing: the column exists,
+     most devices have a value, and this one is waiting to be filled in.
+
+     A row NOT so marked is a field the catalogue has no source for at all —
+     chipset, cameras, sensors. Those are dropped, and the note at the foot of
+     the page names them once. Drawing sixteen hyphens on every device instead
+     would be a longer page saying exactly the same thing. */
+  var IMPORTED = true;
+
   function specBlockHTML(title, iconName, rows) {
-    var body = rows.filter(function (r) { return r && r[1] != null && r[1] !== ''; })
-      .map(function (r) {
-        return '<div class="dspec"><dt>' + esc(r[0]) + '</dt><dd>' + esc(String(r[1])) + '</dd></div>';
-      }).join('');
+    var body = rows.filter(function (r) {
+      if (!r) return false;
+      var has = r[1] != null && r[1] !== '';
+      return has || r[2] === IMPORTED;
+    }).map(function (r) {
+      var has = r[1] != null && r[1] !== '';
+      return '<div class="dspec' + (has ? '' : ' is-unknown') + '">' +
+        '<dt>' + esc(r[0]) + '</dt>' +
+        '<dd>' + (has ? esc(String(r[1])) : '-') + '</dd></div>';
+    }).join('');
     if (!body) return '';
     return '<section class="dsec">' +
       '<h3 class="dsec__h">' + icon(iconName) + esc(title) + '</h3>' +
@@ -2212,7 +2236,7 @@
             return C.categoryCard(c.category, c.count, { act: 'find-with-cat' });
           }).join('') + '</div>'
         : '<div class="notice">' + icon('alert') +
-          '<span>No compatibility group covers this model yet in the sample data.</span></div>';
+          '<span>No compatibility group covers this model yet.</span></div>';
 
       page.innerHTML =
         '<div class="dev-page">' +
@@ -2238,10 +2262,16 @@
                 '<span>' + esc(m.brand) + '</span></div>' +
               '<h1 class="dintro__h">' + esc(m.modelName) + '</h1>' +
               '<div class="dintro__meta">' + meta + '</div>' +
-              (sp.launchPriceInr
-                ? '<div class="dprice"><span class="dprice__n">₹' + nf(sp.launchPriceInr) + '</span>' +
-                  '<span class="dprice__l">from · launch price</span></div>'
-                : '') +
+              /* The workbook carries no price column, so this is 0 for every
+                 device until the enrichment pass runs. Shown rather than
+                 hidden, and shown as 0 rather than as a guess: a launch price
+                 invented from a similar handset is the one number in here that
+                 would be quoted to a customer. */
+              '<div class="dprice' + (sp.launchPriceInr ? '' : ' dprice--unknown') + '">' +
+                '<span class="dprice__n">₹' + nf(sp.launchPriceInr || 0) + '</span>' +
+                '<span class="dprice__l">' +
+                (sp.launchPriceInr ? 'from · launch price' : 'launch price not recorded yet') +
+                '</span></div>' +
               variantPickerHTML(m) +
               (swatches
                 ? '<div class="dcolours"><span class="t-lab">' +
@@ -2281,7 +2311,7 @@
           /* --------------------------------------------------- full spec sheet */
           '<div class="dsecs">' +
             specBlockHTML('Display', 'phone', [
-              ['Size', m.displaySize + ' inches'],
+              ['Size', m.displaySize ? m.displaySize + ' inches' : null, IMPORTED],
               ['Resolution', m.screenResolution],
               ['Type', m.screenType],
               ['Refresh rate', m.refreshRate],
@@ -2312,7 +2342,7 @@
               ['Video', sp.videoMax]
             ])) +
             specBlockHTML('Battery & charging', 'battery', [
-              ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null],
+              ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null, IMPORTED],
               /* The manufacturer's own battery code, from the category export.
                  Recorded for 288 devices; the flag says whether the owner has
                  checked it, because an unverified code is still worth showing
@@ -2342,12 +2372,12 @@
               ['Headphone jack', sp.headphoneJack == null ? null : (sp.headphoneJack ? '3.5 mm' : 'None')]
             ]) +
             specBlockHTML('Body', 'ruler', [
-              ['Height', m.height],
-              ['Width', m.width],
+              ['Height', m.height, IMPORTED],
+              ['Width', m.width, IMPORTED],
               ['Thickness', m.thickness],
               ['Weight', m.weight],
-              ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null],
-              ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null],
+              ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null, IMPORTED],
+              ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null, IMPORTED],
               ['Colours', sp.colors ? sp.colors.map(function (c) { return c.n; }).join(', ') : null]
             ]) +
             specBlockHTML('Sensors', 'shield', [
@@ -2357,7 +2387,7 @@
                UI had nowhere to show. It is also the attribution the licence
                asks for. */
             specBlockHTML('Source', 'linkOut', [
-              ['Released', m.releaseDate],
+              ['Released', m.releaseDate, IMPORTED],
               /* available / coming_soon / cancelled, as the export records it.
                  "Available" is the ordinary case and saying so on every device
                  is noise, so only the two that change what a shop would order
@@ -2365,7 +2395,7 @@
               ['Availability', m.releaseStatus && m.releaseStatus !== 'available'
                 ? m.releaseStatus.replace(/_/g, ' ')
                 : null],
-              ['Catalogue entry', m.sourceUrl ? m.sourceUrl.replace(/^https?:\/\//, '') : null],
+              ['Catalogue entry', m.sourceUrl ? m.sourceUrl.replace(/^https?:\/\//, '') : null, IMPORTED],
               ['Device type', m.deviceType + (m.typeDerived ? ' (read from the model name)' : '')]
             ]) +
           '</div>' +
@@ -2460,7 +2490,7 @@
             ? '<div class="cats">' + r.categories.filter(function (c) { return c.count; }).map(function (c) {
               return C.categoryCard(c.category, c.count, { act: 'find-with-cat' });
             }).join('') + '</div>'
-            : '<div class="notice">' + icon('alert') + '<span>No compatibility group covers this model yet in the sample data.</span></div>') +
+            : '<div class="notice">' + icon('alert') + '<span>No compatibility group covers this model yet.</span></div>') +
           '</div>';
         paintSheet(host,
           '<div class="row" style="gap:10px">' + SM.brandLogo(b) +

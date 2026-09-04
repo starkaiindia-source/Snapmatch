@@ -8,7 +8,8 @@
      node scripts/build-dataset.js --src "C:/Users/stark/Downloads"
 
    Inputs
-     <src>/All_Brands_Models.xlsx      22 brand sheets, 4,933 models
+     data/raw/xlsx_models.json         22 brand sheets, 4,933 models
+                                       (written by scripts/import-xlsx.py)
      <src>/battery_export.json         Battery
      <src>/back_cover_export.json      Back Cover
      <src>/cc_board_export.json        CC Board
@@ -129,6 +130,14 @@ function oemPartNo(v, deviceNames) {
   return s;
 }
 
+/* Display spellings for four sheet names. This is presentation, not a rename
+   of the source: the workbook's own sheet name is carried through untouched as
+   `sourceSheet` on every model, and the report lists every mapping applied, so
+   nothing is lost and nothing is silent.
+
+   "Huwave" is a typo for Huawei and "Moto" is the sheet's shorthand for
+   Motorola; showing either verbatim would put a misspelling in front of every
+   shop. The other two are casing only. */
 const BRAND_FIX = {
   Huwave: 'Huawei', Moto: 'Motorola', zte: 'ZTE', itel: 'itel',
   HMD: 'HMD', CoolPad: 'Coolpad', OnePlus: 'OnePlus'
@@ -140,8 +149,8 @@ function readWorkbook() {
   if (fs.existsSync(cached)) return JSON.parse(fs.readFileSync(cached, 'utf8'));
   throw new Error(
     'data/raw/xlsx_models.json not found.\n' +
-    'Generate it once with:\n' +
-    '  python scripts/dump-xlsx.py "' + SRC + '/All_Brands_Models.xlsx"'
+    'Import the workbook first:\n' +
+    '  python scripts/import-xlsx.py "' + SRC + '/All_Brands_Models.xlsx"'
   );
 }
 
@@ -155,14 +164,20 @@ function build() {
   const byLoose = new Map();     // loose key -> id (fallback lookup)
   const dupNames = [];
 
+  const brandRenames = {};
   raw.forEach(r => {
-    const brand = BRAND_FIX[r.brand] || r.brand;
+    /* The sheet the row came from, verbatim. A model can only ever belong to
+       the brand of its own sheet. */
+    const sheet = r.sheet || r.brand;
+    const brand = BRAND_FIX[sheet] || sheet;
+    if (brand !== sheet) brandRenames[sheet] = brand;
+
     const name = String(r.name).trim();
     const id = slug(name);
     if (models.has(id)) { dupNames.push(name); return; }
     const d = parseDate(r.release);
     const m = {
-      id, brand, brandId: slug(brand), name,
+      id, brand, brandId: slug(brand), sourceSheet: sheet, name,
       nameLower: name.toLowerCase(),
       tokens: tokens(name, brand),
       releaseDate: d.iso, releaseYear: d.year,
@@ -176,6 +191,9 @@ function build() {
   });
   report.anomalies.duplicateModelRows = dupNames;
   report.counts.models = models.size;
+  /* Every sheet name shown under a different spelling, by name, so the mapping
+     is a stated decision rather than something to discover by reading code. */
+  report.brandDisplayNames = brandRenames;
 
   /* ---- 2. groups from the six category exports ---- */
   const groups = [];

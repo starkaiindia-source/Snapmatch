@@ -105,6 +105,42 @@ source:
 
 ---
 
+## Importing the brand/model workbook
+
+`All_Brands_Models.xlsx` is one sheet per brand. **The sheet name is the brand**,
+used verbatim, and a row can only ever join the brand of the sheet it came from.
+
+```bash
+python scripts/import-xlsx.py "C:/path/All_Brands_Models.xlsx" --dry   # report only
+python scripts/import-xlsx.py "C:/path/All_Brands_Models.xlsx"
+node scripts/build-dataset.js && node scripts/build-runtime-bundle.js
+```
+
+Columns are matched **by header text**, not by position, so inserting a column in
+Excel cannot silently shift every model's height into the wrong field. The header
+is matched loosely — `Screen Ratio (cm2)`, `screen ratio (cm^2)` and the mojibake
+the current file actually contains all resolve to the same field.
+
+Identity is `(brand, model title)`, normalised the same way `build-dataset.js`
+slugs a name, so `Coolpad Cool 20` / `Cool 20+` and `Honor Play9A` / `Honor
+Play 9A` stay four separate devices rather than two.
+
+**Re-running is safe and empty cells never erase.** A model keeps every value it
+has unless the workbook carries a real value for that field, so importing a
+sparse sheet over a rich record adds and never removes. Running the same workbook
+twice reports `0 created, 0 updated`.
+
+Nothing is invented and nothing is fetched: an empty cell is stored as null, not
+as 0 or an empty string, and no page is scraped during import.
+`data/raw/import-report.json` records sheets processed, rows read, created,
+updated, unchanged, skipped, duplicates and per-field coverage.
+
+Four sheet names are shown under a different spelling — `Huwave`→Huawei,
+`Moto`→Motorola, `zte`→ZTE, `CoolPad`→Coolpad. Every model carries its own
+`sourceSheet` verbatim and the ETL report lists the mapping, so nothing is lost.
+
+---
+
 ## Data in this build
 
 4,933 models · 22 brands · 3,340 compatibility groups · 6 part categories ·
