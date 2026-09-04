@@ -2698,6 +2698,100 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       }).then(function () { return patch; });
     },
 
+    /* ------------------------------------------------------- profile identity
+
+       users/{uid} is the ONE record for a Google account. The Firebase UID is
+       the document id, so the same Gmail on a second device reads the same
+       document — identity follows the account, never the browser.
+
+       loadProfile is what the app asks after every sign-in. localStorage is a
+       cache in front of it, never the source: a profile that only ever lived
+       in a browser is a new user on every other device, which is exactly the
+       bug this replaces. */
+
+    /* Old documents used shopName/proprietor/mobile; newer ones use the
+       mobileShopName/proprietorName/mobileNumber names the checkout reads.
+       Both are accepted so existing records keep working, and nothing is
+       rewritten just for having the older shape. */
+    normaliseProfile: function (d) {
+      if (!d) return null;
+      var shop = d.mobileShopName || d.shopName || '';
+      var prop = d.proprietorName || d.proprietor || '';
+      var mob  = d.mobileNumber || d.mobile || '';
+      return {
+        uid: d.uid || null,
+        email: d.email || '',
+        googleDisplayName: d.googleDisplayName || d.googleName || '',
+        googlePhotoURL: d.googlePhotoURL || '',
+        profilePhotoURL: d.profilePhotoURL || d.photo || '',
+        profilePhotoPath: d.profilePhotoPath || null,
+        mobileShopName: shop,
+        proprietorName: prop,
+        mobileNumber: mob,
+        mobileNumberE164: d.mobileNumberE164 || '',
+        country: d.country || d.countryName || '',
+        countryCode: d.countryCode || '',
+        address: d.address || null,
+        /* Recomputed from the fields rather than trusted, so a stale
+           profileCompleted:true on a record missing a number cannot wave an
+           incomplete profile through to checkout. */
+        profileCompleted: !!(shop && prop && mob),
+        subscriptionStatus: d.subscriptionStatus || d.activeSubscriptionStatus || 'none',
+        currentPlanId: d.currentPlanId || null,
+        subscriptionStartedAt: ms(d.subscriptionStartedAt),
+        subscriptionExpiresAt: ms(d.subscriptionExpiresAt),
+        createdAt: ms(d.createdAt),
+        updatedAt: ms(d.updatedAt)
+      };
+    },
+
+    /** The authoritative profile for a UID, or null if this account is new. */
+    loadProfile: function (uid) {
+      var self = this;
+      return store().then(function (db) {
+        return db.collection('users').doc(uid).get();
+      }).then(function (snap) {
+        return snap.exists ? self.normaliseProfile(snap.data()) : null;
+      });
+    },
+
+    /**
+     * Creates or updates users/{uid}.
+     *
+     * merge:true and an explicit field list, so writing a profile can never
+     * blank a subscription the server owns, and an absent field stays absent
+     * rather than being written as an empty string. A missing mobile number is
+     * a real state — it means "ask this user for it" — and inventing one would
+     * put a fabricated number on a real invoice.
+     */
+    saveProfile: function (uid, patch, googleUser) {
+      var W = ['mobileShopName', 'proprietorName', 'mobileNumber', 'mobileNumberE164',
+               'country', 'countryCode', 'address', 'profilePhotoURL', 'profilePhotoPath'];
+      var doc = { uid: uid, updatedAt: Date.now() };
+      W.forEach(function (k) {
+        var v = patch[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') doc[k] = v;
+      });
+
+      if (googleUser) {
+        doc.email = googleUser.email || '';
+        if (googleUser.displayName) doc.googleDisplayName = googleUser.displayName;
+        if (googleUser.photoURL) doc.googlePhotoURL = googleUser.photoURL;
+      }
+      doc.profileCompleted = !!(doc.mobileShopName && doc.proprietorName && doc.mobileNumber);
+
+      var self = this;
+      return store().then(function (db) {
+        var ref = db.collection('users').doc(uid);
+        return ref.get().then(function (snap) {
+          /* createdAt is written once and never again — an update must not
+             restamp the day the shop joined. */
+          if (!snap.exists) doc.createdAt = Date.now();
+          return ref.set(doc, { merge: true });
+        }).then(function () { return ref.get(); });
+      }).then(function (snap) { return self.normaliseProfile(snap.data()); });
+    },
+
     /* ---------------------------------------------------------------- paid */
 
     /**
@@ -3615,6 +3709,46 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   function emit() { listeners.forEach(function (fn) { fn(current); }); }
   function refresh() { current = buildSession(); emit(); return current; }
 
+  /* Completes a sign-in once the profile question is settled. Writes the
+     registration to Firestore when there is one, so the record exists for
+     every other device before the user goes anywhere near checkout. */
+  function finishSignIn(identity, registration, profile) {
+    var existing = profile || SM.auth.findProfile(identity.sub);
+
+    if (registration) {
+      SM.auth.saveProfile(identity.sub, Object.assign({
+        email: identity.email, googleName: identity.name, picture: identity.picture,
+        createdAt: Date.now(), subscription: null
+      }, registration));
+
+      if (SM.store && SM.store.available() && SM.fb.user()) {
+        var c = SM.countries.byCode(registration.country) || {};
+        var digits = String(registration.mobile || '').replace(/\D/g, '');
+        SM.store.saveProfile(identity.sub, {
+          mobileShopName: registration.shopName,
+          proprietorName: registration.proprietor,
+          mobileNumber: registration.mobile,
+          mobileNumberE164: c.dial && digits ? '+' + String(c.dial).replace(/\D/g, '') + digits : '',
+          country: c.name || registration.countryName,
+          countryCode: registration.country,
+          address: registration.address || null
+        }, SM.fb.user()).catch(function (e) {
+          console.error('[auth] could not save profile to Firestore', e);
+        });
+      }
+    } else if (identity.email && existing && existing.email !== identity.email) {
+      SM.auth.saveProfile(identity.sub, { email: identity.email });
+    }
+
+    writeSub(identity.sub);
+    refresh();
+    return respond({
+      session: current, isNew: !existing,
+      restored: !!(existing && existing.subscription)
+    }, LAT.normal);
+  }
+
+
   /* keep the derived state honest while the tab stays open */
   setInterval(function () {
     var was = current.status;
@@ -3634,7 +3768,50 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
        New identity   -> reports needsRegistration; nothing is written until
        the profile is completed, so one Google account can never end up with
        two records. */
+    /* Firestore decides who this is, not the browser.
+       users/{uid} is read FIRST, so the same Google account on a second device
+       finds the same profile instead of looking like a new shop. The local
+       copy is refreshed from it and used only as a cache afterwards. */
     signInWithGoogle: function (identity, registration) {
+      var remote = (SM.store && SM.store.available())
+        ? SM.store.loadProfile(identity.sub).catch(function (e) {
+            console.warn('[auth] profile read failed', e && e.code);
+            return null;                      /* fall back to the local copy */
+          })
+        : Promise.resolve(null);
+
+      return remote.then(function (profile) {
+        /* Mirror the stored profile down so every screen sees it immediately. */
+        if (profile) {
+          SM.auth.saveProfile(identity.sub, {
+            email: profile.email || identity.email,
+            googleName: profile.googleDisplayName || identity.name,
+            picture: profile.profilePhotoURL || identity.picture,
+            shopName: profile.mobileShopName,
+            proprietor: profile.proprietorName,
+            mobile: profile.mobileNumber,
+            country: profile.countryCode,
+            countryName: profile.country,
+            address: profile.address
+          });
+        }
+
+        /* Incomplete counts as needing registration — but the form is
+           pre-filled from whatever the record already holds, and the missing
+           fields are never invented. */
+        if ((!profile || !profile.profileCompleted) && !registration) {
+          return respond({
+            needsRegistration: true,
+            identity: identity,
+            existing: profile || null
+          }, LAT.normal);
+        }
+
+        return finishSignIn(identity, registration, profile);
+      });
+    },
+
+    _legacySignIn: function (identity, registration) {
       var existing = SM.auth.findProfile(identity.sub);
       if (!existing && !registration) {
         return respond({ needsRegistration: true, identity: identity }, LAT.normal);

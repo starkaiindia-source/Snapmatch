@@ -107,6 +107,100 @@
       }).then(function () { return patch; });
     },
 
+    /* ------------------------------------------------------- profile identity
+
+       users/{uid} is the ONE record for a Google account. The Firebase UID is
+       the document id, so the same Gmail on a second device reads the same
+       document — identity follows the account, never the browser.
+
+       loadProfile is what the app asks after every sign-in. localStorage is a
+       cache in front of it, never the source: a profile that only ever lived
+       in a browser is a new user on every other device, which is exactly the
+       bug this replaces. */
+
+    /* Old documents used shopName/proprietor/mobile; newer ones use the
+       mobileShopName/proprietorName/mobileNumber names the checkout reads.
+       Both are accepted so existing records keep working, and nothing is
+       rewritten just for having the older shape. */
+    normaliseProfile: function (d) {
+      if (!d) return null;
+      var shop = d.mobileShopName || d.shopName || '';
+      var prop = d.proprietorName || d.proprietor || '';
+      var mob  = d.mobileNumber || d.mobile || '';
+      return {
+        uid: d.uid || null,
+        email: d.email || '',
+        googleDisplayName: d.googleDisplayName || d.googleName || '',
+        googlePhotoURL: d.googlePhotoURL || '',
+        profilePhotoURL: d.profilePhotoURL || d.photo || '',
+        profilePhotoPath: d.profilePhotoPath || null,
+        mobileShopName: shop,
+        proprietorName: prop,
+        mobileNumber: mob,
+        mobileNumberE164: d.mobileNumberE164 || '',
+        country: d.country || d.countryName || '',
+        countryCode: d.countryCode || '',
+        address: d.address || null,
+        /* Recomputed from the fields rather than trusted, so a stale
+           profileCompleted:true on a record missing a number cannot wave an
+           incomplete profile through to checkout. */
+        profileCompleted: !!(shop && prop && mob),
+        subscriptionStatus: d.subscriptionStatus || d.activeSubscriptionStatus || 'none',
+        currentPlanId: d.currentPlanId || null,
+        subscriptionStartedAt: ms(d.subscriptionStartedAt),
+        subscriptionExpiresAt: ms(d.subscriptionExpiresAt),
+        createdAt: ms(d.createdAt),
+        updatedAt: ms(d.updatedAt)
+      };
+    },
+
+    /** The authoritative profile for a UID, or null if this account is new. */
+    loadProfile: function (uid) {
+      var self = this;
+      return store().then(function (db) {
+        return db.collection('users').doc(uid).get();
+      }).then(function (snap) {
+        return snap.exists ? self.normaliseProfile(snap.data()) : null;
+      });
+    },
+
+    /**
+     * Creates or updates users/{uid}.
+     *
+     * merge:true and an explicit field list, so writing a profile can never
+     * blank a subscription the server owns, and an absent field stays absent
+     * rather than being written as an empty string. A missing mobile number is
+     * a real state — it means "ask this user for it" — and inventing one would
+     * put a fabricated number on a real invoice.
+     */
+    saveProfile: function (uid, patch, googleUser) {
+      var W = ['mobileShopName', 'proprietorName', 'mobileNumber', 'mobileNumberE164',
+               'country', 'countryCode', 'address', 'profilePhotoURL', 'profilePhotoPath'];
+      var doc = { uid: uid, updatedAt: Date.now() };
+      W.forEach(function (k) {
+        var v = patch[k];
+        if (v !== undefined && v !== null && String(v).trim() !== '') doc[k] = v;
+      });
+
+      if (googleUser) {
+        doc.email = googleUser.email || '';
+        if (googleUser.displayName) doc.googleDisplayName = googleUser.displayName;
+        if (googleUser.photoURL) doc.googlePhotoURL = googleUser.photoURL;
+      }
+      doc.profileCompleted = !!(doc.mobileShopName && doc.proprietorName && doc.mobileNumber);
+
+      var self = this;
+      return store().then(function (db) {
+        var ref = db.collection('users').doc(uid);
+        return ref.get().then(function (snap) {
+          /* createdAt is written once and never again — an update must not
+             restamp the day the shop joined. */
+          if (!snap.exists) doc.createdAt = Date.now();
+          return ref.set(doc, { merge: true });
+        }).then(function () { return ref.get(); });
+      }).then(function (snap) { return self.normaliseProfile(snap.data()); });
+    },
+
     /* ---------------------------------------------------------------- paid */
 
     /**

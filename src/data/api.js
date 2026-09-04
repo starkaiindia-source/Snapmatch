@@ -359,6 +359,46 @@
   function emit() { listeners.forEach(function (fn) { fn(current); }); }
   function refresh() { current = buildSession(); emit(); return current; }
 
+  /* Completes a sign-in once the profile question is settled. Writes the
+     registration to Firestore when there is one, so the record exists for
+     every other device before the user goes anywhere near checkout. */
+  function finishSignIn(identity, registration, profile) {
+    var existing = profile || SM.auth.findProfile(identity.sub);
+
+    if (registration) {
+      SM.auth.saveProfile(identity.sub, Object.assign({
+        email: identity.email, googleName: identity.name, picture: identity.picture,
+        createdAt: Date.now(), subscription: null
+      }, registration));
+
+      if (SM.store && SM.store.available() && SM.fb.user()) {
+        var c = SM.countries.byCode(registration.country) || {};
+        var digits = String(registration.mobile || '').replace(/\D/g, '');
+        SM.store.saveProfile(identity.sub, {
+          mobileShopName: registration.shopName,
+          proprietorName: registration.proprietor,
+          mobileNumber: registration.mobile,
+          mobileNumberE164: c.dial && digits ? '+' + String(c.dial).replace(/\D/g, '') + digits : '',
+          country: c.name || registration.countryName,
+          countryCode: registration.country,
+          address: registration.address || null
+        }, SM.fb.user()).catch(function (e) {
+          console.error('[auth] could not save profile to Firestore', e);
+        });
+      }
+    } else if (identity.email && existing && existing.email !== identity.email) {
+      SM.auth.saveProfile(identity.sub, { email: identity.email });
+    }
+
+    writeSub(identity.sub);
+    refresh();
+    return respond({
+      session: current, isNew: !existing,
+      restored: !!(existing && existing.subscription)
+    }, LAT.normal);
+  }
+
+
   /* keep the derived state honest while the tab stays open */
   setInterval(function () {
     var was = current.status;
@@ -378,7 +418,50 @@
        New identity   -> reports needsRegistration; nothing is written until
        the profile is completed, so one Google account can never end up with
        two records. */
+    /* Firestore decides who this is, not the browser.
+       users/{uid} is read FIRST, so the same Google account on a second device
+       finds the same profile instead of looking like a new shop. The local
+       copy is refreshed from it and used only as a cache afterwards. */
     signInWithGoogle: function (identity, registration) {
+      var remote = (SM.store && SM.store.available())
+        ? SM.store.loadProfile(identity.sub).catch(function (e) {
+            console.warn('[auth] profile read failed', e && e.code);
+            return null;                      /* fall back to the local copy */
+          })
+        : Promise.resolve(null);
+
+      return remote.then(function (profile) {
+        /* Mirror the stored profile down so every screen sees it immediately. */
+        if (profile) {
+          SM.auth.saveProfile(identity.sub, {
+            email: profile.email || identity.email,
+            googleName: profile.googleDisplayName || identity.name,
+            picture: profile.profilePhotoURL || identity.picture,
+            shopName: profile.mobileShopName,
+            proprietor: profile.proprietorName,
+            mobile: profile.mobileNumber,
+            country: profile.countryCode,
+            countryName: profile.country,
+            address: profile.address
+          });
+        }
+
+        /* Incomplete counts as needing registration — but the form is
+           pre-filled from whatever the record already holds, and the missing
+           fields are never invented. */
+        if ((!profile || !profile.profileCompleted) && !registration) {
+          return respond({
+            needsRegistration: true,
+            identity: identity,
+            existing: profile || null
+          }, LAT.normal);
+        }
+
+        return finishSignIn(identity, registration, profile);
+      });
+    },
+
+    _legacySignIn: function (identity, registration) {
       var existing = SM.auth.findProfile(identity.sub);
       if (!existing && !registration) {
         return respond({ needsRegistration: true, identity: identity }, LAT.normal);
