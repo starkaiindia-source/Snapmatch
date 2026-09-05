@@ -66,13 +66,29 @@ function readBody(req) {
   });
 }
 
-async function runApi(name, req, res) {
+/**
+ * @param {string} name   the file under api/, without .js
+ * @param {object} [extraQuery]  values a vercel.json rewrite would have added,
+ *                               such as the admin dispatcher's `section`
+ */
+async function runApi(name, req, res, extraQuery) {
   const file = path.join(ROOT, 'api', name + '.js');
   if (!file.startsWith(path.join(ROOT, 'api')) || !fs.existsSync(file)) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'no such route', route: '/api/' + name }));
     return;
   }
+
+  /* Vercel parses the query string onto req.query before a function runs, and
+     this did not — so every route that filters, searches or pages read
+     undefined locally and silently returned an unfiltered first page. It
+     looked like it worked, which is the worst way for a gap like this to
+     behave. Rewrite parameters are merged in on top, the same way a dest
+     query string is merged in production. */
+  req.query = Object.assign(
+    Object.fromEntries(new URL(req.url, 'http://localhost').searchParams),
+    extraQuery || {}
+  );
 
   /* Cleared every request so an edit to a route takes effect on reload. The
      module graph under api/ is small; re-requiring it costs nothing. */
@@ -113,12 +129,15 @@ http.createServer((req, res) => {
   const url = req.url.split('?')[0];
   let p = decodeURIComponent(url);
 
-  /* One optional directory segment, so /api/admin/users reaches
-     api/admin/users.js the same way Vercel routes it. The character class
-     excludes dots and slashes, so nothing can walk out of api/ — and runApi
-     re-checks the resolved path anyway. */
-  const api = /^\/api\/(?:([A-Za-z0-9_-]+)\/)?([A-Za-z0-9_-]+)\/?$/.exec(p);
-  if (api) { runApi(api[1] ? api[1] + '/' + api[2] : api[2], req, res); return; }
+  /* /api/admin/<section> goes to the single dispatcher, exactly as the rewrite
+     in vercel.json does it. Keeping the two in step matters: the admin API is
+     eight sections behind ONE function, and a dev server that called the
+     section files directly would not exercise the dispatcher at all. */
+  const adminApi = /^\/api\/admin\/([A-Za-z0-9_-]+)\/?$/.exec(p);
+  if (adminApi) { runApi('admin', req, res, { section: adminApi[1] }); return; }
+
+  const api = /^\/api\/([A-Za-z0-9_-]+)\/?$/.exec(p);
+  if (api) { runApi(api[1], req, res); return; }
 
   if (p === '/') p = '/index.html';
   let file = path.join(ROOT, p);

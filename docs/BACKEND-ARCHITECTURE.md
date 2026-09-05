@@ -152,13 +152,44 @@ api/
     ai-service.js               the LLM gateway + approval queue
     chatbot-service.js          the assistant pipeline
 
-  admin/            protected routes. Every one calls requireAdmin first.
+  admin.js          ONE function for the whole admin API. Reads the section
+                    from the rewrite and dispatches. See below.
+  _admin/           the eight sections, as plain modules rather than routes.
     session.js  users.js  user.js  metrics.js
     missing-models.js  admins.js  audit.js  ai.js
 
   events.js         NEW  public analytics ingest
   chat.js           NEW  public assistant
   (existing billing routes unchanged)
+```
+
+### Why the admin API is one function
+
+Vercel's **Hobby plan allows 12 Serverless Functions per deployment**. Each file
+matched by the `api/*.js` build becomes one. Eight separate admin routes took
+the project to 19 and the deploy failed — *after a completely successful build*,
+at the step that registers the output:
+
+```
+exceeded_serverless_functions_per_deployment
+No more than 12 Serverless Functions can be added to a Deployment
+on the Hobby plan.
+```
+
+So `api/admin.js` is the only function, and `vercel.json` rewrites
+`/api/admin/<section>` to `/api/admin.js?section=<section>`. The public URLs are
+unchanged. The underscore on `_admin/` keeps those files out of the function
+namespace — they are traced into the dispatcher's bundle as ordinary modules.
+
+It is also simply the better shape: the eight sections share every dependency,
+so as separate functions they were eight cold starts and eight copies of the
+same bundle.
+
+**The project now sits at exactly 12 of 12.** The next endpoint added under
+`api/*.js` will fail the deploy the same way. Add it as a section of an existing
+dispatcher, or move to a Pro plan.
+
+```
 
 admin/index.html    the admin shell — a separate page, not the customer SPA
 assets/admin.css    admin styles, reusing the customer design tokens
