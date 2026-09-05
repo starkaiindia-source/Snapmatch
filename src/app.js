@@ -731,9 +731,12 @@
       (o.empty ? ' disabled' : '') +
       ' aria-pressed="' + (o.on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
       '<span class="crail__art">' +
-      /* The transparent copy: these cards sit on the green hero, where the
-         master's white background is a rectangle around every part. */
-      SM.art.category(o.id, 'pthumb--rail', o.name, { cutout: true, eager: true }) +
+      /* The white master, on a white card. These are product photographs shot
+         on white and the card is the surface they were lit for — the
+         transparent cutouts exist and still work (SM.categoryAssets.cutout),
+         but floating the parts straight on the green was tried and the white
+         display surface reads better against it. */
+      SM.art.category(o.id, 'pthumb--rail', o.name, { eager: true }) +
       '<span class="crail__veil" aria-hidden="true"></span>' +
       '<span class="crail__name" aria-hidden="true">' + esc(o.name) + '</span>' +
       '</span>' +

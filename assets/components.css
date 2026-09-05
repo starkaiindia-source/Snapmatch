@@ -210,16 +210,15 @@
   object-fit:contain;
 }
 
-/* …and on the phone it is drawn 10% larger, to use the room the captions used
-   to take. The scale is DERIVED rather than re-measured: the focus numbers are
-   linear in the fit factor, so multiplying the width by 1.1 and pushing the
-   offsets 1.1x further from centre is exactly the same fit computed at a 10%
-   larger inset. The part stays centred, its aspect ratio is still the file's
-   own, and nothing needs regenerating. */
+/* …and on the phone it is scaled by --crail-fit. The scale is DERIVED rather
+   than re-measured: the focus numbers are linear in the fit factor, so
+   multiplying the width by f and pushing the offsets f× further from centre is
+   exactly the same fit computed at an f× inset. The part stays centred, its
+   aspect ratio is still the file's own, and nothing needs regenerating. */
 .crail__art .pthumb--rail img.pimg{
-  width:calc(var(--iw,100%) * 1.1);
-  left:calc(50% - (50% - var(--il,0%)) * 1.1);
-  top:calc(50% - (50% - var(--it,0%)) * 1.1);
+  width:calc(var(--iw,100%) * var(--crail-fit,1));
+  left:calc(50% - (50% - var(--il,0%)) * var(--crail-fit,1));
+  top:calc(50% - (50% - var(--it,0%)) * var(--crail-fit,1));
 }
 
 /* the drawn stand-in has no canvas margin to correct for */
@@ -396,51 +395,56 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 /* The phone's category card. Same idea as the desktop tile — the picture IS
    the card — at the size a thumb can hit.
 
-   The artwork here is the CUTOUT, with its background flood-filled out, so the
-   card no longer has to be white to hide a white rectangle. It is a thin sheet
-   of glass instead: the hero's own green shows through it and the part reads as
-   sitting on the band rather than on a sticker stuck to it. Deliberately
-   barely-there — a real glass panel behind each part would just be the white
-   box again in another colour. */
+   A WHITE surface, deliberately, on the green band: these are product
+   photographs shot on white, and a white card is the display surface they
+   were lit for. Flat white with one hairline and one soft lift — no tint, no
+   glass, no inner shading, because anything laid over the white is what makes
+   it read as grey when you zoom in. */
 .crail__item{
   --c:var(--teal-500);
+  /* How much of the card's height the part fills. 0.80 leaves a tenth clear
+     top and bottom, which is the breathing room a product shot needs to look
+     placed rather than crammed. One number, and the only one to change if the
+     parts should sit larger or smaller. */
+  --crail-fit:0.93;
   flex:none; width:86px; scroll-snap-align:start;
   display:block; position:relative;
   padding:4px; border-radius:var(--r-sm);
-  background:rgba(255,255,255,.09);
-  -webkit-backdrop-filter:blur(6px) saturate(115%);
-  backdrop-filter:blur(6px) saturate(115%);
-  border:1px solid rgba(255,255,255,.16);
+  background:var(--ctile-paper);
+  border:1px solid rgba(255,255,255,.5);
+  box-shadow:0 2px 10px -4px rgba(3,26,23,.35);
   color:#fff; text-align:left;
-  transition:border-color .16s, background .16s, transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
+  transition:border-color .16s, transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
 }
 .crail__item:active{ transform:scale(.97); }
 .crail__item:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
-/* Selected is the category's own colour as a ring, matching the desktop
-   tiles — no tick, no shadow, nothing printed over the part. */
+/* Selected is the category's own colour, drawn thicker than the resting
+   hairline so it reads at a glance across a scrolling strip — and that is the
+   whole of it. No tick, no glow, nothing printed over the part. */
 .crail__item.is-on{
-  background:rgba(255,255,255,.16);
   border-color:var(--c); box-shadow:0 0 0 2px var(--c) inset;
 }
 .crail__art{
   position:relative; display:block; width:100%; aspect-ratio:3/4;
   border-radius:8px; overflow:hidden;
 }
-/* No ground of its own: the part floats on whatever the card is showing
-   through, which is the hero. A single soft highlight under it does the work
-   a drop shadow would, without a shadow's hard edge on a translucent card. */
+/* Plain white behind the part and nothing else. The shared .pthumb carries an
+   inset bottom shadow that reads as a grey smear at this size. */
 .crail__art .pthumb--rail{
   position:absolute; inset:0; width:100%; height:100%;
   border-radius:8px; border-color:transparent; padding:0;
-  background:radial-gradient(58% 42% at 50% 62%, rgba(255,255,255,.14), rgba(255,255,255,0) 70%);
-  box-shadow:none;
+  background:var(--ctile-paper); box-shadow:none;
 }
 
 /* Name: only while the card is under a finger or a focus ring. Same overlay
    and the same bottom fade as the desktop tile. */
+/* Shallower and softer than the desktop tile's: there it fades into a
+   photograph, here it fades into white, where the same gradient reads as a
+   grey band clamped across the bottom of a clean card. Just enough to carry
+   one line of type. */
 .crail__veil{
-  position:absolute; left:0; right:0; bottom:0; height:58%; pointer-events:none;
-  background:linear-gradient(to top, rgba(5,14,13,.9) 0%, rgba(5,14,13,.56) 42%, rgba(5,14,13,0) 100%);
+  position:absolute; left:0; right:0; bottom:0; height:42%; pointer-events:none;
+  background:linear-gradient(to top, rgba(5,14,13,.82) 0%, rgba(5,14,13,.42) 48%, rgba(5,14,13,0) 100%);
   opacity:0; transition:opacity .18s ease;
 }
 .crail__name{
@@ -450,22 +454,34 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   opacity:0; transform:translateY(3px); transition:opacity .18s ease, transform .18s ease;
   overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
 }
-/* :active is the touch equivalent of hover — it holds for as long as the
-   finger is down, which is exactly when the name is wanted. */
+/* The name belongs to the SELECTED card — the one whose contents the centre
+   column is showing, so naming it answers "what am I looking at". A press
+   shows it too: :active is the touch equivalent of hover and holds for as long
+   as the finger is down, which is exactly when someone is asking. */
+.crail__item.is-on .crail__veil,
 .crail__item:active .crail__veil,
 .crail__item:focus-visible .crail__veil{ opacity:1; }
+.crail__item.is-on .crail__name,
 .crail__item:active .crail__name,
 .crail__item:focus-visible .crail__name{ opacity:1; transform:none; }
 
-/* The count, on the SELECTED card only. Same floating pill as the desktop
-   tile — painted against the artwork, so it reads the same in both themes. */
+/* The count, on the SELECTED card only, in that category's own colour — so the
+   ring and the number say the same thing rather than two different ones.
+
+   It sits ABOVE the picture's top edge, over the card's own padding, not on
+   the product: the parts are centred with a tenth of the card clear top and
+   bottom, and a pill dropped inside that would land on the glass of a screen
+   guard or the camera of a back cover. Its own white outline keeps it legible
+   whatever the accent colour is against the white beneath. */
 .crail__n{
-  position:absolute; top:1px; right:1px; z-index:2; pointer-events:none;
-  min-width:19px; height:17px; padding:0 5px; border-radius:99px;
+  position:absolute; top:-1px; right:-1px; z-index:2; pointer-events:none;
+  min-width:20px; height:18px; padding:0 5px; border-radius:99px;
   display:grid; place-items:center;
   font-size:9.5px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums;
-  background:rgba(9,20,18,.78); color:#FFFFFF; border:1px solid rgba(255,255,255,.22);
-  opacity:0; transform:translateY(-3px);
+  background:var(--c); color:#FFFFFF;
+  border:1.5px solid var(--ctile-paper);
+  box-shadow:0 1px 4px -1px rgba(3,26,23,.45);
+  opacity:0; transform:translateY(-3px) scale(.9);
   transition:opacity .18s ease, transform .18s ease;
 }
 .crail__item.is-on .crail__n{ opacity:1; transform:none; }
