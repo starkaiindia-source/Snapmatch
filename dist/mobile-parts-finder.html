@@ -1155,6 +1155,45 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 
 /* ---------------- part-label group card ---------------- */
+/* ---- the two-part group feed -------------------------------------------
+   A trending strip over the catalogue. The strip is a single row that scrolls
+   SIDEWAYS: stacked, twelve recent groups would push the catalogue itself off
+   the first screen to say something the catalogue already says. */
+.feed + .feed{ margin-top:22px; }
+.feed__head{
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin:0 0 11px;
+}
+.feed__title{
+  display:flex; align-items:center; gap:7px; margin:0;
+  font-family:var(--f-display); font-size:15px; font-weight:800; letter-spacing:-.015em;
+}
+.feed__title svg{ width:15px; height:15px; color:var(--amber-600); }
+.feed__note{ font-size:11.5px; font-weight:600; color:var(--ink-3); }
+.feed__head--rest{
+  padding-top:16px; border-top:1px solid var(--line-soft);
+}
+
+/* Cards keep their real width and run off the edge, which is what tells the
+   reader there is more to the right. Only this element scrolls — the page
+   never gains a horizontal scrollbar, because the row is the overflow
+   container and min-width:0 lets it be narrower than its contents. */
+.trendrow{
+  display:grid; grid-auto-flow:column; grid-auto-columns:minmax(258px,262px);
+  gap:14px; min-width:0;
+  overflow-x:auto; overflow-y:hidden; scroll-snap-type:x proximity;
+  scroll-padding-left:2px; -webkit-overflow-scrolling:touch;
+  padding-bottom:10px;                   /* room for the scrollbar, not the cards */
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+}
+.trendrow > *{ scroll-snap-align:start; }
+.trendrow::-webkit-scrollbar{ height:8px; }
+.trendrow::-webkit-scrollbar-track{ background:transparent; }
+.trendrow::-webkit-scrollbar-thumb{
+  background:var(--line); border-radius:99px; border:2px solid transparent; background-clip:content-box;
+}
+.trendrow:hover::-webkit-scrollbar-thumb{ background:var(--ink-3); background-clip:content-box; }
+@media (max-width:520px){ .trendrow{ grid-auto-columns:minmax(232px,246px); } }
+
 .gridcards{ display:grid; gap:14px; grid-template-columns:1fr; }
 @media (min-width:640px){ .gridcards{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (min-width:1060px){ .gridcards{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
@@ -4482,6 +4521,210 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     return hydrate(g);
   }
 
+  /* ======================================================================
+     GROUP FEED ORDER
+     ----------------------------------------------------------------------
+     The catalogue used to come out in group-number order, which is the order
+     it was imported in — so the first screenful was SG-0001 to SG-0006, all
+     six of them Huawei screen guards. Nothing was random; it was sorted by
+     the one field that correlates with nothing a shop is looking for, which
+     reads exactly like a database dump.
+
+     Two things fix that, and both are deterministic — a reload must not
+     reshuffle the page:
+
+       TRENDING   groups whose newest member phone came out in the last year,
+                  newest first. Recency is a property of the DEVICES in a
+                  group, not of the group row, so it is derived from release
+                  dates.
+
+       MIXED      everything else, round-robined across categories so a
+                  scroll passes a guard, a cover, a board, a battery, rather
+                  than 709 covers before the first board.
+
+     COST. The index over 3,340 groups is built once, lazily, on the first
+     feed that needs it; each distinct filter combination is ordered once and
+     cached. Paging is then a slice. Nothing re-sorts per render.
+     ====================================================================== */
+
+  var DAY = 864e5;
+  var TREND_RECENT = 182 * DAY;   /* ~6 months — tier 1 */
+  var TREND_WINDOW = 365 * DAY;   /* ~12 months — tier 2 */
+
+  /* Release dates are dirty: 111 models carry none and 19 carry impossible
+     ones like "2019-04-46". Date.UTC would roll that into May rather than
+     refuse it, so the components are checked back out of the date they
+     produced. A date that does not survive the round trip is treated as
+     absent — never guessed at, and never a reason for the page to throw. */
+  function parseReleaseTs(iso) {
+    if (!iso) return 0;
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+    if (!m) return 0;
+    var y = +m[1], mo = +m[2], d = +m[3];
+    var t = Date.UTC(y, mo - 1, d);
+    var dt = new Date(t);
+    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return 0;
+    return t;
+  }
+
+  /* groupId -> newest release date among the devices that group fits.
+     A group is as current as the newest phone in it: one 2026 handset makes
+     the group worth surfacing even if its other members are from 2019.
+
+     Membership comes from db.groupsByModel, which the catalogue already
+     ships and the device pages already read. It is used here only to pick a
+     DATE — no member is named, listed or counted from it, so the paid
+     fitment list stays exactly as withheld as it was. */
+  var recencyIndex = null;
+  function groupRecency() {
+    if (recencyIndex) return recencyIndex;
+    var byGroup = Object.create(null);
+    var gbm = db.groupsByModel || {};
+    Object.keys(gbm).forEach(function (modelId) {
+      var m = db.modelById[modelId];
+      var ts = m ? parseReleaseTs(m.releaseDateIso) : 0;
+      if (!ts) return;
+      var ids = gbm[modelId] || [];
+      for (var i = 0; i < ids.length; i++) {
+        if (!byGroup[ids[i]] || ts > byGroup[ids[i]]) byGroup[ids[i]] = ts;
+      }
+    });
+    /* The master model counts even where the membership map does not list it. */
+    db.groups.forEach(function (g) {
+      var m = db.modelById[g.masterModelId];
+      var ts = m ? parseReleaseTs(m.releaseDateIso) : 0;
+      if (ts && (!byGroup[g.groupId] || ts > byGroup[g.groupId])) byGroup[g.groupId] = ts;
+    });
+    recencyIndex = byGroup;
+    return byGroup;
+  }
+
+  /* 1 = last ~6 months, 2 = 6-12 months, 0 = not trending.
+     A date in the future lands in tier 1 on purpose: a handset announced for
+     next month is the most current thing in the catalogue, and dropping it
+     out of "latest" for being too new would be the wrong way round. */
+  function trendTier(ts, now) {
+    if (!ts) return 0;
+    if (ts >= now - TREND_RECENT) return 1;
+    if (ts >= now - TREND_WINDOW) return 2;
+    return 0;
+  }
+
+  /* Round-robin across categories. Each bucket arrives already ordered, and
+     a stable partition keeps it that way, so the result is one deterministic
+     interleave rather than a shuffle that happens to look varied. */
+  function mixByCategory(list) {
+    var pos = Object.create(null);
+    (db.categories || []).forEach(function (c, i) { pos[c.id] = i; });
+
+    var buckets = Object.create(null), ids = [];
+    list.forEach(function (g) {
+      if (!buckets[g.categoryId]) { buckets[g.categoryId] = []; ids.push(g.categoryId); }
+      buckets[g.categoryId].push(g);
+    });
+    ids.sort(function (a, b) {
+      var ia = pos[a] == null ? 1e6 : pos[a], ib = pos[b] == null ? 1e6 : pos[b];
+      return ia - ib || (a < b ? -1 : a > b ? 1 : 0);
+    });
+
+    var out = [];
+    for (var i = 0; ; i++) {
+      var any = false;
+      for (var k = 0; k < ids.length; k++) {
+        var b = buckets[ids[k]];
+        if (i < b.length) { out.push(b[i]); any = true; }
+      }
+      if (!any) break;
+    }
+    return out;
+  }
+
+  function cmpNumber(a, b) {
+    return a.groupNumber < b.groupNumber ? -1 : a.groupNumber > b.groupNumber ? 1 : 0;
+  }
+
+  /* How many groups the trending row may hold. A cap, not a target — with a
+     narrow filter there may be three, and three is the right answer then. */
+  var TRENDING_MAX = 18;
+
+  /* The ordered feed for one filter combination: the trending head, the rest
+     in mixed order, and the total the header counts. Memoised, because the
+     same combination is asked for again on every page of "show more". */
+  var feedCache = Object.create(null);
+  var feedKeys = [];
+  var FEED_CACHE_MAX = 24;
+
+  function orderedFeed(list, opts, key) {
+    if (key && feedCache[key]) return feedCache[key];
+
+    var rec = groupRecency();
+    var now = Date.now();
+    var want = opts.trending == null ? 0 : Math.max(0, opts.trending | 0);
+
+    /* TRENDING: newest first, but not eighteen of the same part.
+       A strict global date sort is the obvious reading, and on this catalogue
+       it produces a row of displays, frames and boards only — the newest
+       phones happen to have those parts logged first, so slots run out at 114
+       days and the newest screen guard (132) and battery (150) never appear,
+       though both are firmly inside the window.
+
+       So the rotation is by category WITHIN a tier: tier 1 entirely before
+       tier 2, and inside a tier each category offers its newest remaining
+       group in turn. Every pick is still the newest thing of its kind and the
+       order is total — no randomness, and the same row every reload — while
+       the strip actually shows what is new across the catalogue rather than
+       across three categories of it. */
+    var trending = [];
+    if (want) {
+      var eligible = list.filter(function (g) { return trendTier(rec[g.groupId] || 0, now); });
+      var tiers = [[], []];
+      eligible.forEach(function (g) {
+        tiers[trendTier(rec[g.groupId], now) - 1].push(g);
+      });
+      tiers.forEach(function (bucket) {
+        if (trending.length >= want || !bucket.length) return;
+        bucket.sort(function (a, b) {
+          var ta = rec[a.groupId] || 0, tb = rec[b.groupId] || 0;
+          return tb - ta || cmpNumber(a, b);
+        });
+        trending = trending.concat(mixByCategory(bucket));
+      });
+      trending = trending.slice(0, want);
+    }
+
+    var taken = Object.create(null);
+    trending.forEach(function (g) { taken[g.groupId] = 1; });
+    var rest = want ? list.filter(function (g) { return !taken[g.groupId]; }) : list.slice();
+
+    var sort = opts.sort || 'mixed';
+    if (sort === 'most') rest.sort(function (a, b) { return b.compatibleCount - a.compatibleCount || cmpNumber(a, b); });
+    else if (sort === 'least') rest.sort(function (a, b) { return a.compatibleCount - b.compatibleCount || cmpNumber(a, b); });
+    else if (sort === 'az') rest.sort(function (a, b) {
+      var na = (db.modelById[a.masterModelId] || {}).fullName || '';
+      var nb = (db.modelById[b.masterModelId] || {}).fullName || '';
+      return na.localeCompare(nb) || cmpNumber(a, b);
+    });
+    else if (sort === 'default') rest.sort(cmpNumber);
+    else {
+      /* 'mixed', the default: newest first within a category, then the
+         categories interleaved. Group number breaks every tie, so the order
+         is total — the same filter yields the same page every reload. */
+      rest.sort(function (a, b) {
+        var ta = rec[a.groupId] || 0, tb = rec[b.groupId] || 0;
+        return tb - ta || cmpNumber(a, b);
+      });
+      rest = mixByCategory(rest);
+    }
+
+    var out = { trending: trending, rest: rest, total: list.length };
+    if (key) {
+      feedCache[key] = out;
+      feedKeys.push(key);
+      while (feedKeys.length > FEED_CACHE_MAX) delete feedCache[feedKeys.shift()];
+    }
+    return out;
+  }
+
   /* The CDN-catalogue path: used when Firestore is unreachable, and always for
      free-text search, which Firestore cannot do without a token index. */
   function localListGroups(opts) {
@@ -4514,16 +4757,27 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return true;
     });
 
-    var sort = opts.sort || 'default';
-    if (sort === 'most') list = list.slice().sort(function (a, b) { return b.compatibleCount - a.compatibleCount; });
-    else if (sort === 'least') list = list.slice().sort(function (a, b) { return a.compatibleCount - b.compatibleCount; });
-    else if (sort === 'az') list = list.slice().sort(function (a, b) {
-      return db.modelById[a.masterModelId].fullName.localeCompare(db.modelById[b.masterModelId].fullName);
-    });
+    /* Ordering, the trending split and the mixed feed all happen in one
+       memoised pass — see ORDERING above. Only the first page carries the
+       trending row: "show more" is asking for more of the rest. */
+    var feed = orderedFeed(list, opts, feedKeyFor(opts));
 
-    var res = page(list, opts.page, opts.pageSize || 12);
+    var res = page(feed.rest, opts.page, opts.pageSize || 12);
     res.items = res.items.map(hydrate);
+    /* The header counts everything the filter matches, trending included —
+       dividing the display into two sections must not change the total. */
+    res.total = feed.total;
+    res.restTotal = feed.rest.length;
+    res.trending = (opts.page || 1) === 1 ? feed.trending.map(hydrate) : [];
+    res.hasMore = (opts.page || 1) * (opts.pageSize || 12) < feed.rest.length;
     return respond(res, LAT.normal);
+  }
+
+  /* One cache entry per filter combination. Everything that changes the order
+     is in the key; nothing that does not is. */
+  function feedKeyFor(o) {
+    return [o.categoryId || 'all', o.brandId || 'all', o.sort || 'mixed',
+            o.trending | 0, o.minCount || 0, norm(o.q)].join('|');
   }
 
   /* How many groups match, from the in-memory catalogue. Used so the header
@@ -4666,6 +4920,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     },
 
     listGroupsLocal: function (opts) { return localListGroups(opts); },
+
+    /* How many groups the trending row may hold. Exposed rather than buried in
+       the renderer so the row's length is a data decision, not a number typed
+       into a template. */
+    trendingMax: function () { return TRENDING_MAX; },
 
 
     getGroup: function (groupId) {
@@ -7129,8 +7388,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     base: '/finder',
     finder: {
       modelId: null, catId: null, query: '', matchShown: 6, avail: null,
-      filters: { q: '', brandId: 'all', catId: 'all', sort: 'default' },
-      page: 1, rows: [], total: 0, hasMore: false, busy: false
+      filters: { q: '', brandId: 'all', catId: 'all', sort: 'mixed', view: 'both' },
+      page: 1, rows: [], total: 0, hasMore: false, busy: false,
+      /* The trending head of the feed, and how many groups sit BELOW it. The
+         header still counts everything the filter matches, so `total` cannot
+         also stand for "how many are left to page through". */
+      trending: [], restTotal: 0
     },
     models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
       /* View state, not query state: the same records are already in memory,
@@ -7772,8 +8035,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '<h2>Compatibility groups</h2><span class="sec__count" id="gcount">…</span></div>' +
       '<div class="row wrap ws-tools" style="gap:8px">' +
       '<span class="ws-only">' + searchField('gqd') + '</span>' +
+      /* What the feed CONTAINS, beside how it is sorted. The two are separate
+         questions — "only the recent ones" and "newest first" are not the
+         same request — so they are separate controls rather than one list
+         with the cross product in it. */
+      '<label class="sr" for="viewSel">Group view</label>' +
+      '<select class="input" id="viewSel" style="width:auto;height:38px">' +
+      opt('both', 'Trending + All', f.filters.view) +
+      opt('trending', 'Trending only', f.filters.view) +
+      opt('all', 'All groups', f.filters.view) +
+      '</select>' +
       '<label class="sr" for="sortSel">Sort groups</label>' +
       '<select class="input" id="sortSel" style="width:auto;height:38px">' +
+      opt('mixed', 'Recent & mixed', f.filters.sort) +
       opt('default', 'Group number', f.filters.sort) +
       opt('most', 'Most devices', f.filters.sort) +
       opt('least', 'Fewest devices', f.filters.sort) +
@@ -7850,7 +8124,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   }
   function activeFilterCount() {
     var f = state.finder.filters;
-    return (f.brandId !== 'all' ? 1 : 0) + (f.catId !== 'all' ? 1 : 0) + (f.sort !== 'default' ? 1 : 0);
+    return (f.brandId !== 'all' ? 1 : 0) + (f.catId !== 'all' ? 1 : 0) + (f.sort !== 'mixed' ? 1 : 0) + (f.view && f.view !== 'both' ? 1 : 0);
   }
 
   /* ---- LEFT panel: part categories as a 2-up grid of icon-over-name tiles --- */
@@ -8031,16 +8305,35 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     if (reset && res) res.innerHTML = C.skelPlates(6);
     /* a new result set always starts at the top of the centre column */
     if (reset) { var sc = wsScroller(); if (sc) sc.scrollTop = 0; }
+
+    /* The trending row is asked for only when it would be shown. Typing in the
+       group filter is a specific question, and answering it with a row of
+       whatever is newest would be answering a different one — so a search
+       turns the row off rather than competing with itself. */
+    var wantTrending = trendingWanted(f) ? api.trendingMax() : 0;
+
     api.listGroups({
       q: f.filters.q, brandId: f.filters.brandId, categoryId: f.filters.catId,
-      sort: f.filters.sort, page: f.page, pageSize: 12, cursor: f.cursor
+      sort: f.filters.sort, page: f.page, pageSize: 12, cursor: f.cursor,
+      trending: wantTrending
     }).then(function (r) {
       f.busy = false; f.total = r.total; f.hasMore = r.hasMore;
       f.cursor = r.cursor || null;
       f.source = r.source || 'catalogue';
+      if (reset) f.trending = r.trending || [];
+      f.restTotal = r.restTotal == null ? r.total : r.restTotal;
       f.rows = reset ? r.items : f.rows.concat(r.items);
       paintGroups();
     });
+  }
+
+  /* Trending is shown while browsing, and not while answering something more
+     specific: a text filter, or "All groups" chosen deliberately. With a model
+     selected the centre runs loadMatches() instead and never reaches here. */
+  function trendingWanted(f) {
+    if (f.filters.view === 'all') return false;
+    if ((f.filters.q || '').trim()) return false;
+    return true;
   }
 
   function paintGroups() {
@@ -8051,7 +8344,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     if (!res) return;
     if (cnt) cnt.textContent = nf(f.total) + (f.total === 1 ? ' group' : ' groups');
 
-    if (!f.rows.length) {
+    var trending = trendingWanted(f) ? (f.trending || []) : [];
+    var onlyTrending = f.filters.view === 'trending';
+
+    if (!f.rows.length && !trending.length) {
       res.innerHTML = C.state({
         icon: 'inbox', title: 'No compatibility group matches those filters',
         text: 'Try a different part category or brand, or clear the filter text.',
@@ -8060,9 +8356,44 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       lm.innerHTML = '';
       return;
     }
-    res.innerHTML = '<div class="gridcards">' + f.rows.map(function (row) { return C.plate(row); }).join('') + '</div>';
+
+    /* ONE ROW, SCROLLING SIDEWAYS. Stacking the recent groups vertically would
+       push the catalogue below the fold to say something the catalogue already
+       says. Only this strip scrolls horizontally; the page does not. */
+    var head = '';
+    if (trending.length) {
+      head =
+        '<section class="feed feed--trend">' +
+        '<div class="feed__head"><h3 class="feed__title">' + icon('sparkle') + 'Trending groups</h3>' +
+        '<span class="feed__note">Newest phones, last 12 months</span></div>' +
+        '<div class="trendrow" role="group" aria-label="Trending compatibility groups">' +
+        trending.map(function (row) { return C.plate(row); }).join('') +
+        '</div></section>';
+    }
+
+    if (onlyTrending) {
+      res.innerHTML = head || '';
+      lm.innerHTML = trending.length
+        ? '<span class="t-xs muted">' + nf(trending.length) + ' trending of ' + nf(f.total) + ' groups — switch to “All groups” for the rest</span>'
+        : '<span class="t-xs muted">No group here has a phone from the last 12 months</span>';
+      return;
+    }
+
+    /* "All groups" is named only when something sits above it; on its own it
+       is just the results, and a heading over the only section is noise. */
+    var restHead = trending.length
+      ? '<div class="feed__head feed__head--rest"><h3 class="feed__title">All groups</h3>' +
+        '<span class="feed__note">' + nf(f.restTotal == null ? f.total : f.restTotal) + ' more</span></div>'
+      : '';
+
+    res.innerHTML = head +
+      '<section class="feed">' + restHead +
+      '<div class="gridcards">' + f.rows.map(function (row) { return C.plate(row); }).join('') + '</div>' +
+      '</section>';
+
+    var left = (f.restTotal == null ? f.total : f.restTotal) - f.rows.length;
     lm.innerHTML = f.hasMore
-      ? '<button class="btn btn--outline" data-act="more-groups">' + icon('plus') + 'Show more groups <span class="muted">(' + nf(f.total - f.rows.length) + ' left)</span></button>'
+      ? '<button class="btn btn--outline" data-act="more-groups">' + icon('plus') + 'Show more groups <span class="muted">(' + nf(Math.max(0, left)) + ' left)</span></button>'
       : '<span class="t-xs muted">All ' + nf(f.total) + ' groups shown</span>';
     observeMore();
   }
@@ -10574,7 +10905,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         renderWorkspace();
         break;
       case 'reset-filters':
-        state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'default' };
+        state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'mixed', view: 'both' };
         if (state.sheet) { state.sheet = null; renderSheet(); }
         renderBrowse();
         break;
@@ -10719,7 +11050,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
          would not match what the listing shows */
       case 'go-products':
         state.finder.modelId = null; state.finder.catId = null; state.finder.query = '';
-        state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'default' };
+        state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'mixed', view: 'both' };
         closeSuggest(); syncSearchInputs(true);
         if (state.route.name === 'finder') renderFinder(document.getElementById('page'));
         else go('/finder');
@@ -11145,6 +11476,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     }
 
     if (e.target.id === 'sortSel') { state.finder.filters.sort = e.target.value; loadGroups(true); }
+    if (e.target.id === 'viewSel') { state.finder.filters.view = e.target.value; loadGroups(true); }
 
     /* Brand-page filters and sort. Only the control that changed is re-read,
        and only the list is repainted — re-rendering the whole page would drop

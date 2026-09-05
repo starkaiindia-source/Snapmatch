@@ -17,8 +17,12 @@
     base: '/finder',
     finder: {
       modelId: null, catId: null, query: '', matchShown: 6, avail: null,
-      filters: { q: '', brandId: 'all', catId: 'all', sort: 'default' },
-      page: 1, rows: [], total: 0, hasMore: false, busy: false
+      filters: { q: '', brandId: 'all', catId: 'all', sort: 'mixed', view: 'both' },
+      page: 1, rows: [], total: 0, hasMore: false, busy: false,
+      /* The trending head of the feed, and how many groups sit BELOW it. The
+         header still counts everything the filter matches, so `total` cannot
+         also stand for "how many are left to page through". */
+      trending: [], restTotal: 0
     },
     models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
       /* View state, not query state: the same records are already in memory,
@@ -660,8 +664,19 @@
       '<h2>Compatibility groups</h2><span class="sec__count" id="gcount">…</span></div>' +
       '<div class="row wrap ws-tools" style="gap:8px">' +
       '<span class="ws-only">' + searchField('gqd') + '</span>' +
+      /* What the feed CONTAINS, beside how it is sorted. The two are separate
+         questions — "only the recent ones" and "newest first" are not the
+         same request — so they are separate controls rather than one list
+         with the cross product in it. */
+      '<label class="sr" for="viewSel">Group view</label>' +
+      '<select class="input" id="viewSel" style="width:auto;height:38px">' +
+      opt('both', 'Trending + All', f.filters.view) +
+      opt('trending', 'Trending only', f.filters.view) +
+      opt('all', 'All groups', f.filters.view) +
+      '</select>' +
       '<label class="sr" for="sortSel">Sort groups</label>' +
       '<select class="input" id="sortSel" style="width:auto;height:38px">' +
+      opt('mixed', 'Recent & mixed', f.filters.sort) +
       opt('default', 'Group number', f.filters.sort) +
       opt('most', 'Most devices', f.filters.sort) +
       opt('least', 'Fewest devices', f.filters.sort) +
@@ -738,7 +753,7 @@
   }
   function activeFilterCount() {
     var f = state.finder.filters;
-    return (f.brandId !== 'all' ? 1 : 0) + (f.catId !== 'all' ? 1 : 0) + (f.sort !== 'default' ? 1 : 0);
+    return (f.brandId !== 'all' ? 1 : 0) + (f.catId !== 'all' ? 1 : 0) + (f.sort !== 'mixed' ? 1 : 0) + (f.view && f.view !== 'both' ? 1 : 0);
   }
 
   /* ---- LEFT panel: part categories as a 2-up grid of icon-over-name tiles --- */
@@ -919,16 +934,35 @@
     if (reset && res) res.innerHTML = C.skelPlates(6);
     /* a new result set always starts at the top of the centre column */
     if (reset) { var sc = wsScroller(); if (sc) sc.scrollTop = 0; }
+
+    /* The trending row is asked for only when it would be shown. Typing in the
+       group filter is a specific question, and answering it with a row of
+       whatever is newest would be answering a different one — so a search
+       turns the row off rather than competing with itself. */
+    var wantTrending = trendingWanted(f) ? api.trendingMax() : 0;
+
     api.listGroups({
       q: f.filters.q, brandId: f.filters.brandId, categoryId: f.filters.catId,
-      sort: f.filters.sort, page: f.page, pageSize: 12, cursor: f.cursor
+      sort: f.filters.sort, page: f.page, pageSize: 12, cursor: f.cursor,
+      trending: wantTrending
     }).then(function (r) {
       f.busy = false; f.total = r.total; f.hasMore = r.hasMore;
       f.cursor = r.cursor || null;
       f.source = r.source || 'catalogue';
+      if (reset) f.trending = r.trending || [];
+      f.restTotal = r.restTotal == null ? r.total : r.restTotal;
       f.rows = reset ? r.items : f.rows.concat(r.items);
       paintGroups();
     });
+  }
+
+  /* Trending is shown while browsing, and not while answering something more
+     specific: a text filter, or "All groups" chosen deliberately. With a model
+     selected the centre runs loadMatches() instead and never reaches here. */
+  function trendingWanted(f) {
+    if (f.filters.view === 'all') return false;
+    if ((f.filters.q || '').trim()) return false;
+    return true;
   }
 
   function paintGroups() {
@@ -939,7 +973,10 @@
     if (!res) return;
     if (cnt) cnt.textContent = nf(f.total) + (f.total === 1 ? ' group' : ' groups');
 
-    if (!f.rows.length) {
+    var trending = trendingWanted(f) ? (f.trending || []) : [];
+    var onlyTrending = f.filters.view === 'trending';
+
+    if (!f.rows.length && !trending.length) {
       res.innerHTML = C.state({
         icon: 'inbox', title: 'No compatibility group matches those filters',
         text: 'Try a different part category or brand, or clear the filter text.',
@@ -948,9 +985,44 @@
       lm.innerHTML = '';
       return;
     }
-    res.innerHTML = '<div class="gridcards">' + f.rows.map(function (row) { return C.plate(row); }).join('') + '</div>';
+
+    /* ONE ROW, SCROLLING SIDEWAYS. Stacking the recent groups vertically would
+       push the catalogue below the fold to say something the catalogue already
+       says. Only this strip scrolls horizontally; the page does not. */
+    var head = '';
+    if (trending.length) {
+      head =
+        '<section class="feed feed--trend">' +
+        '<div class="feed__head"><h3 class="feed__title">' + icon('sparkle') + 'Trending groups</h3>' +
+        '<span class="feed__note">Newest phones, last 12 months</span></div>' +
+        '<div class="trendrow" role="group" aria-label="Trending compatibility groups">' +
+        trending.map(function (row) { return C.plate(row); }).join('') +
+        '</div></section>';
+    }
+
+    if (onlyTrending) {
+      res.innerHTML = head || '';
+      lm.innerHTML = trending.length
+        ? '<span class="t-xs muted">' + nf(trending.length) + ' trending of ' + nf(f.total) + ' groups — switch to “All groups” for the rest</span>'
+        : '<span class="t-xs muted">No group here has a phone from the last 12 months</span>';
+      return;
+    }
+
+    /* "All groups" is named only when something sits above it; on its own it
+       is just the results, and a heading over the only section is noise. */
+    var restHead = trending.length
+      ? '<div class="feed__head feed__head--rest"><h3 class="feed__title">All groups</h3>' +
+        '<span class="feed__note">' + nf(f.restTotal == null ? f.total : f.restTotal) + ' more</span></div>'
+      : '';
+
+    res.innerHTML = head +
+      '<section class="feed">' + restHead +
+      '<div class="gridcards">' + f.rows.map(function (row) { return C.plate(row); }).join('') + '</div>' +
+      '</section>';
+
+    var left = (f.restTotal == null ? f.total : f.restTotal) - f.rows.length;
     lm.innerHTML = f.hasMore
-      ? '<button class="btn btn--outline" data-act="more-groups">' + icon('plus') + 'Show more groups <span class="muted">(' + nf(f.total - f.rows.length) + ' left)</span></button>'
+      ? '<button class="btn btn--outline" data-act="more-groups">' + icon('plus') + 'Show more groups <span class="muted">(' + nf(Math.max(0, left)) + ' left)</span></button>'
       : '<span class="t-xs muted">All ' + nf(f.total) + ' groups shown</span>';
     observeMore();
   }
@@ -3462,7 +3534,7 @@
         renderWorkspace();
         break;
       case 'reset-filters':
-        state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'default' };
+        state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'mixed', view: 'both' };
         if (state.sheet) { state.sheet = null; renderSheet(); }
         renderBrowse();
         break;
@@ -3607,7 +3679,7 @@
          would not match what the listing shows */
       case 'go-products':
         state.finder.modelId = null; state.finder.catId = null; state.finder.query = '';
-        state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'default' };
+        state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'mixed', view: 'both' };
         closeSuggest(); syncSearchInputs(true);
         if (state.route.name === 'finder') renderFinder(document.getElementById('page'));
         else go('/finder');
@@ -4033,6 +4105,7 @@
     }
 
     if (e.target.id === 'sortSel') { state.finder.filters.sort = e.target.value; loadGroups(true); }
+    if (e.target.id === 'viewSel') { state.finder.filters.view = e.target.value; loadGroups(true); }
 
     /* Brand-page filters and sort. Only the control that changed is re-read,
        and only the list is repainted — re-rendering the whole page would drop
