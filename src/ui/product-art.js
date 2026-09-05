@@ -288,7 +288,13 @@
       } else {
         inner = this.svgMarkup(id);
       }
-      return '<span class="pthumb ' + (cls || '') + '">' + inner + '</span>';
+      /* Where the part sits inside its canvas, so a tile can fit the PART
+         rather than the white it stands in. Harmless everywhere else: only
+         .pthumb--tile reads these, and a category with no measurement simply
+         gets none and keeps plain contain behaviour. */
+      var vars = (SM.categoryAssets && SM.categoryAssets.focusVars) ? SM.categoryAssets.focusVars(key) : '';
+      return '<span class="pthumb ' + (cls || '') + '"' + (vars ? ' style="' + vars + '"' : '') + '>' +
+        inner + '</span>';
     },
 
     svgMarkup: function (id) {

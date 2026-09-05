@@ -169,13 +169,21 @@ async function main() {
     }
   }
 
-  /* ---- write the mapping the app reads ---- */
-  const body = rows.map(r =>
-    `    '${r.id}': {\n` +
-    `      label: ${JSON.stringify(r.label)},\n` +
-    `      storage: ${JSON.stringify(r.url)},\n` +
-    `      bundled: ${JSON.stringify(r.local)}\n` +
-    `    }`).join(',\n');
+  /* ---- write the mapping the app reads ----
+     `focus` is where the PART sits inside its canvas, measured by
+     scripts/build-category-focus.py and carried in the manifest. It is
+     re-emitted here rather than dropped, because rewriting this file without
+     it would silently return every category tile to fitting the white canvas
+     instead of the part — the exact bug that script exists to fix. */
+  const body = rows.map(r => {
+    const f = (manifest.categories[r.id] || {}).focus;
+    return `    '${r.id}': {\n` +
+      `      label: ${JSON.stringify(r.label)},\n` +
+      `      storage: ${JSON.stringify(r.url)},\n` +
+      `      bundled: ${JSON.stringify(r.local)}` +
+      (f ? `,\n      focus: { iw: ${f.iw}, il: ${f.il}, it: ${f.it} }\n` : '\n') +
+      `    }`;
+  }).join(',\n');
 
   const file = `/* ============================================================================
    Mobile Parts Finder · category-assets.js — the official category logos

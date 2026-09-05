@@ -790,8 +790,12 @@ ul{ margin:0; padding:0; list-style:none; }
    name appears on hover, over the lower edge of its own image, and lives in
    the button's aria-label the rest of the time so nothing is hidden from a
    screen reader or a keyboard. */
-.ctiles{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
-@media (max-width:359px){ .ctiles{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.ctiles{ --cols:3; display:grid; grid-template-columns:repeat(var(--cols),minmax(0,1fr)); gap:8px; }
+.ctiles--2{ --cols:2; }
+.ctiles--3{ --cols:3; }
+/* Below this the sidebar is not the sidebar any more — it is the filter
+   sheet, where the column choice still applies but two-up is the floor. */
+@media (max-width:359px){ .ctiles{ --cols:2; } }
 .ctile{
   --c:var(--teal-500);
   position:relative; display:block; padding:4px; border-radius:var(--r-sm);
@@ -801,10 +805,19 @@ ul{ margin:0; padding:0; list-style:none; }
 .ctile:hover{ transform:translateY(-2px); border-color:var(--c); box-shadow:var(--sh-1); }
 .ctile:focus-visible{ outline:2px solid var(--teal-600); outline-offset:2px; }
 
-/* the image area — and the positioning context the overlay and the badge
-   are measured against */
+/* The image area — and the positioning context the overlay and the badge are
+   measured against.
+
+   Portrait, because the parts are portrait: a back cover, a display, a middle
+   frame and a battery are all far taller than they are wide, and a square box
+   spent most of its area on white to either side of them. 3:4 is measured
+   against the assets — it is the ratio at which the tallest part (a display,
+   0.44) still clears 88% of the height while the one wide part (a CC board,
+   1.27) still fits across without being shrunk to fit a height it does not
+   need. Changing it means re-running scripts/build-category-focus.py with a
+   matching --aspect. */
 .ctile__art{
-  position:relative; display:block; width:100%; aspect-ratio:1/1;
+  position:relative; display:block; width:100%; aspect-ratio:3/4;
   border-radius:9px; overflow:hidden;
 }
 
@@ -815,13 +828,42 @@ ul{ margin:0; padding:0; list-style:none; }
   box-shadow:inset 0 -6px 12px -8px rgba(10,21,18,.18);
 }
 .pimg{ width:100%; height:100%; display:block; object-fit:contain; }
-/* Fills its cell instead of sitting as a 56px stamp in the middle of one. The
-   small inset is breathing room, not a frame — contain still governs, so
-   nothing is cropped or stretched to get there. */
+/* Fills its cell instead of sitting as a 56px stamp in the middle of one. */
 .pthumb--tile{
   position:absolute; inset:0; width:100%; height:100%; max-width:none;
-  border-radius:9px; border-color:transparent; padding:5%;
+  border-radius:9px; border-color:transparent; padding:0;
 }
+/* FIT THE PART, NOT ITS CANVAS.
+
+   The masters are square pictures of a portrait part standing in a lot of
+   white — a back cover is 45% of its own canvas, a display 42%. `contain`
+   fits the canvas, so those parts render under half a tile wide however big
+   the tile gets; enlarging the card cannot fix it, because the card is not
+   what is being fitted.
+
+   --iw / --il / --it place the image so the PART lands centred and filling
+   the box, measured per asset by scripts/build-category-focus.py. Only the
+   width is set and the height is auto, so the browser derives the height from
+   the file's own aspect ratio and DISTORTION IS NOT EXPRESSIBLE here. The
+   overhang is the asset's white margin, clipped against a white chip, so
+   nothing of the part is lost and no edge shows.
+
+   The fallback values are plain contain behaviour, which is what a category
+   with no measurement — or the drawn SVG stand-in — should get. */
+.pthumb--tile img.pimg{
+  position:absolute;
+  width:var(--iw,100%); height:auto;
+  /* The global img{max-width:100%} reset in styles.css caps an image at its
+     container, which is exactly what has to be overridden here: the image is
+     deliberately WIDER than the tile so the part inside it is not. Without
+     this the width silently clamps back to 100% and every part returns to
+     canvas size — the same picture, and no visible error to chase. */
+  max-width:none;
+  left:var(--il,0); top:var(--it,0);
+  object-fit:contain;
+}
+/* the drawn stand-in has no canvas margin to correct for */
+.pthumb--tile svg.pimg{ width:100%; height:100%; padding:8%; }
 .pthumb--plate{ width:58px; height:58px; border-radius:12px; }
 
 /* Hover reveal. Only the bottom of the picture is shaded — enough to carry a
@@ -832,12 +874,16 @@ ul{ margin:0; padding:0; list-style:none; }
   opacity:0; transition:opacity .2s ease;
 }
 .ctile__name{
-  position:absolute; left:6px; right:6px; bottom:5px; pointer-events:none;
-  font-size:10.5px; font-weight:700; line-height:1.15; letter-spacing:-.01em;
+  position:absolute; left:6px; right:6px; bottom:6px; pointer-events:none;
+  font-size:10.5px; font-weight:700; line-height:1.2; letter-spacing:-.01em;
   color:#FFFFFF; text-align:left; text-shadow:0 1px 2px rgba(0,0,0,.5);
   opacity:0; transform:translateY(4px); transition:opacity .2s ease, transform .2s ease;
   overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
 }
+/* Two-up tiles are wide enough for the longer names to sit on one line, so
+   the type grows with the card rather than staying at sidebar size. */
+.ctiles--2 .ctile__name{ font-size:12px; left:8px; right:8px; bottom:7px; }
+.ctiles--2 .ctile__n{ height:20px; min-width:22px; font-size:11px; }
 .ctile:hover .ctile__veil,
 .ctile:focus-visible .ctile__veil,
 .ctile.is-on .ctile__veil{ opacity:1; }
@@ -893,6 +939,27 @@ ul{ margin:0; padding:0; list-style:none; }
 .ctile--add .ctile__art{
   display:grid; place-items:center; gap:3px; align-content:center;
 }
+.ctiles--2 .ctile__plus svg{ width:24px; height:24px; }
+.ctiles--2 .ctile__name--add{ font-size:11.5px; }
+
+/* --- grid density control, in the panel head --------------------------- */
+/* Small enough to sit beside the heading rather than becoming a settings
+   panel: the two icons ARE the layouts they choose. */
+.cols{
+  display:inline-flex; padding:2px; gap:2px; border-radius:8px;
+  background:var(--surface-3); border:1px solid var(--line);
+}
+.cols__opt{
+  display:grid; place-items:center; width:22px; height:18px; border-radius:5px;
+  color:var(--ink-3); transition:background .14s, color .14s;
+}
+.cols__opt svg{
+  width:13px; height:13px;
+  /* the icon is a pair/trio of filled bars, not an outline */
+  fill:currentColor; stroke:none;
+}
+.cols__opt:hover{ color:var(--ink); }
+.cols__opt.is-on{ background:var(--surface); color:var(--teal-700); box-shadow:var(--sh-1); }
 .ctile__plus{ display:grid; place-items:center; }
 .ctile__plus svg{ width:20px; height:20px; }
 .ctile__name--add{
@@ -5742,6 +5809,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     alert: '<path d="M12 3.5 21 19.5H3L12 3.5Z"/><path d="M12 9.5v4M12 16.6v.1"/>',
     inbox: '<path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.4 5h13.2l2 8.5v4a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2v-4L5.4 5Z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    /* Grid-density pair: the icon IS the layout it switches to, so the two
+       read as a choice between shapes rather than needing a "2"/"3" label. */
+    cols2: '<rect x="3.5" y="4" width="7" height="16" rx="1.4"/><rect x="13.5" y="4" width="7" height="16" rx="1.4"/>',
+    cols3: '<rect x="3" y="4" width="5" height="16" rx="1.2"/><rect x="9.5" y="4" width="5" height="16" rx="1.2"/><rect x="16" y="4" width="5" height="16" rx="1.2"/>',
     logout: '<path d="M9.5 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3.5"/><path d="M15 8.5 18.5 12 15 15.5M18 12H9.5"/>',
     refresh: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4.5h-4.5"/>',
     history: '<path d="M3.6 9.5A8.5 8.5 0 1 1 3 12"/><path d="M3.2 4.6v5h5"/><path d="M12 7.6V12l3.2 1.9"/>',
@@ -6216,7 +6287,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       } else {
         inner = this.svgMarkup(id);
       }
-      return '<span class="pthumb ' + (cls || '') + '">' + inner + '</span>';
+      /* Where the part sits inside its canvas, so a tile can fit the PART
+         rather than the white it stands in. Harmless everywhere else: only
+         .pthumb--tile reads these, and a category with no measurement simply
+         gets none and keeps plain contain behaviour. */
+      var vars = (SM.categoryAssets && SM.categoryAssets.focusVars) ? SM.categoryAssets.focusVars(key) : '';
+      return '<span class="pthumb ' + (cls || '') + '"' + (vars ? ' style="' + vars + '"' : '') + '>' +
+        inner + '</span>';
     },
 
     svgMarkup: function (id) {
@@ -6351,32 +6428,38 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     'screen-guards': {
       label: "Screen Guards",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fscreen-guards%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/screen-guards.png"
+      bundled: "/assets/categories/screen-guards.png",
+      focus: { iw: 1.2516, il: -0.1258, it: 0.0417 }
     },
     'back-cover': {
       label: "Back Cover",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fback-cover%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/back-cover.png"
+      bundled: "/assets/categories/back-cover.png",
+      focus: { iw: 1.3174, il: -0.1484, it: 0.0214 }
     },
     'combo-display': {
       label: "Combo/Display",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fcombo-display%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/combo-display.png"
+      bundled: "/assets/categories/combo-display.png",
+      focus: { iw: 1.221, il: -0.1105, it: 0.0457 }
     },
     'middle-frame': {
       label: "Middle Frame",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fmiddle-frame%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/middle-frame.png"
+      bundled: "/assets/categories/middle-frame.png",
+      focus: { iw: 1.2412, il: -0.1182, it: 0.0345 }
     },
     'cc-board': {
       label: "CC Board",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fcc-board%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/cc-board.png"
+      bundled: "/assets/categories/cc-board.png",
+      focus: { iw: 1.0478, il: -0.0219, it: 0.1853 }
     },
     'battery': {
       label: "Battery",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fbattery%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/battery.png"
+      bundled: "/assets/categories/battery.png",
+      focus: { iw: 1.2947, il: -0.1448, it: 0.0183 }
     }
   };
 
@@ -6414,10 +6497,31 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return LOOKUP[norm(nameOrId)] || null;
     },
 
-    /** { storage, bundled, label } for a category, or null when there is none. */
+    /** { storage, bundled, label, focus } for a category, or null. */
     get: function (nameOrId) {
       var id = this.resolve(nameOrId);
       return id ? ASSETS[id] : null;
+    },
+
+    /**
+     * Where the PART sits inside its canvas, as CSS custom properties.
+     *
+     * The masters are square canvases with the part standing in a lot of
+     * white — a back cover is 45% of its own picture. `object-fit: contain`
+     * fits the CANVAS, so the part renders at 45% of the tile however large
+     * the tile is; enlarging the card alone cannot change that. These three
+     * numbers scale and offset the image so the PART fills the tile instead,
+     * with the width set and the height left auto so it cannot be distorted.
+     *
+     * Measured by scripts/build-category-focus.py for the tile's aspect
+     * ratio. Only .pthumb--tile consumes them, so every other surface keeps
+     * plain contain behaviour.
+     */
+    focusVars: function (nameOrId) {
+      var e = this.get(nameOrId);
+      var f = e && e.focus;
+      if (!f) return '';
+      return '--iw:' + (f.iw * 100) + '%;--il:' + (f.il * 100) + '%;--it:' + (f.it * 100) + '%';
     },
 
     /** Every category that has an official logo. */
@@ -6986,6 +7090,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       filters: { deviceType: '', curve: '', year: '', size: '', fiveG: '', minRam: '', minStorage: '', minBattery: '' }
     },
     recent: [],
+    /* How many columns the category grid uses. A working preference, like the
+       models view above — someone who wants the wider two-up tiles wants them
+       next time too, so it is remembered on the device rather than stored
+       against an account. Read back through a whitelist: a stale or hand-edited
+       value must not be able to produce a grid with no columns. */
+    catCols: store('mpf.catcols') === '2' ? 2 : 3,
     brandQ: '',
     suggest: { open: false, q: '', items: [], cursor: -1 },
     sheet: null,           /* { type:'group'|'model'|'filters'|'demo', id } */
@@ -7744,13 +7854,28 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '<span class="ctile__name ctile__name--add" aria-hidden="true">Add</span></span>' +
       '</button>';
 
-    return '<section class="panel">' +
+    /* Two columns or three, as a segmented pair in the panel head. The grid
+       reads one custom property, so switching is a class swap on the
+       container — no relayout of anything outside this panel and nothing for
+       the sticky sidebar to lose. */
+    var colBtn = function (n) {
+      var on = state.catCols === n;
+      return '<button type="button" class="cols__opt' + (on ? ' is-on' : '') + '" ' +
+        'data-act="cat-cols" data-id="' + n + '" aria-pressed="' + on + '" ' +
+        'title="' + n + ' columns" aria-label="Show categories in ' + n + ' columns">' +
+        icon(n === 2 ? 'cols2' : 'cols3') + '</button>';
+    };
+
+    return '<section class="panel panel--cats">' +
       '<div class="panel__head"><span class="t-lab">Part category</span>' +
+      '<span class="row" style="gap:6px">' +
+      '<span class="cols" role="group" aria-label="Category grid columns">' +
+      colBtn(2) + colBtn(3) + '</span>' +
       (f.catId !== 'all'
         ? '<button class="panel__clear" data-act="filter-cat" data-id="all">' + icon('close') + 'Clear</button>'
         : '<span class="panel__n">' + db.categories.length + '</span>') +
-      '</div>' +
-      '<div class="ctiles">' +
+      '</span></div>' +
+      '<div class="ctiles ctiles--' + state.catCols + '">' +
       tile('all', 'All Categories', 'var(--teal-500)', 'grid', db.stats.groups) +
       db.categories.map(function (c) {
         return tile(c.id, c.name, c.color, c.icon, c.groupCount);
@@ -10372,6 +10497,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       case 'add-category':
         toast('Category management is coming soon', 'info');
         break;
+      /* Grid density. A view preference, so it repaints the category panel
+         and nothing else — the filters, the results and the sidebar's scroll
+         position are all untouched. Repainted in every rendered copy so the
+         sidebar and the mobile filter sheet cannot disagree. */
+      case 'cat-cols': {
+        var cols = id === '2' ? 2 : 3;
+        if (cols === state.catCols) break;
+        state.catCols = cols;
+        store('mpf.catcols', String(cols));
+        var html = categoryPanelHTML();
+        document.querySelectorAll('.panel--cats').forEach(function (p) { p.outerHTML = html; });
+        break;
+      }
       case 'more-matches': state.finder.matchShown += 6; loadMatches(); break;
 
       case 'filter-brand':

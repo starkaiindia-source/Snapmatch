@@ -41,32 +41,38 @@
     'screen-guards': {
       label: "Screen Guards",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fscreen-guards%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/screen-guards.png"
+      bundled: "/assets/categories/screen-guards.png",
+      focus: { iw: 1.2516, il: -0.1258, it: 0.0417 }
     },
     'back-cover': {
       label: "Back Cover",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fback-cover%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/back-cover.png"
+      bundled: "/assets/categories/back-cover.png",
+      focus: { iw: 1.3174, il: -0.1484, it: 0.0214 }
     },
     'combo-display': {
       label: "Combo/Display",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fcombo-display%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/combo-display.png"
+      bundled: "/assets/categories/combo-display.png",
+      focus: { iw: 1.221, il: -0.1105, it: 0.0457 }
     },
     'middle-frame': {
       label: "Middle Frame",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fmiddle-frame%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/middle-frame.png"
+      bundled: "/assets/categories/middle-frame.png",
+      focus: { iw: 1.2412, il: -0.1182, it: 0.0345 }
     },
     'cc-board': {
       label: "CC Board",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fcc-board%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/cc-board.png"
+      bundled: "/assets/categories/cc-board.png",
+      focus: { iw: 1.0478, il: -0.0219, it: 0.1853 }
     },
     'battery': {
       label: "Battery",
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fbattery%2Flogo-256.png?alt=media",
-      bundled: "/assets/categories/battery.png"
+      bundled: "/assets/categories/battery.png",
+      focus: { iw: 1.2947, il: -0.1448, it: 0.0183 }
     }
   };
 
@@ -104,10 +110,31 @@
       return LOOKUP[norm(nameOrId)] || null;
     },
 
-    /** { storage, bundled, label } for a category, or null when there is none. */
+    /** { storage, bundled, label, focus } for a category, or null. */
     get: function (nameOrId) {
       var id = this.resolve(nameOrId);
       return id ? ASSETS[id] : null;
+    },
+
+    /**
+     * Where the PART sits inside its canvas, as CSS custom properties.
+     *
+     * The masters are square canvases with the part standing in a lot of
+     * white — a back cover is 45% of its own picture. `object-fit: contain`
+     * fits the CANVAS, so the part renders at 45% of the tile however large
+     * the tile is; enlarging the card alone cannot change that. These three
+     * numbers scale and offset the image so the PART fills the tile instead,
+     * with the width set and the height left auto so it cannot be distorted.
+     *
+     * Measured by scripts/build-category-focus.py for the tile's aspect
+     * ratio. Only .pthumb--tile consumes them, so every other surface keeps
+     * plain contain behaviour.
+     */
+    focusVars: function (nameOrId) {
+      var e = this.get(nameOrId);
+      var f = e && e.focus;
+      if (!f) return '';
+      return '--iw:' + (f.iw * 100) + '%;--il:' + (f.il * 100) + '%;--it:' + (f.it * 100) + '%';
     },
 
     /** Every category that has an official logo. */

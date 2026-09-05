@@ -124,8 +124,12 @@
    name appears on hover, over the lower edge of its own image, and lives in
    the button's aria-label the rest of the time so nothing is hidden from a
    screen reader or a keyboard. */
-.ctiles{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
-@media (max-width:359px){ .ctiles{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+.ctiles{ --cols:3; display:grid; grid-template-columns:repeat(var(--cols),minmax(0,1fr)); gap:8px; }
+.ctiles--2{ --cols:2; }
+.ctiles--3{ --cols:3; }
+/* Below this the sidebar is not the sidebar any more — it is the filter
+   sheet, where the column choice still applies but two-up is the floor. */
+@media (max-width:359px){ .ctiles{ --cols:2; } }
 .ctile{
   --c:var(--teal-500);
   position:relative; display:block; padding:4px; border-radius:var(--r-sm);
@@ -135,10 +139,19 @@
 .ctile:hover{ transform:translateY(-2px); border-color:var(--c); box-shadow:var(--sh-1); }
 .ctile:focus-visible{ outline:2px solid var(--teal-600); outline-offset:2px; }
 
-/* the image area — and the positioning context the overlay and the badge
-   are measured against */
+/* The image area — and the positioning context the overlay and the badge are
+   measured against.
+
+   Portrait, because the parts are portrait: a back cover, a display, a middle
+   frame and a battery are all far taller than they are wide, and a square box
+   spent most of its area on white to either side of them. 3:4 is measured
+   against the assets — it is the ratio at which the tallest part (a display,
+   0.44) still clears 88% of the height while the one wide part (a CC board,
+   1.27) still fits across without being shrunk to fit a height it does not
+   need. Changing it means re-running scripts/build-category-focus.py with a
+   matching --aspect. */
 .ctile__art{
-  position:relative; display:block; width:100%; aspect-ratio:1/1;
+  position:relative; display:block; width:100%; aspect-ratio:3/4;
   border-radius:9px; overflow:hidden;
 }
 
@@ -149,13 +162,42 @@
   box-shadow:inset 0 -6px 12px -8px rgba(10,21,18,.18);
 }
 .pimg{ width:100%; height:100%; display:block; object-fit:contain; }
-/* Fills its cell instead of sitting as a 56px stamp in the middle of one. The
-   small inset is breathing room, not a frame — contain still governs, so
-   nothing is cropped or stretched to get there. */
+/* Fills its cell instead of sitting as a 56px stamp in the middle of one. */
 .pthumb--tile{
   position:absolute; inset:0; width:100%; height:100%; max-width:none;
-  border-radius:9px; border-color:transparent; padding:5%;
+  border-radius:9px; border-color:transparent; padding:0;
 }
+/* FIT THE PART, NOT ITS CANVAS.
+
+   The masters are square pictures of a portrait part standing in a lot of
+   white — a back cover is 45% of its own canvas, a display 42%. `contain`
+   fits the canvas, so those parts render under half a tile wide however big
+   the tile gets; enlarging the card cannot fix it, because the card is not
+   what is being fitted.
+
+   --iw / --il / --it place the image so the PART lands centred and filling
+   the box, measured per asset by scripts/build-category-focus.py. Only the
+   width is set and the height is auto, so the browser derives the height from
+   the file's own aspect ratio and DISTORTION IS NOT EXPRESSIBLE here. The
+   overhang is the asset's white margin, clipped against a white chip, so
+   nothing of the part is lost and no edge shows.
+
+   The fallback values are plain contain behaviour, which is what a category
+   with no measurement — or the drawn SVG stand-in — should get. */
+.pthumb--tile img.pimg{
+  position:absolute;
+  width:var(--iw,100%); height:auto;
+  /* The global img{max-width:100%} reset in styles.css caps an image at its
+     container, which is exactly what has to be overridden here: the image is
+     deliberately WIDER than the tile so the part inside it is not. Without
+     this the width silently clamps back to 100% and every part returns to
+     canvas size — the same picture, and no visible error to chase. */
+  max-width:none;
+  left:var(--il,0); top:var(--it,0);
+  object-fit:contain;
+}
+/* the drawn stand-in has no canvas margin to correct for */
+.pthumb--tile svg.pimg{ width:100%; height:100%; padding:8%; }
 .pthumb--plate{ width:58px; height:58px; border-radius:12px; }
 
 /* Hover reveal. Only the bottom of the picture is shaded — enough to carry a
@@ -166,12 +208,16 @@
   opacity:0; transition:opacity .2s ease;
 }
 .ctile__name{
-  position:absolute; left:6px; right:6px; bottom:5px; pointer-events:none;
-  font-size:10.5px; font-weight:700; line-height:1.15; letter-spacing:-.01em;
+  position:absolute; left:6px; right:6px; bottom:6px; pointer-events:none;
+  font-size:10.5px; font-weight:700; line-height:1.2; letter-spacing:-.01em;
   color:#FFFFFF; text-align:left; text-shadow:0 1px 2px rgba(0,0,0,.5);
   opacity:0; transform:translateY(4px); transition:opacity .2s ease, transform .2s ease;
   overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
 }
+/* Two-up tiles are wide enough for the longer names to sit on one line, so
+   the type grows with the card rather than staying at sidebar size. */
+.ctiles--2 .ctile__name{ font-size:12px; left:8px; right:8px; bottom:7px; }
+.ctiles--2 .ctile__n{ height:20px; min-width:22px; font-size:11px; }
 .ctile:hover .ctile__veil,
 .ctile:focus-visible .ctile__veil,
 .ctile.is-on .ctile__veil{ opacity:1; }
@@ -227,6 +273,27 @@
 .ctile--add .ctile__art{
   display:grid; place-items:center; gap:3px; align-content:center;
 }
+.ctiles--2 .ctile__plus svg{ width:24px; height:24px; }
+.ctiles--2 .ctile__name--add{ font-size:11.5px; }
+
+/* --- grid density control, in the panel head --------------------------- */
+/* Small enough to sit beside the heading rather than becoming a settings
+   panel: the two icons ARE the layouts they choose. */
+.cols{
+  display:inline-flex; padding:2px; gap:2px; border-radius:8px;
+  background:var(--surface-3); border:1px solid var(--line);
+}
+.cols__opt{
+  display:grid; place-items:center; width:22px; height:18px; border-radius:5px;
+  color:var(--ink-3); transition:background .14s, color .14s;
+}
+.cols__opt svg{
+  width:13px; height:13px;
+  /* the icon is a pair/trio of filled bars, not an outline */
+  fill:currentColor; stroke:none;
+}
+.cols__opt:hover{ color:var(--ink); }
+.cols__opt.is-on{ background:var(--surface); color:var(--teal-700); box-shadow:var(--sh-1); }
 .ctile__plus{ display:grid; place-items:center; }
 .ctile__plus svg{ width:20px; height:20px; }
 .ctile__name--add{

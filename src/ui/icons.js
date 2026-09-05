@@ -32,6 +32,10 @@
     alert: '<path d="M12 3.5 21 19.5H3L12 3.5Z"/><path d="M12 9.5v4M12 16.6v.1"/>',
     inbox: '<path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.4 5h13.2l2 8.5v4a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2v-4L5.4 5Z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    /* Grid-density pair: the icon IS the layout it switches to, so the two
+       read as a choice between shapes rather than needing a "2"/"3" label. */
+    cols2: '<rect x="3.5" y="4" width="7" height="16" rx="1.4"/><rect x="13.5" y="4" width="7" height="16" rx="1.4"/>',
+    cols3: '<rect x="3" y="4" width="5" height="16" rx="1.2"/><rect x="9.5" y="4" width="5" height="16" rx="1.2"/><rect x="16" y="4" width="5" height="16" rx="1.2"/>',
     logout: '<path d="M9.5 20H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h3.5"/><path d="M15 8.5 18.5 12 15 15.5M18 12H9.5"/>',
     refresh: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v4.5h-4.5"/>',
     history: '<path d="M3.6 9.5A8.5 8.5 0 1 1 3 12"/><path d="M3.2 4.6v5h5"/><path d="M12 7.6V12l3.2 1.9"/>',

@@ -30,6 +30,12 @@
       filters: { deviceType: '', curve: '', year: '', size: '', fiveG: '', minRam: '', minStorage: '', minBattery: '' }
     },
     recent: [],
+    /* How many columns the category grid uses. A working preference, like the
+       models view above — someone who wants the wider two-up tiles wants them
+       next time too, so it is remembered on the device rather than stored
+       against an account. Read back through a whitelist: a stale or hand-edited
+       value must not be able to produce a grid with no columns. */
+    catCols: store('mpf.catcols') === '2' ? 2 : 3,
     brandQ: '',
     suggest: { open: false, q: '', items: [], cursor: -1 },
     sheet: null,           /* { type:'group'|'model'|'filters'|'demo', id } */
@@ -788,13 +794,28 @@
       '<span class="ctile__name ctile__name--add" aria-hidden="true">Add</span></span>' +
       '</button>';
 
-    return '<section class="panel">' +
+    /* Two columns or three, as a segmented pair in the panel head. The grid
+       reads one custom property, so switching is a class swap on the
+       container — no relayout of anything outside this panel and nothing for
+       the sticky sidebar to lose. */
+    var colBtn = function (n) {
+      var on = state.catCols === n;
+      return '<button type="button" class="cols__opt' + (on ? ' is-on' : '') + '" ' +
+        'data-act="cat-cols" data-id="' + n + '" aria-pressed="' + on + '" ' +
+        'title="' + n + ' columns" aria-label="Show categories in ' + n + ' columns">' +
+        icon(n === 2 ? 'cols2' : 'cols3') + '</button>';
+    };
+
+    return '<section class="panel panel--cats">' +
       '<div class="panel__head"><span class="t-lab">Part category</span>' +
+      '<span class="row" style="gap:6px">' +
+      '<span class="cols" role="group" aria-label="Category grid columns">' +
+      colBtn(2) + colBtn(3) + '</span>' +
       (f.catId !== 'all'
         ? '<button class="panel__clear" data-act="filter-cat" data-id="all">' + icon('close') + 'Clear</button>'
         : '<span class="panel__n">' + db.categories.length + '</span>') +
-      '</div>' +
-      '<div class="ctiles">' +
+      '</span></div>' +
+      '<div class="ctiles ctiles--' + state.catCols + '">' +
       tile('all', 'All Categories', 'var(--teal-500)', 'grid', db.stats.groups) +
       db.categories.map(function (c) {
         return tile(c.id, c.name, c.color, c.icon, c.groupCount);
@@ -3416,6 +3437,19 @@
       case 'add-category':
         toast('Category management is coming soon', 'info');
         break;
+      /* Grid density. A view preference, so it repaints the category panel
+         and nothing else — the filters, the results and the sidebar's scroll
+         position are all untouched. Repainted in every rendered copy so the
+         sidebar and the mobile filter sheet cannot disagree. */
+      case 'cat-cols': {
+        var cols = id === '2' ? 2 : 3;
+        if (cols === state.catCols) break;
+        state.catCols = cols;
+        store('mpf.catcols', String(cols));
+        var html = categoryPanelHTML();
+        document.querySelectorAll('.panel--cats').forEach(function (p) { p.outerHTML = html; });
+        break;
+      }
       case 'more-matches': state.finder.matchShown += 6; loadMatches(); break;
 
       case 'filter-brand':
