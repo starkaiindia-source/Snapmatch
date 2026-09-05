@@ -228,7 +228,22 @@
       opts = opts || {};
       var q = norm(opts.q);
 
-      if (!q && SM.store && SM.store.available()) {
+      /* The Firestore path is switched OFF.
+         /groups is closed to clients in firestore.rules, because the documents
+         there carry memberIds — the fitment list the free/paid split meters —
+         and a rule cannot withhold one field of a document.
+
+         The local catalogue serves the identical public data (identity, codes,
+         category, master, member count) and pages it the same way, so nothing
+         is lost. Skipping the call rather than letting it fail keeps a
+         permission-denied warning off every finder load.
+
+         Reopening it: narrow the /groups write in scripts/import-firestore.js
+         (done), re-import so the stored documents are thin, reopen the rule,
+         then delete this flag. */
+      var FIRESTORE_GROUPS_OPEN = false;
+
+      if (FIRESTORE_GROUPS_OPEN && !q && SM.store && SM.store.available()) {
         return SM.store.listGroups({
           categoryId: opts.categoryId,
           brandId: opts.brandId,

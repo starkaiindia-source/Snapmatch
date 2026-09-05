@@ -26,8 +26,8 @@
    ========================================================================== */
 'use strict';
 
-const { report } = require('./_lib/config');
-const { json, fail, requireMethod } = require('./_lib/http');
+const { report } = require('../_lib/config');
+const { json, fail, requireMethod } = require('../_lib/http');
 
 module.exports = async function handler(req, res) {
   if (!requireMethod(req, res, 'GET')) return;
@@ -52,7 +52,7 @@ module.exports = async function handler(req, res) {
     if (String(req.query && req.query.deep) === '1' && cfg.firebaseAdmin.configured) {
       const started = Date.now();
       try {
-        const { db } = require('./_lib/firebase');
+        const { db } = require('../_lib/firebase');
         const first = await db().collection('catalog').doc('meta').get();
         const second = await db().collection('catalog').doc('meta').get();
         firestore = {

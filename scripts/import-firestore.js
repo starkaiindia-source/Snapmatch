@@ -149,13 +149,23 @@ async function main() {
        bundle would only mean the Firestore path showed less than the file
        sitting next to it, which is how the finder ended up rendering "1 more
        device — not listed" over a member list the browser already had. */
+    /* NARROWED AGAIN. memberIds and memberNames are gone from /groups: they
+       are the fitment list, the free/paid split meters it, and a Firestore
+       rule can withhold a document but not a field — so a readable /groups
+       carrying them is the whole paywall walked around with the SDK.
+
+       They live in /groupDetails (below), which is closed to every client and
+       read only by /api/device-parts through the Admin SDK, which slices to
+       the caller's tier.
+
+       The comment this replaces argued /groups should match the public bundle.
+       It still does — the bundle no longer ships member lists either. */
     total += await writeAll('groups', groups, g => ({
       groupNo: g.groupNo, serialNo: g.serialNo,
       partCode: g.partCode, oemPartNo: g.oemPartNo || null,
       categoryId: g.categoryId, categoryName: g.categoryName,
       masterModelId: g.masterModelId, masterModelName: g.masterModelName,
       masterBrandId: g.masterBrandId,
-      memberIds: g.memberIds, memberNames: g.memberNames,
       memberCount: g.memberCount,
       searchTokens: g.searchTokens
     }));

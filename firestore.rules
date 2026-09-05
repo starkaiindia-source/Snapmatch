@@ -64,9 +64,25 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
     }
+    /* CLOSED. This used to be an open "public preview", but the documents the
+       importer writes carry memberIds and memberNames — the fitment list that
+       the free/paid split exists to meter. Firestore rules cannot withhold a
+       FIELD, only a document, so a readable /groups is the whole member list
+       readable by anyone with the SDK and the collection name. That would walk
+       straight around /api/device-parts.
+
+       Nothing breaks: SM.api.listGroups already falls back to the local
+       catalogue when this read is refused — a path its author wrote for
+       exactly this change ("Offline or a rules change should degrade to the
+       local catalogue") — and assets/dataset.json still carries every group's
+       identity, codes, category, master model and member COUNT. Only the
+       member NAMES are gone from it.
+
+       To reopen this as a genuine thin preview: narrow the /groups write in
+       scripts/import-firestore.js (already done) and re-import, so the stored
+       documents no longer contain what this rule is protecting. */
     match /groups/{groupId} {
-      allow read: if true;
-      allow write: if false;
+      allow read, write: if false;
     }
 
     /* ------------------------------------------------------- fitment detail
@@ -81,13 +97,16 @@ service cloud.firestore {
        Restoring the paywall means narrowing scripts/build-runtime-bundle.js
        FIRST and putting hasActivePlan() back here second — in that order, or
        the rule tightens around data the browser already has. */
+    /* CLOSED, for the same reason as /groups above: these ARE the fitment
+       lists. They are read by /api/device-parts through the Admin SDK, which
+       slices them to the caller's tier before they reach a browser. No client
+       reads them directly — SM.store exposes methods for both and the app
+       calls neither. */
     match /groupDetails/{groupId} {
-      allow read: if true;
-      allow write: if false;
+      allow read, write: if false;
     }
     match /modelGroups/{modelId} {
-      allow read: if true;
-      allow write: if false;
+      allow read, write: if false;
     }
 
     /* -------------------------------------------------------------- users */
@@ -128,7 +147,17 @@ service cloud.firestore {
 
           /* Reserved. Nothing writes this yet; naming it now means a future
              "last seen" stamp cannot be forged by the browser that reports it. */
-          'lastActiveAt'
+          'lastActiveAt',
+
+          /* The free-search meter. THIS IS THE PAYWALL, so it is the one thing
+             a free account has an obvious reason to edit.
+
+             Written only by /api/access through the Admin SDK. A browser that
+             could set freeSearchCount to 0, or freeSearchDay to yesterday,
+             would have an unlimited allowance — which is exactly why the
+             counter lives in Firestore keyed by uid rather than in
+             localStorage, and exactly why it is listed here. */
+          'freeSearchDay', 'freeSearchCount', 'freeSearchAt'
         ];
       }
 
@@ -196,10 +225,9 @@ service cloud.firestore {
     }
 
     /* The device -> matching groups shortcut, under its new name. Same terms
-       as modelGroups above, which stays until the client is migrated. */
+       as modelGroups above, and closed for the same reason. */
     match /deviceGroups/{deviceId} {
-      allow read: if true;
-      allow write: if false;
+      allow read, write: if false;
     }
 
     /* ---------------------------------------------------------- operations

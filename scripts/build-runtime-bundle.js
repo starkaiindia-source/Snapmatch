@@ -113,7 +113,34 @@ function main() {
      `sn` is the serial number. It used to be absent, which is why every group
      sheet showed its group number three times over — as the group number, as
      the serial, and as the part code. */
-  const GROUP_COLS = ['id', 'no', 'sn', 'part', 'oem', 'cat', 'mm', 'mb', 'cnt', 'mem'];
+  /* ---- groups: the PUBLIC half only ---------------------------------------
+
+     `mem` — the member list — is gone from this bundle. It was the paywall,
+     and shipping it in a file one unauthenticated GET away meant there was no
+     paywall: anyone could read all 12,239 fitments out of the network tab
+     without signing in.
+
+     PART CODES STAY PUBLIC, deliberately. The free tier already advertises
+     "Part code, serial number and group number" on the account page, and
+     quietly withdrawing an advertised feature while adding a paywall would be
+     a different change from the one that was asked for. The paid answer is
+     WHICH DEVICES a part fits, not what the part is called.
+
+     What stays is what makes the free site useful and gives nothing away: the
+     group's identity, its codes, its category, its master model, and `cnt` —
+     the real member COUNT. That is what lets a card say "fits 30 devices"
+     without naming the thirty.
+
+     The withheld half is written to api/_data/parts.json below, and reaches a
+     browser only through /api/device-parts, which slices the member list to
+     the caller's tier before serialising it. See
+     api/_services/entitlement-service.js.
+
+     src/data/dataset.js already expects this: a group with no `mem` hydrates
+     with compatibleDeviceIds = null, which hydrate() in src/data/api.js reads
+     as `locked: true`. That path was written for this change and has been
+     waiting for it. */
+  const GROUP_COLS = ['id', 'no', 'sn', 'part', 'oem', 'cat', 'mm', 'mb', 'cnt'];
   const groupRows = groups.map(g => [
     g.id,
     g.groupNo,
@@ -123,8 +150,7 @@ function main() {
     g.categoryId,
     g.masterModelId,
     g.masterBrandId,
-    g.memberCount,
-    (g.memberIds || []).map(id => modelIndex.get(id)).filter(i => i !== undefined)
+    g.memberCount
   ]);
 
   /* Device -> which groups fit it, per category, as group ids. The client
@@ -209,11 +235,12 @@ function main() {
   console.log('  ' + '-'.repeat(50));
   console.log('  paid slice ', kb(paidBytes), '-> api/_data/parts.json (never served)');
   console.log('  ' + '-'.repeat(50));
-  console.log('  PUBLIC: part codes', groups.filter(g => g.partCode).length,
-              '· OEM part numbers', groups.filter(g => g.oemPartNo).length,
-              '· fitments', groups.reduce((s, g) => s + (g.memberIds || []).length, 0));
-  console.log('  Everything above is in assets/dataset.json and downloadable');
-  console.log('  without signing in. That is the configured behaviour.');
+  console.log('  WITHHELD from the public bundle:');
+  console.log('    fitments          ', groups.reduce((s, g) => s + (g.memberIds || []).length, 0),
+              ' (which devices each part fits)');
+  console.log('  Not in assets/dataset.json. Reaches a browser only through');
+  console.log('  /api/device-parts, sliced to the caller\'s tier.');
+  console.log('  PUBLIC: group identity, part codes, category, master, member COUNT.');
   console.log();
 }
 

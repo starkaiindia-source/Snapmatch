@@ -9,8 +9,8 @@
    ========================================================================== */
 'use strict';
 
-const { publicCatalogue } = require('./_lib/plans');
-const { ok, fail, requireMethod } = require('./_lib/http');
+const { publicCatalogue } = require('../_lib/plans');
+const { ok, fail, requireMethod } = require('../_lib/http');
 
 module.exports = async function handler(req, res) {
   if (!requireMethod(req, res, 'GET')) return;

@@ -102,6 +102,14 @@
       "dest": "/api/admin.js?section=$1"
     },
     {
+      "src": "/api/(firebase-config|plans|health)/?$",
+      "dest": "/api/public.js?section=$1"
+    },
+    {
+      "src": "/api/(access|device-parts)/?$",
+      "dest": "/api/access.js?section=$1"
+    },
+    {
       "src": "/api/([^/.]+)/?$",
       "dest": "/api/$1.js"
     },

@@ -32,7 +32,7 @@
    ========================================================================== */
 'use strict';
 
-const { json, fail, requireMethod } = require('./_lib/http');
+const { json, fail, requireMethod } = require('../_lib/http');
 
 /* projectId is the one value that can be derived rather than configured: the
    auth domain and the default bucket are both built from it, so a mismatch

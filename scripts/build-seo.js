@@ -199,6 +199,7 @@ const APP_BOOT = [
      same scripts is two lists that can be forgotten — and a script missing
      from HERE is missing from every pre-rendered page while working perfectly
      on the SPA shell, which is the hardest version of that bug to notice. */
+  'src/data/access.js',
   'src/data/analytics.js',
   'src/ui/icons.js', 'src/ui/product-art.js', 'src/data/category-assets.js',
   'src/ui/components.js', 'src/app.js'

@@ -115,6 +115,12 @@
     var dark = state.theme === 'dark' || (state.theme === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     var end = '<button class="iconbtn" data-act="open-filters" title="Filters" aria-label="Filter groups">' + icon('sliders') + '</button>' +
       '<button class="iconbtn" data-act="theme" title="Switch theme" aria-label="Switch colour theme">' + icon(dark ? 'sun' : 'moon') + '</button>';
+    /* Free searches left today. Only for a free account, only once the SERVER
+       has said so, and never for a subscriber — a paid user should not be
+       reading a counter about a limit they do not have. Deliberately small and
+       to the left of the avatar rather than a banner across the page. */
+    end = freeSearchChipHTML() + end;
+
     if (s.status === 'guest') {
       end += '<a class="btn btn--primary btn--sm" href="/account">Sign in</a>';
     } else {
@@ -128,6 +134,27 @@
   }
   function initials(n) {
     return (n || 'PG').split(/\s+/).slice(0, 2).map(function (w) { return w[0]; }).join('').toUpperCase();
+  }
+
+  /* "2/3 searches" while some remain, "Upgrade" once they are gone.
+     Renders nothing at all for a paid account, a signed-out visitor, or before
+     the server has answered — an entitlement chip drawn on a guess is a chip
+     that flickers the wrong number on every page load. */
+  function freeSearchChipHTML() {
+    /* isMeteredAccount, not isFree: the chip counts an ACCOUNT's allowance, and
+       a signed-out visitor has no account to count. They see the Sign in
+       button instead, which is the more useful thing to show them. */
+    if (!SM.access || !SM.access.isMeteredAccount()) return '';
+    var a = SM.access.get();
+    if (!a || a.dailySearchesRemaining == null) return '';
+
+    if (a.dailySearchesRemaining > 0) {
+      return '<a class="pill" href="/plans" title="Free searches reset each day">' +
+        icon('search') + a.dailySearchesRemaining + '/' + a.dailySearchLimit + ' searches</a>';
+    }
+    return '<a class="pill pill--warn" href="/plans" ' +
+      'title="Daily free searches used. Upgrade to keep searching.">' +
+      icon('lock') + 'Upgrade</a>';
   }
 
   /* ----------------------------------------------------------------- router */
@@ -2925,6 +2952,30 @@
 
     state.devView = { shown: 60, q: '' };
     paintDevSection(row);
+
+    /* The member list is not in the public bundle any more — it is the paid
+       answer. Fetch it, and the server decides how much of it comes back:
+       everything for a subscriber, the first 5 or 10 for a free account, all
+       of a group of five or fewer for anyone.
+
+       The withheld names are never sent, so there is nothing here to unhide.
+       `lockedCount` is a number, which is all the lock card needs. */
+    if (SM.access) {
+      SM.access.groupMembers(g.groupId).then(function (paid) {
+        if (!paid) return;
+        /* The sheet may have been closed, or another group opened, while this
+           was in flight. Painting into it then would put one group's devices
+           under another group's heading. */
+        if (!state.sheet || state.sheet.id !== g.groupId) return;
+
+        row.devices = paid.members.map(function (m) {
+          return db.modelById[m.id] || { id: m.id, fullName: m.name, brandId: null };
+        });
+        row.locked = paid.locked;
+        row.lockedCount = paid.lockedCount;
+        paintDevSection(row);
+      });
+    }
   }
 
   /* A copy button with nothing to copy is a button that lies. Part code used to
@@ -2955,10 +3006,25 @@
 
     var body;
     if (withheld) {
-      body = C.paywall({
-        title: g.compatibleCount + ' compatible devices',
-        text: 'This group covers ' + g.compatibleCount + ' devices. Sign in to see which.'
-      });
+      /* The list has not arrived. Three different reasons, three different
+         sentences — "Sign in to see which" was shown for all of them, which is
+         wrong advice for a subscriber whose fetch simply had not landed yet
+         and worse advice for one whose request failed. */
+      var signedIn = S.get().signedIn;
+      var paid = SM.access && SM.access.isPaid();
+
+      body = paid
+        ? C.state({
+            icon: 'refresh',
+            title: 'Loading the ' + g.compatibleCount + ' devices in this group',
+            text: 'If this stays here, reload the page.'
+          })
+        : C.paywall({
+            title: g.compatibleCount + ' compatible devices',
+            text: signedIn
+              ? 'This group covers ' + g.compatibleCount + ' devices. A plan shows every one of them.'
+              : 'This group covers ' + g.compatibleCount + ' devices. Sign in to see which.'
+          });
     } else if (list.length) {
       body = '<div class="devlist">' + C.deviceRows(shown, { masterId: master.id }) + '</div>';
     } else if (q) {
@@ -2975,20 +3041,38 @@
       });
     }
 
+    /* Devices the server did not send, because this account may not see them.
+       A count, never a list — see api/_services/entitlement-service.js. */
+    var lockedCount = Number(row.lockedCount) || 0;
+
     host.innerHTML =
       '<div class="complist__head">' +
       '<span class="t-lab">Compatible devices</span>' +
       '<span class="pill pill--brand">' + g.compatibleCount + ' in this group</span>' +
-      (!withheld && g.compatibleCount > 24 ? '<label class="field grow" style="min-width:180px">' + icon('search') +
-        '<input class="input" id="devq" placeholder="Find inside this group…" value="' + esc(v.q) + '" aria-label="Search compatible devices" /></label>' : '') +
+      /* No in-group search while part of the group is withheld: a box that
+         searches five of thirty devices looks broken rather than limited. */
+      (!withheld && !lockedCount && g.compatibleCount > 24
+        ? '<label class="field grow" style="min-width:180px">' + icon('search') +
+          '<input class="input" id="devq" placeholder="Find inside this group…" value="' + esc(v.q) + '" aria-label="Search compatible devices" /></label>'
+        : '') +
       '</div>' +
       body +
-      /* Paging, not a paywall. The whole list is here — this only keeps a
-         268-device group from laying out all at once on a counter phone. */
+      /* Paging, not a paywall. Everything the server sent is here — this only
+         keeps a 268-device group from laying out all at once on a phone. */
       (remaining > 0
         ? '<button class="expandbtn" style="margin-top:10px" data-act="more-devs">' + icon('chevronDown') +
           'Show ' + Math.min(60, remaining) + ' more <span class="muted">(' + remaining + ' left)</span></button>'
-        : (list.length > 12 ? '<p class="t-xs muted" style="margin-top:10px">End of list — ' + list.length + ' devices shown.</p>' : ''));
+        : (list.length > 12 && !lockedCount ? '<p class="t-xs muted" style="margin-top:10px">End of list — ' + list.length + ' devices shown.</p>' : '')) +
+      /* The locked remainder. Rendered from a NUMBER: the names behind it were
+         never sent to this browser, so there is nothing to reveal by editing
+         the DOM, reading a variable or opening the network tab. */
+      (lockedCount > 0
+        ? C.paywall({
+            title: lockedCount + ' more ' + (lockedCount === 1 ? 'device' : 'devices') + ' in this group',
+            text: 'You are seeing ' + shown.length + ' of ' + g.compatibleCount + '. ' +
+                  'A plan shows every device that takes this part, in every group.'
+          })
+        : '');
   }
 
   /* ==========================================================================
@@ -3096,11 +3180,115 @@
     });
   }
 
-  function pickModel(id) {
+  /* ------------------------------------------------------- the metered search
+
+     THE ONE PLACE A FREE SEARCH IS SPENT.
+
+     pickModel is called when a search is actually RUN — a suggestion clicked,
+     enter pressed on a real result, a recent search reopened, "find parts for
+     master model". Typing does not reach here: onQuery fetches suggestions and
+     never calls this, so "samsung galaxy m21" costs one credit rather than
+     eighteen, and a user who types and gives up spends nothing.
+
+     The server counts the credit against the uid. This function's refusal is
+     the courteous half — the POST is what actually meters, and a browser that
+     skipped it would find the next one refused anyway. */
+  /**
+   * THE ONLY WAY A MODEL SEARCH RUNS.
+   *
+   * Every path that puts a model into the finder comes through here — a
+   * suggestion clicked, enter pressed, a recent search reopened, "Find parts
+   * for master model" from a group sheet, "find with category" from a device
+   * page. Two of those used to set state.finder.modelId directly and navigate,
+   * which was a free unlimited search for anyone who found the button.
+   *
+   * @param {string} id
+   * @param {{catId?: string, fromSheet?: boolean}} [opts]
+   */
+  function pickModel(id, opts) {
+    opts = opts || {};
+    var m = db.modelById[id];
+    if (!m) return;
+
+    var acc = SM.access;
+    /* Paid: straight through, no round trip. The server agrees independently,
+       so this is a saved request rather than a decision. */
+    if (acc && acc.isPaid()) return runPickModel(id, opts);
+
+    /* The access module has not loaded or has not answered. Ask the server
+       anyway — consumeSearch is the thing that decides, and it fails closed. */
+    if (!acc) return denySearch({ needsSignIn: false });
+
+    acc.consumeSearch().then(function (r) {
+      if (r.allowed) { runPickModel(id, opts); renderShellBits(); return; }
+      denySearch(r);
+    });
+  }
+
+  /* One refusal, one decision tree, used by every restricted action.
+
+       not signed in            -> the existing Sign In page
+       signed in, out of credit -> the existing Plans page
+
+     The search is NOT run in either case: nothing sets state.finder.modelId,
+     so the centre column keeps showing whatever it showed before. */
+  /**
+   * The shared "you cannot do this yet" branch, for every restricted action
+   * that is NOT the metered search — the group filter, a locked device.
+   *
+   *   not signed in -> the existing Sign In page
+   *   signed in     -> the existing Plans page
+   *
+   * Signed-in state comes from the session, so a free account that IS signed
+   * in goes to Plans and never to Sign In. Sending an authenticated user to a
+   * login page they are already past is the specific wrong turn this exists to
+   * avoid.
+   */
+  function gatedUpgrade(message) {
+    var signedIn = S.get().signedIn;
+    toast(message, 'lock');
+    if (signedIn) { go('/plans'); return; }
+    state.afterSignIn = '/finder';
+    authMode = 'signin';
+    go('/account');
+  }
+
+  function denySearch(r) {
+    closeSuggest();
+    renderShellBits();
+
+    if (r && r.needsSignIn) {
+      /* Come back to the Finder once they are in, so signing in finishes the
+         thing they were trying to do rather than stranding them on Account. */
+      state.afterSignIn = '/finder';
+      authMode = 'signin';
+      toast('Sign in to search', 'lock');
+      go('/account');
+      return;
+    }
+    toast('Daily free searches used', 'lock');
+    go('/plans');
+  }
+
+  /* Dismisses the sheet without navigating. Both "find parts" actions did this
+     inline; they now share it, because a refused search must still close the
+     sheet it was launched from rather than leaving it over the plans page. */
+  function closeSheetChrome() {
+    state.sheet = null;
+    var overlay = document.getElementById('overlay');
+    if (overlay) overlay.innerHTML = '';
+    document.body.style.overflow = '';
+  }
+
+  function runPickModel(id, opts) {
+    opts = opts || {};
     var m = db.modelById[id];
     if (!m) return;
     state.finder.modelId = id;
-    state.finder.catId = null;
+    /* A category carried in from "find with category" on the device page;
+       null for an ordinary search, which is the old behaviour. Set AFTER the
+       reset below it used to sit above, or the reset wiped it. */
+    state.finder.catId = opts.catId || null;
     state.finder.matchShown = 6;
     state.finder.avail = null;
     state.finder.query = m.fullName;
@@ -3281,20 +3469,18 @@
         break;
       }
       case 'open-model': go('/model/' + id); break;
+      /* Both of these used to set state.finder.modelId and navigate, which ran
+         a model search without going anywhere near the daily counter — an
+         unlimited free search for anyone who found the button. They go through
+         pickModel now, like every other search. */
       case 'find-parts':
-        state.sheet = null;
-        document.getElementById('overlay').innerHTML = '';
-        document.body.style.overflow = '';
-        state.finder.modelId = id; state.finder.catId = null;
-        state.finder.query = db.modelById[id].fullName;
-        go('/finder');
+        closeSheetChrome();
+        pickModel(id);
         break;
       case 'find-with-cat': {
         var mid = state.sheet && state.sheet.id;
-        state.sheet = null; document.getElementById('overlay').innerHTML = ''; document.body.style.overflow = '';
-        state.finder.modelId = mid; state.finder.catId = id;
-        state.finder.query = db.modelById[mid].fullName;
-        go('/finder');
+        closeSheetChrome();
+        pickModel(mid, { catId: id });
         break;
       }
       case 'more-devs':
@@ -3356,7 +3542,11 @@
         break;
 
       /* plans + account */
-      case 'go-plans': go('/plans'); break;
+      /* Every paywall card, including the locked remainder of a group, lands
+         here. Routed through the shared branch so an authenticated free user
+         reaches Plans and an anonymous one reaches Sign In — the card looks
+         the same either way, which is why the decision cannot live in it. */
+      case 'go-plans': gatedUpgrade('A plan unlocks the full list'); break;
       case 'subscribe':
         /* a plan belongs to a signed-in identity, so sign in first */
         if (!S.canSubscribe()) {
@@ -3407,6 +3597,12 @@
             }
             return;
           }
+          /* Re-ask the server what this account may do now. The subscription
+             was verified server side a moment ago, so this comes back `paid`
+             and every restriction lifts without a reload — which is the whole
+             point of paying at the counter with a customer waiting. */
+          if (SM.access) SM.access.refresh().then(renderShellBits);
+
           renderShellBits();
           toast(live ? 'Payment verified — plan active' : 'Plan active — no payment was taken');
           /* the hash may already be #/account, which would not re-render */
@@ -3584,6 +3780,10 @@
         S.signOut().then(function () {
           authMode = 'signin';           /* land back on Sign in, not the form */
           state.pendingIdentity = null;
+          /* Entitlement follows the ACCOUNT. Dropping it here is what stops
+             the next person to sign in on this device inheriting the last
+             one's tier or their spent searches. */
+          if (SM.access) { SM.access.reset(); SM.access.refresh().then(renderShellBits); }
           renderShellBits(); renderAccount(document.getElementById('page')); toast('Signed out');
         });
         break;
@@ -3643,6 +3843,17 @@
     /* two filter inputs exist (mobile toolbar + desktop centre toolbar); only
        one is ever visible, and both drive the same filter state */
     if (el.id === 'gq' || el.id === 'gqd') {
+      /* Group filtering is a paid feature. Blocked on the first keystroke —
+         the value is wiped so nothing is left in the box, and the plans page
+         opens. Blocking the FOCUS instead would be worse on a phone, where the
+         keyboard opens and the page navigates out from under it. */
+      if (SM.access && SM.access.isFree()) {
+        el.value = '';
+        el.blur();
+        state.finder.filters.q = '';
+        gatedUpgrade('Group search is part of a plan');
+        return;
+      }
       clearTimeout(gqTimer);
       gqTimer = setTimeout(function () {
         state.finder.filters.q = el.value;
@@ -3920,6 +4131,11 @@
         return;
       }
 
+      /* A different account may have been signed in on this device a moment
+         ago. Drop what we knew and ask again, so nobody inherits the previous
+         person's tier or their spent searches. */
+      if (SM.access) { SM.access.reset(); SM.access.refresh().then(renderShellBits); }
+
       toast(res && res.isNew ? 'Account created — welcome' : 'Signed in');
       if (state.afterSignIn) { var go2 = state.afterSignIn; state.afterSignIn = null; go(go2); }
     }, function (err) {
@@ -4153,6 +4369,17 @@
        fire-and-forget — see src/data/analytics.js — and the guard is here
        rather than inside it so a build without the file simply has none. */
     if (SM.analytics) SM.analytics.start();
+
+    /* Ask the server what this visitor may do. Repaint when the answer lands
+       rather than blocking on it: the catalogue is browsable regardless, and a
+       page held back for an entitlement check is a page that feels slow to
+       everyone including subscribers. */
+    if (SM.access) {
+      SM.access.refresh().then(function () {
+        renderShellBits();
+        if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+      });
+    }
   }).catch(function (err) {
     console.error('[dataset]', (err && err.stack) || err);
     global.__bootError = (err && err.stack) || String(err);

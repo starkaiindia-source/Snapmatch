@@ -136,8 +136,23 @@ http.createServer((req, res) => {
   const adminApi = /^\/api\/admin\/([A-Za-z0-9_-]+)\/?$/.exec(p);
   if (adminApi) { runApi('admin', req, res, { section: adminApi[1] }); return; }
 
+  /* The same rewrites vercel.json performs, kept in step by hand because there
+     is no way to execute that file locally. Several endpoints share one
+     function to stay inside the platform's 12-function limit, and a dev server
+     that called the section files directly would not exercise the dispatchers
+     at all — the shape that broke in production twice already. */
+  const DISPATCHED = {
+    'firebase-config': 'public', plans: 'public', health: 'public',
+    access: 'access', 'device-parts': 'access'
+  };
+
   const api = /^\/api\/([A-Za-z0-9_-]+)\/?$/.exec(p);
-  if (api) { runApi(api[1], req, res); return; }
+  if (api) {
+    const target = DISPATCHED[api[1]];
+    if (target) runApi(target, req, res, { section: api[1] });
+    else runApi(api[1], req, res);
+    return;
+  }
 
   if (p === '/') p = '/index.html';
   let file = path.join(ROOT, p);

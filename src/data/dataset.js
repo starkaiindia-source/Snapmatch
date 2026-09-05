@@ -206,10 +206,24 @@
       /* Members ship as indexes into `models` — the same 12,239 fitments cost
          about 60 KB that way and about 330 KB as slugs. Both arrays came out
          of one build, so an index always names the row it was written for. */
-      var memberIds = (g.mem || []).map(function (i) {
-        var m = models[i];
-        return m ? m.id : null;
-      }).filter(Boolean);
+      /* NULL, not [], when the bundle carries no member list.
+
+         The two mean different things and hydrate() in src/data/api.js reads
+         the difference: null is "withheld, ask the server", [] is "this group
+         genuinely has no members". An empty array is truthy, so defaulting to
+         one made `locked: !g.compatibleDeviceIds` false for every group and
+         painted "No devices recorded in this group" over a list that was
+         simply not in the file.
+
+         `mem` is absent from every group now — it is the paid answer and
+         reaches a browser only through /api/device-parts, sliced to the
+         caller's tier. See scripts/build-runtime-bundle.js. */
+      var memberIds = g.mem
+        ? g.mem.map(function (i) {
+            var m = models[i];
+            return m ? m.id : null;
+          }).filter(Boolean)
+        : null;
 
       /* Field names match what the UI already reads. The export calls these
          memberIds and groupNo; renaming here rather than across the app keeps
@@ -234,10 +248,12 @@
         compatibleDeviceIds: memberIds,
         compatibleCount: g.cnt,
         createdOn: null,
-        memberNames: memberIds.map(function (id) {
-          var m = modelById[id];
-          return m ? m.fullName : id;
-        })
+        memberNames: memberIds
+          ? memberIds.map(function (id) {
+              var m = modelById[id];
+              return m ? m.fullName : id;
+            })
+          : null
       };
     });
 
