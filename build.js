@@ -28,6 +28,7 @@ const JS = [
   'src/ui/product-art.js',
   'src/data/category-assets.js',
   'src/data/brand-assets.js',
+  'src/data/pwa.js',
   'src/ui/components.js',
   'src/app.js'
 ];

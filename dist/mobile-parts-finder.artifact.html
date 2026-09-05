@@ -2437,6 +2437,21 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    as real values, and a column of hyphens reads as a gap to fill. */
 .c-none{ color:var(--ink-3); }
 
+/* ---- share fallback ------------------------------------------------------
+   Only ever built where the browser has no share sheet of its own, so this is
+   a desktop shape: four plain links out, sized for a pointer. */
+.sharegrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+@media (min-width:420px){ .sharegrid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
+.sharetile{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px;
+  padding:14px 8px; border-radius:var(--r-sm); text-align:center;
+  background:var(--surface-2); border:1px solid var(--line); color:var(--ink);
+  font-size:12px; font-weight:700;
+  transition:background .14s, border-color .14s, transform .14s;
+}
+.sharetile:hover{ background:var(--teal-050); border-color:var(--teal-100); color:var(--teal-700); transform:translateY(-1px); }
+.sharetile svg{ width:19px; height:19px; }
+
 </style>
 <div id="app" class="app"></div>
 <script>
@@ -6306,6 +6321,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     bolt: '<path d="M13.5 2.5 5 13.2h5.4L9.8 21.5 19 10.6h-5.5l0-8.1Z"/>',
     sparkle: '<path d="M12 3.2 13.9 9 20 10.9 13.9 12.8 12 18.6 10.1 12.8 4 10.9 10.1 9 12 3.2Z"/><path d="M18.6 3v3.2M17 4.6h3.2"/>',
     copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 5.5h-9a2.5 2.5 0 0 0-2.5 2.5v9"/>',
+    /* install: a tray taking a downward arrow — the shape every browser uses
+       for "put this on your device", so it needs no label to be understood */
+    install: '<path d="M12 3.5v11"/><path d="m7.8 10.4 4.2 4.2 4.2-4.2"/><path d="M4.5 16.5v2.2a1.8 1.8 0 0 0 1.8 1.8h11.4a1.8 1.8 0 0 0 1.8-1.8v-2.2"/>',
+    share: '<path d="M4 12v7a1.8 1.8 0 0 0 1.8 1.8h12.4A1.8 1.8 0 0 0 20 19v-7"/><path d="M12 15.5V3.4"/><path d="m7.9 7.5 4.1-4.1 4.1 4.1"/>',
+    mail: '<rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/>',
     moon: '<path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.5 8.5 0 1 0 20 14.2Z"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.2M12 7.9v.1"/>',
@@ -7245,6 +7265,204 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 })(window);
 
 
+/* === src/data/pwa.js === */
+/* ============================================================================
+   Mobile Parts Finder · pwa.js — installing the app, and sharing it
+   ----------------------------------------------------------------------------
+   ONE PLACE that knows whether this browser can install the site, whether it
+   already has, and how to share a link. The header, the sign-in flow and the
+   sheets all read it; none of them touch a browser API themselves.
+
+   THE INSTALL PROMPT IS NOT OURS TO SUMMON
+
+     Chrome fires `beforeinstallprompt` when IT decides the site qualifies, and
+     the deferred event can be used exactly once, only from a real user
+     gesture. So: catch it, keep it, and show the button only while it is
+     actually in hand. Every other browser — Firefox, and every iOS browser,
+     which are all Safari underneath — never fires it, and there is no way to
+     ask. Those get instructions instead of a button that cannot work.
+
+     Nothing here fakes a prompt, and nothing pretends to be browser chrome.
+     A dialog that imitates the system one is how a site teaches people to
+     trust dialogs that imitate the system one.
+
+   ALREADY INSTALLED
+
+     display-mode: standalone (and navigator.standalone, which is how iOS says
+     the same thing) means the app IS the window this is running in. Offering
+     to install it there is offering something already had.
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  var deferred = null;          /* the BeforeInstallPromptEvent, while it lasts */
+  var installed = false;        /* appinstalled has fired this session */
+  var listeners = [];
+
+  var SHARE_URL = 'https://www.mobilepartsfinder.com/';
+  var SHARE_TITLE = 'Mobile Parts Finder';
+  var SHARE_TEXT = 'Find which spare parts fit any phone — compatibility groups ' +
+                   'for 4,900+ mobile models, with the master model and part code for each.';
+
+  function emit() {
+    listeners.forEach(function (fn) {
+      try { fn(); } catch (e) { /* a listener must not break the next one */ }
+    });
+  }
+
+  /* Running as an installed app rather than in a browser tab. */
+  function standalone() {
+    try {
+      if (global.matchMedia && global.matchMedia('(display-mode: standalone)').matches) return true;
+      if (global.matchMedia && global.matchMedia('(display-mode: window-controls-overlay)').matches) return true;
+    } catch (e) { /* older browsers */ }
+    return !!(global.navigator && global.navigator.standalone);   /* iOS */
+  }
+
+  /* iOS has no install prompt at all — Safari's own Share ▸ Add to Home Screen
+     is the only route, and every browser on iOS is Safari underneath, so
+     "Chrome on iPhone" cannot install either. Worth telling people rather than
+     leaving them with a button that does nothing. */
+  function isIOS() {
+    var ua = (global.navigator && global.navigator.userAgent) || '';
+    if (/iPad|iPhone|iPod/.test(ua)) return true;
+    /* iPadOS 13+ reports itself as a Mac; a touch-capable "Mac" is an iPad. */
+    return /Macintosh/.test(ua) && (global.navigator.maxTouchPoints || 0) > 1;
+  }
+
+  SM.pwa = {
+    /** A real, unused install prompt is in hand. */
+    canInstall: function () { return !!deferred && !installed && !standalone(); },
+
+    /** The app is already installed, or we are running inside it. */
+    isInstalled: function () { return installed || standalone(); },
+
+    isStandalone: standalone,
+    isIOS: isIOS,
+
+    /** True where the browser could install but has not offered yet, or never
+        will — the case that needs instructions rather than a button. */
+    needsManualInstall: function () {
+      return !this.isInstalled() && !deferred && isIOS();
+    },
+
+    /**
+     * Fires the browser's own install prompt. MUST be called from a user
+     * gesture — Chrome rejects it otherwise, and the deferred event is then
+     * spent either way, so it is cleared whatever the answer.
+     *
+     * Resolves 'accepted' | 'dismissed' | 'unavailable'.
+     */
+    install: function () {
+      if (!deferred) return Promise.resolve('unavailable');
+      var evt = deferred;
+      deferred = null;                       /* single use, by specification */
+      emit();
+      var done = evt.prompt();
+      return Promise.resolve(done).then(function () {
+        return evt.userChoice;
+      }).then(function (choice) {
+        var outcome = (choice && choice.outcome) || 'dismissed';
+        SM.debug.log('pwa', 'install prompt answered', { outcome: outcome });
+        return outcome;
+      }, function (err) {
+        SM.debug.warn('pwa', 'install prompt failed', { message: err && err.message });
+        return 'unavailable';
+      });
+    },
+
+    /** The phone's own share sheet is available. */
+    canShareNatively: function () {
+      return !!(global.navigator && typeof global.navigator.share === 'function');
+    },
+
+    shareData: function () {
+      return { title: SHARE_TITLE, text: SHARE_TEXT, url: SHARE_URL };
+    },
+
+    /**
+     * Hands the link to the system share sheet.
+     * Resolves 'shared' | 'dismissed' | 'unavailable' — the caller opens its
+     * own fallback for 'unavailable' and does nothing for 'dismissed', since
+     * a share the user backed out of is not an error to report.
+     */
+    share: function () {
+      if (!this.canShareNatively()) return Promise.resolve('unavailable');
+      return global.navigator.share(this.shareData()).then(function () {
+        return 'shared';
+      }, function (err) {
+        /* AbortError is the user closing the sheet — an outcome, not a fault. */
+        if (err && err.name === 'AbortError') return 'dismissed';
+        SM.debug.warn('pwa', 'native share failed', { name: err && err.name });
+        return 'unavailable';
+      });
+    },
+
+    /** Re-render hook for anything that draws an install or share control. */
+    onChange: function (fn) {
+      listeners.push(fn);
+      return function () {
+        var i = listeners.indexOf(fn);
+        if (i > -1) listeners.splice(i, 1);
+      };
+    },
+
+    /**
+     * Registers the service worker and starts listening. Called once at boot.
+     *
+     * The worker is what makes the site installable at all — Chrome will not
+     * offer to install a site with no fetch handler — and it is deliberately
+     * network-first, so it cannot serve a stale build. See sw.js.
+     */
+    init: function () {
+      global.addEventListener('beforeinstallprompt', function (e) {
+        /* Chrome would otherwise show its own mini-infobar; taking the event
+           means the site decides where the offer appears. */
+        e.preventDefault();
+        deferred = e;
+        SM.debug.log('pwa', 'install prompt available');
+        emit();
+      });
+
+      global.addEventListener('appinstalled', function () {
+        installed = true;
+        deferred = null;
+        SM.debug.log('pwa', 'app installed');
+        try { localStorage.setItem('mpf.pwa.installed', '1'); } catch (e) { /* private mode */ }
+        emit();
+      });
+
+      /* Leaving the browser tab for the installed window counts as installed
+         for this session too, so the button does not linger. */
+      try {
+        if (global.matchMedia) {
+          global.matchMedia('(display-mode: standalone)').addEventListener('change', emit);
+        }
+      } catch (e) { /* Safari < 14 has no addEventListener here */ }
+
+      if (!('serviceWorker' in global.navigator)) return;
+      /* file:// and the single-file dist build have no origin to scope to. */
+      if (global.location.protocol !== 'https:' && global.location.hostname !== 'localhost') return;
+
+      global.addEventListener('load', function () {
+        /* updateViaCache:'none' — the browser caches sw.js like any other
+           script, and a cached worker keeps serving its own old shell after a
+           deploy has replaced it. Revalidating the worker script itself is the
+           difference between shipping a fix and shipping it to people who
+           already have the site. */
+        global.navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(function (reg) {
+          SM.debug.log('pwa', 'service worker registered', { scope: reg.scope });
+        }, function (err) {
+          /* Not fatal: the site works, it simply cannot be installed. */
+          SM.debug.warn('pwa', 'service worker registration failed', { message: err && err.message });
+        });
+      });
+    }
+  };
+})(window);
+
+
 /* === src/ui/components.js === */
 /* ============================================================================
    Mobile Parts Finder · components.js
@@ -7726,7 +7944,23 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
     var s = S.get();
     var dark = state.theme === 'dark' || (state.theme === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    var end = '<button class="iconbtn" data-act="open-filters" title="Filters" aria-label="Filter groups">' + icon('sliders') + '</button>' +
+    /* Install and Share sit with the other header icons rather than as new
+       chrome of their own, so the row keeps its height and its spacing.
+
+       Install appears ONLY while the browser has actually offered — a real
+       beforeinstallprompt in hand, or an iPhone, where there is no prompt to
+       have and instructions are the only honest answer. Once installed it
+       stops appearing at all. */
+    var end = '';
+    if (SM.pwa && !SM.pwa.isInstalled() && (SM.pwa.canInstall() || SM.pwa.needsManualInstall())) {
+      end += '<button class="iconbtn" data-act="pwa-install" title="Install app" ' +
+        'aria-label="Install Mobile Parts Finder as an app">' + icon('install') + '</button>';
+    }
+    if (SM.pwa) {
+      end += '<button class="iconbtn" data-act="pwa-share" title="Share" aria-label="Share Mobile Parts Finder">' +
+        icon('share') + '</button>';
+    }
+    end += '<button class="iconbtn" data-act="open-filters" title="Filters" aria-label="Filter groups">' + icon('sliders') + '</button>' +
       '<button class="iconbtn" data-act="theme" title="Switch theme" aria-label="Switch colour theme">' + icon(dark ? 'sun' : 'moon') + '</button>';
     /* Free searches left today. Only for a free account, only once the SERVER
        has said so, and never for a subscriber — a paid user should not be
@@ -10695,6 +10929,75 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         true);
     }
 
+    /* Install. Two shapes: a button where the browser has actually offered,
+       and instructions where it never will. Never a mock of the system
+       dialog — a site that imitates browser chrome teaches people to trust
+       imitations of browser chrome. */
+    if (s.type === 'install') {
+      var canPrompt = SM.pwa && SM.pwa.canInstall();
+      var ios = SM.pwa && SM.pwa.isIOS();
+      var why =
+        '<div class="stack" style="gap:12px">' +
+        '<div class="row" style="gap:12px;align-items:center">' +
+        SM.logoMark(44) +
+        '<div><h3 class="t-h3" style="margin:0">Install Mobile Parts Finder</h3>' +
+        '<p class="t-sub" style="margin-top:4px">Keep it on your home screen for a faster, ' +
+        'app-like way to look parts up at the counter.</p></div></div>' +
+        '<ul class="stack" style="gap:8px;list-style:none;padding:0;margin:0">' +
+        ['Opens full screen, without the browser bar',
+         'One tap from the home screen — no typing the address',
+         'Stays signed in on this device'].map(function (t) {
+          return '<li class="row" style="gap:8px;align-items:flex-start">' +
+            '<span style="color:var(--teal-700);flex:none;margin-top:1px">' + icon('checkCircle') + '</span>' +
+            '<span class="t-sub" style="margin:0">' + esc(t) + '</span></li>';
+        }).join('') +
+        '</ul>' +
+        (canPrompt ? '' :
+          '<div class="notice notice--amber">' + icon('info') + '<span>' +
+          (ios
+            ? 'On iPhone and iPad, tap <b>Share</b> in the browser bar, then ' +
+              '<b>Add to Home Screen</b>. Safari is the only route Apple allows.'
+            : 'Your browser has not offered an install for this site yet. Look for ' +
+              '<b>Install app</b> or <b>Add to Home screen</b> in the browser menu.') +
+          '</span></div>') +
+        '</div>';
+
+      return paintSheet(host, 'Install app', why,
+        '<button class="btn btn--outline" data-act="install-later">Not now</button>' +
+        (canPrompt
+          ? '<button class="btn btn--primary grow" data-act="pwa-install-go">' +
+            icon('install') + 'Install now</button>'
+          : '<button class="btn btn--primary grow" data-act="close-sheet">Got it</button>'));
+    }
+
+    /* Share, for browsers with no share sheet of their own. Reached only when
+       navigator.share is absent or refused — where it exists, the phone's own
+       sheet opens and this is never built. */
+    if (s.type === 'share') {
+      var d = SM.pwa.shareData();
+      var u = encodeURIComponent(d.url);
+      var txt = encodeURIComponent(d.text);
+      var targets = [
+        ['WhatsApp', 'https://wa.me/?text=' + encodeURIComponent(d.text + ' ' + d.url), 'chat'],
+        ['X', 'https://twitter.com/intent/tweet?url=' + u + '&text=' + txt, 'sparkle'],
+        ['Facebook', 'https://www.facebook.com/sharer/sharer.php?u=' + u, 'grid'],
+        ['Email', 'mailto:?subject=' + encodeURIComponent(d.title) + '&body=' + txt + '%0A%0A' + u, 'mail']
+      ];
+      return paintSheet(host, 'Share Mobile Parts Finder',
+        '<div class="stack" style="gap:12px">' +
+        '<p class="t-sub" style="margin:0">' + esc(d.text) + '</p>' +
+        '<div class="field"><input class="input" id="shareUrl" readonly value="' + esc(d.url) + '" ' +
+        'aria-label="Link to Mobile Parts Finder" style="padding-left:12px" /></div>' +
+        '<button class="btn btn--soft btn--block" data-act="share-copy">' + icon('copy') + 'Copy link</button>' +
+        '<div class="sharegrid">' +
+        targets.map(function (t) {
+          return '<a class="sharetile" href="' + t[1] + '" target="_blank" rel="noopener noreferrer">' +
+            icon(t[2]) + '<span>' + esc(t[0]) + '</span></a>';
+        }).join('') +
+        '</div></div>',
+        '<button class="btn btn--outline btn--block" data-act="close-sheet">Close</button>');
+    }
+
     if (s.type === 'editprofile') {
       return paintSheet(host, 'Edit shop profile', editSheetHTML(),
         '<button class="btn btn--outline" data-act="close-sheet">Cancel</button>' +
@@ -11162,9 +11465,57 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  /* ------------------------------------------------------- install prompts */
+  var INSTALL_ASKED = 'mpf.pwa.asked';
+
+  function rememberInstallDismissed() {
+    try { store(INSTALL_ASKED, String(Date.now())); } catch (e) { /* private mode */ }
+  }
+
+  function runInstall() {
+    SM.pwa.install().then(function (outcome) {
+      state.sheet = null; renderSheet();
+      renderShellBits();
+      if (outcome === 'accepted') { toast('Installing Mobile Parts Finder'); return; }
+      /* Dismissed is a decision. Remember it so the next sign-in does not ask
+         again, and say nothing — they just closed a dialog on purpose. */
+      rememberInstallDismissed();
+      if (outcome === 'unavailable') {
+        toast('Use the browser menu → Install app', 'info');
+      }
+    });
+  }
+
+  /* Offered ONCE, after a successful sign-in, and only on a phone.
+     After sign-in because that is the moment someone has shown they intend to
+     come back — offering to install to a passer-by is asking a stranger to
+     move in. Only on a phone because a home-screen icon is what a counter
+     actually uses. Only when the browser has really offered, and never again
+     once asked, installed, or already running installed. */
+  function maybeOfferInstall() {
+    if (!SM.pwa || !SM.pwa.canInstall()) return;
+    if (!isPhone()) return;
+    var asked = null;
+    try { asked = store(INSTALL_ASKED); } catch (e) { asked = null; }
+    if (asked) return;
+    /* Let the sign-in toast and the repaint land first; a dialog that appears
+       in the same frame as the page it interrupts reads as a glitch. */
+    setTimeout(function () {
+      if (!SM.pwa.canInstall() || state.sheet) return;
+      rememberInstallDismissed();          /* asked once, whatever the answer */
+      state.sheet = { type: 'install' };
+      renderSheet();
+    }, 1200);
+  }
+
+  function isPhone() {
+    return (window.matchMedia && window.matchMedia('(max-width: 900px)').matches) ||
+           (window.innerWidth || 0) < 900;
+  }
+
   var authMode = 'signin';
   /* sheets that live in memory rather than in the URL */
-  var LOCAL_SHEETS = ['filters', 'country', 'editprofile'];
+  var LOCAL_SHEETS = ['filters', 'country', 'editprofile', 'install', 'share'];
 
   /* leave the result view and restore the normal Finder home page */
   function exitResult() {
@@ -11244,6 +11595,48 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       case 'add-category':
         toast('Category management is coming soon', 'info');
         break;
+
+      /* ---------------------------------------------------- install / share */
+      /* The header button. Where the browser has offered, prompt straight
+         away — the click IS the gesture Chrome requires, and routing it
+         through a dialog of our own first would spend that gesture and then
+         ask for another. Where it has not, explain instead. */
+      case 'pwa-install':
+        if (SM.pwa && SM.pwa.canInstall()) { runInstall(); }
+        else { state.sheet = { type: 'install' }; renderSheet(); }
+        break;
+      case 'pwa-install-go':
+        runInstall();
+        break;
+      case 'install-later':
+        rememberInstallDismissed();
+        state.sheet = null; renderSheet();
+        break;
+
+      /* The phone's own share sheet where there is one; ours where there is
+         not. share() reports 'dismissed' when the user backs out, which is an
+         outcome rather than a failure and must not open a second dialog. */
+      case 'pwa-share':
+        SM.pwa.share().then(function (r) {
+          if (r === 'unavailable') { state.sheet = { type: 'share' }; renderSheet(); }
+        });
+        break;
+      case 'share-copy': {
+        var link = SM.pwa.shareData().url;
+        var done = function () { toast('Link copied'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(link).then(done, function () {
+            var f = document.getElementById('shareUrl');
+            if (f) { f.select(); }
+            toast('Select the link and copy it', 'alert');
+          });
+        } else {
+          var f2 = document.getElementById('shareUrl');
+          if (f2) { f2.select(); document.execCommand && document.execCommand('copy'); }
+          done();
+        }
+        break;
+      }
       /* Carousel arrows. Scrolls by very nearly a viewport rather than a fixed
          number of cards, so the step matches whatever fits at this width and
          one card is left on screen as an anchor. */
@@ -11611,6 +12004,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
            they stay where they are: navigation is theirs. */
         state.sheet = null; renderSheet();
         if (state.afterSignIn) { var dest = state.afterSignIn; state.afterSignIn = null; go(dest); }
+        /* A new account reaches the install offer here rather than at sign-in,
+           because the welcome sheet was holding the screen at that moment and
+           two dialogs in a row is one too many. */
+        maybeOfferInstall();
         break;
 
       case 'toggle-address':
@@ -12024,6 +12421,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
       toast(res && res.isNew ? 'Account created — welcome' : 'Signed in');
       if (state.afterSignIn) { var go2 = state.afterSignIn; state.afterSignIn = null; go(go2); }
+      /* Signing in is the moment someone has shown they mean to come back —
+         the one point where offering a home-screen icon is a help rather than
+         an interruption. Asked once per device, and never here for a new
+         account, whose welcome sheet is already on screen. */
+      if (!(res && res.isNew)) maybeOfferInstall();
     }, function (err) {
       signupInFlight = false;
       SM.debug.warn('auth', 'could not complete sign-in',
@@ -12154,6 +12556,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      never appear on an iPhone while working everywhere else. An empty passive
      listener is the whole fix and costs nothing per touch. */
   try { document.addEventListener('touchstart', function () {}, { passive: true }); } catch (e) { /* no touch */ }
+
+  /* Registers the service worker and starts watching for the browser's install
+     offer. The header redraws whenever that changes, so the button appears the
+     moment Chrome decides the site qualifies and disappears once installed —
+     without anything having to poll for it. */
+  if (SM.pwa) {
+    SM.pwa.init();
+    SM.pwa.onChange(function () {
+      if (document.getElementById('topEnd')) renderShellBits();
+    });
+  }
 
   SM.art.mount();
   /* Point every category at its official logo. One call, before the first

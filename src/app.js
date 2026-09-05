@@ -123,7 +123,23 @@
 
     var s = S.get();
     var dark = state.theme === 'dark' || (state.theme === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    var end = '<button class="iconbtn" data-act="open-filters" title="Filters" aria-label="Filter groups">' + icon('sliders') + '</button>' +
+    /* Install and Share sit with the other header icons rather than as new
+       chrome of their own, so the row keeps its height and its spacing.
+
+       Install appears ONLY while the browser has actually offered — a real
+       beforeinstallprompt in hand, or an iPhone, where there is no prompt to
+       have and instructions are the only honest answer. Once installed it
+       stops appearing at all. */
+    var end = '';
+    if (SM.pwa && !SM.pwa.isInstalled() && (SM.pwa.canInstall() || SM.pwa.needsManualInstall())) {
+      end += '<button class="iconbtn" data-act="pwa-install" title="Install app" ' +
+        'aria-label="Install Mobile Parts Finder as an app">' + icon('install') + '</button>';
+    }
+    if (SM.pwa) {
+      end += '<button class="iconbtn" data-act="pwa-share" title="Share" aria-label="Share Mobile Parts Finder">' +
+        icon('share') + '</button>';
+    }
+    end += '<button class="iconbtn" data-act="open-filters" title="Filters" aria-label="Filter groups">' + icon('sliders') + '</button>' +
       '<button class="iconbtn" data-act="theme" title="Switch theme" aria-label="Switch colour theme">' + icon(dark ? 'sun' : 'moon') + '</button>';
     /* Free searches left today. Only for a free account, only once the SERVER
        has said so, and never for a subscriber — a paid user should not be
@@ -3092,6 +3108,75 @@
         true);
     }
 
+    /* Install. Two shapes: a button where the browser has actually offered,
+       and instructions where it never will. Never a mock of the system
+       dialog — a site that imitates browser chrome teaches people to trust
+       imitations of browser chrome. */
+    if (s.type === 'install') {
+      var canPrompt = SM.pwa && SM.pwa.canInstall();
+      var ios = SM.pwa && SM.pwa.isIOS();
+      var why =
+        '<div class="stack" style="gap:12px">' +
+        '<div class="row" style="gap:12px;align-items:center">' +
+        SM.logoMark(44) +
+        '<div><h3 class="t-h3" style="margin:0">Install Mobile Parts Finder</h3>' +
+        '<p class="t-sub" style="margin-top:4px">Keep it on your home screen for a faster, ' +
+        'app-like way to look parts up at the counter.</p></div></div>' +
+        '<ul class="stack" style="gap:8px;list-style:none;padding:0;margin:0">' +
+        ['Opens full screen, without the browser bar',
+         'One tap from the home screen — no typing the address',
+         'Stays signed in on this device'].map(function (t) {
+          return '<li class="row" style="gap:8px;align-items:flex-start">' +
+            '<span style="color:var(--teal-700);flex:none;margin-top:1px">' + icon('checkCircle') + '</span>' +
+            '<span class="t-sub" style="margin:0">' + esc(t) + '</span></li>';
+        }).join('') +
+        '</ul>' +
+        (canPrompt ? '' :
+          '<div class="notice notice--amber">' + icon('info') + '<span>' +
+          (ios
+            ? 'On iPhone and iPad, tap <b>Share</b> in the browser bar, then ' +
+              '<b>Add to Home Screen</b>. Safari is the only route Apple allows.'
+            : 'Your browser has not offered an install for this site yet. Look for ' +
+              '<b>Install app</b> or <b>Add to Home screen</b> in the browser menu.') +
+          '</span></div>') +
+        '</div>';
+
+      return paintSheet(host, 'Install app', why,
+        '<button class="btn btn--outline" data-act="install-later">Not now</button>' +
+        (canPrompt
+          ? '<button class="btn btn--primary grow" data-act="pwa-install-go">' +
+            icon('install') + 'Install now</button>'
+          : '<button class="btn btn--primary grow" data-act="close-sheet">Got it</button>'));
+    }
+
+    /* Share, for browsers with no share sheet of their own. Reached only when
+       navigator.share is absent or refused — where it exists, the phone's own
+       sheet opens and this is never built. */
+    if (s.type === 'share') {
+      var d = SM.pwa.shareData();
+      var u = encodeURIComponent(d.url);
+      var txt = encodeURIComponent(d.text);
+      var targets = [
+        ['WhatsApp', 'https://wa.me/?text=' + encodeURIComponent(d.text + ' ' + d.url), 'chat'],
+        ['X', 'https://twitter.com/intent/tweet?url=' + u + '&text=' + txt, 'sparkle'],
+        ['Facebook', 'https://www.facebook.com/sharer/sharer.php?u=' + u, 'grid'],
+        ['Email', 'mailto:?subject=' + encodeURIComponent(d.title) + '&body=' + txt + '%0A%0A' + u, 'mail']
+      ];
+      return paintSheet(host, 'Share Mobile Parts Finder',
+        '<div class="stack" style="gap:12px">' +
+        '<p class="t-sub" style="margin:0">' + esc(d.text) + '</p>' +
+        '<div class="field"><input class="input" id="shareUrl" readonly value="' + esc(d.url) + '" ' +
+        'aria-label="Link to Mobile Parts Finder" style="padding-left:12px" /></div>' +
+        '<button class="btn btn--soft btn--block" data-act="share-copy">' + icon('copy') + 'Copy link</button>' +
+        '<div class="sharegrid">' +
+        targets.map(function (t) {
+          return '<a class="sharetile" href="' + t[1] + '" target="_blank" rel="noopener noreferrer">' +
+            icon(t[2]) + '<span>' + esc(t[0]) + '</span></a>';
+        }).join('') +
+        '</div></div>',
+        '<button class="btn btn--outline btn--block" data-act="close-sheet">Close</button>');
+    }
+
     if (s.type === 'editprofile') {
       return paintSheet(host, 'Edit shop profile', editSheetHTML(),
         '<button class="btn btn--outline" data-act="close-sheet">Cancel</button>' +
@@ -3559,9 +3644,57 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  /* ------------------------------------------------------- install prompts */
+  var INSTALL_ASKED = 'mpf.pwa.asked';
+
+  function rememberInstallDismissed() {
+    try { store(INSTALL_ASKED, String(Date.now())); } catch (e) { /* private mode */ }
+  }
+
+  function runInstall() {
+    SM.pwa.install().then(function (outcome) {
+      state.sheet = null; renderSheet();
+      renderShellBits();
+      if (outcome === 'accepted') { toast('Installing Mobile Parts Finder'); return; }
+      /* Dismissed is a decision. Remember it so the next sign-in does not ask
+         again, and say nothing — they just closed a dialog on purpose. */
+      rememberInstallDismissed();
+      if (outcome === 'unavailable') {
+        toast('Use the browser menu → Install app', 'info');
+      }
+    });
+  }
+
+  /* Offered ONCE, after a successful sign-in, and only on a phone.
+     After sign-in because that is the moment someone has shown they intend to
+     come back — offering to install to a passer-by is asking a stranger to
+     move in. Only on a phone because a home-screen icon is what a counter
+     actually uses. Only when the browser has really offered, and never again
+     once asked, installed, or already running installed. */
+  function maybeOfferInstall() {
+    if (!SM.pwa || !SM.pwa.canInstall()) return;
+    if (!isPhone()) return;
+    var asked = null;
+    try { asked = store(INSTALL_ASKED); } catch (e) { asked = null; }
+    if (asked) return;
+    /* Let the sign-in toast and the repaint land first; a dialog that appears
+       in the same frame as the page it interrupts reads as a glitch. */
+    setTimeout(function () {
+      if (!SM.pwa.canInstall() || state.sheet) return;
+      rememberInstallDismissed();          /* asked once, whatever the answer */
+      state.sheet = { type: 'install' };
+      renderSheet();
+    }, 1200);
+  }
+
+  function isPhone() {
+    return (window.matchMedia && window.matchMedia('(max-width: 900px)').matches) ||
+           (window.innerWidth || 0) < 900;
+  }
+
   var authMode = 'signin';
   /* sheets that live in memory rather than in the URL */
-  var LOCAL_SHEETS = ['filters', 'country', 'editprofile'];
+  var LOCAL_SHEETS = ['filters', 'country', 'editprofile', 'install', 'share'];
 
   /* leave the result view and restore the normal Finder home page */
   function exitResult() {
@@ -3641,6 +3774,48 @@
       case 'add-category':
         toast('Category management is coming soon', 'info');
         break;
+
+      /* ---------------------------------------------------- install / share */
+      /* The header button. Where the browser has offered, prompt straight
+         away — the click IS the gesture Chrome requires, and routing it
+         through a dialog of our own first would spend that gesture and then
+         ask for another. Where it has not, explain instead. */
+      case 'pwa-install':
+        if (SM.pwa && SM.pwa.canInstall()) { runInstall(); }
+        else { state.sheet = { type: 'install' }; renderSheet(); }
+        break;
+      case 'pwa-install-go':
+        runInstall();
+        break;
+      case 'install-later':
+        rememberInstallDismissed();
+        state.sheet = null; renderSheet();
+        break;
+
+      /* The phone's own share sheet where there is one; ours where there is
+         not. share() reports 'dismissed' when the user backs out, which is an
+         outcome rather than a failure and must not open a second dialog. */
+      case 'pwa-share':
+        SM.pwa.share().then(function (r) {
+          if (r === 'unavailable') { state.sheet = { type: 'share' }; renderSheet(); }
+        });
+        break;
+      case 'share-copy': {
+        var link = SM.pwa.shareData().url;
+        var done = function () { toast('Link copied'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(link).then(done, function () {
+            var f = document.getElementById('shareUrl');
+            if (f) { f.select(); }
+            toast('Select the link and copy it', 'alert');
+          });
+        } else {
+          var f2 = document.getElementById('shareUrl');
+          if (f2) { f2.select(); document.execCommand && document.execCommand('copy'); }
+          done();
+        }
+        break;
+      }
       /* Carousel arrows. Scrolls by very nearly a viewport rather than a fixed
          number of cards, so the step matches whatever fits at this width and
          one card is left on screen as an anchor. */
@@ -4008,6 +4183,10 @@
            they stay where they are: navigation is theirs. */
         state.sheet = null; renderSheet();
         if (state.afterSignIn) { var dest = state.afterSignIn; state.afterSignIn = null; go(dest); }
+        /* A new account reaches the install offer here rather than at sign-in,
+           because the welcome sheet was holding the screen at that moment and
+           two dialogs in a row is one too many. */
+        maybeOfferInstall();
         break;
 
       case 'toggle-address':
@@ -4421,6 +4600,11 @@
 
       toast(res && res.isNew ? 'Account created — welcome' : 'Signed in');
       if (state.afterSignIn) { var go2 = state.afterSignIn; state.afterSignIn = null; go(go2); }
+      /* Signing in is the moment someone has shown they mean to come back —
+         the one point where offering a home-screen icon is a help rather than
+         an interruption. Asked once per device, and never here for a new
+         account, whose welcome sheet is already on screen. */
+      if (!(res && res.isNew)) maybeOfferInstall();
     }, function (err) {
       signupInFlight = false;
       SM.debug.warn('auth', 'could not complete sign-in',
@@ -4551,6 +4735,17 @@
      never appear on an iPhone while working everywhere else. An empty passive
      listener is the whole fix and costs nothing per touch. */
   try { document.addEventListener('touchstart', function () {}, { passive: true }); } catch (e) { /* no touch */ }
+
+  /* Registers the service worker and starts watching for the browser's install
+     offer. The header redraws whenever that changes, so the button appears the
+     moment Chrome decides the site qualifies and disappears once installed —
+     without anything having to poll for it. */
+  if (SM.pwa) {
+    SM.pwa.init();
+    SM.pwa.onChange(function () {
+      if (document.getElementById('topEnd')) renderShellBits();
+    });
+  }
 
   SM.art.mount();
   /* Point every category at its official logo. One call, before the first

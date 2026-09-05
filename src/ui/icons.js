@@ -26,6 +26,11 @@
     bolt: '<path d="M13.5 2.5 5 13.2h5.4L9.8 21.5 19 10.6h-5.5l0-8.1Z"/>',
     sparkle: '<path d="M12 3.2 13.9 9 20 10.9 13.9 12.8 12 18.6 10.1 12.8 4 10.9 10.1 9 12 3.2Z"/><path d="M18.6 3v3.2M17 4.6h3.2"/>',
     copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 5.5h-9a2.5 2.5 0 0 0-2.5 2.5v9"/>',
+    /* install: a tray taking a downward arrow — the shape every browser uses
+       for "put this on your device", so it needs no label to be understood */
+    install: '<path d="M12 3.5v11"/><path d="m7.8 10.4 4.2 4.2 4.2-4.2"/><path d="M4.5 16.5v2.2a1.8 1.8 0 0 0 1.8 1.8h11.4a1.8 1.8 0 0 0 1.8-1.8v-2.2"/>',
+    share: '<path d="M4 12v7a1.8 1.8 0 0 0 1.8 1.8h12.4A1.8 1.8 0 0 0 20 19v-7"/><path d="M12 15.5V3.4"/><path d="m7.9 7.5 4.1-4.1 4.1 4.1"/>',
+    mail: '<rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/>',
     moon: '<path d="M20 14.2A8.2 8.2 0 0 1 9.8 4 8.5 8.5 0 1 0 20 14.2Z"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.2M12 7.9v.1"/>',

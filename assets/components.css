@@ -1768,3 +1768,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 /* "Not recorded" in a table cell. Muted so a column of real values still scans
    as real values, and a column of hyphens reads as a gap to fill. */
 .c-none{ color:var(--ink-3); }
+
+/* ---- share fallback ------------------------------------------------------
+   Only ever built where the browser has no share sheet of its own, so this is
+   a desktop shape: four plain links out, sized for a pointer. */
+.sharegrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+@media (min-width:420px){ .sharegrid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
+.sharetile{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px;
+  padding:14px 8px; border-radius:var(--r-sm); text-align:center;
+  background:var(--surface-2); border:1px solid var(--line); color:var(--ink);
+  font-size:12px; font-weight:700;
+  transition:background .14s, border-color .14s, transform .14s;
+}
+.sharetile:hover{ background:var(--teal-050); border-color:var(--teal-100); color:var(--teal-700); transform:translateY(-1px); }
+.sharetile svg{ width:19px; height:19px; }
