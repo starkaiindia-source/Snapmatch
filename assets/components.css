@@ -202,13 +202,26 @@
   width:var(--iw,100%); height:auto;
   /* The global img{max-width:100%} reset in styles.css caps an image at its
      container, which is exactly what has to be overridden here: the image is
-     deliberately WIDER than the tile so the part inside it is not. Without
+     deliberately WIDER than the box so the part inside it is not. Without
      this the width silently clamps back to 100% and every part returns to
      canvas size — the same picture, and no visible error to chase. */
   max-width:none;
   left:var(--il,0); top:var(--it,0);
   object-fit:contain;
 }
+
+/* …and on the phone it is drawn 10% larger, to use the room the captions used
+   to take. The scale is DERIVED rather than re-measured: the focus numbers are
+   linear in the fit factor, so multiplying the width by 1.1 and pushing the
+   offsets 1.1x further from centre is exactly the same fit computed at a 10%
+   larger inset. The part stays centred, its aspect ratio is still the file's
+   own, and nothing needs regenerating. */
+.crail__art .pthumb--rail img.pimg{
+  width:calc(var(--iw,100%) * 1.1);
+  left:calc(50% - (50% - var(--il,0%)) * 1.1);
+  top:calc(50% - (50% - var(--it,0%)) * 1.1);
+}
+
 /* the drawn stand-in has no canvas margin to correct for */
 .pthumb--tile svg.pimg,
 .crail__art .pthumb--rail svg.pimg{ width:100%; height:100%; padding:8%; }
@@ -381,34 +394,46 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 }
 .crail::-webkit-scrollbar{ display:none; }
 /* The phone's category card. Same idea as the desktop tile — the picture IS
-   the card — at the size a thumb can hit. The card is the photograph's own
-   white rather than a translucent panel with a white stamp floating in it:
-   that stamp was the "white square" on the green band, and the way to remove
-   it is to stop having a card behind it. */
+   the card — at the size a thumb can hit.
+
+   The artwork here is the CUTOUT, with its background flood-filled out, so the
+   card no longer has to be white to hide a white rectangle. It is a thin sheet
+   of glass instead: the hero's own green shows through it and the part reads as
+   sitting on the band rather than on a sticker stuck to it. Deliberately
+   barely-there — a real glass panel behind each part would just be the white
+   box again in another colour. */
 .crail__item{
   --c:var(--teal-500);
   flex:none; width:86px; scroll-snap-align:start;
   display:block; position:relative;
   padding:4px; border-radius:var(--r-sm);
-  background:var(--ctile-paper); border:1px solid rgba(255,255,255,.34);
+  background:rgba(255,255,255,.09);
+  -webkit-backdrop-filter:blur(6px) saturate(115%);
+  backdrop-filter:blur(6px) saturate(115%);
+  border:1px solid rgba(255,255,255,.16);
   color:#fff; text-align:left;
-  transition:border-color .16s, transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
+  transition:border-color .16s, background .16s, transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
 }
 .crail__item:active{ transform:scale(.97); }
 .crail__item:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
 /* Selected is the category's own colour as a ring, matching the desktop
    tiles — no tick, no shadow, nothing printed over the part. */
 .crail__item.is-on{
+  background:rgba(255,255,255,.16);
   border-color:var(--c); box-shadow:0 0 0 2px var(--c) inset;
 }
 .crail__art{
   position:relative; display:block; width:100%; aspect-ratio:3/4;
   border-radius:8px; overflow:hidden;
 }
+/* No ground of its own: the part floats on whatever the card is showing
+   through, which is the hero. A single soft highlight under it does the work
+   a drop shadow would, without a shadow's hard edge on a translucent card. */
 .crail__art .pthumb--rail{
   position:absolute; inset:0; width:100%; height:100%;
   border-radius:8px; border-color:transparent; padding:0;
-  background:var(--ctile-paper); box-shadow:none;
+  background:radial-gradient(58% 42% at 50% 62%, rgba(255,255,255,.14), rgba(255,255,255,0) 70%);
+  box-shadow:none;
 }
 
 /* Name: only while the card is under a finger or a focus ring. Same overlay

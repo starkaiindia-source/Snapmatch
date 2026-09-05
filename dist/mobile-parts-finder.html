@@ -876,13 +876,26 @@ ul{ margin:0; padding:0; list-style:none; }
   width:var(--iw,100%); height:auto;
   /* The global img{max-width:100%} reset in styles.css caps an image at its
      container, which is exactly what has to be overridden here: the image is
-     deliberately WIDER than the tile so the part inside it is not. Without
+     deliberately WIDER than the box so the part inside it is not. Without
      this the width silently clamps back to 100% and every part returns to
      canvas size — the same picture, and no visible error to chase. */
   max-width:none;
   left:var(--il,0); top:var(--it,0);
   object-fit:contain;
 }
+
+/* …and on the phone it is drawn 10% larger, to use the room the captions used
+   to take. The scale is DERIVED rather than re-measured: the focus numbers are
+   linear in the fit factor, so multiplying the width by 1.1 and pushing the
+   offsets 1.1x further from centre is exactly the same fit computed at a 10%
+   larger inset. The part stays centred, its aspect ratio is still the file's
+   own, and nothing needs regenerating. */
+.crail__art .pthumb--rail img.pimg{
+  width:calc(var(--iw,100%) * 1.1);
+  left:calc(50% - (50% - var(--il,0%)) * 1.1);
+  top:calc(50% - (50% - var(--it,0%)) * 1.1);
+}
+
 /* the drawn stand-in has no canvas margin to correct for */
 .pthumb--tile svg.pimg,
 .crail__art .pthumb--rail svg.pimg{ width:100%; height:100%; padding:8%; }
@@ -1055,34 +1068,46 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 }
 .crail::-webkit-scrollbar{ display:none; }
 /* The phone's category card. Same idea as the desktop tile — the picture IS
-   the card — at the size a thumb can hit. The card is the photograph's own
-   white rather than a translucent panel with a white stamp floating in it:
-   that stamp was the "white square" on the green band, and the way to remove
-   it is to stop having a card behind it. */
+   the card — at the size a thumb can hit.
+
+   The artwork here is the CUTOUT, with its background flood-filled out, so the
+   card no longer has to be white to hide a white rectangle. It is a thin sheet
+   of glass instead: the hero's own green shows through it and the part reads as
+   sitting on the band rather than on a sticker stuck to it. Deliberately
+   barely-there — a real glass panel behind each part would just be the white
+   box again in another colour. */
 .crail__item{
   --c:var(--teal-500);
   flex:none; width:86px; scroll-snap-align:start;
   display:block; position:relative;
   padding:4px; border-radius:var(--r-sm);
-  background:var(--ctile-paper); border:1px solid rgba(255,255,255,.34);
+  background:rgba(255,255,255,.09);
+  -webkit-backdrop-filter:blur(6px) saturate(115%);
+  backdrop-filter:blur(6px) saturate(115%);
+  border:1px solid rgba(255,255,255,.16);
   color:#fff; text-align:left;
-  transition:border-color .16s, transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
+  transition:border-color .16s, background .16s, transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
 }
 .crail__item:active{ transform:scale(.97); }
 .crail__item:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
 /* Selected is the category's own colour as a ring, matching the desktop
    tiles — no tick, no shadow, nothing printed over the part. */
 .crail__item.is-on{
+  background:rgba(255,255,255,.16);
   border-color:var(--c); box-shadow:0 0 0 2px var(--c) inset;
 }
 .crail__art{
   position:relative; display:block; width:100%; aspect-ratio:3/4;
   border-radius:8px; overflow:hidden;
 }
+/* No ground of its own: the part floats on whatever the card is showing
+   through, which is the hero. A single soft highlight under it does the work
+   a drop shadow would, without a shadow's hard edge on a translucent card. */
 .crail__art .pthumb--rail{
   position:absolute; inset:0; width:100%; height:100%;
   border-radius:8px; border-color:transparent; padding:0;
-  background:var(--ctile-paper); box-shadow:none;
+  background:radial-gradient(58% 42% at 50% 62%, rgba(255,255,255,.14), rgba(255,255,255,0) 70%);
+  box-shadow:none;
 }
 
 /* Name: only while the card is under a finger or a focus ring. Same overlay
@@ -6734,7 +6759,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
        Spellings resolve through SM.categoryAssets, so "screen-guards",
        "Screen Guard" and "tempered glass" all land on the same asset. */
-    category: function (categoryId, cls, label) {
+    /* @param {object} [opts]  { cutout: true } serves the transparent copy of
+       the master where one exists — the phone rail, whose cards sit on the
+       green hero. It is the SAME artwork with the background flood-filled out,
+       and it degrades through the same chain: cutout, then the original, then
+       the drawn symbol. Everywhere else is unaffected and still gets the
+       original on its white chip. */
+    category: function (categoryId, cls, label, opts) {
       var key = categoryId;
       if (!catImages[key] && SM.categoryAssets) {
         key = SM.categoryAssets.resolve(categoryId) || categoryId;
@@ -6743,17 +6774,32 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       var entry = catImages[key];
       var inner;
 
-      if (entry) {
+      var cut = (opts && opts.cutout && SM.categoryAssets && SM.categoryAssets.cutout)
+        ? SM.categoryAssets.cutout(key) : null;
+
+      if (entry || cut) {
         /* Two steps down, and the first step is the identical official file
            served from this site. The drawn symbol appears only when both are
            unreachable — a generic icon must never quietly stand in for a
            specific part, because that is worse than showing nothing. */
-        var onerr = entry.fallback
+        var primary = cut || (entry && entry.url);
+        var second = cut ? ((entry && (entry.bundledOrUrl || entry.fallback || entry.url)) || null)
+                         : (entry && entry.fallback);
+        var onerr = second
           ? 'if(this.dataset.fb){this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))}' +
-            'else{this.dataset.fb=1;this.src=\'' + esc(entry.fallback) + '\'}'
+            'else{this.dataset.fb=1;this.src=\'' + esc(second) + '\'}'
           : 'this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))';
-        inner = '<img class="pimg" src="' + esc(entry.url) + '" alt="' + esc(label || '') + '" ' +
-          'loading="lazy" decoding="async" onerror="' + onerr + '" />';
+        /* EAGER where the picture is positioned absolutely with an auto
+           height, which is every focus-fitted box. Such an image is 0px tall
+           until it loads, a zero-area box never intersects anything, and a
+           lazy image that never intersects never loads — so it stays 0px
+           forever. The tiles get away with it only because the group cards
+           warm the same URLs into cache first; the rail's cutouts are used
+           nowhere else, so nothing warms them and the strip came up empty.
+           Seven images in the hero is not what `loading=lazy` is for. */
+        var load = (opts && opts.eager) ? 'eager' : 'lazy';
+        inner = '<img class="pimg" src="' + esc(primary) + '" alt="' + esc(label || '') + '" ' +
+          'loading="' + load + '" decoding="async" onerror="' + onerr + '" />';
       } else {
         inner = this.svgMarkup(id);
       }
@@ -6950,6 +6996,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     'battery':       ['battery', 'batteries', 'bt']
   };
 
+  /* Categories with a transparent-background copy of their master, for the
+     phone's category rail — where the cards sit on the green hero and a white
+     rectangle around every part reads as a sticker stuck onto it.
+
+     GENERATED by scripts/build-category-cutouts.py, which flood-fills only the
+     white CONNECTED TO THE EDGE, so white enclosed by the product (a glass
+     sheet, a battery label, the inside of a frame) survives. A category whose
+     cutout would have clipped the part is not listed here and keeps the
+     original — the desktop tiles use the originals regardless, where a white
+     card is deliberate. */
+  var CUTOUTS = ["back-cover","battery","cc-board","combo-display","middle-frame","screen-guards"];
+
   function norm(s) {
     return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
@@ -6987,6 +7045,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      * ratio. Only .pthumb--tile consumes them, so every other surface keeps
      * plain contain behaviour.
      */
+    /** The transparent copy for this category, or null when there is none. */
+    cutout: function (nameOrId) {
+      var id = this.resolve(nameOrId);
+      return (id && CUTOUTS.indexOf(id) > -1)
+        ? '/assets/categories/cutout/' + id + '.png' : null;
+    },
+
     focusVars: function (nameOrId) {
       var e = this.get(nameOrId);
       var f = e && e.focus;
@@ -8261,7 +8326,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       (o.empty ? ' disabled' : '') +
       ' aria-pressed="' + (o.on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
       '<span class="crail__art">' +
-      SM.art.category(o.id, 'pthumb--rail', o.name) +
+      /* The transparent copy: these cards sit on the green hero, where the
+         master's white background is a rectangle around every part. */
+      SM.art.category(o.id, 'pthumb--rail', o.name, { cutout: true, eager: true }) +
       '<span class="crail__veil" aria-hidden="true"></span>' +
       '<span class="crail__name" aria-hidden="true">' + esc(o.name) + '</span>' +
       '</span>' +
@@ -8345,7 +8412,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         (empty ? ' disabled' : '') +
         ' aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
         '<span class="ctile__art">' +
-        SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name) +
+        /* Eager: a focus-fitted picture is 0px tall until it loads, and a
+           zero-area image never intersects the viewport, so a lazy one waits
+           for a load that its own size prevents. These eight only appeared at
+           all when a group card happened to warm the same URL first — which
+           is why the sidebar could come up with five empty tiles. */
+        SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name, { eager: true }) +
         '<span class="ctile__veil" aria-hidden="true"></span>' +
         '<span class="ctile__name" aria-hidden="true">' + esc(name) + '</span>' +
         '</span>' +

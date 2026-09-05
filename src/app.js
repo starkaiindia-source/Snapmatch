@@ -731,7 +731,9 @@
       (o.empty ? ' disabled' : '') +
       ' aria-pressed="' + (o.on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
       '<span class="crail__art">' +
-      SM.art.category(o.id, 'pthumb--rail', o.name) +
+      /* The transparent copy: these cards sit on the green hero, where the
+         master's white background is a rectangle around every part. */
+      SM.art.category(o.id, 'pthumb--rail', o.name, { cutout: true, eager: true }) +
       '<span class="crail__veil" aria-hidden="true"></span>' +
       '<span class="crail__name" aria-hidden="true">' + esc(o.name) + '</span>' +
       '</span>' +
@@ -815,7 +817,12 @@
         (empty ? ' disabled' : '') +
         ' aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
         '<span class="ctile__art">' +
-        SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name) +
+        /* Eager: a focus-fitted picture is 0px tall until it loads, and a
+           zero-area image never intersects the viewport, so a lazy one waits
+           for a load that its own size prevents. These eight only appeared at
+           all when a group card happened to warm the same URL first — which
+           is why the sidebar could come up with five empty tiles. */
+        SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name, { eager: true }) +
         '<span class="ctile__veil" aria-hidden="true"></span>' +
         '<span class="ctile__name" aria-hidden="true">' + esc(name) + '</span>' +
         '</span>' +

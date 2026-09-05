@@ -265,7 +265,13 @@
 
        Spellings resolve through SM.categoryAssets, so "screen-guards",
        "Screen Guard" and "tempered glass" all land on the same asset. */
-    category: function (categoryId, cls, label) {
+    /* @param {object} [opts]  { cutout: true } serves the transparent copy of
+       the master where one exists — the phone rail, whose cards sit on the
+       green hero. It is the SAME artwork with the background flood-filled out,
+       and it degrades through the same chain: cutout, then the original, then
+       the drawn symbol. Everywhere else is unaffected and still gets the
+       original on its white chip. */
+    category: function (categoryId, cls, label, opts) {
       var key = categoryId;
       if (!catImages[key] && SM.categoryAssets) {
         key = SM.categoryAssets.resolve(categoryId) || categoryId;
@@ -274,17 +280,32 @@
       var entry = catImages[key];
       var inner;
 
-      if (entry) {
+      var cut = (opts && opts.cutout && SM.categoryAssets && SM.categoryAssets.cutout)
+        ? SM.categoryAssets.cutout(key) : null;
+
+      if (entry || cut) {
         /* Two steps down, and the first step is the identical official file
            served from this site. The drawn symbol appears only when both are
            unreachable — a generic icon must never quietly stand in for a
            specific part, because that is worse than showing nothing. */
-        var onerr = entry.fallback
+        var primary = cut || (entry && entry.url);
+        var second = cut ? ((entry && (entry.bundledOrUrl || entry.fallback || entry.url)) || null)
+                         : (entry && entry.fallback);
+        var onerr = second
           ? 'if(this.dataset.fb){this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))}' +
-            'else{this.dataset.fb=1;this.src=\'' + esc(entry.fallback) + '\'}'
+            'else{this.dataset.fb=1;this.src=\'' + esc(second) + '\'}'
           : 'this.replaceWith(SM.art.svgOnly(\'' + esc(id) + '\'))';
-        inner = '<img class="pimg" src="' + esc(entry.url) + '" alt="' + esc(label || '') + '" ' +
-          'loading="lazy" decoding="async" onerror="' + onerr + '" />';
+        /* EAGER where the picture is positioned absolutely with an auto
+           height, which is every focus-fitted box. Such an image is 0px tall
+           until it loads, a zero-area box never intersects anything, and a
+           lazy image that never intersects never loads — so it stays 0px
+           forever. The tiles get away with it only because the group cards
+           warm the same URLs into cache first; the rail's cutouts are used
+           nowhere else, so nothing warms them and the strip came up empty.
+           Seven images in the hero is not what `loading=lazy` is for. */
+        var load = (opts && opts.eager) ? 'eager' : 'lazy';
+        inner = '<img class="pimg" src="' + esc(primary) + '" alt="' + esc(label || '') + '" ' +
+          'loading="' + load + '" decoding="async" onerror="' + onerr + '" />';
       } else {
         inner = this.svgMarkup(id);
       }
