@@ -110,7 +110,6 @@
       "dest": "/api/$1.js"
     },
     {
-      "//": "Deep links inside the admin app — /admin/users, /admin/users/<uid> — are client routes with no file behind them. Without this they would fall through to the catch-all below and load the CUSTOMER app at an /admin URL, which is what a refresh on any admin page would do.",
       "src": "/admin(?:/.*)?$",
       "dest": "/admin/index.html"
     },
