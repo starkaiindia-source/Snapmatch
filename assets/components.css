@@ -503,7 +503,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    reader there is more to the right. Only this element scrolls — the page
    never gains a horizontal scrollbar, because the row is the overflow
    container and min-width:0 lets it be narrower than its contents. */
-.trendrow{
+.trendrow,.suggestrow,.modelrow{
   display:grid; grid-auto-flow:column; grid-auto-columns:minmax(258px,262px);
   gap:14px; min-width:0;
   overflow-x:auto; overflow-y:hidden; scroll-snap-type:x proximity;
@@ -511,14 +511,64 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   padding-bottom:10px;                   /* room for the scrollbar, not the cards */
   scrollbar-width:thin; scrollbar-color:var(--line) transparent;
 }
-.trendrow > *{ scroll-snap-align:start; }
-.trendrow::-webkit-scrollbar{ height:8px; }
-.trendrow::-webkit-scrollbar-track{ background:transparent; }
-.trendrow::-webkit-scrollbar-thumb{
+/* Two rows deep, filled COLUMN BY COLUMN — grid-auto-flow:column with two
+   template rows puts rank 1 and 2 in the first column, 3 and 4 in the second.
+   So the strongest groups are the ones already on screen, and scrolling right
+   walks down the ranking rather than across a row of it. */
+.suggestrow{ grid-template-rows:repeat(2,auto); align-items:start; }
+
+/* One handset per column. The model card is a row built for a full-width list,
+   so in a column it needs its meta line kept on one line and the chevron
+   dropped — the whole card is the button, and an arrow pointing at the edge of
+   a carousel is one arrow too many next to the carousel's own. */
+.modelrow{ grid-auto-columns:minmax(252px,286px); }
+.modelrow .mcard{ padding:11px 12px; gap:10px; }
+.modelrow .mcard__m{
+  font-size:11.5px; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.modelrow .mcard__n{ font-size:14px; }
+.modelrow .mcard__go{ display:none; }
+
+.trendrow > *,.suggestrow > *,.modelrow > *{ scroll-snap-align:start; }
+.trendrow::-webkit-scrollbar,
+.suggestrow::-webkit-scrollbar,
+.modelrow::-webkit-scrollbar{ height:8px; }
+.trendrow::-webkit-scrollbar-track,
+.suggestrow::-webkit-scrollbar-track,
+.modelrow::-webkit-scrollbar-track{ background:transparent; }
+.trendrow::-webkit-scrollbar-thumb,
+.suggestrow::-webkit-scrollbar-thumb,
+.modelrow::-webkit-scrollbar-thumb{
   background:var(--line); border-radius:99px; border:2px solid transparent; background-clip:content-box;
 }
-.trendrow:hover::-webkit-scrollbar-thumb{ background:var(--ink-3); background-clip:content-box; }
-@media (max-width:520px){ .trendrow{ grid-auto-columns:minmax(232px,246px); } }
+.trendrow:hover::-webkit-scrollbar-thumb,
+.suggestrow:hover::-webkit-scrollbar-thumb,
+.modelrow:hover::-webkit-scrollbar-thumb{ background:var(--ink-3); background-clip:content-box; }
+@media (max-width:520px){
+  .trendrow,.suggestrow{ grid-auto-columns:minmax(232px,246px); }
+  .modelrow{ grid-auto-columns:minmax(216px,240px); }
+}
+
+/* ---- carousel arrows ----------------------------------------------------
+   Outside the cards, not over them: an arrow floating on a plate hides the
+   part code it is sitting on. They sit in the gutter the centre column
+   already has, appear only where there is somewhere to go, and are hidden
+   entirely on touch, where the gesture is the control. */
+.rail{ position:relative; }
+.rail__nav{
+  position:absolute; top:calc(50% - 5px); transform:translateY(-50%); z-index:3;
+  width:30px; height:30px; border-radius:99px; display:grid; place-items:center;
+  background:var(--surface); border:1px solid var(--line); color:var(--ink-2);
+  box-shadow:var(--sh-2);
+  transition:opacity .16s, background .16s, color .16s, visibility .16s;
+}
+.rail__nav svg{ width:16px; height:16px; }
+.rail__nav:hover{ background:var(--teal-050); color:var(--teal-700); border-color:var(--teal-100); }
+.rail__nav--prev{ left:-13px; }
+.rail__nav--next{ right:-13px; }
+.rail__nav:disabled{ opacity:0; visibility:hidden; pointer-events:none; }
+.rail.is-static .rail__nav{ opacity:0; visibility:hidden; pointer-events:none; }
+@media (hover:none){ .rail__nav{ display:none; } }
 
 .gridcards{ display:grid; gap:14px; grid-template-columns:1fr; }
 @media (min-width:640px){ .gridcards{ grid-template-columns:repeat(2,minmax(0,1fr)); } }

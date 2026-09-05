@@ -216,9 +216,12 @@
     return a.groupNumber < b.groupNumber ? -1 : a.groupNumber > b.groupNumber ? 1 : 0;
   }
 
-  /* How many groups the trending row may hold. A cap, not a target — with a
-     narrow filter there may be three, and three is the right answer then. */
+  /* How long the two carousels may be. Caps, not targets — with a narrow
+     filter there may be three, and three is the right answer then. SUGGEST_MAX
+     is even because that carousel is two rows deep and a dangling odd card
+     leaves a hole in the bottom row. */
   var TRENDING_MAX = 18;
+  var SUGGEST_MAX = 24;
 
   /* The ordered feed for one filter combination: the trending head, the rest
      in mixed order, and the total the header counts. Memoised, because the
@@ -234,40 +237,51 @@
     var now = Date.now();
     var want = opts.trending == null ? 0 : Math.max(0, opts.trending | 0);
 
-    /* TRENDING: newest first, but not eighteen of the same part.
-       A strict global date sort is the obvious reading, and on this catalogue
-       it produces a row of displays, frames and boards only — the newest
-       phones happen to have those parts logged first, so slots run out at 114
-       days and the newest screen guard (132) and battery (150) never appear,
-       though both are firmly inside the window.
+    /* THE RANKING, used by every section.
 
-       So the rotation is by category WITHIN a tier: tier 1 entirely before
-       tier 2, and inside a tier each category offers its newest remaining
-       group in turn. Every pick is still the newest thing of its kind and the
-       order is total — no randomness, and the same row every reload — while
-       the strip actually shows what is new across the catalogue rather than
-       across three categories of it. */
+       Compatibility count leads. A guard that fits 325 handsets is the single
+       most useful row in the catalogue to a counter — it is the part you stock
+       — and a two-device group is not more useful for having a newer phone in
+       it. Recency breaks ties, and the group number breaks what is left, so
+       the order is total and a reload cannot move anything. */
+    function cmpValue(a, b) {
+      var ca = a.compatibleCount || 0, cb = b.compatibleCount || 0;
+      if (cb !== ca) return cb - ca;
+      var ta = rec[a.groupId] || 0, tb = rec[b.groupId] || 0;
+      if (tb !== ta) return tb - ta;
+      return cmpNumber(a, b);
+    }
+
+    /* TRENDING is the same ranking inside the recency WINDOW: only groups with
+       a phone from the last year are eligible, and the strongest of those lead.
+       Recency is what makes the section trending; strength is what orders it.
+       SUGGEST is the same ranking with no window at all — the strongest groups
+       in the catalogue, whatever age. That is the whole difference between the
+       two, and it is why a group never needs to appear in both. */
     var trending = [];
     if (want) {
-      var eligible = list.filter(function (g) { return trendTier(rec[g.groupId] || 0, now); });
-      var tiers = [[], []];
-      eligible.forEach(function (g) {
-        tiers[trendTier(rec[g.groupId], now) - 1].push(g);
-      });
-      tiers.forEach(function (bucket) {
-        if (trending.length >= want || !bucket.length) return;
-        bucket.sort(function (a, b) {
-          var ta = rec[a.groupId] || 0, tb = rec[b.groupId] || 0;
-          return tb - ta || cmpNumber(a, b);
-        });
-        trending = trending.concat(mixByCategory(bucket));
-      });
-      trending = trending.slice(0, want);
+      trending = list
+        .filter(function (g) { return trendTier(rec[g.groupId] || 0, now); })
+        .sort(cmpValue)
+        .slice(0, want);
     }
 
     var taken = Object.create(null);
     trending.forEach(function (g) { taken[g.groupId] = 1; });
-    var rest = want ? list.filter(function (g) { return !taken[g.groupId]; }) : list.slice();
+
+    var suggestWant = opts.suggest == null ? 0 : Math.max(0, opts.suggest | 0);
+    var suggest = [];
+    if (suggestWant) {
+      suggest = list
+        .filter(function (g) { return !taken[g.groupId]; })
+        .sort(cmpValue)
+        .slice(0, suggestWant);
+      suggest.forEach(function (g) { taken[g.groupId] = 1; });
+    }
+
+    var rest = (want || suggestWant)
+      ? list.filter(function (g) { return !taken[g.groupId]; })
+      : list.slice();
 
     var sort = opts.sort || 'mixed';
     if (sort === 'most') rest.sort(function (a, b) { return b.compatibleCount - a.compatibleCount || cmpNumber(a, b); });
@@ -279,17 +293,15 @@
     });
     else if (sort === 'default') rest.sort(cmpNumber);
     else {
-      /* 'mixed', the default: newest first within a category, then the
-         categories interleaved. Group number breaks every tie, so the order
-         is total — the same filter yields the same page every reload. */
-      rest.sort(function (a, b) {
-        var ta = rec[a.groupId] || 0, tb = rec[b.groupId] || 0;
-        return tb - ta || cmpNumber(a, b);
-      });
+      /* 'mixed', the default: the ranking above WITHIN each category, then the
+         categories interleaved, so a scroll passes a guard, a cover, a board,
+         a battery rather than 709 covers before the first board — and inside
+         each of those, the strongest group of its kind comes first. */
+      rest.sort(cmpValue);
       rest = mixByCategory(rest);
     }
 
-    var out = { trending: trending, rest: rest, total: list.length };
+    var out = { trending: trending, suggest: suggest, rest: rest, total: list.length };
     if (key) {
       feedCache[key] = out;
       feedKeys.push(key);
@@ -342,6 +354,7 @@
     res.total = feed.total;
     res.restTotal = feed.rest.length;
     res.trending = (opts.page || 1) === 1 ? feed.trending.map(hydrate) : [];
+    res.suggest = (opts.page || 1) === 1 ? feed.suggest.map(hydrate) : [];
     res.hasMore = (opts.page || 1) * (opts.pageSize || 12) < feed.rest.length;
     return respond(res, LAT.normal);
   }
@@ -350,7 +363,47 @@
      is in the key; nothing that does not is. */
   function feedKeyFor(o) {
     return [o.categoryId || 'all', o.brandId || 'all', o.sort || 'mixed',
-            o.trending | 0, o.minCount || 0, norm(o.q)].join('|');
+            o.trending | 0, o.suggest | 0, o.minCount || 0, norm(o.q)].join('|');
+  }
+
+  /* ---------------------------------------------------------------- models
+     The handsets worth putting in front of a counter: the ones the most part
+     groups fit. That number is what makes a model useful to stock for — a
+     phone with six part groups is six things you can sell for it — and it is
+     already on the model card, so the ranking and the card agree.
+
+     It is counted from db.groupsByModel, the same public map the device pages
+     read. No member list is opened and nothing withheld becomes visible: a
+     count of groups is not a list of them. */
+  var suggestModelCache = Object.create(null);
+
+  function suggestModels(opts) {
+    opts = opts || {};
+    var cat = opts.categoryId && opts.categoryId !== 'all' ? opts.categoryId : null;
+    var brand = opts.brandId && opts.brandId !== 'all' ? opts.brandId : null;
+    var want = Math.max(1, (opts.limit | 0) || 12);
+    var key = [cat || 'all', brand || 'all', want].join('|');
+    if (suggestModelCache[key]) return suggestModelCache[key];
+
+    var counts = db.partCountsByCategory || {};
+    var out = db.models.filter(function (m) {
+      if (brand && m.brandId !== brand) return false;
+      return groupCountFor(m.id, cat, counts) > 0;
+    }).sort(function (a, b) {
+      var ga = groupCountFor(a.id, cat, counts), gb = groupCountFor(b.id, cat, counts);
+      if (gb !== ga) return gb - ga;
+      var ta = parseReleaseTs(a.releaseDateIso), tb = parseReleaseTs(b.releaseDateIso);
+      if (tb !== ta) return tb - ta;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    }).slice(0, want);
+
+    suggestModelCache[key] = out;
+    return out;
+  }
+
+  function groupCountFor(modelId, cat, counts) {
+    if (cat) return (counts[modelId] && counts[modelId][cat]) || 0;
+    return (db.groupsByModel[modelId] || []).length;
   }
 
   /* How many groups match, from the in-memory catalogue. Used so the header
@@ -494,10 +547,14 @@
 
     listGroupsLocal: function (opts) { return localListGroups(opts); },
 
-    /* How many groups the trending row may hold. Exposed rather than buried in
-       the renderer so the row's length is a data decision, not a number typed
-       into a template. */
+    /* How long the two carousels may be. Exposed rather than buried in the
+       renderer so their length is a data decision, not a number typed into a
+       template — and SUGGEST_MAX is even, because that row is two deep. */
     trendingMax: function () { return TRENDING_MAX; },
+    suggestMax: function () { return SUGGEST_MAX; },
+
+    /* The handsets the most part groups fit, for the current filter. */
+    suggestModels: function (opts) { return respond(suggestModels(opts), LAT.fast); },
 
 
     getGroup: function (groupId) {

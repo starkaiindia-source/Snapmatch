@@ -22,7 +22,7 @@
       /* The trending head of the feed, and how many groups sit BELOW it. The
          header still counts everything the filter matches, so `total` cannot
          also stand for "how many are left to page through". */
-      trending: [], restTotal: 0
+      trending: [], suggest: [], suggestModels: [], restTotal: 0
     },
     models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
       /* View state, not query state: the same records are already in memory,
@@ -670,13 +670,14 @@
          with the cross product in it. */
       '<label class="sr" for="viewSel">Group view</label>' +
       '<select class="input" id="viewSel" style="width:auto;height:38px">' +
-      opt('both', 'Trending + All', f.filters.view) +
+      opt('both', 'Suggested + All', f.filters.view) +
       opt('trending', 'Trending only', f.filters.view) +
+      opt('suggest', 'Suggested only', f.filters.view) +
       opt('all', 'All groups', f.filters.view) +
       '</select>' +
       '<label class="sr" for="sortSel">Sort groups</label>' +
       '<select class="input" id="sortSel" style="width:auto;height:38px">' +
-      opt('mixed', 'Recent & mixed', f.filters.sort) +
+      opt('mixed', 'Best match', f.filters.sort) +
       opt('default', 'Group number', f.filters.sort) +
       opt('most', 'Most devices', f.filters.sort) +
       opt('least', 'Fewest devices', f.filters.sort) +
@@ -939,30 +940,49 @@
        group filter is a specific question, and answering it with a row of
        whatever is newest would be answering a different one — so a search
        turns the row off rather than competing with itself. */
-    var wantTrending = trendingWanted(f) ? api.trendingMax() : 0;
+    var wantTrending = sectionWanted(f, 'trending') ? api.trendingMax() : 0;
+    var wantSuggest = sectionWanted(f, 'suggest') ? api.suggestMax() : 0;
 
     api.listGroups({
       q: f.filters.q, brandId: f.filters.brandId, categoryId: f.filters.catId,
       sort: f.filters.sort, page: f.page, pageSize: 12, cursor: f.cursor,
-      trending: wantTrending
+      trending: wantTrending, suggest: wantSuggest
     }).then(function (r) {
       f.busy = false; f.total = r.total; f.hasMore = r.hasMore;
       f.cursor = r.cursor || null;
       f.source = r.source || 'catalogue';
-      if (reset) f.trending = r.trending || [];
+      if (reset) { f.trending = r.trending || []; f.suggest = r.suggest || []; }
       f.restTotal = r.restTotal == null ? r.total : r.restTotal;
       f.rows = reset ? r.items : f.rows.concat(r.items);
       paintGroups();
     });
+
+    /* The handset strip is its own read — a different question over a
+       different table — so it is fetched alongside rather than folded into
+       the group query, and only when it is going to be drawn. */
+    if (reset) {
+      if (sectionWanted(f, 'suggest')) {
+        api.suggestModels({
+          categoryId: f.filters.catId, brandId: f.filters.brandId, limit: 12
+        }).then(function (models) {
+          f.suggestModels = models || [];
+          paintGroups();
+        });
+      } else {
+        f.suggestModels = [];
+      }
+    }
   }
 
-  /* Trending is shown while browsing, and not while answering something more
-     specific: a text filter, or "All groups" chosen deliberately. With a model
-     selected the centre runs loadMatches() instead and never reaches here. */
-  function trendingWanted(f) {
-    if (f.filters.view === 'all') return false;
+  /* The suggestion sections are shown while BROWSING, and stand down for
+     anything more specific: a text filter, or a view the user has narrowed by
+     hand. With a model selected the centre runs loadMatches() and never
+     reaches here at all. */
+  function sectionWanted(f, which) {
     if ((f.filters.q || '').trim()) return false;
-    return true;
+    var view = f.filters.view || 'both';
+    if (view === 'both') return true;
+    return view === which;
   }
 
   function paintGroups() {
@@ -973,10 +993,14 @@
     if (!res) return;
     if (cnt) cnt.textContent = nf(f.total) + (f.total === 1 ? ' group' : ' groups');
 
-    var trending = trendingWanted(f) ? (f.trending || []) : [];
-    var onlyTrending = f.filters.view === 'trending';
+    var trending = sectionWanted(f, 'trending') ? (f.trending || []) : [];
+    var suggest = sectionWanted(f, 'suggest') ? (f.suggest || []) : [];
+    var sModels = sectionWanted(f, 'suggest') ? (f.suggestModels || []) : [];
+    var view = f.filters.view || 'both';
+    var onlyTrending = view === 'trending';
+    var onlySuggest = view === 'suggest';
 
-    if (!f.rows.length && !trending.length) {
+    if (!f.rows.length && !trending.length && !suggest.length) {
       res.innerHTML = C.state({
         icon: 'inbox', title: 'No compatibility group matches those filters',
         text: 'Try a different part category or brand, or clear the filter text.',
@@ -989,42 +1013,114 @@
     /* ONE ROW, SCROLLING SIDEWAYS. Stacking the recent groups vertically would
        push the catalogue below the fold to say something the catalogue already
        says. Only this strip scrolls horizontally; the page does not. */
+    /* A carousel and the two buttons that drive it. The row is the scroll
+       container, so only it ever moves sideways — the page cannot. */
+    function rail(id, cls, label, inner) {
+      return '<div class="rail">' +
+        '<button type="button" class="rail__nav rail__nav--prev" data-act="rail" data-dir="-1" ' +
+        'data-rail="' + id + '" aria-label="Scroll ' + esc(label) + ' left" disabled>' + icon('chevronLeft') + '</button>' +
+        '<div class="' + cls + '" id="' + id + '" role="group" aria-label="' + esc(label) + '">' + inner + '</div>' +
+        '<button type="button" class="rail__nav rail__nav--next" data-act="rail" data-dir="1" ' +
+        'data-rail="' + id + '" aria-label="Scroll ' + esc(label) + ' right">' + icon('chevronRight') + '</button>' +
+        '</div>';
+    }
+
     var head = '';
     if (trending.length) {
       head =
         '<section class="feed feed--trend">' +
         '<div class="feed__head"><h3 class="feed__title">' + icon('sparkle') + 'Trending groups</h3>' +
-        '<span class="feed__note">Newest phones, last 12 months</span></div>' +
-        '<div class="trendrow" role="group" aria-label="Trending compatibility groups">' +
-        trending.map(function (row) { return C.plate(row); }).join('') +
-        '</div></section>';
+        '<span class="feed__note">Phones from the last 12 months, widest fit first</span></div>' +
+        rail('railTrend', 'trendrow', 'Trending compatibility groups',
+             trending.map(function (row) { return C.plate(row); }).join('')) +
+        '</section>';
     }
 
-    if (onlyTrending) {
-      res.innerHTML = head || '';
-      lm.innerHTML = trending.length
-        ? '<span class="t-xs muted">' + nf(trending.length) + ' trending of ' + nf(f.total) + ' groups — switch to “All groups” for the rest</span>'
-        : '<span class="t-xs muted">No group here has a phone from the last 12 months</span>';
+    /* Handsets before parts: "which phones are worth stocking for" is the
+       question a counter asks first, and the answer is the phone the most part
+       groups fit. Existing model card, existing open-model action. */
+    var models = '';
+    if (sModels.length) {
+      models =
+        '<section class="feed feed--models">' +
+        '<div class="feed__head"><h3 class="feed__title">' + icon('phone') + 'Suggested models</h3>' +
+        '<span class="feed__note">Most part groups available</span></div>' +
+        rail('railModels', 'modelrow', 'Suggested models',
+             sModels.map(function (m) { return C.modelCard(m, ''); }).join('')) +
+        '</section>';
+    }
+
+    /* Two rows deep, filling column by column, so the strongest groups are the
+       ones on screen before any scrolling happens. */
+    var sugg = '';
+    if (suggest.length) {
+      sugg =
+        '<section class="feed feed--suggest">' +
+        '<div class="feed__head"><h3 class="feed__title">' + icon('bolt') + 'Suggested groups</h3>' +
+        '<span class="feed__note">Widest fitment in the catalogue</span></div>' +
+        rail('railSuggest', 'suggestrow', 'Suggested compatibility groups',
+             suggest.map(function (row) { return C.plate(row); }).join('')) +
+        '</section>';
+    }
+
+    if (onlyTrending || onlySuggest) {
+      res.innerHTML = (onlyTrending ? head : models + sugg) || '';
+      var shown = onlyTrending ? trending.length : suggest.length;
+      lm.innerHTML = shown
+        ? '<span class="t-xs muted">' + nf(shown) + ' of ' + nf(f.total) +
+          ' groups — switch to “All groups” for the rest</span>'
+        : '<span class="t-xs muted">Nothing to suggest for these filters</span>';
+      syncRails();
       return;
     }
 
     /* "All groups" is named only when something sits above it; on its own it
        is just the results, and a heading over the only section is noise. */
-    var restHead = trending.length
+    /* With a narrow filter the suggestion rows can hold everything there is,
+       and "All groups — 0 more" over an empty grid is a heading for nothing. */
+    var restHead = (trending.length || suggest.length)
       ? '<div class="feed__head feed__head--rest"><h3 class="feed__title">All groups</h3>' +
         '<span class="feed__note">' + nf(f.restTotal == null ? f.total : f.restTotal) + ' more</span></div>'
       : '';
 
-    res.innerHTML = head +
-      '<section class="feed">' + restHead +
-      '<div class="gridcards">' + f.rows.map(function (row) { return C.plate(row); }).join('') + '</div>' +
-      '</section>';
+    res.innerHTML = head + models + sugg +
+      (f.rows.length
+        ? '<section class="feed">' + restHead +
+          '<div class="gridcards">' + f.rows.map(function (row) { return C.plate(row); }).join('') + '</div>' +
+          '</section>'
+        : '');
 
     var left = (f.restTotal == null ? f.total : f.restTotal) - f.rows.length;
     lm.innerHTML = f.hasMore
       ? '<button class="btn btn--outline" data-act="more-groups">' + icon('plus') + 'Show more groups <span class="muted">(' + nf(Math.max(0, left)) + ' left)</span></button>'
-      : '<span class="t-xs muted">All ' + nf(f.total) + ' groups shown</span>';
+      : '<span class="t-xs muted">All ' + nf(f.total) + (f.total === 1 ? ' group' : ' groups') + ' shown</span>';
     observeMore();
+    syncRails();
+  }
+
+  /* An arrow is never left offering a direction there is nothing in, and a
+     carousel that fits entirely on screen shows no arrows at all. The listener
+     is bound once per row; the row survives until the next repaint, which
+     rebuilds it and rebinds. */
+  function syncRails() {
+    document.querySelectorAll('.rail').forEach(function (wrap) {
+      var row = wrap.querySelector('.trendrow, .suggestrow, .modelrow');
+      if (!row) return;
+      var prev = wrap.querySelector('.rail__nav--prev');
+      var next = wrap.querySelector('.rail__nav--next');
+      var update = function () {
+        var max = row.scrollWidth - row.clientWidth;
+        var x = row.scrollLeft;
+        if (prev) prev.disabled = x <= 2;
+        if (next) next.disabled = x >= max - 2;
+        wrap.classList.toggle('is-static', max <= 2);
+      };
+      if (!row.railBound) {
+        row.addEventListener('scroll', update, { passive: true });
+        row.railBound = true;
+      }
+      update();
+    });
   }
 
   /* the centre column scrolls on its own above 1180px and with the page below */
@@ -3513,6 +3609,16 @@
       case 'add-category':
         toast('Category management is coming soon', 'info');
         break;
+      /* Carousel arrows. Scrolls by very nearly a viewport rather than a fixed
+         number of cards, so the step matches whatever fits at this width and
+         one card is left on screen as an anchor. */
+      case 'rail': {
+        var railEl = document.getElementById(t.getAttribute('data-rail'));
+        if (!railEl) break;
+        var dir = t.getAttribute('data-dir') === '-1' ? -1 : 1;
+        railEl.scrollBy({ left: dir * Math.max(240, railEl.clientWidth * 0.86), behavior: 'smooth' });
+        break;
+      }
       /* Grid density. A view preference, so it repaints the category panel
          and nothing else — the filters, the results and the sidebar's scroll
          position are all untouched. Repainted in every rendered copy so the
