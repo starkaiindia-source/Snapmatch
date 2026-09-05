@@ -707,26 +707,52 @@
     return out;
   }
 
+  /* ONE rail card, for both rails below.
+
+     The phone version of the desktop tile, and the same idea: the picture is
+     the card. The name used to be printed under a 46px stamp and the count
+     under that, so two thirds of an already small card was type and the part
+     — the thing you actually recognise — was the smallest element on it.
+
+     Now the picture fills the card, the name appears only while the card is
+     being pressed, and the count shows on the SELECTED card alone: seven
+     numbers across a strip is a row of figures with no question attached,
+     while one number on the card you just chose is the answer to "how many".
+
+     Nothing is hidden from anyone who cannot see the reveal — the button's
+     aria-label always carries the name and the count in full. */
+  function railItem(o) {
+    var pending = o.count == null;
+    var aria = o.name + ' — ' + (pending ? 'counting' : nf(o.count) + ' ' + (o.count === 1 ? 'group' : 'groups'));
+    return '<button type="button" class="crail__item' + (o.on ? ' is-on' : '') +
+      (o.empty ? ' is-empty' : '') + '" ' +
+      'data-act="' + o.act + '" data-id="' + esc(o.id) + '"' +
+      (o.color ? ' style="--c:' + o.color + '"' : '') +
+      (o.empty ? ' disabled' : '') +
+      ' aria-pressed="' + (o.on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
+      '<span class="crail__art">' +
+      SM.art.category(o.id, 'pthumb--rail', o.name) +
+      '<span class="crail__veil" aria-hidden="true"></span>' +
+      '<span class="crail__name" aria-hidden="true">' + esc(o.name) + '</span>' +
+      '</span>' +
+      '<span class="crail__n" aria-hidden="true">' + (pending ? '…' : nf(o.count)) + '</span>' +
+      '</button>';
+  }
+
   /* Result-page rail: same look and behaviour as the home rail, ordered by
      the priority above and annotated with this model's group counts. */
   function resultRailHTML() {
     var f = state.finder;
     var avail = f.avail;
-    function item(id, name, count) {
-      var on = (id === 'all') ? !f.catId : f.catId === id;
-      var empty = count === 0;
-      return '<button type="button" class="crail__item' + (on ? ' is-on' : '') + (empty ? ' is-empty' : '') + '" ' +
-        'data-act="pick-cat-rail" data-id="' + id + '" aria-pressed="' + on + '"' + (empty ? ' disabled' : '') + '>' +
-        SM.art.category(id, 'pthumb--rail', name) +
-        '<span class="crail__name">' + esc(name) + '</span>' +
-        '<span class="crail__n">' + (count == null ? '&nbsp;' : count) + '</span>' +
-        '</button>';
-    }
     var total = avail ? Object.keys(avail).reduce(function (n, k) { return n + avail[k]; }, 0) : null;
     return '<div class="crail" role="group" aria-label="Part categories">' +
-      item('all', 'All Parts', total) +
+      railItem({ id: 'all', name: 'All Parts', count: total, on: !f.catId, act: 'pick-cat-rail' }) +
       resultCategories().map(function (c) {
-        return item(c.id, c.name, avail ? (avail[c.id] || 0) : null);
+        var n = avail ? (avail[c.id] || 0) : null;
+        return railItem({
+          id: c.id, name: c.name, count: n, color: c.color,
+          on: f.catId === c.id, empty: n === 0, act: 'pick-cat-rail'
+        });
       }).join('') +
       '</div>';
   }
@@ -734,18 +760,14 @@
   /* ---- horizontal product-category rail, directly under the main search ---- */
   function categoryRailHTML() {
     var sel = state.finder.filters.catId;
-    function item(id, name, count) {
-      var on = sel === id;
-      return '<button type="button" class="crail__item' + (on ? ' is-on' : '') + '" ' +
-        'data-act="filter-cat" data-id="' + id + '" aria-pressed="' + on + '">' +
-        SM.art.category(id, 'pthumb--rail', name) +
-        '<span class="crail__name">' + esc(name) + '</span>' +
-        '<span class="crail__n">' + count + '</span>' +
-        '</button>';
-    }
     return '<div class="crail" role="group" aria-label="Part categories">' +
-      item('all', 'All Parts', db.stats.groups) +
-      db.categories.map(function (c) { return item(c.id, c.name, c.groupCount); }).join('') +
+      railItem({ id: 'all', name: 'All Parts', count: db.stats.groups, on: sel === 'all', act: 'filter-cat' }) +
+      db.categories.map(function (c) {
+        return railItem({
+          id: c.id, name: c.name, count: c.groupCount, color: c.color,
+          on: sel === c.id, act: 'filter-cat'
+        });
+      }).join('') +
       '</div>';
   }
 
@@ -4513,6 +4535,13 @@
       if (state.theme === 'system') renderShellBits();
     });
   }
+  /* iOS Safari applies :active to a button on touch ONLY if the page has a
+     touch listener registered somewhere — a long-standing quirk. The category
+     rail reveals its label on :active, so without this the name would simply
+     never appear on an iPhone while working everywhere else. An empty passive
+     listener is the whole fix and costs nothing per touch. */
+  try { document.addEventListener('touchstart', function () {}, { passive: true }); } catch (e) { /* no touch */ }
+
   SM.art.mount();
   /* Point every category at its official logo. One call, before the first
      render, so no surface ever paints a drawn placeholder first and swaps. */

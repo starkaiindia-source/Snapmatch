@@ -193,7 +193,11 @@
 
    The fallback values are plain contain behaviour, which is what a category
    with no measurement — or the drawn SVG stand-in — should get. */
-.pthumb--tile img.pimg{
+/* The phone rail gets the identical treatment: its art box is 3:4 too, which
+   is the ratio the focus numbers were measured for, so the same three
+   variables place the part correctly at either size. */
+.pthumb--tile img.pimg,
+.crail__art .pthumb--rail img.pimg{
   position:absolute;
   width:var(--iw,100%); height:auto;
   /* The global img{max-width:100%} reset in styles.css caps an image at its
@@ -206,7 +210,8 @@
   object-fit:contain;
 }
 /* the drawn stand-in has no canvas margin to correct for */
-.pthumb--tile svg.pimg{ width:100%; height:100%; padding:8%; }
+.pthumb--tile svg.pimg,
+.crail__art .pthumb--rail svg.pimg{ width:100%; height:100%; padding:8%; }
 .pthumb--plate{ width:58px; height:58px; border-radius:12px; }
 
 /* Hover reveal. Only the bottom of the picture is shaded — enough to carry a
@@ -375,23 +380,70 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   scroll-snap-type:x proximity; scrollbar-width:none;
 }
 .crail::-webkit-scrollbar{ display:none; }
+/* The phone's category card. Same idea as the desktop tile — the picture IS
+   the card — at the size a thumb can hit. The card is the photograph's own
+   white rather than a translucent panel with a white stamp floating in it:
+   that stamp was the "white square" on the green band, and the way to remove
+   it is to stop having a card behind it. */
 .crail__item{
-  flex:none; width:78px; scroll-snap-align:start;
-  display:flex; flex-direction:column; align-items:center; gap:6px;
-  padding:8px 6px 7px; border-radius:var(--r-sm);
-  background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.17);
-  color:#fff; text-align:center;
-  transition:background .16s, border-color .16s, transform .16s cubic-bezier(.2,.8,.3,1);
+  --c:var(--teal-500);
+  flex:none; width:86px; scroll-snap-align:start;
+  display:block; position:relative;
+  padding:4px; border-radius:var(--r-sm);
+  background:var(--ctile-paper); border:1px solid rgba(255,255,255,.34);
+  color:#fff; text-align:left;
+  transition:border-color .16s, transform .16s cubic-bezier(.2,.8,.3,1), box-shadow .16s;
 }
-.crail__item:hover{ background:rgba(255,255,255,.18); }
 .crail__item:active{ transform:scale(.97); }
-.crail__name{ font-size:10.5px; font-weight:700; line-height:1.2; letter-spacing:-.005em; }
-.crail__n{ font-size:9px; font-weight:600; opacity:.72; font-variant-numeric:tabular-nums; }
+.crail__item:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+/* Selected is the category's own colour as a ring, matching the desktop
+   tiles — no tick, no shadow, nothing printed over the part. */
 .crail__item.is-on{
-  background:#fff; border-color:#fff; color:var(--teal-900);
-  box-shadow:0 6px 16px -8px rgba(0,0,0,.55);
+  border-color:var(--c); box-shadow:0 0 0 2px var(--c) inset;
 }
-.crail__item.is-on .crail__n{ opacity:.7; }
+.crail__art{
+  position:relative; display:block; width:100%; aspect-ratio:3/4;
+  border-radius:8px; overflow:hidden;
+}
+.crail__art .pthumb--rail{
+  position:absolute; inset:0; width:100%; height:100%;
+  border-radius:8px; border-color:transparent; padding:0;
+  background:var(--ctile-paper); box-shadow:none;
+}
+
+/* Name: only while the card is under a finger or a focus ring. Same overlay
+   and the same bottom fade as the desktop tile. */
+.crail__veil{
+  position:absolute; left:0; right:0; bottom:0; height:58%; pointer-events:none;
+  background:linear-gradient(to top, rgba(5,14,13,.9) 0%, rgba(5,14,13,.56) 42%, rgba(5,14,13,0) 100%);
+  opacity:0; transition:opacity .18s ease;
+}
+.crail__name{
+  position:absolute; left:5px; right:5px; bottom:4px; pointer-events:none;
+  font-size:10px; font-weight:700; line-height:1.15; letter-spacing:-.01em;
+  color:#FFFFFF; text-shadow:0 1px 2px rgba(0,0,0,.55);
+  opacity:0; transform:translateY(3px); transition:opacity .18s ease, transform .18s ease;
+  overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+/* :active is the touch equivalent of hover — it holds for as long as the
+   finger is down, which is exactly when the name is wanted. */
+.crail__item:active .crail__veil,
+.crail__item:focus-visible .crail__veil{ opacity:1; }
+.crail__item:active .crail__name,
+.crail__item:focus-visible .crail__name{ opacity:1; transform:none; }
+
+/* The count, on the SELECTED card only. Same floating pill as the desktop
+   tile — painted against the artwork, so it reads the same in both themes. */
+.crail__n{
+  position:absolute; top:1px; right:1px; z-index:2; pointer-events:none;
+  min-width:19px; height:17px; padding:0 5px; border-radius:99px;
+  display:grid; place-items:center;
+  font-size:9.5px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums;
+  background:rgba(9,20,18,.78); color:#FFFFFF; border:1px solid rgba(255,255,255,.22);
+  opacity:0; transform:translateY(-3px);
+  transition:opacity .18s ease, transform .18s ease;
+}
+.crail__item.is-on .crail__n{ opacity:1; transform:none; }
 .pthumb--rail{ width:46px; height:46px; }
 
 /* group filter — a plain row inside the Compatibility Groups section */
