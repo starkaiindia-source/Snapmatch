@@ -245,7 +245,15 @@
     registerCategory: function (id, url, fallbackUrl) {
       catImages[id] = { url: url, fallback: fallbackUrl || null };
     },
-    registerBrand: function (id, url) { SM.brandFiles[id] = url; },
+    /* Points a brand at its licensed logo file.
+       `fallbackUrl` is the SAME logo deployed with the site, tried once if the
+       primary does not load — so a slow or misconfigured bucket costs a request
+       rather than demoting the brand to a wordmark. */
+    registerBrand: function (id, url, fallbackUrl) {
+      SM.brandFiles[id] = url;
+      SM.brandFileFallbacks = SM.brandFileFallbacks || {};
+      if (fallbackUrl && fallbackUrl !== url) SM.brandFileFallbacks[id] = fallbackUrl;
+    },
 
     /* categoryId -> product render, wrapped in a light product thumbnail */
     /* THE one place a category picture is resolved. Every surface — the finder

@@ -27,6 +27,7 @@ const JS = [
   'src/ui/icons.js',
   'src/ui/product-art.js',
   'src/data/category-assets.js',
+  'src/data/brand-assets.js',
   'src/ui/components.js',
   'src/app.js'
 ];

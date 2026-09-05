@@ -47,6 +47,19 @@ service firebase.storage {
       allow write: if false;
     }
 
+    /* Manufacturer logos, one per brand, shown on the brand rail and anywhere
+       a brand is named. Same shape and same reasoning as the category logos
+       above: public to read, closed to every client for writing, uploaded by
+       scripts/upload-brand-assets.js through the Admin SDK.
+
+       These are trademarks used nominatively — to say which manufacturer a part
+       fits — which is what a parts catalogue is for. A signed URL would expire
+       inside pre-rendered, CDN-cached HTML and the logos would stop appearing. */
+    match /brand-assets/{brand}/{file} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     /* Anything outside a user's own profile folder is closed. */
     match /{allPaths=**} {
       allow read, write: if false;

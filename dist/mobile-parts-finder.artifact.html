@@ -80,6 +80,29 @@
   /* light ground product renders sit on, in both themes */
   --pthumb-bg: #FFFFFF;
   --pthumb-line: var(--line);
+
+  /* --- brand chip treatments ------------------------------------------------
+     Three ways a brand logo is painted, all derived from ONE value: --bmk, the
+     brand's own official colour, set per element. Which treatment a brand gets
+     is decided in src/data/brand-assets.js, never in a component.
+
+       tint   a pale wash of the brand colour, mark in that colour   (default)
+       solid  the brand colour fills the chip, mark reversed to white
+       mono   neutral chip, mark in the theme's ink — for identities that are
+              black or white and would otherwise vanish in one theme
+
+     Only these tokens change between light and dark, so every treatment is
+     defined for both themes by construction and none of them can end up as
+     dark-on-dark. Percentages, not colours: the brand hex stays the source. */
+  --blogo-bg-mix: 11%;         /* brand colour in the tinted chip */
+  --blogo-bg-base: #FFFFFF;
+  --blogo-edge: 26%;           /* brand colour in the hairline */
+  --blogo-ink-mix: 100%;       /* how much of the brand colour the mark keeps */
+  --blogo-ink-base: #FFFFFF;
+  --blogo-solid-mix: 100%;     /* brand colour in a solid chip */
+  --blogo-solid-base: #FFFFFF;
+  --blogo-neutral-bg: #F2F7F5;
+  --blogo-neutral-ink: #131F1D;
   --glow-brand:   0 10px 34px -10px rgba(15,118,110,.55);
   --glow-amber:   0 10px 30px -10px rgba(228,113,28,.5);
 
@@ -121,6 +144,11 @@
     --ok:#3DD6A8; --warn:#F5B851; --bad:#FF7B80;
     --grad-bench: linear-gradient(160deg,#062522 0%,#083C36 45%,#0B5A52 100%);
     --pthumb-bg:#E9F0EE; --pthumb-line:rgba(255,255,255,.14);
+    /* brand chips: the wash deepens, the mark lightens, the solids calm down */
+    --blogo-bg-mix:24%; --blogo-bg-base:#0B1816; --blogo-edge:42%;
+    --blogo-ink-mix:52%; --blogo-ink-base:#FFFFFF;
+    --blogo-solid-mix:84%; --blogo-solid-base:#09110F;
+    --blogo-neutral-bg:#182A27; --blogo-neutral-ink:#E8F2EF;
     --grad-header:
       radial-gradient(1100px 340px at 70% -120px, rgba(18,196,160,.24), transparent 68%),
       linear-gradient(180deg, rgba(255,255,255,.04) 0%, rgba(0,0,0,.34) 100%),
@@ -143,6 +171,11 @@
   --ok:#3DD6A8; --warn:#F5B851; --bad:#FF7B80;
   --grad-bench: linear-gradient(160deg,#062522 0%,#083C36 45%,#0B5A52 100%);
   --pthumb-bg:#E9F0EE; --pthumb-line:rgba(255,255,255,.14);
+  /* brand chips: the wash deepens, the mark lightens, the solids calm down */
+  --blogo-bg-mix:24%; --blogo-bg-base:#0B1816; --blogo-edge:42%;
+  --blogo-ink-mix:52%; --blogo-ink-base:#FFFFFF;
+  --blogo-solid-mix:84%; --blogo-solid-base:#09110F;
+  --blogo-neutral-bg:#182A27; --blogo-neutral-ink:#E8F2EF;
   --grad-header:
     radial-gradient(1100px 340px at 70% -120px, rgba(18,196,160,.24), transparent 68%),
     linear-gradient(180deg, rgba(255,255,255,.04) 0%, rgba(0,0,0,.34) 100%),
@@ -542,44 +575,71 @@ ul{ margin:0; padding:0; list-style:none; }
 .sug__go{ color:var(--ink-3); flex:none; }
 .sug__go svg{ width:16px; height:16px; }
 
+/* ---- brand chips --------------------------------------------------------
+   THE BOUNDING BOX, not the logo, is what is consistent. Every chip is the
+   same size in a given context; what goes inside it is contained, never
+   stretched — so a wide wordmark stays wide, a square mark stays square, and
+   the rail still lines up. The box is slightly wider than tall for exactly
+   that reason: most manufacturer logos are wordmarks. */
 .blogo{
-  width:38px; height:38px; border-radius:11px; flex:none; display:grid; place-items:center;
+  --bmk:#0E7A6C;
+  width:42px; height:38px; border-radius:11px; flex:none;
+  display:grid; place-items:center; overflow:hidden;
   font-family:var(--f-display); font-weight:800; font-size:14px; color:#fff; letter-spacing:-.02em;
+  transition:background .16s, border-color .16s, color .16s;
 }
-.blogo--lg{ width:56px; height:56px; border-radius:var(--r); font-size:20px; }
-.blogo--sm{ width:28px; height:28px; border-radius:8px; font-size:11px; }
-/* container for a real logo file — keeps aspect ratio, never stretches */
-.blogo--img{ background:#fff; border:1px solid var(--line); padding:3px; }
+.blogo--lg{ width:62px; height:56px; border-radius:var(--r); font-size:20px; }
+.blogo--sm{ width:32px; height:28px; border-radius:8px; font-size:11px; }
+/* the brand rail on the finder: the one place a logo is the subject rather
+   than a marker beside a name, so it gets the room to actually be read */
+.blogo--rail{ width:48px; height:40px; border-radius:10px; }
+
+/* Logo artwork fills its box generously — the old chips gave 8px of padding to
+   a 28px square and left 16px of logo, which is why Motorola looked like a
+   speck. Padding stays absolute, never a percentage: percentage padding
+   resolves against the CONTAINING BLOCK's width, not the chip's, which on a
+   wide card swallowed the whole chip and left the logo 0px tall. */
+.blogo--img,.blogo--mark,.blogo--word{ padding:4px; }
+.blogo--lg.blogo--img,.blogo--lg.blogo--mark,.blogo--lg.blogo--word{ padding:8px; }
+.blogo--sm.blogo--img,.blogo--sm.blogo--mark,.blogo--sm.blogo--word{ padding:3px; }
+.blogo--rail.blogo--img,.blogo--rail.blogo--mark,.blogo--rail.blogo--word{ padding:4px; }
+
 .blogo--img img{ width:100%; height:100%; object-fit:contain; display:block; }
-
-/* Official vector mark. The chip stays light in BOTH themes — brand colours are
-   specified against white, so reproducing them on a dark ground would misrender
-   the brand and sink the dark marks (Apple, Honor, Asus) into the page. */
-.blogo--mark{
-  background:var(--pthumb-bg); border:1px solid var(--line);
-  padding:8px; color:var(--bmk);
+/* No width/height attributes on these — the box is the bound and the SVG's own
+   preserveAspectRatio contains the artwork inside it. */
+.blogo--mark svg,.blogo--word svg{ width:100%; height:100%; display:block; }
+.blogo--mark svg path{ fill:currentColor; }
+.blogo--word text{
+  font-family:var(--f-display); font-weight:800; letter-spacing:-.02em; fill:currentColor;
 }
-/* Padding must be absolute, not a percentage: percentage padding resolves
-   against the CONTAINING BLOCK's width, not the chip's, so on a wide card it
-   swallowed the whole 38px chip and left the logo 0px tall. */
-.blogo--mark.blogo--lg{ padding:12px; }
-.blogo--mark.blogo--sm{ padding:6px; }
-.blogo--mark svg{ width:100%; height:100%; display:block; fill:var(--bmk); }
 
-/* Wordmark shown only for a brand with no official mark available. Set in the
-   display face rather than faked as a logo, so it reads as a name, not a badge
-   pretending to be someone's identity. */
-.blogo--word{
-  background:var(--pthumb-bg); border:1px solid var(--line);
-  /* The chip is light in BOTH themes (see .blogo--mark), so the text must be a
-     fixed dark — var(--ink) is near-white in dark mode and rendered these
-     wordmarks at 1.01:1, i.e. completely invisible. */
-  color:#16211F; font-family:var(--f-display); font-weight:800;
-  font-size:11px; letter-spacing:-.03em; padding:0 4px; text-align:center;
-  line-height:1.05; overflow:hidden; word-break:break-word; hyphens:auto;
+/* --- the three treatments, both themes ---------------------------------- */
+/* tint: a pale wash of the brand's own colour, mark in that colour. The
+   default, and what most brands should be — a rail of saturated blocks is not
+   a product, it is a bag of sweets. */
+.blogo--tint{
+  background:color-mix(in srgb, var(--bmk) var(--blogo-bg-mix), var(--blogo-bg-base));
+  border:1px solid color-mix(in srgb, var(--bmk) var(--blogo-edge), transparent);
+  color:color-mix(in srgb, var(--bmk) var(--blogo-ink-mix), var(--blogo-ink-base));
 }
-.blogo--word.blogo--lg{ font-size:14px; }
-.blogo--word.blogo--sm{ font-size:8.5px; letter-spacing:-.02em; }
+/* solid: the brand colour IS the identity — OnePlus red, Nokia blue, Huawei
+   red — so the chip carries it and the mark reverses out in white. */
+.blogo--solid{
+  background:color-mix(in srgb, var(--bmk) var(--blogo-solid-mix), var(--blogo-solid-base));
+  border:1px solid color-mix(in srgb, var(--bmk) 70%, transparent);
+  color:#FFFFFF;
+}
+/* mono: monochrome identities (Apple, Honor, ASUS, Nothing, Sony). Their
+   official colour is black or white, so it is the THEME's ink that keeps them
+   visible — a black Apple mark on a black page is not a brand treatment. */
+.blogo--mono{
+  background:var(--blogo-neutral-bg); border:1px solid var(--line);
+  color:var(--blogo-neutral-ink);
+}
+/* A logo file is someone else's artwork with its own ground baked in, so it
+   gets a plain light chip in both themes rather than a tint that would fight
+   whatever is inside the file. */
+.blogo--img{ background:var(--pthumb-bg); border:1px solid var(--line); }
 
 /* history marker for recent-search rows in the dropdown */
 .sug__hist{
@@ -706,24 +766,42 @@ ul{ margin:0; padding:0; list-style:none; }
 .selmodel .t-h3{ font-size:clamp(16px,2.4vw,20px); line-height:1.22; }
 @media (max-width:520px){
   .selmodel{ padding:12px; gap:10px; }
-  .selmodel .blogo--lg{ width:44px; height:44px; }
+  .selmodel .blogo--lg{ width:50px; height:44px; }
 }
 
 /* a category this model has no group in: still in its place, plainly off */
 .ctile.is-empty{ opacity:.4; pointer-events:none; }
-.ctile.is-empty .ctile__n{ color:var(--ink-3); }
 
-/* --------- LEFT: image-first category gallery, 3 up ----------------------- */
-.ctiles{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+/* --------- LEFT: image-first category gallery, 3 up -----------------------
+   The picture is the tile. Every cell is the same square, always three to a
+   row — including the last real category, which used to stretch to full width
+   and broke the grid's rhythm the moment Battery happened to be last. The "+"
+   slot is an ordinary cell, so adding a category cannot change the shape of
+   the ones already there.
+
+   The name is not printed under the picture. Seven tiles each captioned with
+   its own name and the word "groups" is a wall of text over a gallery; the
+   name appears on hover, over the lower edge of its own image, and lives in
+   the button's aria-label the rest of the time so nothing is hidden from a
+   screen reader or a keyboard. */
+.ctiles{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
 @media (max-width:359px){ .ctiles{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .ctile{
   --c:var(--teal-500);
-  position:relative; display:flex; flex-direction:column; align-items:center; gap:7px;
-  padding:10px 5px 9px; text-align:center; border-radius:var(--r-sm);
+  position:relative; display:block; padding:4px; border-radius:var(--r-sm);
   border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
-  transition:transform .16s cubic-bezier(.2,.8,.3,1), border-color .16s, background .16s, box-shadow .16s;
+  transition:transform .18s cubic-bezier(.2,.8,.3,1), border-color .18s, background .18s, box-shadow .18s;
 }
 .ctile:hover{ transform:translateY(-2px); border-color:var(--c); box-shadow:var(--sh-1); }
+.ctile:focus-visible{ outline:2px solid var(--teal-600); outline-offset:2px; }
+
+/* the image area — and the positioning context the overlay and the badge
+   are measured against */
+.ctile__art{
+  position:relative; display:block; width:100%; aspect-ratio:1/1;
+  border-radius:9px; overflow:hidden;
+}
+
 /* ---- product renders (one system: category tiles + group cards) ---------- */
 .pthumb{
   display:grid; place-items:center; flex:none; overflow:hidden;
@@ -731,30 +809,90 @@ ul{ margin:0; padding:0; list-style:none; }
   box-shadow:inset 0 -6px 12px -8px rgba(10,21,18,.18);
 }
 .pimg{ width:100%; height:100%; display:block; object-fit:contain; }
-.pthumb--tile{ width:100%; aspect-ratio:1/1; max-width:56px; height:auto; border-radius:9px; }
-.pthumb--plate{ width:58px; height:58px; border-radius:12px; }
-.ctile__foot{ display:block; min-width:0; width:100%; }
-.ctile__name{ display:block; font-size:10.5px; font-weight:700; letter-spacing:-.008em; line-height:1.2; }
-.ctile__n{ display:block; font-size:9px; font-weight:600; color:var(--ink-3); margin-top:2px; font-variant-numeric:tabular-nums; }
-.ctile__tick{ position:absolute; top:6px; right:6px; color:var(--c); }
-.ctile__tick svg{ width:13px; height:13px; }
-
-/* the catch-all category gets a full-width horizontal row of its own */
-.ctile--wide{
-  grid-column:1 / -1; flex-direction:row; align-items:center; text-align:left;
-  gap:11px; padding:8px 11px;
+/* Fills its cell instead of sitting as a 56px stamp in the middle of one. The
+   small inset is breathing room, not a frame — contain still governs, so
+   nothing is cropped or stretched to get there. */
+.pthumb--tile{
+  position:absolute; inset:0; width:100%; height:100%; max-width:none;
+  border-radius:9px; border-color:transparent; padding:5%;
 }
-.ctile--wide .pthumb--tile{ width:42px; max-width:42px; flex:none; }
-.ctile--wide .ctile__foot{ flex:1; }
-.ctile--wide .ctile__name{ font-size:12px; }
-.ctile--wide .ctile__n{ font-size:10px; }
-.ctile--wide .ctile__tick{ top:50%; right:10px; transform:translateY(-50%); }
+.pthumb--plate{ width:58px; height:58px; border-radius:12px; }
+
+/* Hover reveal. Only the bottom of the picture is shaded — enough to carry a
+   line of text, not a curtain over the thing the tile is for. */
+.ctile__veil{
+  position:absolute; left:0; right:0; bottom:0; height:56%; pointer-events:none;
+  background:linear-gradient(to top, rgba(5,14,13,.88) 0%, rgba(5,14,13,.55) 42%, rgba(5,14,13,0) 100%);
+  opacity:0; transition:opacity .2s ease;
+}
+.ctile__name{
+  position:absolute; left:6px; right:6px; bottom:5px; pointer-events:none;
+  font-size:10.5px; font-weight:700; line-height:1.15; letter-spacing:-.01em;
+  color:#FFFFFF; text-align:left; text-shadow:0 1px 2px rgba(0,0,0,.5);
+  opacity:0; transform:translateY(4px); transition:opacity .2s ease, transform .2s ease;
+  overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+.ctile:hover .ctile__veil,
+.ctile:focus-visible .ctile__veil,
+.ctile.is-on .ctile__veil{ opacity:1; }
+.ctile:hover .ctile__name,
+.ctile:focus-visible .ctile__name,
+.ctile.is-on .ctile__name{ opacity:1; transform:none; }
+
+/* Without a pointer there is no hover, and the name would be unreachable —
+   so on touch it simply stays on, a little softer. */
+@media (hover:none){
+  .ctile__veil{ opacity:.92; }
+  .ctile__name{ opacity:1; transform:none; }
+}
+
+/* The count, as a floating badge and nothing else — the number, never the
+   word. It sits ON the picture, and the product ground is pale in BOTH themes
+   (--pthumb-bg), so it is painted against the artwork rather than the page: a
+   dark translucent pill reads the same in light and dark, where a surface
+   token would have gone white-on-white in one of them. */
+.ctile__n{
+  position:absolute; top:2px; right:2px; z-index:2; pointer-events:none;
+  min-width:20px; height:18px; padding:0 5px; border-radius:99px;
+  display:grid; place-items:center;
+  font-size:10px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums;
+  background:rgba(9,20,18,.74); color:#FFFFFF; border:1px solid rgba(255,255,255,.2);
+  box-shadow:0 1px 3px rgba(10,21,18,.28);
+  transition:background .18s, color .18s, border-color .18s, transform .18s;
+}
+.ctile:hover .ctile__n,
+.ctile:focus-visible .ctile__n,
+.ctile.is-on .ctile__n{
+  background:var(--c); color:#FFFFFF; border-color:var(--c); transform:scale(1.06);
+}
+.ctile.is-empty .ctile__n{ background:rgba(9,20,18,.42); }
+/* the "+" slot has no picture behind it, so its badge area follows the page */
+.ctile--add .ctile__n{ background:var(--surface-3); color:var(--ink-3); border-color:var(--line); }
+.ctile__tick{
+  position:absolute; left:5px; top:5px; z-index:2; color:#FFFFFF;
+  background:var(--c); border-radius:99px; padding:2px; display:grid; place-items:center;
+  box-shadow:0 1px 3px rgba(10,21,18,.25);
+}
+.ctile__tick svg{ width:11px; height:11px; }
+
 .ctile.is-on{
   background:color-mix(in srgb,var(--c) 11%,var(--surface));
   border-color:var(--c); box-shadow:0 0 0 1px var(--c) inset;
 }
-.ctile.is-on .ctile__name{ color:color-mix(in srgb,var(--c) 72%,var(--ink)); }
-.ctile.is-on .pthumb{ border-color:color-mix(in srgb,var(--c) 55%,var(--line)); }
+
+/* The "+" slot: the same cell, plainly empty. A dashed edge says "nothing here
+   yet" without borrowing the weight of a real category. */
+.ctile--add{ background:transparent; border-style:dashed; color:var(--ink-3); }
+.ctile--add:hover{ border-color:var(--teal-600); color:var(--teal-700); background:var(--teal-050); }
+.ctile--add .ctile__art{
+  display:grid; place-items:center; gap:3px; align-content:center;
+}
+.ctile__plus{ display:grid; place-items:center; }
+.ctile__plus svg{ width:20px; height:20px; }
+.ctile__name--add{
+  position:static; opacity:1; transform:none; text-align:center;
+  color:currentColor; text-shadow:none; font-size:10px; font-weight:700;
+}
 
 /* ---------------- RIGHT: brand explorer ---------------------------------- */
 .brandsearch{ margin-bottom:9px; }
@@ -775,8 +913,12 @@ ul{ margin:0; padding:0; list-style:none; }
 .brow--empty:hover{ opacity:.85; }
 
 .brows{ display:flex; flex-direction:column; gap:2px; }
+/* The logo is the subject of this row, so the row is sized around it rather
+   than around the text. It used to give the mark a 28px chip with 6px of
+   padding — 16px of actual logo, which is why Motorola read as a speck and
+   Huawei as unidentifiable grey text. */
 .brow{
-  display:flex; align-items:center; gap:9px; width:100%; padding:6px 8px;
+  display:flex; align-items:center; gap:10px; width:100%; padding:5px 7px;
   border-radius:var(--r-xs); text-align:left; border:1px solid transparent;
   transition:background .14s, border-color .14s, color .14s;
 }
@@ -784,10 +926,10 @@ ul{ margin:0; padding:0; list-style:none; }
 .brow__n{ font-size:13.5px; font-weight:700; letter-spacing:-.012em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .brow__c{ margin-left:auto; font-family:var(--f-mono); font-size:11px; color:var(--ink-3); flex:none; }
 .brow__all{
-  width:28px; height:28px; border-radius:8px; display:grid; place-items:center; flex:none;
+  width:48px; height:40px; border-radius:10px; display:grid; place-items:center; flex:none;
   background:var(--surface-3); color:var(--ink-3);
 }
-.brow__all svg{ width:15px; height:15px; }
+.brow__all svg{ width:17px; height:17px; }
 .brow.is-on{ background:var(--teal-050); border-color:var(--teal-100); }
 .brow.is-on .brow__n,.brow.is-on .brow__c{ color:var(--teal-700); }
 .brow.is-on .brow__all{ background:var(--grad-brand); color:#fff; }
@@ -2485,43 +2627,45 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 /* ============================================================================
    Mobile Parts Finder · brand-marks.js — official brand marks, inline
    ----------------------------------------------------------------------------
+   GENERATED. Do not edit by hand — run: node scripts/build-brand-marks.js
+
    Vector paths for the brand logos, embedded rather than fetched. Inlining
    them means a logo cannot fail to load, cannot leak a request to a third
-   party, and stays crisp at any size — a brand rail of 27 logos costs zero
-   network requests.
+   party, and stays crisp at any size — the whole brand rail costs zero network
+   requests and paints with the first frame.
 
    SOURCE AND LICENCE
-     Paths come from Simple Icons (https://simpleicons.org), released under
-     CC0-1.0 — public domain. The logos themselves remain the trademarks of
-     their owners and are used here nominatively, to identify which
-     manufacturer a part fits. That is what a parts catalogue is for.
+     Simple Icons (https://simpleicons.org), CC0-1.0 — public domain. The logos
+     remain the trademarks of their owners and are used nominatively, to
+     identify which manufacturer a part fits.
 
    BRANDS WITHOUT A MARK
-     Simple Icons has no logo for the brands listed in REVIEW below. Rather
-     than draw an approximation — which would be a wrong logo, worse than
-     none — those brands fall back to a typeset wordmark and are listed for
-     review. Drop a licensed file in with SM.art.registerBrand(id, url) and it
-     takes precedence over everything here.
+     Simple Icons carries no logo for the ids in SM.brandMarksReview. They are
+     not approximated here: a drawn-from-memory logo is a WRONG logo, and that
+     is worse than none. Those brands render as a full wordmark in their own
+     official colour, and are the reason src/data/brand-assets.js exists — drop
+     a licensed file in Firebase Storage and it takes precedence over
+     everything in this file.
 
    COLOUR
-     `h` is the brand’s own hex. Marks sit on the light product chip in BOTH
-     themes, so brand colour reproduces accurately and a dark logo never
-     disappears against a dark page. Sony’s official white was substituted
-     with near-black for exactly that reason — flagged as `adj`.
+     `h` is the brand’s own hex, and `adj` marks a substitution made because
+     the published colour is unusable on a pale logo chip (Sony publishes
+     white). src/data/brand-assets.js decides how that colour is PRESENTED per
+     theme; this file only records what it is.
 
-   Regenerate: node scripts/build-brand-marks.js
+   Generated 2026-09-05T09:10:39.877Z
    ========================================================================== */
 (function (global) {
   'use strict';
   var SM = (global.SM = global.SM || {});
 
   /* id: { t: title, h: hex, p: path, adj: colour was substituted } */
-  SM.brandMarks = {"samsung":{"t":"Samsung","h":"1428A0","p":"M19.8166 10.2808l.0459 2.6934h-.023l-.7793-2.6934h-1.2837v3.3925h.8481l-.0458-2.785h.023l.8366 2.785h1.2264v-3.3925zm-16.149 0l-.6418 3.427h.9284l.4699-3.1175h.0229l.4585 3.1174h.9169l-.6304-3.4269zm5.1805 0l-.424 2.6132h-.023l-.424-2.6132H6.5788l-.0688 3.427h.8596l.023-3.0832h.0114l.573 3.0831h.8711l.5731-3.083h.023l.0228 3.083h.8596l-.0802-3.4269zm-7.2664 2.4527c.0343.0802.0229.1949.0114.2522-.0229.1146-.1031.2292-.3324.2292-.2177 0-.3438-.126-.3438-.3095v-.3323H0v.2636c0 .7679.6074.9971 1.2493.9971.6189 0 1.1346-.2178 1.2149-.7794.0458-.298.0114-.4928 0-.5616-.1605-.722-1.467-.9283-1.5588-1.3295-.0114-.0688-.0114-.1375 0-.1834.023-.1146.1032-.2292.3095-.2292.2063 0 .321.126.321.3095v.2063h.8595v-.2407c0-.745-.6762-.8596-1.1576-.8596-.6074 0-1.1117.2063-1.2034.7564-.023.149-.0344.2866.0114.4585.1376.7106 1.364.9169 1.5358 1.3524m11.152 0c.0343.0803.0228.1834.0114.2522-.023.1146-.1032.2292-.3324.2292-.2178 0-.3438-.126-.3438-.3095v-.3323h-.917v.2636c0 .7564.596.9857 1.2379.9857.6189 0 1.1232-.2063 1.2034-.7794.0459-.298.0115-.4814 0-.5616-.1375-.7106-1.4327-.9284-1.5243-1.318-.0115-.0688-.0115-.1376 0-.1835.0229-.1146.1031-.2292.3094-.2292.1948 0 .321.126.321.3095v.2063h.848v-.2407c0-.745-.6647-.8596-1.146-.8596-.6075 0-1.1004.1948-1.192.7564-.023.149-.023.2866.0114.4585.1376.7106 1.341.9054 1.513 1.3524m2.8882.4585c.2407 0 .3094-.1605.3323-.2522.0115-.0343.0115-.0917.0115-.126v-2.533h.871v2.4642c0 .0688 0 .1948-.0114.2292-.0573.6419-.5616.8482-1.192.8482-.6303 0-1.1346-.2063-1.192-.8482 0-.0344-.0114-.1604-.0114-.2292v-2.4642h.871v2.533c0 .0458 0 .0916.0115.126 0 .0917.0688.2522.3095.2522m7.1518-.0344c.2522 0 .3324-.1605.3553-.2522.0115-.0343.0115-.0917.0115-.126v-.4929h-.3553v-.5043H24v.917c0 .0687 0 .1145-.0115.2292-.0573.6303-.596.8481-1.2034.8481-.6075 0-1.1461-.2178-1.2034-.8481-.0115-.1147-.0115-.1605-.0115-.2293v-1.444c0-.0574.0115-.172.0115-.2293.0802-.6419.596-.8482 1.2034-.8482s1.1347.2063 1.2034.8482c.0115.1031.0115.2292.0115.2292v.1146h-.8596v-.1948s0-.0803-.0115-.1261c-.0114-.0802-.0802-.2521-.3438-.2521-.2521 0-.321.1604-.3438.2521-.0115.0458-.0115.1032-.0115.1605v1.5702c0 .0458 0 .0916.0115.126 0 .0917.0917.2522.3323.2522"},"apple":{"t":"Apple","h":"000000","p":"M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"},"vivo":{"t":"vivo","h":"415FFF","p":"M19.604 14.101c-1.159 0-1.262-.95-1.262-1.24 0-.29.103-1.242 1.262-1.242h2.062c1.16 0 1.263.951 1.263 1.242 0 .29-.104 1.24-1.263 1.24m-2.062-3.527c-2.142 0-2.333 1.752-2.333 2.287 0 .535.19 2.286 2.333 2.286h2.062c2.143 0 2.334-1.751 2.334-2.286 0-.535-.19-2.287-2.334-2.287m-5.477.107c-.286 0-.345.05-.456.213-.11.164-2.022 3.082-2.022 3.082-.06.09-.126.126-.206.126-.08 0-.145-.036-.206-.126 0 0-1.912-2.918-2.022-3.082-.11-.164-.17-.213-.456-.213h-.668c-.154 0-.224.12-.127.267l2.283 3.467c.354.521.614.732 1.196.732s.842-.21 1.196-.732l2.284-3.467c.096-.146.026-.267-.128-.267m-8.876.284c0-.203.08-.284.283-.284h.505c.203 0 .283.08.283.283v3.9c0 .202-.08.283-.283.283h-.505c-.203 0-.283-.08-.283-.283zm-1.769-.285c-.287 0-.346.05-.456.213-.11.164-2.022 3.082-2.022 3.082-.061.09-.126.126-.206.126-.08 0-.145-.036-.206-.126 0 0-1.912-2.918-2.023-3.082-.11-.164-.169-.213-.455-.213H.175c-.171 0-.224.12-.127.267l2.283 3.467c.355.521.615.732 1.197.732.582 0 .842-.21 1.196-.732l2.283-3.467c.097-.146.044-.267-.127-.267m1.055-.893c-.165-.164-.165-.295 0-.46l.351-.351c.165-.165.296-.165.46 0l.352.351c.165.165.165.296 0 .46l-.352.352c-.164.165-.295.165-.46 0z"},"oppo":{"t":"OPPO","h":"2D683D","p":"M2.85 12.786h-.001C1.639 12.774.858 12.2.858 11.321s.781-1.452 1.99-1.465c1.21.013 1.992.588 1.992 1.465s-.782 1.453-1.99 1.465zm.034-3.638h-.073C1.156 9.175 0 10.068 0 11.32s1.156 2.147 2.811 2.174h.073c1.655-.027 2.811-.921 2.811-2.174S4.54 9.175 2.885 9.148zm18.27 3.638c-1.21-.012-1.992-.587-1.992-1.465s.782-1.452 1.991-1.465c1.21.013 1.991.588 1.991 1.465s-.781 1.453-1.99 1.465zm.035-3.638h-.073c-1.655.027-2.811.92-2.811 2.173s1.156 2.147 2.81 2.174h.074C22.844 13.468 24 12.574 24 11.32s-1.156-2.146-2.811-2.173zm-6.126 3.638c-1.21-.012-1.99-.587-1.99-1.465s.78-1.452 1.99-1.465c1.21.013 1.991.588 1.991 1.465s-.781 1.453-1.99 1.465zm.036-3.638h-.073c-.789.013-1.464.222-1.955.574v-.37h-.857v5.5h.857v-1.931c.49.351 1.166.56 1.954.574h.074c1.655-.027 2.81-.921 2.81-2.174s-1.155-2.146-2.81-2.173zm-6.144 3.638c-1.21-.012-1.99-.587-1.99-1.465s.78-1.452 1.99-1.465c1.21.013 1.991.588 1.991 1.465s-.781 1.453-1.99 1.465zm.037-3.638H8.92c-.789.013-1.464.222-1.955.574v-.37h-.856v5.5h.856v-1.931c.491.351 1.166.56 1.955.574a3.728 3.728 0 0 0 .073 0c1.655-.027 2.811-.921 2.811-2.174s-1.156-2.146-2.81-2.173z"},"xiaomi":{"t":"Xiaomi","h":"FF6900","p":"M12 0C8.016 0 4.756.255 2.493 2.516.23 4.776 0 8.033 0 12.012c0 3.98.23 7.235 2.494 9.497C4.757 23.77 8.017 24 12 24c3.983 0 7.243-.23 9.506-2.491C23.77 19.247 24 15.99 24 12.012c0-3.984-.233-7.243-2.502-9.504C19.234.252 15.978 0 12 0zM4.906 7.405h5.624c1.47 0 3.007.068 3.764.827.746.746.827 2.233.83 3.676v4.54a.15.15 0 0 1-.152.147h-1.947a.15.15 0 0 1-.152-.148V11.83c-.002-.806-.048-1.634-.464-2.051-.358-.36-1.026-.441-1.72-.458H7.158a.15.15 0 0 0-.151.147v6.98a.15.15 0 0 1-.152.148H4.906a.15.15 0 0 1-.15-.148V7.554a.15.15 0 0 1 .15-.149zm12.131 0h1.949a.15.15 0 0 1 .15.15v8.892a.15.15 0 0 1-.15.148h-1.949a.15.15 0 0 1-.151-.148V7.554a.15.15 0 0 1 .151-.149zM8.92 10.948h2.046c.083 0 .15.066.15.147v5.352a.15.15 0 0 1-.15.148H8.92a.15.15 0 0 1-.152-.148v-5.352a.15.15 0 0 1 .152-.147Z"},"oneplus":{"t":"OnePlus","h":"F5010C","p":"M0 3.74V24h20.26V12.428h-2.256v9.317H2.254V5.995h9.318V3.742zM18.004 0v3.74h-3.758v2.256h3.758v3.758h2.255V5.996H24V3.74h-3.758V0zm-6.45 18.756V8.862H9.562c0 .682-.228 1.189-.577 1.504-.367.297-.91.437-1.556.437h-.245v1.625h2.133v6.31h2.237z"},"motorola":{"t":"Motorola","h":"E1140A","p":"M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12C24.002 5.375 18.632.002 12.007 0H12zm7.327 18.065s-.581-2.627-1.528-4.197c-.514-.857-1.308-1.553-2.368-1.532-.745 0-1.399.423-2.2 1.553-.469.77-.882 1.573-1.235 2.403 0 0-.29-.675-.63-1.343a8.038 8.038 0 0 0-.605-1.049c-.804-1.13-1.455-1.539-2.2-1.553-1.049-.021-1.854.675-2.364 1.528-.948 1.574-1.528 4.197-1.528 4.197h-.864l4.606-15.12 3.56 11.804.024.021.024-.021 3.56-11.804 4.61 15.113h-.862z"},"nokia":{"t":"Nokia","h":"005AFF","p":"M16.59 9.348v5.304h.796V9.348Zm-8.497-.09c-1.55 0-2.752 1.127-2.752 2.742 0 1.687 1.202 2.742 2.752 2.742 1.55 0 2.754-1.055 2.751-2.742a2.72 2.72 0 0 0-2.751-2.742ZM10.05 12c0 1.195-.876 1.987-1.957 1.987-1.082 0-1.958-.792-1.958-1.987 0-1.174.876-1.987 1.958-1.987 1.08 0 1.957.813 1.957 1.987zM0 9.176v5.476h.812v-3.619l4.218 3.79v-1.135zM11.442 12l2.952 2.652h1.184L12.622 12l2.956-2.652h-1.184ZM24 14.652h-.875l-.64-1.175h-2.898l-.64 1.175h-.875l1.06-1.958h2.937l-1.465-2.72.432-.798Z"},"google":{"t":"Google","h":"4285F4","p":"M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"},"huawei":{"t":"Huawei","h":"FF0000","p":"M3.67 6.14S1.82 7.91 1.72 9.78v.35c.08 1.51 1.22 2.4 1.22 2.4 1.83 1.79 6.26 4.04 7.3 4.55 0 0 .06.03.1-.01l.02-.04v-.04C7.52 10.8 3.67 6.14 3.67 6.14zM9.65 18.6c-.02-.08-.1-.08-.1-.08l-7.38.26c.8 1.43 2.15 2.53 3.56 2.2.96-.25 3.16-1.78 3.88-2.3.06-.05.04-.09.04-.09zm.08-.78C6.49 15.63.21 12.28.21 12.28c-.15.46-.2.9-.21 1.3v.07c0 1.07.4 1.82.4 1.82.8 1.69 2.34 2.2 2.34 2.2.7.3 1.4.31 1.4.31.12.02 4.4 0 5.54 0 .05 0 .08-.05.08-.05v-.06c0-.03-.03-.05-.03-.05zM9.06 3.19a3.42 3.42 0 00-2.57 3.15v.41c.03.6.16 1.05.16 1.05.66 2.9 3.86 7.65 4.55 8.65.05.05.1.03.1.03a.1.1 0 00.06-.1c1.06-10.6-1.11-13.42-1.11-13.42-.32.02-1.19.23-1.19.23zm8.299 2.27s-.49-1.8-2.44-2.28c0 0-.57-.14-1.17-.22 0 0-2.18 2.81-1.12 13.43.01.07.06.08.06.08.07.03.1-.03.1-.03.72-1.03 3.9-5.76 4.55-8.64 0 0 .36-1.4.02-2.34zm-2.92 13.07s-.07 0-.09.05c0 0-.01.07.03.1.7.51 2.85 2 3.88 2.3 0 0 .16.05.43.06h.14c.69-.02 1.9-.37 3-2.26l-7.4-.25zm7.83-8.41c.14-2.06-1.94-3.97-1.94-3.98 0 0-3.85 4.66-6.67 10.8 0 0-.03.08.02.13l.04.01h.06c1.06-.53 5.46-2.77 7.28-4.54 0 0 1.15-.93 1.21-2.42zm1.52 2.14s-6.28 3.37-9.52 5.55c0 0-.05.04-.03.11 0 0 .03.06.07.06 1.16 0 5.56 0 5.67-.02 0 0 .57-.02 1.27-.29 0 0 1.56-.5 2.37-2.27 0 0 .73-1.45.17-3.14z"},"honor":{"t":"Honor","h":"000000","p":"M2.601 9.753v1.823H.807V9.753H0v4.498h.807v-1.874h1.794v1.874h.807V9.753h-.807Zm18.671.801h.898c.369 0 .667.297.667.662a.665.665 0 0 1-.667.663h-.898v-1.325Zm-.806-.801v4.498h.806v-2.002l1.68 2.002H24l-1.376-1.64a1.462 1.462 0 0 0-.444-2.858h-1.716.002Zm-7.63-.014v2.807l-1.959-2.807h-.644v4.498h.807v-2.82l1.968 2.82h.633V9.739h-.805Zm-7.532 2.26c0-.832.68-1.506 1.517-1.506A1.51 1.51 0 0 1 8.337 12c0 .832-.679 1.506-1.516 1.506-.403 0-.789-.159-1.073-.441A1.504 1.504 0 0 1 5.304 12v-.001ZM4.497 12c0 .933.566 1.774 1.434 2.132.869.357 1.868.16 2.533-.5.664-.66.863-1.653.503-2.515a2.324 2.324 0 0 0-2.146-1.425 2.316 2.316 0 0 0-2.323 2.307L4.497 12Zm11.04-.001a1.513 1.513 0 0 1 1.518-1.506c.838 0 1.516.675 1.516 1.507a1.513 1.513 0 0 1-1.518 1.506c-.402 0-.788-.159-1.072-.441a1.5 1.5 0 0 1-.444-1.066ZM14.73 12c0 .933.566 1.774 1.434 2.132.868.357 1.868.16 2.532-.5.665-.66.864-1.653.504-2.515a2.325 2.325 0 0 0-2.147-1.425 2.316 2.316 0 0 0-2.323 2.307V12Z"},"asus":{"t":"ASUS","h":"000000","p":"M23.904 10.788V9.522h-4.656c-.972 0-1.41.6-1.482 1.182v.018-1.2h-1.368v1.266h1.362zm-6.144.456l-1.368-.078v1.458c0 .456-.228.594-1.02.594H14.28c-.654 0-.93-.186-.93-.594v-1.596l-1.386-.102v1.812h-.03c-.078-.528-.276-1.14-1.596-1.23L6 11.22c0 .666.474 1.062 1.218 1.14l3.024.306c.24.018.414.09.414.288 0 .216-.18.24-.456.24H5.946V11.22l-1.386-.09v3.348h5.646c1.26 0 1.662-.654 1.722-1.2h.03c.156.864.912 1.2 2.19 1.2h1.41c1.494 0 2.202-.456 2.202-1.524zm4.398.258l-4.338-.258c0 .666.438 1.11 1.182 1.17l3.09.24c.24.018.384.078.384.276 0 .186-.168.258-.516.258h-4.212v1.29h4.302c1.356 0 1.95-.474 1.95-1.554 0-.972-.534-1.338-1.842-1.422zm-10.194-1.98h1.386v1.266h-1.386zM3.798 11.07l-1.506-.15L0 14.478h1.686zm7.914-1.548h-4.23c-.984 0-1.416.612-1.518 1.2v-1.2H3.618c-.33 0-.486.102-.642.33l-.648.936h9.384Z"},"sony":{"t":"Sony","h":"1A1A1A","p":"M8.5505 9.8881c.921 0 1.6574.2303 2.2209.7423.3848.3485.5999.8454.5939 1.3665a1.9081 1.9081 0 0 1-.5939 1.3726c-.5272.4848-1.3483.7423-2.221.7423-.8725 0-1.6785-.2575-2.2148-.7423-.3908-.3485-.609-.8484-.603-1.3726 0-.518.2182-1.015.603-1.3665.5-.4545 1.3847-.7423 2.2149-.7423zm.003 3.6692c.4606 0 .8878-.1606 1.1878-.4575.2999-.2999.4332-.6605.4332-1.1029 0-.4242-.1484-.821-.4333-1.1029-.2938-.2908-.7332-.4545-1.1877-.4545s-.8938.1637-1.1907.4545c-.2848.2818-.4333.6787-.4333 1.103-.006.409.1485.806.4333 1.1029.2969.2939.7332.4575 1.1907.4575zm-4.8418-1.9665c.1605.0424.315.094.4666.1636a1.352 1.352 0 0 1 .3787.2576c.197.206.309.4817.306.7665a.9643.9643 0 0 1-.3787.7788 2.0662 2.0662 0 0 1-.709.3485 3.7231 3.7231 0 0 1-1.1938.1697c-.352 0-.5467-.0406-.8138-.0962l-.077-.016c-.294-.0666-.5817-.1575-.8575-.2787a.0695.0695 0 0 0-.0424-.0121c-.0454 0-.0818.0394-.0818.0848v.203H.1212v-1.4786h.5242a.7559.7559 0 0 0 .1363.418c.2121.2607.4394.3607.6575.4395.3666.1212.7514.1848 1.1362.1969.5526 0 .8756-.134.9455-.163l.009-.0037.0062-.0023c.0616-.0226.3119-.1143.3119-.3916 0-.2743-.2338-.334-.387-.373l-.022-.0058c-.1708-.046-.562-.0872-.9897-.1323l-.1526-.016c-.4848-.0515-.9696-.1273-1.1968-.1758-.4977-.1097-.6942-.2917-.816-.4045l-.0082-.0076A1.0192 1.0192 0 0 1 0 11.1608c0-.497.3394-.797.7575-.9817.4454-.2.9756-.288 1.4392-.288.8211.0031 1.4877.2697 1.727.394.097.0515.1455-.0121.1455-.0606v-.1484h.5272v1.2876h-.4727a.9056.9056 0 0 0-.2939-.4909 1.289 1.289 0 0 0-.297-.1787c-.3968-.1667-.821-.2515-1.2513-.2455-.4423 0-.8665.085-1.0786.2153-.1333.0818-.2.1848-.2.306 0 .1727.1454.2424.2182.2636.1967.0597.6328.103.972.1369.0736.0073.1426.0142.2036.0206.3272.0334 1.012.1243 1.315.2zm18.1673-.9966v-.4787H24v.4696h-.4757c-.1727 0-.2424.0334-.3727.1788l-1.4271 1.63a.098.098 0 0 0-.0182.0698v.7423a1.106 1.106 0 0 0 .0121.103.1496.1496 0 0 0 .1.0909.9368.9368 0 0 0 .1303.009h.4848v.4698h-2.5724v-.4697h.4606a.9343.9343 0 0 0 .1302-.0091.1627.1627 0 0 0 .1031-.091.5626.5626 0 0 0 .009-.1v-.7422c0-.0242 0-.0242-.0333-.0636a606.7592 606.7592 0 0 0-1.4119-1.6028c-.0758-.0788-.2061-.2061-.406-.2061h-.4576v-.4696h2.5876v.4696h-.3121c-.0697 0-.1182.0697-.0576.1455 0 0 .8696 1.0392.8787 1.0513.0091.0122.0152.0122.0273.003.0121-.009.8938-1.0453.8999-1.0543a.0912.0912 0 0 0-.0182-.1273.1095.1095 0 0 0-.0606-.0182zm-6.284-.0031h.4848c.2212 0 .2606.0848.2636.2909l.0273 1.5664-2.5815-2.324H11.944v.4697h.412c.297 0 .3182.1636.3182.309v2.2138c.0004.1285.0009.295-.1818.295h-.506v.4667h2.1634v-.4697h-.5273c-.212 0-.2211-.097-.2242-.303v-1.8816l2.9724 2.6511h.7575l-.0394-2.9966c.003-.218.0182-.2908.2424-.2908h.4726v-.4697H15.595Z","adj":true},"lg":{"t":"LG","h":"A50034","p":"M14.522 14.078h3.27v1.33h-4.847v-6.83h1.577v5.5zm6.74-1.274h1.284v1.195c-.236.09-.698.18-1.137.18-1.42 0-1.893-.721-1.893-2.186 0-1.398.45-2.221 1.869-2.221.791 0 1.24.248 1.612.722l.982-.903c-.6-.855-1.646-1.114-2.629-1.114-2.208 0-3.368 1.205-3.368 3.504 0 2.288 1.047 3.528 3.358 3.528 1.06 0 2.096-.27 2.66-.665V11.53h-2.739v1.274zM5.291 6.709a5.29 5.29 0 1 1 0 10.582 5.291 5.291 0 1 1 0-10.582m3.16 8.457a4.445 4.445 0 0 0 1.31-3.161v-.242l-.22.001H6.596v.494h2.662l-.001.015a3.985 3.985 0 0 1-3.965 3.708 3.95 3.95 0 0 1-2.811-1.165 3.952 3.952 0 0 1-1.164-2.811c0-1.061.414-2.059 1.164-2.81a3.951 3.951 0 0 1 2.81-1.164l.252.003v-.495l-.251-.003a4.475 4.475 0 0 0-4.47 4.469c0 1.194.465 2.316 1.309 3.161a4.444 4.444 0 0 0 3.16 1.31 4.444 4.444 0 0 0 3.162-1.31m-2.91-1.297V9.644H5.04v4.72h1.556v-.495H5.543zm-1.265-3.552a.676.676 0 1 0-.675.674.676.676 0 0 0 .675-.674"},"htc":{"t":"HTC","h":"A5CF4C","p":"M22 14.75h-2.8c-.7-.05-1.15-.5-1.2-1.15v-1.15c.05-.65.6-1.25 1.2-1.25H24V9.95h-4.85c-.65.05-1.25.25-1.7.7-.4.4-.65 1.1-.7 1.75 0 .35-.05.85 0 1.15.05.75.3 1.3.7 1.7.4.45 1.05.7 1.7.7H24V14.7c0 .05-1.3.05-2 .05M8.5 10v1.25h2.95v4.7h1.25v-4.7h2.95V10Zm-1.3 2.35c0-.65-.25-1.25-.7-1.7-.5-.5-1.2-.7-1.7-.7H2.35c-.55 0-.95.2-1.15.35V8H0v8h1.25v-3.6c.05-.65.55-1.15 1.15-1.2.5-.05 1.95-.05 2.4 0 .65.05 1.1.55 1.15 1.2V16H7.2z"},"lenovo":{"t":"Lenovo","h":"E2231A","p":"M21.044 12.288c0 .5-.343.867-.815.867-.464 0-.827-.38-.827-.867 0-.51.343-.868.815-.868.464 0 .827.381.827.868zm-14.305-.92a.787.787 0 0 0-.651.307.991.991 0 0 0-.172.738l1.479-.614a.708.708 0 0 0-.656-.43zm6.963.052c-.472 0-.816.358-.816.868 0 .486.364.867.828.867.472 0 .815-.368.815-.867 0-.487-.363-.868-.827-.868zM24 7.997v8.006H0V7.997h24zM5.01 13.05H3.088V9.825H2.23v4.003h2.78v-.777zm1.137-.094l2.163-.897a1.667 1.667 0 0 0-.37-.86c-.284-.33-.704-.505-1.216-.505-.931 0-1.633.686-1.633 1.593 0 .93.704 1.593 1.726 1.593.572 0 1.158-.272 1.432-.589l-.535-.411c-.357.264-.56.326-.885.326-.292 0-.52-.09-.682-.25zm5.57-1.039c0-.709-.507-1.223-1.252-1.223a1.28 1.28 0 0 0-1.005.494v-.442h-.846v3.081h.846v-1.753c0-.316.245-.651.698-.651.35 0 .712.243.712.651v1.753h.847v-1.91zm3.647.37c0-.904-.725-1.593-1.65-1.593-.933 0-1.663.7-1.663 1.593 0 .903.726 1.592 1.651 1.592.932 0 1.662-.7 1.662-1.592zm2.066 1.54l1.268-3.081h-.967l-.765 2.099-.765-2.1h-.966l1.268 3.081h.927zm4.449-1.54c0-.904-.725-1.593-1.65-1.593-.932 0-1.662.7-1.662 1.593 0 .903.725 1.592 1.65 1.592.932 0 1.662-.7 1.662-1.592z"}};
+  SM.brandMarks = {"apple":{"t":"Apple","h":"000000","p":"M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"},"asus":{"t":"ASUS","h":"000000","p":"M23.904 10.788V9.522h-4.656c-.972 0-1.41.6-1.482 1.182v.018-1.2h-1.368v1.266h1.362zm-6.144.456l-1.368-.078v1.458c0 .456-.228.594-1.02.594H14.28c-.654 0-.93-.186-.93-.594v-1.596l-1.386-.102v1.812h-.03c-.078-.528-.276-1.14-1.596-1.23L6 11.22c0 .666.474 1.062 1.218 1.14l3.024.306c.24.018.414.09.414.288 0 .216-.18.24-.456.24H5.946V11.22l-1.386-.09v3.348h5.646c1.26 0 1.662-.654 1.722-1.2h.03c.156.864.912 1.2 2.19 1.2h1.41c1.494 0 2.202-.456 2.202-1.524zm4.398.258l-4.338-.258c0 .666.438 1.11 1.182 1.17l3.09.24c.24.018.384.078.384.276 0 .186-.168.258-.516.258h-4.212v1.29h4.302c1.356 0 1.95-.474 1.95-1.554 0-.972-.534-1.338-1.842-1.422zm-10.194-1.98h1.386v1.266h-1.386zM3.798 11.07l-1.506-.15L0 14.478h1.686zm7.914-1.548h-4.23c-.984 0-1.416.612-1.518 1.2v-1.2H3.618c-.33 0-.486.102-.642.33l-.648.936h9.384Z"},"google":{"t":"Google","h":"4285F4","p":"M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"},"honor":{"t":"Honor","h":"000000","p":"M2.601 9.753v1.823H.807V9.753H0v4.498h.807v-1.874h1.794v1.874h.807V9.753h-.807Zm18.671.801h.898c.369 0 .667.297.667.662a.665.665 0 0 1-.667.663h-.898v-1.325Zm-.806-.801v4.498h.806v-2.002l1.68 2.002H24l-1.376-1.64a1.462 1.462 0 0 0-.444-2.858h-1.716.002Zm-7.63-.014v2.807l-1.959-2.807h-.644v4.498h.807v-2.82l1.968 2.82h.633V9.739h-.805Zm-7.532 2.26c0-.832.68-1.506 1.517-1.506A1.51 1.51 0 0 1 8.337 12c0 .832-.679 1.506-1.516 1.506-.403 0-.789-.159-1.073-.441A1.504 1.504 0 0 1 5.304 12v-.001ZM4.497 12c0 .933.566 1.774 1.434 2.132.869.357 1.868.16 2.533-.5.664-.66.863-1.653.503-2.515a2.324 2.324 0 0 0-2.146-1.425 2.316 2.316 0 0 0-2.323 2.307L4.497 12Zm11.04-.001a1.513 1.513 0 0 1 1.518-1.506c.838 0 1.516.675 1.516 1.507a1.513 1.513 0 0 1-1.518 1.506c-.402 0-.788-.159-1.072-.441a1.5 1.5 0 0 1-.444-1.066ZM14.73 12c0 .933.566 1.774 1.434 2.132.868.357 1.868.16 2.532-.5.665-.66.864-1.653.504-2.515a2.325 2.325 0 0 0-2.147-1.425 2.316 2.316 0 0 0-2.323 2.307V12Z"},"huawei":{"t":"Huawei","h":"FF0000","p":"M3.67 6.14S1.82 7.91 1.72 9.78v.35c.08 1.51 1.22 2.4 1.22 2.4 1.83 1.79 6.26 4.04 7.3 4.55 0 0 .06.03.1-.01l.02-.04v-.04C7.52 10.8 3.67 6.14 3.67 6.14zM9.65 18.6c-.02-.08-.1-.08-.1-.08l-7.38.26c.8 1.43 2.15 2.53 3.56 2.2.96-.25 3.16-1.78 3.88-2.3.06-.05.04-.09.04-.09zm.08-.78C6.49 15.63.21 12.28.21 12.28c-.15.46-.2.9-.21 1.3v.07c0 1.07.4 1.82.4 1.82.8 1.69 2.34 2.2 2.34 2.2.7.3 1.4.31 1.4.31.12.02 4.4 0 5.54 0 .05 0 .08-.05.08-.05v-.06c0-.03-.03-.05-.03-.05zM9.06 3.19a3.42 3.42 0 00-2.57 3.15v.41c.03.6.16 1.05.16 1.05.66 2.9 3.86 7.65 4.55 8.65.05.05.1.03.1.03a.1.1 0 00.06-.1c1.06-10.6-1.11-13.42-1.11-13.42-.32.02-1.19.23-1.19.23zm8.299 2.27s-.49-1.8-2.44-2.28c0 0-.57-.14-1.17-.22 0 0-2.18 2.81-1.12 13.43.01.07.06.08.06.08.07.03.1-.03.1-.03.72-1.03 3.9-5.76 4.55-8.64 0 0 .36-1.4.02-2.34zm-2.92 13.07s-.07 0-.09.05c0 0-.01.07.03.1.7.51 2.85 2 3.88 2.3 0 0 .16.05.43.06h.14c.69-.02 1.9-.37 3-2.26l-7.4-.25zm7.83-8.41c.14-2.06-1.94-3.97-1.94-3.98 0 0-3.85 4.66-6.67 10.8 0 0-.03.08.02.13l.04.01h.06c1.06-.53 5.46-2.77 7.28-4.54 0 0 1.15-.93 1.21-2.42zm1.52 2.14s-6.28 3.37-9.52 5.55c0 0-.05.04-.03.11 0 0 .03.06.07.06 1.16 0 5.56 0 5.67-.02 0 0 .57-.02 1.27-.29 0 0 1.56-.5 2.37-2.27 0 0 .73-1.45.17-3.14z"},"lenovo":{"t":"Lenovo","h":"E2231A","p":"M21.044 12.288c0 .5-.343.867-.815.867-.464 0-.827-.38-.827-.867 0-.51.343-.868.815-.868.464 0 .827.381.827.868zm-14.305-.92a.787.787 0 0 0-.651.307.991.991 0 0 0-.172.738l1.479-.614a.708.708 0 0 0-.656-.43zm6.963.052c-.472 0-.816.358-.816.868 0 .486.364.867.828.867.472 0 .815-.368.815-.867 0-.487-.363-.868-.827-.868zM24 7.997v8.006H0V7.997h24zM5.01 13.05H3.088V9.825H2.23v4.003h2.78v-.777zm1.137-.094l2.163-.897a1.667 1.667 0 0 0-.37-.86c-.284-.33-.704-.505-1.216-.505-.931 0-1.633.686-1.633 1.593 0 .93.704 1.593 1.726 1.593.572 0 1.158-.272 1.432-.589l-.535-.411c-.357.264-.56.326-.885.326-.292 0-.52-.09-.682-.25zm5.57-1.039c0-.709-.507-1.223-1.252-1.223a1.28 1.28 0 0 0-1.005.494v-.442h-.846v3.081h.846v-1.753c0-.316.245-.651.698-.651.35 0 .712.243.712.651v1.753h.847v-1.91zm3.647.37c0-.904-.725-1.593-1.65-1.593-.933 0-1.663.7-1.663 1.593 0 .903.726 1.592 1.651 1.592.932 0 1.662-.7 1.662-1.592zm2.066 1.54l1.268-3.081h-.967l-.765 2.099-.765-2.1h-.966l1.268 3.081h.927zm4.449-1.54c0-.904-.725-1.593-1.65-1.593-.932 0-1.662.7-1.662 1.593 0 .903.725 1.592 1.65 1.592.932 0 1.662-.7 1.662-1.592z"},"motorola":{"t":"Motorola","h":"E1140A","p":"M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12C24.002 5.375 18.632.002 12.007 0H12zm7.327 18.065s-.581-2.627-1.528-4.197c-.514-.857-1.308-1.553-2.368-1.532-.745 0-1.399.423-2.2 1.553-.469.77-.882 1.573-1.235 2.403 0 0-.29-.675-.63-1.343a8.038 8.038 0 0 0-.605-1.049c-.804-1.13-1.455-1.539-2.2-1.553-1.049-.021-1.854.675-2.364 1.528-.948 1.574-1.528 4.197-1.528 4.197h-.864l4.606-15.12 3.56 11.804.024.021.024-.021 3.56-11.804 4.61 15.113h-.862z"},"nokia":{"t":"Nokia","h":"005AFF","p":"M16.59 9.348v5.304h.796V9.348Zm-8.497-.09c-1.55 0-2.752 1.127-2.752 2.742 0 1.687 1.202 2.742 2.752 2.742 1.55 0 2.754-1.055 2.751-2.742a2.72 2.72 0 0 0-2.751-2.742ZM10.05 12c0 1.195-.876 1.987-1.957 1.987-1.082 0-1.958-.792-1.958-1.987 0-1.174.876-1.987 1.958-1.987 1.08 0 1.957.813 1.957 1.987zM0 9.176v5.476h.812v-3.619l4.218 3.79v-1.135zM11.442 12l2.952 2.652h1.184L12.622 12l2.956-2.652h-1.184ZM24 14.652h-.875l-.64-1.175h-2.898l-.64 1.175h-.875l1.06-1.958h2.937l-1.465-2.72.432-.798Z"},"oneplus":{"t":"OnePlus","h":"F5010C","p":"M0 3.74V24h20.26V12.428h-2.256v9.317H2.254V5.995h9.318V3.742zM18.004 0v3.74h-3.758v2.256h3.758v3.758h2.255V5.996H24V3.74h-3.758V0zm-6.45 18.756V8.862H9.562c0 .682-.228 1.189-.577 1.504-.367.297-.91.437-1.556.437h-.245v1.625h2.133v6.31h2.237z"},"oppo":{"t":"OPPO","h":"2D683D","p":"M2.85 12.786h-.001C1.639 12.774.858 12.2.858 11.321s.781-1.452 1.99-1.465c1.21.013 1.992.588 1.992 1.465s-.782 1.453-1.99 1.465zm.034-3.638h-.073C1.156 9.175 0 10.068 0 11.32s1.156 2.147 2.811 2.174h.073c1.655-.027 2.811-.921 2.811-2.174S4.54 9.175 2.885 9.148zm18.27 3.638c-1.21-.012-1.992-.587-1.992-1.465s.782-1.452 1.991-1.465c1.21.013 1.991.588 1.991 1.465s-.781 1.453-1.99 1.465zm.035-3.638h-.073c-1.655.027-2.811.92-2.811 2.173s1.156 2.147 2.81 2.174h.074C22.844 13.468 24 12.574 24 11.32s-1.156-2.146-2.811-2.173zm-6.126 3.638c-1.21-.012-1.99-.587-1.99-1.465s.78-1.452 1.99-1.465c1.21.013 1.991.588 1.991 1.465s-.781 1.453-1.99 1.465zm.036-3.638h-.073c-.789.013-1.464.222-1.955.574v-.37h-.857v5.5h.857v-1.931c.49.351 1.166.56 1.954.574h.074c1.655-.027 2.81-.921 2.81-2.174s-1.155-2.146-2.81-2.173zm-6.144 3.638c-1.21-.012-1.99-.587-1.99-1.465s.78-1.452 1.99-1.465c1.21.013 1.991.588 1.991 1.465s-.781 1.453-1.99 1.465zm.037-3.638H8.92c-.789.013-1.464.222-1.955.574v-.37h-.856v5.5h.856v-1.931c.491.351 1.166.56 1.955.574a3.728 3.728 0 0 0 .073 0c1.655-.027 2.811-.921 2.811-2.174s-1.156-2.146-2.81-2.173z"},"samsung":{"t":"Samsung","h":"1428A0","p":"M19.8166 10.2808l.0459 2.6934h-.023l-.7793-2.6934h-1.2837v3.3925h.8481l-.0458-2.785h.023l.8366 2.785h1.2264v-3.3925zm-16.149 0l-.6418 3.427h.9284l.4699-3.1175h.0229l.4585 3.1174h.9169l-.6304-3.4269zm5.1805 0l-.424 2.6132h-.023l-.424-2.6132H6.5788l-.0688 3.427h.8596l.023-3.0832h.0114l.573 3.0831h.8711l.5731-3.083h.023l.0228 3.083h.8596l-.0802-3.4269zm-7.2664 2.4527c.0343.0802.0229.1949.0114.2522-.0229.1146-.1031.2292-.3324.2292-.2177 0-.3438-.126-.3438-.3095v-.3323H0v.2636c0 .7679.6074.9971 1.2493.9971.6189 0 1.1346-.2178 1.2149-.7794.0458-.298.0114-.4928 0-.5616-.1605-.722-1.467-.9283-1.5588-1.3295-.0114-.0688-.0114-.1375 0-.1834.023-.1146.1032-.2292.3095-.2292.2063 0 .321.126.321.3095v.2063h.8595v-.2407c0-.745-.6762-.8596-1.1576-.8596-.6074 0-1.1117.2063-1.2034.7564-.023.149-.0344.2866.0114.4585.1376.7106 1.364.9169 1.5358 1.3524m11.152 0c.0343.0803.0228.1834.0114.2522-.023.1146-.1032.2292-.3324.2292-.2178 0-.3438-.126-.3438-.3095v-.3323h-.917v.2636c0 .7564.596.9857 1.2379.9857.6189 0 1.1232-.2063 1.2034-.7794.0459-.298.0115-.4814 0-.5616-.1375-.7106-1.4327-.9284-1.5243-1.318-.0115-.0688-.0115-.1376 0-.1835.0229-.1146.1031-.2292.3094-.2292.1948 0 .321.126.321.3095v.2063h.848v-.2407c0-.745-.6647-.8596-1.146-.8596-.6075 0-1.1004.1948-1.192.7564-.023.149-.023.2866.0114.4585.1376.7106 1.341.9054 1.513 1.3524m2.8882.4585c.2407 0 .3094-.1605.3323-.2522.0115-.0343.0115-.0917.0115-.126v-2.533h.871v2.4642c0 .0688 0 .1948-.0114.2292-.0573.6419-.5616.8482-1.192.8482-.6303 0-1.1346-.2063-1.192-.8482 0-.0344-.0114-.1604-.0114-.2292v-2.4642h.871v2.533c0 .0458 0 .0916.0115.126 0 .0917.0688.2522.3095.2522m7.1518-.0344c.2522 0 .3324-.1605.3553-.2522.0115-.0343.0115-.0917.0115-.126v-.4929h-.3553v-.5043H24v.917c0 .0687 0 .1145-.0115.2292-.0573.6303-.596.8481-1.2034.8481-.6075 0-1.1461-.2178-1.2034-.8481-.0115-.1147-.0115-.1605-.0115-.2293v-1.444c0-.0574.0115-.172.0115-.2293.0802-.6419.596-.8482 1.2034-.8482s1.1347.2063 1.2034.8482c.0115.1031.0115.2292.0115.2292v.1146h-.8596v-.1948s0-.0803-.0115-.1261c-.0114-.0802-.0802-.2521-.3438-.2521-.2521 0-.321.1604-.3438.2521-.0115.0458-.0115.1032-.0115.1605v1.5702c0 .0458 0 .0916.0115.126 0 .0917.0917.2522.3323.2522"},"vivo":{"t":"vivo","h":"415FFF","p":"M19.604 14.101c-1.159 0-1.262-.95-1.262-1.24 0-.29.103-1.242 1.262-1.242h2.062c1.16 0 1.263.951 1.263 1.242 0 .29-.104 1.24-1.263 1.24m-2.062-3.527c-2.142 0-2.333 1.752-2.333 2.287 0 .535.19 2.286 2.333 2.286h2.062c2.143 0 2.334-1.751 2.334-2.286 0-.535-.19-2.287-2.334-2.287m-5.477.107c-.286 0-.345.05-.456.213-.11.164-2.022 3.082-2.022 3.082-.06.09-.126.126-.206.126-.08 0-.145-.036-.206-.126 0 0-1.912-2.918-2.022-3.082-.11-.164-.17-.213-.456-.213h-.668c-.154 0-.224.12-.127.267l2.283 3.467c.354.521.614.732 1.196.732s.842-.21 1.196-.732l2.284-3.467c.096-.146.026-.267-.128-.267m-8.876.284c0-.203.08-.284.283-.284h.505c.203 0 .283.08.283.283v3.9c0 .202-.08.283-.283.283h-.505c-.203 0-.283-.08-.283-.283zm-1.769-.285c-.287 0-.346.05-.456.213-.11.164-2.022 3.082-2.022 3.082-.061.09-.126.126-.206.126-.08 0-.145-.036-.206-.126 0 0-1.912-2.918-2.023-3.082-.11-.164-.169-.213-.455-.213H.175c-.171 0-.224.12-.127.267l2.283 3.467c.355.521.615.732 1.197.732.582 0 .842-.21 1.196-.732l2.283-3.467c.097-.146.044-.267-.127-.267m1.055-.893c-.165-.164-.165-.295 0-.46l.351-.351c.165-.165.296-.165.46 0l.352.351c.165.165.165.296 0 .46l-.352.352c-.164.165-.295.165-.46 0z"},"xiaomi":{"t":"Xiaomi","h":"FF6900","p":"M12 0C8.016 0 4.756.255 2.493 2.516.23 4.776 0 8.033 0 12.012c0 3.98.23 7.235 2.494 9.497C4.757 23.77 8.017 24 12 24c3.983 0 7.243-.23 9.506-2.491C23.77 19.247 24 15.99 24 12.012c0-3.984-.233-7.243-2.502-9.504C19.234.252 15.978 0 12 0zM4.906 7.405h5.624c1.47 0 3.007.068 3.764.827.746.746.827 2.233.83 3.676v4.54a.15.15 0 0 1-.152.147h-1.947a.15.15 0 0 1-.152-.148V11.83c-.002-.806-.048-1.634-.464-2.051-.358-.36-1.026-.441-1.72-.458H7.158a.15.15 0 0 0-.151.147v6.98a.15.15 0 0 1-.152.148H4.906a.15.15 0 0 1-.15-.148V7.554a.15.15 0 0 1 .15-.149zm12.131 0h1.949a.15.15 0 0 1 .15.15v8.892a.15.15 0 0 1-.15.148h-1.949a.15.15 0 0 1-.151-.148V7.554a.15.15 0 0 1 .151-.149zM8.92 10.948h2.046c.083 0 .15.066.15.147v5.352a.15.15 0 0 1-.15.148H8.92a.15.15 0 0 1-.152-.148v-5.352a.15.15 0 0 1 .152-.147Z"},"sony":{"t":"Sony","h":"1A1A1A","p":"M8.5505 9.8881c.921 0 1.6574.2303 2.2209.7423.3848.3485.5999.8454.5939 1.3665a1.9081 1.9081 0 0 1-.5939 1.3726c-.5272.4848-1.3483.7423-2.221.7423-.8725 0-1.6785-.2575-2.2148-.7423-.3908-.3485-.609-.8484-.603-1.3726 0-.518.2182-1.015.603-1.3665.5-.4545 1.3847-.7423 2.2149-.7423zm.003 3.6692c.4606 0 .8878-.1606 1.1878-.4575.2999-.2999.4332-.6605.4332-1.1029 0-.4242-.1484-.821-.4333-1.1029-.2938-.2908-.7332-.4545-1.1877-.4545s-.8938.1637-1.1907.4545c-.2848.2818-.4333.6787-.4333 1.103-.006.409.1485.806.4333 1.1029.2969.2939.7332.4575 1.1907.4575zm-4.8418-1.9665c.1605.0424.315.094.4666.1636a1.352 1.352 0 0 1 .3787.2576c.197.206.309.4817.306.7665a.9643.9643 0 0 1-.3787.7788 2.0662 2.0662 0 0 1-.709.3485 3.7231 3.7231 0 0 1-1.1938.1697c-.352 0-.5467-.0406-.8138-.0962l-.077-.016c-.294-.0666-.5817-.1575-.8575-.2787a.0695.0695 0 0 0-.0424-.0121c-.0454 0-.0818.0394-.0818.0848v.203H.1212v-1.4786h.5242a.7559.7559 0 0 0 .1363.418c.2121.2607.4394.3607.6575.4395.3666.1212.7514.1848 1.1362.1969.5526 0 .8756-.134.9455-.163l.009-.0037.0062-.0023c.0616-.0226.3119-.1143.3119-.3916 0-.2743-.2338-.334-.387-.373l-.022-.0058c-.1708-.046-.562-.0872-.9897-.1323l-.1526-.016c-.4848-.0515-.9696-.1273-1.1968-.1758-.4977-.1097-.6942-.2917-.816-.4045l-.0082-.0076A1.0192 1.0192 0 0 1 0 11.1608c0-.497.3394-.797.7575-.9817.4454-.2.9756-.288 1.4392-.288.8211.0031 1.4877.2697 1.727.394.097.0515.1455-.0121.1455-.0606v-.1484h.5272v1.2876h-.4727a.9056.9056 0 0 0-.2939-.4909 1.289 1.289 0 0 0-.297-.1787c-.3968-.1667-.821-.2515-1.2513-.2455-.4423 0-.8665.085-1.0786.2153-.1333.0818-.2.1848-.2.306 0 .1727.1454.2424.2182.2636.1967.0597.6328.103.972.1369.0736.0073.1426.0142.2036.0206.3272.0334 1.012.1243 1.315.2zm18.1673-.9966v-.4787H24v.4696h-.4757c-.1727 0-.2424.0334-.3727.1788l-1.4271 1.63a.098.098 0 0 0-.0182.0698v.7423a1.106 1.106 0 0 0 .0121.103.1496.1496 0 0 0 .1.0909.9368.9368 0 0 0 .1303.009h.4848v.4698h-2.5724v-.4697h.4606a.9343.9343 0 0 0 .1302-.0091.1627.1627 0 0 0 .1031-.091.5626.5626 0 0 0 .009-.1v-.7422c0-.0242 0-.0242-.0333-.0636a606.7592 606.7592 0 0 0-1.4119-1.6028c-.0758-.0788-.2061-.2061-.406-.2061h-.4576v-.4696h2.5876v.4696h-.3121c-.0697 0-.1182.0697-.0576.1455 0 0 .8696 1.0392.8787 1.0513.0091.0122.0152.0122.0273.003.0121-.009.8938-1.0453.8999-1.0543a.0912.0912 0 0 0-.0182-.1273.1095.1095 0 0 0-.0606-.0182zm-6.284-.0031h.4848c.2212 0 .2606.0848.2636.2909l.0273 1.5664-2.5815-2.324H11.944v.4697h.412c.297 0 .3182.1636.3182.309v2.2138c.0004.1285.0009.295-.1818.295h-.506v.4667h2.1634v-.4697h-.5273c-.212 0-.2211-.097-.2242-.303v-1.8816l2.9724 2.6511h.7575l-.0394-2.9966c.003-.218.0182-.2908.2424-.2908h.4726v-.4697H15.595Z","adj":true},"lg":{"t":"LG","h":"A50034","p":"M14.522 14.078h3.27v1.33h-4.847v-6.83h1.577v5.5zm6.74-1.274h1.284v1.195c-.236.09-.698.18-1.137.18-1.42 0-1.893-.721-1.893-2.186 0-1.398.45-2.221 1.869-2.221.791 0 1.24.248 1.612.722l.982-.903c-.6-.855-1.646-1.114-2.629-1.114-2.208 0-3.368 1.205-3.368 3.504 0 2.288 1.047 3.528 3.358 3.528 1.06 0 2.096-.27 2.66-.665V11.53h-2.739v1.274zM5.291 6.709a5.29 5.29 0 1 1 0 10.582 5.291 5.291 0 1 1 0-10.582m3.16 8.457a4.445 4.445 0 0 0 1.31-3.161v-.242l-.22.001H6.596v.494h2.662l-.001.015a3.985 3.985 0 0 1-3.965 3.708 3.95 3.95 0 0 1-2.811-1.165 3.952 3.952 0 0 1-1.164-2.811c0-1.061.414-2.059 1.164-2.81a3.951 3.951 0 0 1 2.81-1.164l.252.003v-.495l-.251-.003a4.475 4.475 0 0 0-4.47 4.469c0 1.194.465 2.316 1.309 3.161a4.444 4.444 0 0 0 3.16 1.31 4.444 4.444 0 0 0 3.162-1.31m-2.91-1.297V9.644H5.04v4.72h1.556v-.495H5.543zm-1.265-3.552a.676.676 0 1 0-.675.674.676.676 0 0 0 .675-.674"},"htc":{"t":"HTC","h":"A5CF4C","p":"M22 14.75h-2.8c-.7-.05-1.15-.5-1.2-1.15v-1.15c.05-.65.6-1.25 1.2-1.25H24V9.95h-4.85c-.65.05-1.25.25-1.7.7-.4.4-.65 1.1-.7 1.75 0 .35-.05.85 0 1.15.05.75.3 1.3.7 1.7.4.45 1.05.7 1.7.7H24V14.7c0 .05-1.3.05-2 .05M8.5 10v1.25h2.95v4.7h1.25v-4.7h2.95V10Zm-1.3 2.35c0-.65-.25-1.25-.7-1.7-.5-.5-1.2-.7-1.7-.7H2.35c-.55 0-.95.2-1.15.35V8H0v8h1.25v-3.6c.05-.65.55-1.15 1.15-1.2.5-.05 1.95-.05 2.4 0 .65.05 1.1.55 1.15 1.2V16H7.2z"}};
 
-  /* No official mark available — these render a typeset wordmark instead. */
-  SM.brandMarksReview = ["redmi","realme","nothing","poco","tecno","infinix","itel","lava","micromax","zte","tcl","hmd","coolpad"];
+  /* No official CC0 mark available — these render a full wordmark instead. */
+  SM.brandMarksReview = ["coolpad","hmd","infinix","itel","lava","nothing","realme","tecno","zte"];
 
-  SM.brandMarksMeta = {"source":"simple-icons (CC0-1.0)","generated":"2026-09-03T07:06:14.094Z","adjusted":["sony"]};
+  SM.brandMarksMeta = {"source":"simple-icons (CC0-1.0)","version":null,"generated":"2026-09-05T09:10:39.879Z","adjusted":["sony"]};
 })(window);
 
 
@@ -5665,6 +5809,29 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      stand-in for one that failed to load: a wrong logo is worse than a name. */
   SM.brandFiles = SM.brandFiles || {};
 
+  /* HTML-escape. Brand names are catalogue data, and a name with an ampersand
+     in it must not be able to close an attribute. */
+  function be(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  /* The chip's paint job, decided once in src/data/brand-assets.js and applied
+     here as a class plus one custom property. Every treatment is defined for
+     BOTH themes in assets/styles.css, so a logo can never come out invisible in
+     one of them. `--bmk` is the brand's own official colour and is the only
+     value the three treatments are derived from. */
+  function chipAttrs(brand, kind, klass) {
+    var A = SM.brandAssets;
+    var mode = A ? A.mode(brand.id) : 'tint';
+    var hex = A ? A.hex(brand) : String(brand.color || '#0E7A6C').replace(/^#/, '');
+    return {
+      cls: 'blogo blogo--' + kind + ' blogo--' + mode + (klass ? ' ' + klass : ''),
+      style: '--bmk:#' + hex
+    };
+  }
+
   SM.brandLogo = function (brand, cls) {
     var b = brand || {};
     var name = String(b.name || '');
@@ -5675,16 +5842,23 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       /* The id and class ride on the element rather than being interpolated
          into the handler — nesting quotes inside an inline onerror is how you
          ship a broken attribute that only fails when the image 404s. */
-      return '<span class="blogo blogo--img ' + klass + '">' +
-        '<img src="' + file + '" alt="' + name + '" loading="lazy" ' +
-        'data-brand="' + b.id + '" data-cls="' + klass + '" ' +
+      var a = chipAttrs(b, 'img', klass);
+      return '<span class="' + a.cls + '" style="' + a.style + '">' +
+        '<img src="' + be(file) + '" alt="' + be(name) + '" loading="lazy" decoding="async" ' +
+        'data-brand="' + be(b.id) + '" data-cls="' + be(klass) + '" ' +
         'onerror="SM.brandImgFailed(this)" /></span>';
     }
 
     var mark = SM.brandMarks && SM.brandMarks[b.id];
     if (mark) {
-      return '<span class="blogo blogo--mark ' + klass + '" style="--bmk:#' + mark.h + '">' +
-        '<svg viewBox="0 0 24 24" role="img" aria-label="' + name + '">' +
+      /* No width/height on the <svg>: the CSS box is the bounding box, and the
+         default preserveAspectRatio="xMidYMid meet" contains the mark inside it.
+         A wide mark stays wide, a square one stays square, and nothing is ever
+         stretched to fill. `fill` comes from the treatment, not from the path,
+         so the same vector reads correctly in both themes. */
+      var m = chipAttrs(b, 'mark', klass);
+      return '<span class="' + m.cls + '" style="' + m.style + '">' +
+        '<svg viewBox="0 0 24 24" role="img" aria-label="' + be(name) + '">' +
         '<path d="' + mark.p + '"/></svg></span>';
     }
 
@@ -5693,25 +5867,52 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   /* A registered logo file failed to load. Fall back to the wordmark rather
      than leaving a broken image — but keep it out of the mark registry, so a
-     transient network failure does not permanently demote the brand. */
+     transient network failure does not permanently demote the brand.
+
+     A brand whose file came from Firebase Storage gets one retry against the
+     copy deployed with the site before it gives up: that is the SAME logo, so
+     a slow bucket costs a request, not a downgrade. */
   SM.brandImgFailed = function (img) {
     var id = img.getAttribute('data-brand');
     var cls = img.getAttribute('data-cls') || '';
+    var fb = SM.brandFileFallbacks && SM.brandFileFallbacks[id];
+    if (fb && !img.dataset.fb && img.getAttribute('src') !== fb) {
+      img.dataset.fb = '1';
+      img.src = fb;
+      return;
+    }
     var brand = (SM.db && SM.db.brandById && SM.db.brandById[id]) || { id: id, name: id };
     var span = img.parentNode;
     if (span && span.parentNode) span.outerHTML = SM.brandWordmark(brand, cls);
   };
 
-  /* A brand's actual name, set in the display face — not a two-letter monogram
-     on a coloured tile, which reads as a logo we invented. The brand's own
-     colour tints the rule underneath so the rail stays scannable. */
+  /* A brand's actual name, set as a proper wordmark — not a two-letter monogram,
+     which reads as a logo we invented, and not 8px of body text, which reads as
+     a bug. Several of these brands' real logos ARE wordmarks, so a well-set name
+     in the brand's own colour is an honest representation rather than a
+     stand-in for artwork we do not have.
+
+     Drawn as SVG text rather than HTML so it behaves exactly like a vector mark:
+     the viewBox is sized to the name, the browser scales it to the chip's
+     bounding box, and it is therefore as large as the box allows at every size
+     the chip is used at — 28px in a dropdown, 56px on a model card — with no
+     per-size font-size table to keep in step. */
   SM.brandWordmark = function (brand, cls) {
     var b = brand || {};
     var name = String(b.name || '');
-    var short = name.length > 9 ? name.slice(0, 2).toUpperCase() : name;
-    return '<span class="blogo blogo--word ' + (cls || '') + '" ' +
-      'style="box-shadow:inset 0 -2px 0 ' + (b.color || 'transparent') + '" ' +
-      'title="' + name + ' — no official mark available">' + short + '</span>';
+    if (!name) return '';
+
+    /* Advance width per character in the display face at font-size 26, bold and
+       slightly tightened. Only an estimate — textLength pins the final width
+       exactly, so an estimate a little out costs a hair of tracking, not a
+       clipped or floating wordmark. */
+    var W = Math.max(30, Math.round(name.length * 15.4));
+    var a = chipAttrs(b, 'word', cls || '');
+    return '<span class="' + a.cls + '" style="' + a.style + '" title="' + be(name) + '">' +
+      '<svg viewBox="0 0 ' + W + ' 34" role="img" aria-label="' + be(name) + '">' +
+      '<text x="' + (W / 2) + '" y="26" text-anchor="middle" ' +
+      'textLength="' + (W - 4) + '" lengthAdjust="spacingAndGlyphs">' + be(name) + '</text>' +
+      '</svg></span>';
   };
 })(window);
 
@@ -5964,7 +6165,15 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     registerCategory: function (id, url, fallbackUrl) {
       catImages[id] = { url: url, fallback: fallbackUrl || null };
     },
-    registerBrand: function (id, url) { SM.brandFiles[id] = url; },
+    /* Points a brand at its licensed logo file.
+       `fallbackUrl` is the SAME logo deployed with the site, tried once if the
+       primary does not load — so a slow or misconfigured bucket costs a request
+       rather than demoting the brand to a wordmark. */
+    registerBrand: function (id, url, fallbackUrl) {
+      SM.brandFiles[id] = url;
+      SM.brandFileFallbacks = SM.brandFileFallbacks || {};
+      if (fallbackUrl && fallbackUrl !== url) SM.brandFileFallbacks[id] = fallbackUrl;
+    },
 
     /* categoryId -> product render, wrapped in a light product thumbnail */
     /* THE one place a category picture is resolved. Every surface — the finder
@@ -6216,6 +6425,166 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         SM.art.registerCategory(id, ASSETS[id].storage, ASSETS[id].bundled);
       });
       return true;
+    }
+  };
+})(window);
+
+
+/* === src/data/brand-assets.js === */
+/* ============================================================================
+   Mobile Parts Finder · brand-assets.js — brand logo files and how they’re shown
+   ----------------------------------------------------------------------------
+   The brand twin of category-assets.js. One place decides, for every brand,
+   WHICH picture is its logo and HOW that logo is presented. No component picks
+   a colour, a background or a file path of its own.
+
+   THREE TIERS, IN THIS ORDER  (resolved by SM.brandLogo in src/ui/icons.js)
+
+     1. a licensed logo FILE        this file’s `storage`, else `bundled`
+     2. the inlined official vector SM.brandMarks — CC0, zero requests
+     3. a typeset wordmark          the brand’s own name, set properly
+
+   Tier 2 is deliberately preferred over shipping the same artwork as a file:
+   an inline vector costs no request, paints with the first frame and can be
+   RECOLOURED per theme, which an <img> cannot. So `storage` is populated only
+   where it adds something tier 2 cannot — a brand Simple Icons does not carry,
+   or a licensed logo the owner wants to override a CC0 one with.
+
+   FIREBASE STORAGE
+
+     Objects live at  brand-assets/<brand-id>/logo.<ext>  in the project’s
+     EXISTING bucket, alongside category-assets/. Public read, no client write —
+     see storage.rules. Upload with:
+
+         node scripts/upload-brand-assets.js --project mobilepartsfinder
+
+     which fills in the `storage` URLs below. Until then a brand with no file
+     simply falls through to tier 2 or tier 3 — never to a broken image.
+
+   PRESENTATION  (`mode`)
+
+     Brand colours are published against white, so painting them straight onto a
+     dark page misrepresents the brand and sinks the dark marks. Rather than one
+     white chip for everyone — which looks like a sticker sheet — each brand gets
+     one of three treatments, and each treatment is defined for BOTH themes in
+     assets/styles.css. Three, not twenty-two: a rail of saturated colour blocks
+     is not a product, it is a bag of sweets.
+
+       'tint'   pale wash of the brand’s own colour, mark in that colour.
+                The default, and what most brands should be.
+       'solid'  the brand colour fills the chip and the mark reverses to white.
+                Reserved for identities that ARE a colour block.
+       'mono'   neutral chip, mark in the theme’s ink. For monochrome
+                identities, which would otherwise vanish in one theme or the
+                other — a black Apple mark on a black page.
+
+     The colour itself is never written here. It comes from the brand’s official
+     hex in SM.brandMarks, or from the catalogue’s own brand colour when there is
+     no mark — one source of truth either way.
+   ========================================================================== */
+(function (global) {
+  'use strict';
+  var SM = (global.SM = global.SM || {});
+
+  /* id: { storage, bundled, mode }
+     `storage`  Firebase Storage URL, written by scripts/upload-brand-assets.js.
+     `bundled`  the same file deployed with the site — the fallback if Storage
+                is slow, blocked or misconfigured, so a brand never degrades to
+                a broken image.
+     Both null means: no licensed file yet, use the inline vector or wordmark. */
+  var ASSETS = {
+    apple:    { storage: null, bundled: null, mode: 'mono'  },
+    asus:     { storage: null, bundled: null, mode: 'mono'  },
+    coolpad:  { storage: null, bundled: null, mode: 'tint'  },
+    google:   { storage: null, bundled: null, mode: 'tint'  },
+    hmd:      { storage: null, bundled: null, mode: 'tint'  },
+    honor:    { storage: null, bundled: null, mode: 'mono'  },
+    huawei:   { storage: null, bundled: null, mode: 'solid' },
+    infinix:  { storage: null, bundled: null, mode: 'tint'  },
+    itel:     { storage: null, bundled: null, mode: 'tint'  },
+    lava:     { storage: null, bundled: null, mode: 'tint'  },
+    lenovo:   { storage: null, bundled: null, mode: 'tint'  },
+    motorola: { storage: null, bundled: null, mode: 'tint'  },
+    nokia:    { storage: null, bundled: null, mode: 'solid' },
+    nothing:  { storage: null, bundled: null, mode: 'mono'  },
+    oneplus:  { storage: null, bundled: null, mode: 'solid' },
+    oppo:     { storage: null, bundled: null, mode: 'tint'  },
+    realme:   { storage: null, bundled: null, mode: 'tint'  },
+    samsung:  { storage: null, bundled: null, mode: 'tint'  },
+    tecno:    { storage: null, bundled: null, mode: 'tint'  },
+    vivo:     { storage: null, bundled: null, mode: 'tint'  },
+    xiaomi:   { storage: null, bundled: null, mode: 'tint'  },
+    zte:      { storage: null, bundled: null, mode: 'tint'  },
+
+    /* shipped marks for brands the catalogue may carry again */
+    sony:     { storage: null, bundled: null, mode: 'mono'  },
+    lg:       { storage: null, bundled: null, mode: 'tint'  },
+    htc:      { storage: null, bundled: null, mode: 'tint'  }
+  };
+
+  var DEFAULT_MODE = 'tint';
+
+  function norm(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  }
+
+  var LOOKUP = Object.create(null);
+  Object.keys(ASSETS).forEach(function (id) { LOOKUP[norm(id)] = id; });
+
+  SM.brandAssets = {
+    /** Canonical brand id for any spelling, or null. */
+    resolve: function (idOrName) {
+      return LOOKUP[norm(idOrName)] || null;
+    },
+
+    /** { storage, bundled, mode } for a brand, or null when unknown. */
+    get: function (idOrName) {
+      var id = this.resolve(idOrName);
+      return id ? ASSETS[id] : null;
+    },
+
+    /** How this brand’s chip is painted: 'tint' | 'solid' | 'mono'. */
+    mode: function (idOrName) {
+      var e = this.get(idOrName);
+      return (e && e.mode) || DEFAULT_MODE;
+    },
+
+    /**
+     * The brand’s own colour, as a hex WITHOUT the leading hash — the official
+     * mark’s hex when there is a mark, else the catalogue’s brand colour. The
+     * three treatments in assets/styles.css are all derived from this one
+     * value, so a brand can never be half one colour and half another.
+     */
+    hex: function (brand) {
+      var b = brand || {};
+      var mark = SM.brandMarks && SM.brandMarks[b.id];
+      if (mark && mark.h) return String(mark.h).replace(/^#/, '');
+      return String(b.color || '#0E7A6C').replace(/^#/, '');
+    },
+
+    /** Every brand that has a licensed logo file to load. */
+    withFile: function () {
+      return Object.keys(ASSETS).filter(function (id) {
+        return !!(ASSETS[id].storage || ASSETS[id].bundled);
+      });
+    },
+
+    /**
+     * Registers the licensed files with SM.art, which every logo call site
+     * already goes through. Brands without a file are left alone so they keep
+     * their inline vector — registering an <img> for artwork we already have
+     * inline would trade a first-frame paint for a network request.
+     */
+    install: function () {
+      if (!SM.art || !SM.art.registerBrand) return false;
+      var n = 0;
+      Object.keys(ASSETS).forEach(function (id) {
+        var url = ASSETS[id].storage || ASSETS[id].bundled;
+        if (!url) return;
+        SM.art.registerBrand(id, url, ASSETS[id].bundled);
+        n++;
+      });
+      return n;
     }
   };
 })(window);
@@ -7325,22 +7694,48 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var pending = !!state.finder.modelId && !avail;
     var availTotal = avail ? Object.keys(avail).reduce(function (n, k) { return n + avail[k]; }, 0) : 0;
 
-    var tile = function (id, name, color, ic, count, wide) {
+    /* The picture is the tile. The name is an overlay that appears on hover —
+       and is ALWAYS in the accessible name of the button, so a screen reader,
+       a keyboard user and a touch device never depend on a pointer hovering
+       to find out what they are pressing.
+
+       The count is a badge and nothing else. "167 groups" under seven tiles is
+       seven repetitions of a word the panel heading has already said; the
+       number is the only part that differs, so the number is the only part
+       shown. Its unit lives in the button's aria-label, where it costs no
+       pixels and is still announced. */
+    var tile = function (id, name, color, ic, count) {
       var on = f.catId === id;
       var n = avail ? (id === 'all' ? availTotal : (avail[id] || 0)) : count;
       var empty = !!avail && n === 0;
-      var label = pending ? '…' : (n + ' ' + (n === 1 ? 'group' : 'groups'));
-      return '<button type="button" class="ctile' + (on ? ' is-on' : '') + (wide ? ' ctile--wide' : '') +
+      var badge = pending ? '…' : nf(n);
+      var aria = name + ' — ' + (pending ? 'counting' : nf(n) + ' ' + (n === 1 ? 'group' : 'groups'));
+      return '<button type="button" class="ctile' + (on ? ' is-on' : '') +
         (empty ? ' is-empty' : '') + '" ' +
         'data-act="filter-cat" data-id="' + id + '" style="--c:' + color + '"' +
         (empty ? ' disabled' : '') +
-        (on ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
+        ' aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
+        '<span class="ctile__art">' +
         SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name) +
-        '<span class="ctile__foot"><span class="ctile__name">' + esc(name) + '</span>' +
-        '<span class="ctile__n">' + label + '</span></span>' +
+        '<span class="ctile__veil" aria-hidden="true"></span>' +
+        '<span class="ctile__name" aria-hidden="true">' + esc(name) + '</span>' +
+        '</span>' +
+        '<span class="ctile__n" aria-hidden="true">' + badge + '</span>' +
         (on ? '<span class="ctile__tick">' + icon('check') + '</span>' : '') +
         '</button>';
     };
+
+    /* The last slot in the grid. A placeholder for category management, not
+       category management — it is deliberately not a filter, carries its own
+       action, and sits in the grid as an ordinary cell so the seven real tiles
+       keep their size and rhythm. */
+    var addTile =
+      '<button type="button" class="ctile ctile--add" data-act="add-category" ' +
+      'aria-label="Add a part category">' +
+      '<span class="ctile__art"><span class="ctile__plus" aria-hidden="true">' + icon('plus') + '</span>' +
+      '<span class="ctile__name ctile__name--add" aria-hidden="true">Add</span></span>' +
+      '</button>';
+
     return '<section class="panel">' +
       '<div class="panel__head"><span class="t-lab">Part category</span>' +
       (f.catId !== 'all'
@@ -7349,9 +7744,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '</div>' +
       '<div class="ctiles">' +
       tile('all', 'All Categories', 'var(--teal-500)', 'grid', db.stats.groups) +
-      db.categories.map(function (c, i) {
-        return tile(c.id, c.name, c.color, c.icon, c.groupCount, i === db.categories.length - 1);
+      db.categories.map(function (c) {
+        return tile(c.id, c.name, c.color, c.icon, c.groupCount);
       }).join('') +
+      addTile +
       '</div></section>';
   }
 
@@ -7420,7 +7816,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return '<button type="button" class="brow' + (on ? ' is-on' : '') + (b.groupCount ? '' : ' brow--empty') +
         '" data-act="filter-brand" data-id="' + b.id + '" aria-pressed="' + on + '" ' +
         'title="' + esc(b.name) + (b.groupCount ? '' : ' — no product groups yet') + '">' +
-        SM.art.brand(b, 'blogo--sm') +
+        SM.art.brand(b, 'blogo--rail') +
         '<span class="brow__n">' + esc(b.name) + '</span>' +
         '<span class="brow__c">' + b.groupCount + '</span></button>';
     }).join('');
@@ -9961,6 +10357,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         setCategory('all');
         renderWorkspace();
         break;
+      /* The "+" slot in the category grid. A placeholder on purpose: it says
+         where category management will live without pretending to be it, and
+         it deliberately does NOT touch the category filter — pressing it must
+         not silently change what the centre column is showing. */
+      case 'add-category':
+        toast('Category management is coming soon', 'info');
+        break;
       case 'more-matches': state.finder.matchShown += 6; loadMatches(); break;
 
       case 'filter-brand':
@@ -10845,6 +11248,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* Point every category at its official logo. One call, before the first
      render, so no surface ever paints a drawn placeholder first and swaps. */
   if (SM.categoryAssets) SM.categoryAssets.install();
+  /* Same for brands: any licensed logo file is registered before the first
+     render, so a brand never paints a wordmark and then swaps to a logo. A
+     brand with no file simply keeps its inline vector, which needs no
+     registration and no request. */
+  if (SM.brandAssets) SM.brandAssets.install();
   /* A legacy #/... link, or a bare /, becomes the clean path before anything
      renders — so the address bar, the canonical tag and what the app shows all
      agree from the first paint. replaceState rather than push: arriving at an

@@ -14,5 +14,8 @@
   "dependencies": {
     "firebase-admin": "^13.0.2",
     "razorpay": "^2.9.5"
+  },
+  "devDependencies": {
+    "simple-icons": "^16.29.0"
   }
 }

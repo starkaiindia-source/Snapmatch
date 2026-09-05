@@ -74,6 +74,29 @@
   /* light ground product renders sit on, in both themes */
   --pthumb-bg: #FFFFFF;
   --pthumb-line: var(--line);
+
+  /* --- brand chip treatments ------------------------------------------------
+     Three ways a brand logo is painted, all derived from ONE value: --bmk, the
+     brand's own official colour, set per element. Which treatment a brand gets
+     is decided in src/data/brand-assets.js, never in a component.
+
+       tint   a pale wash of the brand colour, mark in that colour   (default)
+       solid  the brand colour fills the chip, mark reversed to white
+       mono   neutral chip, mark in the theme's ink — for identities that are
+              black or white and would otherwise vanish in one theme
+
+     Only these tokens change between light and dark, so every treatment is
+     defined for both themes by construction and none of them can end up as
+     dark-on-dark. Percentages, not colours: the brand hex stays the source. */
+  --blogo-bg-mix: 11%;         /* brand colour in the tinted chip */
+  --blogo-bg-base: #FFFFFF;
+  --blogo-edge: 26%;           /* brand colour in the hairline */
+  --blogo-ink-mix: 100%;       /* how much of the brand colour the mark keeps */
+  --blogo-ink-base: #FFFFFF;
+  --blogo-solid-mix: 100%;     /* brand colour in a solid chip */
+  --blogo-solid-base: #FFFFFF;
+  --blogo-neutral-bg: #F2F7F5;
+  --blogo-neutral-ink: #131F1D;
   --glow-brand:   0 10px 34px -10px rgba(15,118,110,.55);
   --glow-amber:   0 10px 30px -10px rgba(228,113,28,.5);
 
@@ -115,6 +138,11 @@
     --ok:#3DD6A8; --warn:#F5B851; --bad:#FF7B80;
     --grad-bench: linear-gradient(160deg,#062522 0%,#083C36 45%,#0B5A52 100%);
     --pthumb-bg:#E9F0EE; --pthumb-line:rgba(255,255,255,.14);
+    /* brand chips: the wash deepens, the mark lightens, the solids calm down */
+    --blogo-bg-mix:24%; --blogo-bg-base:#0B1816; --blogo-edge:42%;
+    --blogo-ink-mix:52%; --blogo-ink-base:#FFFFFF;
+    --blogo-solid-mix:84%; --blogo-solid-base:#09110F;
+    --blogo-neutral-bg:#182A27; --blogo-neutral-ink:#E8F2EF;
     --grad-header:
       radial-gradient(1100px 340px at 70% -120px, rgba(18,196,160,.24), transparent 68%),
       linear-gradient(180deg, rgba(255,255,255,.04) 0%, rgba(0,0,0,.34) 100%),
@@ -137,6 +165,11 @@
   --ok:#3DD6A8; --warn:#F5B851; --bad:#FF7B80;
   --grad-bench: linear-gradient(160deg,#062522 0%,#083C36 45%,#0B5A52 100%);
   --pthumb-bg:#E9F0EE; --pthumb-line:rgba(255,255,255,.14);
+  /* brand chips: the wash deepens, the mark lightens, the solids calm down */
+  --blogo-bg-mix:24%; --blogo-bg-base:#0B1816; --blogo-edge:42%;
+  --blogo-ink-mix:52%; --blogo-ink-base:#FFFFFF;
+  --blogo-solid-mix:84%; --blogo-solid-base:#09110F;
+  --blogo-neutral-bg:#182A27; --blogo-neutral-ink:#E8F2EF;
   --grad-header:
     radial-gradient(1100px 340px at 70% -120px, rgba(18,196,160,.24), transparent 68%),
     linear-gradient(180deg, rgba(255,255,255,.04) 0%, rgba(0,0,0,.34) 100%),
@@ -536,44 +569,71 @@ ul{ margin:0; padding:0; list-style:none; }
 .sug__go{ color:var(--ink-3); flex:none; }
 .sug__go svg{ width:16px; height:16px; }
 
+/* ---- brand chips --------------------------------------------------------
+   THE BOUNDING BOX, not the logo, is what is consistent. Every chip is the
+   same size in a given context; what goes inside it is contained, never
+   stretched — so a wide wordmark stays wide, a square mark stays square, and
+   the rail still lines up. The box is slightly wider than tall for exactly
+   that reason: most manufacturer logos are wordmarks. */
 .blogo{
-  width:38px; height:38px; border-radius:11px; flex:none; display:grid; place-items:center;
+  --bmk:#0E7A6C;
+  width:42px; height:38px; border-radius:11px; flex:none;
+  display:grid; place-items:center; overflow:hidden;
   font-family:var(--f-display); font-weight:800; font-size:14px; color:#fff; letter-spacing:-.02em;
+  transition:background .16s, border-color .16s, color .16s;
 }
-.blogo--lg{ width:56px; height:56px; border-radius:var(--r); font-size:20px; }
-.blogo--sm{ width:28px; height:28px; border-radius:8px; font-size:11px; }
-/* container for a real logo file — keeps aspect ratio, never stretches */
-.blogo--img{ background:#fff; border:1px solid var(--line); padding:3px; }
+.blogo--lg{ width:62px; height:56px; border-radius:var(--r); font-size:20px; }
+.blogo--sm{ width:32px; height:28px; border-radius:8px; font-size:11px; }
+/* the brand rail on the finder: the one place a logo is the subject rather
+   than a marker beside a name, so it gets the room to actually be read */
+.blogo--rail{ width:48px; height:40px; border-radius:10px; }
+
+/* Logo artwork fills its box generously — the old chips gave 8px of padding to
+   a 28px square and left 16px of logo, which is why Motorola looked like a
+   speck. Padding stays absolute, never a percentage: percentage padding
+   resolves against the CONTAINING BLOCK's width, not the chip's, which on a
+   wide card swallowed the whole chip and left the logo 0px tall. */
+.blogo--img,.blogo--mark,.blogo--word{ padding:4px; }
+.blogo--lg.blogo--img,.blogo--lg.blogo--mark,.blogo--lg.blogo--word{ padding:8px; }
+.blogo--sm.blogo--img,.blogo--sm.blogo--mark,.blogo--sm.blogo--word{ padding:3px; }
+.blogo--rail.blogo--img,.blogo--rail.blogo--mark,.blogo--rail.blogo--word{ padding:4px; }
+
 .blogo--img img{ width:100%; height:100%; object-fit:contain; display:block; }
-
-/* Official vector mark. The chip stays light in BOTH themes — brand colours are
-   specified against white, so reproducing them on a dark ground would misrender
-   the brand and sink the dark marks (Apple, Honor, Asus) into the page. */
-.blogo--mark{
-  background:var(--pthumb-bg); border:1px solid var(--line);
-  padding:8px; color:var(--bmk);
+/* No width/height attributes on these — the box is the bound and the SVG's own
+   preserveAspectRatio contains the artwork inside it. */
+.blogo--mark svg,.blogo--word svg{ width:100%; height:100%; display:block; }
+.blogo--mark svg path{ fill:currentColor; }
+.blogo--word text{
+  font-family:var(--f-display); font-weight:800; letter-spacing:-.02em; fill:currentColor;
 }
-/* Padding must be absolute, not a percentage: percentage padding resolves
-   against the CONTAINING BLOCK's width, not the chip's, so on a wide card it
-   swallowed the whole 38px chip and left the logo 0px tall. */
-.blogo--mark.blogo--lg{ padding:12px; }
-.blogo--mark.blogo--sm{ padding:6px; }
-.blogo--mark svg{ width:100%; height:100%; display:block; fill:var(--bmk); }
 
-/* Wordmark shown only for a brand with no official mark available. Set in the
-   display face rather than faked as a logo, so it reads as a name, not a badge
-   pretending to be someone's identity. */
-.blogo--word{
-  background:var(--pthumb-bg); border:1px solid var(--line);
-  /* The chip is light in BOTH themes (see .blogo--mark), so the text must be a
-     fixed dark — var(--ink) is near-white in dark mode and rendered these
-     wordmarks at 1.01:1, i.e. completely invisible. */
-  color:#16211F; font-family:var(--f-display); font-weight:800;
-  font-size:11px; letter-spacing:-.03em; padding:0 4px; text-align:center;
-  line-height:1.05; overflow:hidden; word-break:break-word; hyphens:auto;
+/* --- the three treatments, both themes ---------------------------------- */
+/* tint: a pale wash of the brand's own colour, mark in that colour. The
+   default, and what most brands should be — a rail of saturated blocks is not
+   a product, it is a bag of sweets. */
+.blogo--tint{
+  background:color-mix(in srgb, var(--bmk) var(--blogo-bg-mix), var(--blogo-bg-base));
+  border:1px solid color-mix(in srgb, var(--bmk) var(--blogo-edge), transparent);
+  color:color-mix(in srgb, var(--bmk) var(--blogo-ink-mix), var(--blogo-ink-base));
 }
-.blogo--word.blogo--lg{ font-size:14px; }
-.blogo--word.blogo--sm{ font-size:8.5px; letter-spacing:-.02em; }
+/* solid: the brand colour IS the identity — OnePlus red, Nokia blue, Huawei
+   red — so the chip carries it and the mark reverses out in white. */
+.blogo--solid{
+  background:color-mix(in srgb, var(--bmk) var(--blogo-solid-mix), var(--blogo-solid-base));
+  border:1px solid color-mix(in srgb, var(--bmk) 70%, transparent);
+  color:#FFFFFF;
+}
+/* mono: monochrome identities (Apple, Honor, ASUS, Nothing, Sony). Their
+   official colour is black or white, so it is the THEME's ink that keeps them
+   visible — a black Apple mark on a black page is not a brand treatment. */
+.blogo--mono{
+  background:var(--blogo-neutral-bg); border:1px solid var(--line);
+  color:var(--blogo-neutral-ink);
+}
+/* A logo file is someone else's artwork with its own ground baked in, so it
+   gets a plain light chip in both themes rather than a tint that would fight
+   whatever is inside the file. */
+.blogo--img{ background:var(--pthumb-bg); border:1px solid var(--line); }
 
 /* history marker for recent-search rows in the dropdown */
 .sug__hist{

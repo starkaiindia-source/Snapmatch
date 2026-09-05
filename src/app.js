@@ -746,22 +746,48 @@
     var pending = !!state.finder.modelId && !avail;
     var availTotal = avail ? Object.keys(avail).reduce(function (n, k) { return n + avail[k]; }, 0) : 0;
 
-    var tile = function (id, name, color, ic, count, wide) {
+    /* The picture is the tile. The name is an overlay that appears on hover —
+       and is ALWAYS in the accessible name of the button, so a screen reader,
+       a keyboard user and a touch device never depend on a pointer hovering
+       to find out what they are pressing.
+
+       The count is a badge and nothing else. "167 groups" under seven tiles is
+       seven repetitions of a word the panel heading has already said; the
+       number is the only part that differs, so the number is the only part
+       shown. Its unit lives in the button's aria-label, where it costs no
+       pixels and is still announced. */
+    var tile = function (id, name, color, ic, count) {
       var on = f.catId === id;
       var n = avail ? (id === 'all' ? availTotal : (avail[id] || 0)) : count;
       var empty = !!avail && n === 0;
-      var label = pending ? '…' : (n + ' ' + (n === 1 ? 'group' : 'groups'));
-      return '<button type="button" class="ctile' + (on ? ' is-on' : '') + (wide ? ' ctile--wide' : '') +
+      var badge = pending ? '…' : nf(n);
+      var aria = name + ' — ' + (pending ? 'counting' : nf(n) + ' ' + (n === 1 ? 'group' : 'groups'));
+      return '<button type="button" class="ctile' + (on ? ' is-on' : '') +
         (empty ? ' is-empty' : '') + '" ' +
         'data-act="filter-cat" data-id="' + id + '" style="--c:' + color + '"' +
         (empty ? ' disabled' : '') +
-        (on ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
+        ' aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
+        '<span class="ctile__art">' +
         SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name) +
-        '<span class="ctile__foot"><span class="ctile__name">' + esc(name) + '</span>' +
-        '<span class="ctile__n">' + label + '</span></span>' +
+        '<span class="ctile__veil" aria-hidden="true"></span>' +
+        '<span class="ctile__name" aria-hidden="true">' + esc(name) + '</span>' +
+        '</span>' +
+        '<span class="ctile__n" aria-hidden="true">' + badge + '</span>' +
         (on ? '<span class="ctile__tick">' + icon('check') + '</span>' : '') +
         '</button>';
     };
+
+    /* The last slot in the grid. A placeholder for category management, not
+       category management — it is deliberately not a filter, carries its own
+       action, and sits in the grid as an ordinary cell so the seven real tiles
+       keep their size and rhythm. */
+    var addTile =
+      '<button type="button" class="ctile ctile--add" data-act="add-category" ' +
+      'aria-label="Add a part category">' +
+      '<span class="ctile__art"><span class="ctile__plus" aria-hidden="true">' + icon('plus') + '</span>' +
+      '<span class="ctile__name ctile__name--add" aria-hidden="true">Add</span></span>' +
+      '</button>';
+
     return '<section class="panel">' +
       '<div class="panel__head"><span class="t-lab">Part category</span>' +
       (f.catId !== 'all'
@@ -770,9 +796,10 @@
       '</div>' +
       '<div class="ctiles">' +
       tile('all', 'All Categories', 'var(--teal-500)', 'grid', db.stats.groups) +
-      db.categories.map(function (c, i) {
-        return tile(c.id, c.name, c.color, c.icon, c.groupCount, i === db.categories.length - 1);
+      db.categories.map(function (c) {
+        return tile(c.id, c.name, c.color, c.icon, c.groupCount);
       }).join('') +
+      addTile +
       '</div></section>';
   }
 
@@ -841,7 +868,7 @@
       return '<button type="button" class="brow' + (on ? ' is-on' : '') + (b.groupCount ? '' : ' brow--empty') +
         '" data-act="filter-brand" data-id="' + b.id + '" aria-pressed="' + on + '" ' +
         'title="' + esc(b.name) + (b.groupCount ? '' : ' — no product groups yet') + '">' +
-        SM.art.brand(b, 'blogo--sm') +
+        SM.art.brand(b, 'blogo--rail') +
         '<span class="brow__n">' + esc(b.name) + '</span>' +
         '<span class="brow__c">' + b.groupCount + '</span></button>';
     }).join('');
@@ -3382,6 +3409,13 @@
         setCategory('all');
         renderWorkspace();
         break;
+      /* The "+" slot in the category grid. A placeholder on purpose: it says
+         where category management will live without pretending to be it, and
+         it deliberately does NOT touch the category filter — pressing it must
+         not silently change what the centre column is showing. */
+      case 'add-category':
+        toast('Category management is coming soon', 'info');
+        break;
       case 'more-matches': state.finder.matchShown += 6; loadMatches(); break;
 
       case 'filter-brand':
@@ -4266,6 +4300,11 @@
   /* Point every category at its official logo. One call, before the first
      render, so no surface ever paints a drawn placeholder first and swaps. */
   if (SM.categoryAssets) SM.categoryAssets.install();
+  /* Same for brands: any licensed logo file is registered before the first
+     render, so a brand never paints a wordmark and then swaps to a logo. A
+     brand with no file simply keeps its inline vector, which needs no
+     registration and no request. */
+  if (SM.brandAssets) SM.brandAssets.install();
   /* A legacy #/... link, or a bare /, becomes the clean path before anything
      renders — so the address bar, the canonical tag and what the app shows all
      agree from the first paint. replaceState rather than push: arriving at an

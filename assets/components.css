@@ -106,24 +106,42 @@
 .selmodel .t-h3{ font-size:clamp(16px,2.4vw,20px); line-height:1.22; }
 @media (max-width:520px){
   .selmodel{ padding:12px; gap:10px; }
-  .selmodel .blogo--lg{ width:44px; height:44px; }
+  .selmodel .blogo--lg{ width:50px; height:44px; }
 }
 
 /* a category this model has no group in: still in its place, plainly off */
 .ctile.is-empty{ opacity:.4; pointer-events:none; }
-.ctile.is-empty .ctile__n{ color:var(--ink-3); }
 
-/* --------- LEFT: image-first category gallery, 3 up ----------------------- */
-.ctiles{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+/* --------- LEFT: image-first category gallery, 3 up -----------------------
+   The picture is the tile. Every cell is the same square, always three to a
+   row — including the last real category, which used to stretch to full width
+   and broke the grid's rhythm the moment Battery happened to be last. The "+"
+   slot is an ordinary cell, so adding a category cannot change the shape of
+   the ones already there.
+
+   The name is not printed under the picture. Seven tiles each captioned with
+   its own name and the word "groups" is a wall of text over a gallery; the
+   name appears on hover, over the lower edge of its own image, and lives in
+   the button's aria-label the rest of the time so nothing is hidden from a
+   screen reader or a keyboard. */
+.ctiles{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
 @media (max-width:359px){ .ctiles{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .ctile{
   --c:var(--teal-500);
-  position:relative; display:flex; flex-direction:column; align-items:center; gap:7px;
-  padding:10px 5px 9px; text-align:center; border-radius:var(--r-sm);
+  position:relative; display:block; padding:4px; border-radius:var(--r-sm);
   border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
-  transition:transform .16s cubic-bezier(.2,.8,.3,1), border-color .16s, background .16s, box-shadow .16s;
+  transition:transform .18s cubic-bezier(.2,.8,.3,1), border-color .18s, background .18s, box-shadow .18s;
 }
 .ctile:hover{ transform:translateY(-2px); border-color:var(--c); box-shadow:var(--sh-1); }
+.ctile:focus-visible{ outline:2px solid var(--teal-600); outline-offset:2px; }
+
+/* the image area — and the positioning context the overlay and the badge
+   are measured against */
+.ctile__art{
+  position:relative; display:block; width:100%; aspect-ratio:1/1;
+  border-radius:9px; overflow:hidden;
+}
+
 /* ---- product renders (one system: category tiles + group cards) ---------- */
 .pthumb{
   display:grid; place-items:center; flex:none; overflow:hidden;
@@ -131,30 +149,90 @@
   box-shadow:inset 0 -6px 12px -8px rgba(10,21,18,.18);
 }
 .pimg{ width:100%; height:100%; display:block; object-fit:contain; }
-.pthumb--tile{ width:100%; aspect-ratio:1/1; max-width:56px; height:auto; border-radius:9px; }
-.pthumb--plate{ width:58px; height:58px; border-radius:12px; }
-.ctile__foot{ display:block; min-width:0; width:100%; }
-.ctile__name{ display:block; font-size:10.5px; font-weight:700; letter-spacing:-.008em; line-height:1.2; }
-.ctile__n{ display:block; font-size:9px; font-weight:600; color:var(--ink-3); margin-top:2px; font-variant-numeric:tabular-nums; }
-.ctile__tick{ position:absolute; top:6px; right:6px; color:var(--c); }
-.ctile__tick svg{ width:13px; height:13px; }
-
-/* the catch-all category gets a full-width horizontal row of its own */
-.ctile--wide{
-  grid-column:1 / -1; flex-direction:row; align-items:center; text-align:left;
-  gap:11px; padding:8px 11px;
+/* Fills its cell instead of sitting as a 56px stamp in the middle of one. The
+   small inset is breathing room, not a frame — contain still governs, so
+   nothing is cropped or stretched to get there. */
+.pthumb--tile{
+  position:absolute; inset:0; width:100%; height:100%; max-width:none;
+  border-radius:9px; border-color:transparent; padding:5%;
 }
-.ctile--wide .pthumb--tile{ width:42px; max-width:42px; flex:none; }
-.ctile--wide .ctile__foot{ flex:1; }
-.ctile--wide .ctile__name{ font-size:12px; }
-.ctile--wide .ctile__n{ font-size:10px; }
-.ctile--wide .ctile__tick{ top:50%; right:10px; transform:translateY(-50%); }
+.pthumb--plate{ width:58px; height:58px; border-radius:12px; }
+
+/* Hover reveal. Only the bottom of the picture is shaded — enough to carry a
+   line of text, not a curtain over the thing the tile is for. */
+.ctile__veil{
+  position:absolute; left:0; right:0; bottom:0; height:56%; pointer-events:none;
+  background:linear-gradient(to top, rgba(5,14,13,.88) 0%, rgba(5,14,13,.55) 42%, rgba(5,14,13,0) 100%);
+  opacity:0; transition:opacity .2s ease;
+}
+.ctile__name{
+  position:absolute; left:6px; right:6px; bottom:5px; pointer-events:none;
+  font-size:10.5px; font-weight:700; line-height:1.15; letter-spacing:-.01em;
+  color:#FFFFFF; text-align:left; text-shadow:0 1px 2px rgba(0,0,0,.5);
+  opacity:0; transform:translateY(4px); transition:opacity .2s ease, transform .2s ease;
+  overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+.ctile:hover .ctile__veil,
+.ctile:focus-visible .ctile__veil,
+.ctile.is-on .ctile__veil{ opacity:1; }
+.ctile:hover .ctile__name,
+.ctile:focus-visible .ctile__name,
+.ctile.is-on .ctile__name{ opacity:1; transform:none; }
+
+/* Without a pointer there is no hover, and the name would be unreachable —
+   so on touch it simply stays on, a little softer. */
+@media (hover:none){
+  .ctile__veil{ opacity:.92; }
+  .ctile__name{ opacity:1; transform:none; }
+}
+
+/* The count, as a floating badge and nothing else — the number, never the
+   word. It sits ON the picture, and the product ground is pale in BOTH themes
+   (--pthumb-bg), so it is painted against the artwork rather than the page: a
+   dark translucent pill reads the same in light and dark, where a surface
+   token would have gone white-on-white in one of them. */
+.ctile__n{
+  position:absolute; top:2px; right:2px; z-index:2; pointer-events:none;
+  min-width:20px; height:18px; padding:0 5px; border-radius:99px;
+  display:grid; place-items:center;
+  font-size:10px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums;
+  background:rgba(9,20,18,.74); color:#FFFFFF; border:1px solid rgba(255,255,255,.2);
+  box-shadow:0 1px 3px rgba(10,21,18,.28);
+  transition:background .18s, color .18s, border-color .18s, transform .18s;
+}
+.ctile:hover .ctile__n,
+.ctile:focus-visible .ctile__n,
+.ctile.is-on .ctile__n{
+  background:var(--c); color:#FFFFFF; border-color:var(--c); transform:scale(1.06);
+}
+.ctile.is-empty .ctile__n{ background:rgba(9,20,18,.42); }
+/* the "+" slot has no picture behind it, so its badge area follows the page */
+.ctile--add .ctile__n{ background:var(--surface-3); color:var(--ink-3); border-color:var(--line); }
+.ctile__tick{
+  position:absolute; left:5px; top:5px; z-index:2; color:#FFFFFF;
+  background:var(--c); border-radius:99px; padding:2px; display:grid; place-items:center;
+  box-shadow:0 1px 3px rgba(10,21,18,.25);
+}
+.ctile__tick svg{ width:11px; height:11px; }
+
 .ctile.is-on{
   background:color-mix(in srgb,var(--c) 11%,var(--surface));
   border-color:var(--c); box-shadow:0 0 0 1px var(--c) inset;
 }
-.ctile.is-on .ctile__name{ color:color-mix(in srgb,var(--c) 72%,var(--ink)); }
-.ctile.is-on .pthumb{ border-color:color-mix(in srgb,var(--c) 55%,var(--line)); }
+
+/* The "+" slot: the same cell, plainly empty. A dashed edge says "nothing here
+   yet" without borrowing the weight of a real category. */
+.ctile--add{ background:transparent; border-style:dashed; color:var(--ink-3); }
+.ctile--add:hover{ border-color:var(--teal-600); color:var(--teal-700); background:var(--teal-050); }
+.ctile--add .ctile__art{
+  display:grid; place-items:center; gap:3px; align-content:center;
+}
+.ctile__plus{ display:grid; place-items:center; }
+.ctile__plus svg{ width:20px; height:20px; }
+.ctile__name--add{
+  position:static; opacity:1; transform:none; text-align:center;
+  color:currentColor; text-shadow:none; font-size:10px; font-weight:700;
+}
 
 /* ---------------- RIGHT: brand explorer ---------------------------------- */
 .brandsearch{ margin-bottom:9px; }
@@ -175,8 +253,12 @@
 .brow--empty:hover{ opacity:.85; }
 
 .brows{ display:flex; flex-direction:column; gap:2px; }
+/* The logo is the subject of this row, so the row is sized around it rather
+   than around the text. It used to give the mark a 28px chip with 6px of
+   padding — 16px of actual logo, which is why Motorola read as a speck and
+   Huawei as unidentifiable grey text. */
 .brow{
-  display:flex; align-items:center; gap:9px; width:100%; padding:6px 8px;
+  display:flex; align-items:center; gap:10px; width:100%; padding:5px 7px;
   border-radius:var(--r-xs); text-align:left; border:1px solid transparent;
   transition:background .14s, border-color .14s, color .14s;
 }
@@ -184,10 +266,10 @@
 .brow__n{ font-size:13.5px; font-weight:700; letter-spacing:-.012em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .brow__c{ margin-left:auto; font-family:var(--f-mono); font-size:11px; color:var(--ink-3); flex:none; }
 .brow__all{
-  width:28px; height:28px; border-radius:8px; display:grid; place-items:center; flex:none;
+  width:48px; height:40px; border-radius:10px; display:grid; place-items:center; flex:none;
   background:var(--surface-3); color:var(--ink-3);
 }
-.brow__all svg{ width:15px; height:15px; }
+.brow__all svg{ width:17px; height:17px; }
 .brow.is-on{ background:var(--teal-050); border-color:var(--teal-100); }
 .brow.is-on .brow__n,.brow.is-on .brow__c{ color:var(--teal-700); }
 .brow.is-on .brow__all{ background:var(--grad-brand); color:#fff; }

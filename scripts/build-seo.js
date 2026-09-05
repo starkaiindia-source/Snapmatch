@@ -202,6 +202,7 @@ const APP_BOOT = [
   'src/data/access.js',
   'src/data/analytics.js',
   'src/ui/icons.js', 'src/ui/product-art.js', 'src/data/category-assets.js',
+  'src/data/brand-assets.js',
   'src/ui/components.js', 'src/app.js'
 ].map(s => `<script src="/${s}" defer></script>`).join('\n');
 

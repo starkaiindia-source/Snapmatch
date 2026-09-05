@@ -107,6 +107,29 @@
      stand-in for one that failed to load: a wrong logo is worse than a name. */
   SM.brandFiles = SM.brandFiles || {};
 
+  /* HTML-escape. Brand names are catalogue data, and a name with an ampersand
+     in it must not be able to close an attribute. */
+  function be(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+
+  /* The chip's paint job, decided once in src/data/brand-assets.js and applied
+     here as a class plus one custom property. Every treatment is defined for
+     BOTH themes in assets/styles.css, so a logo can never come out invisible in
+     one of them. `--bmk` is the brand's own official colour and is the only
+     value the three treatments are derived from. */
+  function chipAttrs(brand, kind, klass) {
+    var A = SM.brandAssets;
+    var mode = A ? A.mode(brand.id) : 'tint';
+    var hex = A ? A.hex(brand) : String(brand.color || '#0E7A6C').replace(/^#/, '');
+    return {
+      cls: 'blogo blogo--' + kind + ' blogo--' + mode + (klass ? ' ' + klass : ''),
+      style: '--bmk:#' + hex
+    };
+  }
+
   SM.brandLogo = function (brand, cls) {
     var b = brand || {};
     var name = String(b.name || '');
@@ -117,16 +140,23 @@
       /* The id and class ride on the element rather than being interpolated
          into the handler — nesting quotes inside an inline onerror is how you
          ship a broken attribute that only fails when the image 404s. */
-      return '<span class="blogo blogo--img ' + klass + '">' +
-        '<img src="' + file + '" alt="' + name + '" loading="lazy" ' +
-        'data-brand="' + b.id + '" data-cls="' + klass + '" ' +
+      var a = chipAttrs(b, 'img', klass);
+      return '<span class="' + a.cls + '" style="' + a.style + '">' +
+        '<img src="' + be(file) + '" alt="' + be(name) + '" loading="lazy" decoding="async" ' +
+        'data-brand="' + be(b.id) + '" data-cls="' + be(klass) + '" ' +
         'onerror="SM.brandImgFailed(this)" /></span>';
     }
 
     var mark = SM.brandMarks && SM.brandMarks[b.id];
     if (mark) {
-      return '<span class="blogo blogo--mark ' + klass + '" style="--bmk:#' + mark.h + '">' +
-        '<svg viewBox="0 0 24 24" role="img" aria-label="' + name + '">' +
+      /* No width/height on the <svg>: the CSS box is the bounding box, and the
+         default preserveAspectRatio="xMidYMid meet" contains the mark inside it.
+         A wide mark stays wide, a square one stays square, and nothing is ever
+         stretched to fill. `fill` comes from the treatment, not from the path,
+         so the same vector reads correctly in both themes. */
+      var m = chipAttrs(b, 'mark', klass);
+      return '<span class="' + m.cls + '" style="' + m.style + '">' +
+        '<svg viewBox="0 0 24 24" role="img" aria-label="' + be(name) + '">' +
         '<path d="' + mark.p + '"/></svg></span>';
     }
 
@@ -135,24 +165,51 @@
 
   /* A registered logo file failed to load. Fall back to the wordmark rather
      than leaving a broken image — but keep it out of the mark registry, so a
-     transient network failure does not permanently demote the brand. */
+     transient network failure does not permanently demote the brand.
+
+     A brand whose file came from Firebase Storage gets one retry against the
+     copy deployed with the site before it gives up: that is the SAME logo, so
+     a slow bucket costs a request, not a downgrade. */
   SM.brandImgFailed = function (img) {
     var id = img.getAttribute('data-brand');
     var cls = img.getAttribute('data-cls') || '';
+    var fb = SM.brandFileFallbacks && SM.brandFileFallbacks[id];
+    if (fb && !img.dataset.fb && img.getAttribute('src') !== fb) {
+      img.dataset.fb = '1';
+      img.src = fb;
+      return;
+    }
     var brand = (SM.db && SM.db.brandById && SM.db.brandById[id]) || { id: id, name: id };
     var span = img.parentNode;
     if (span && span.parentNode) span.outerHTML = SM.brandWordmark(brand, cls);
   };
 
-  /* A brand's actual name, set in the display face — not a two-letter monogram
-     on a coloured tile, which reads as a logo we invented. The brand's own
-     colour tints the rule underneath so the rail stays scannable. */
+  /* A brand's actual name, set as a proper wordmark — not a two-letter monogram,
+     which reads as a logo we invented, and not 8px of body text, which reads as
+     a bug. Several of these brands' real logos ARE wordmarks, so a well-set name
+     in the brand's own colour is an honest representation rather than a
+     stand-in for artwork we do not have.
+
+     Drawn as SVG text rather than HTML so it behaves exactly like a vector mark:
+     the viewBox is sized to the name, the browser scales it to the chip's
+     bounding box, and it is therefore as large as the box allows at every size
+     the chip is used at — 28px in a dropdown, 56px on a model card — with no
+     per-size font-size table to keep in step. */
   SM.brandWordmark = function (brand, cls) {
     var b = brand || {};
     var name = String(b.name || '');
-    var short = name.length > 9 ? name.slice(0, 2).toUpperCase() : name;
-    return '<span class="blogo blogo--word ' + (cls || '') + '" ' +
-      'style="box-shadow:inset 0 -2px 0 ' + (b.color || 'transparent') + '" ' +
-      'title="' + name + ' — no official mark available">' + short + '</span>';
+    if (!name) return '';
+
+    /* Advance width per character in the display face at font-size 26, bold and
+       slightly tightened. Only an estimate — textLength pins the final width
+       exactly, so an estimate a little out costs a hair of tracking, not a
+       clipped or floating wordmark. */
+    var W = Math.max(30, Math.round(name.length * 15.4));
+    var a = chipAttrs(b, 'word', cls || '');
+    return '<span class="' + a.cls + '" style="' + a.style + '" title="' + be(name) + '">' +
+      '<svg viewBox="0 0 ' + W + ' 34" role="img" aria-label="' + be(name) + '">' +
+      '<text x="' + (W / 2) + '" y="26" text-anchor="middle" ' +
+      'textLength="' + (W - 4) + '" lengthAdjust="spacingAndGlyphs">' + be(name) + '</text>' +
+      '</svg></span>';
   };
 })(window);
