@@ -752,16 +752,19 @@
     var pending = !!state.finder.modelId && !avail;
     var availTotal = avail ? Object.keys(avail).reduce(function (n, k) { return n + avail[k]; }, 0) : 0;
 
-    /* The picture is the tile. The name is an overlay that appears on hover —
-       and is ALWAYS in the accessible name of the button, so a screen reader,
-       a keyboard user and a touch device never depend on a pointer hovering
-       to find out what they are pressing.
+    /* The picture is the tile, and at rest it is ALL of the tile: the name,
+       the count and the gradient behind the name are painted only while the
+       pointer is on the card. Browsing the panel is then a gallery of parts
+       rather than seven captioned boxes, and the answer is one hover away.
 
-       The count is a badge and nothing else. "167 groups" under seven tiles is
-       seven repetitions of a word the panel heading has already said; the
-       number is the only part that differs, so the number is the only part
-       shown. Its unit lives in the button's aria-label, where it costs no
-       pixels and is still announced. */
+       None of that hides anything: name and count are both in the button's
+       accessible name, so a screen reader and a keyboard user get them
+       without a pointer, and on touch — where hover does not exist — the CSS
+       leaves them on.
+
+       The count carries no unit. "167 groups" under seven tiles is seven
+       repetitions of a word the panel heading has already said; the number is
+       the only part that differs, so the number is the only part drawn. */
     var tile = function (id, name, color, ic, count) {
       var on = f.catId === id;
       var n = avail ? (id === 'all' ? availTotal : (avail[id] || 0)) : count;
@@ -779,7 +782,8 @@
         '<span class="ctile__name" aria-hidden="true">' + esc(name) + '</span>' +
         '</span>' +
         '<span class="ctile__n" aria-hidden="true">' + badge + '</span>' +
-        (on ? '<span class="ctile__tick">' + icon('check') + '</span>' : '') +
+        /* No tick. aria-pressed above already states the selection, and on
+           screen the card's coloured edge says it without covering the part. */
         '</button>';
     };
 

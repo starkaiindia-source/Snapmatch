@@ -75,6 +75,14 @@
   --pthumb-bg: #FFFFFF;
   --pthumb-line: var(--line);
 
+  /* The category tile's own ground. Pure white, and deliberately the SAME in
+     both themes — unlike --pthumb-bg, which cools to a mint in dark. The
+     category masters are white-background photographs, so any chip tint shows
+     up as a visible rectangle of the asset's white sitting inside a slightly
+     grey card, which is what made the tiles look dirty when zoomed. Matching
+     the asset exactly is what makes the seam disappear. */
+  --ctile-paper: #FFFFFF;
+
   /* --- brand chip treatments ------------------------------------------------
      Three ways a brand logo is painted, all derived from ONE value: --bmk, the
      brand's own official colour, set per element. Which treatment a brand gets

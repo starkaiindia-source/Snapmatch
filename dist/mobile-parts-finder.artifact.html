@@ -81,6 +81,14 @@
   --pthumb-bg: #FFFFFF;
   --pthumb-line: var(--line);
 
+  /* The category tile's own ground. Pure white, and deliberately the SAME in
+     both themes — unlike --pthumb-bg, which cools to a mint in dark. The
+     category masters are white-background photographs, so any chip tint shows
+     up as a visible rectangle of the asset's white sitting inside a slightly
+     grey card, which is what made the tiles look dirty when zoomed. Matching
+     the asset exactly is what makes the seam disappear. */
+  --ctile-paper: #FFFFFF;
+
   /* --- brand chip treatments ------------------------------------------------
      Three ways a brand logo is painted, all derived from ONE value: --bmk, the
      brand's own official colour, set per element. Which treatment a brand gets
@@ -790,13 +798,16 @@ ul{ margin:0; padding:0; list-style:none; }
 /* Below this the sidebar is not the sidebar any more — it is the filter
    sheet, where the column choice still applies but two-up is the floor. */
 @media (max-width:359px){ .ctiles{ --cols:2; } }
+/* White, in both themes, and flat. The card is a mount for a white-background
+   photograph: a tinted ground or a drop shadow reads as grime around the part
+   rather than as depth, and it is the first thing you see when you zoom in. */
 .ctile{
   --c:var(--teal-500);
   position:relative; display:block; padding:4px; border-radius:var(--r-sm);
-  border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
-  transition:transform .18s cubic-bezier(.2,.8,.3,1), border-color .18s, background .18s, box-shadow .18s;
+  border:1px solid var(--line); background:var(--ctile-paper); color:var(--ink);
+  transition:transform .18s cubic-bezier(.2,.8,.3,1), border-color .18s;
 }
-.ctile:hover{ transform:translateY(-2px); border-color:var(--c); box-shadow:var(--sh-1); }
+.ctile:hover{ transform:translateY(-2px); border-color:var(--c); }
 .ctile:focus-visible{ outline:2px solid var(--teal-600); outline-offset:2px; }
 
 /* The image area — and the positioning context the overlay and the badge are
@@ -822,10 +833,16 @@ ul{ margin:0; padding:0; list-style:none; }
   box-shadow:inset 0 -6px 12px -8px rgba(10,21,18,.18);
 }
 .pimg{ width:100%; height:100%; display:block; object-fit:contain; }
-/* Fills its cell instead of sitting as a 56px stamp in the middle of one. */
+/* Fills its cell instead of sitting as a 56px stamp in the middle of one.
+
+   The shared .pthumb carries an inset bottom shadow, which gives a small
+   thumbnail a sense of a shelf. Across a whole tile it is just a grey wash
+   over the lower third of the photograph — the smudge under every part in the
+   sidebar. Off here, and left alone everywhere else it is still small. */
 .pthumb--tile{
   position:absolute; inset:0; width:100%; height:100%; max-width:none;
   border-radius:9px; border-color:transparent; padding:0;
+  background:var(--ctile-paper); box-shadow:none;
 }
 /* FIT THE PART, NOT ITS CANVAS.
 
@@ -878,51 +895,51 @@ ul{ margin:0; padding:0; list-style:none; }
    the type grows with the card rather than staying at sidebar size. */
 .ctiles--2 .ctile__name{ font-size:12px; left:8px; right:8px; bottom:7px; }
 .ctiles--2 .ctile__n{ height:20px; min-width:22px; font-size:11px; }
-.ctile:hover .ctile__veil,
-.ctile:focus-visible .ctile__veil,
-.ctile.is-on .ctile__veil{ opacity:1; }
-.ctile:hover .ctile__name,
-.ctile:focus-visible .ctile__name,
-.ctile.is-on .ctile__name{ opacity:1; transform:none; }
+/* EVERYTHING that is not the picture appears only under the pointer.
 
-/* Without a pointer there is no hover, and the name would be unreachable —
-   so on touch it simply stays on, a little softer. */
+   Selection is deliberately NOT in this list. A selected tile shows its
+   outline and nothing else: the name and the count are what you look up while
+   choosing, and repeating them on the one tile you have already chosen is the
+   clutter this panel is trying to lose. Hovering a selected tile still brings
+   them back, because that is you asking again. */
+.ctile:hover .ctile__veil,
+.ctile:focus-visible .ctile__veil{ opacity:1; }
+.ctile:hover .ctile__name,
+.ctile:focus-visible .ctile__name{ opacity:1; transform:none; }
+.ctile:hover .ctile__n,
+.ctile:focus-visible .ctile__n{ opacity:1; transform:none; }
+
+/* Without a pointer there is no hover at all, so hover-only would put the
+   name and the count permanently out of reach on a phone. There they stay
+   on — softer, and only where a mouse was never going to arrive. */
 @media (hover:none){
   .ctile__veil{ opacity:.92; }
   .ctile__name{ opacity:1; transform:none; }
+  .ctile__n{ opacity:1; transform:none; }
 }
 
 /* The count, as a floating badge and nothing else — the number, never the
-   word. It sits ON the picture, and the product ground is pale in BOTH themes
-   (--pthumb-bg), so it is painted against the artwork rather than the page: a
-   dark translucent pill reads the same in light and dark, where a surface
-   token would have gone white-on-white in one of them. */
+   word, and only under the pointer. It sits ON the picture, whose ground is
+   white in both themes, so it is painted against the artwork rather than the
+   page: a dark translucent pill reads the same in light and dark, where a
+   surface token would have gone white-on-white in one of them. */
 .ctile__n{
   position:absolute; top:2px; right:2px; z-index:2; pointer-events:none;
   min-width:20px; height:18px; padding:0 5px; border-radius:99px;
   display:grid; place-items:center;
   font-size:10px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums;
   background:rgba(9,20,18,.74); color:#FFFFFF; border:1px solid rgba(255,255,255,.2);
-  box-shadow:0 1px 3px rgba(10,21,18,.28);
-  transition:background .18s, color .18s, border-color .18s, transform .18s;
-}
-.ctile:hover .ctile__n,
-.ctile:focus-visible .ctile__n,
-.ctile.is-on .ctile__n{
-  background:var(--c); color:#FFFFFF; border-color:var(--c); transform:scale(1.06);
+  opacity:0; transform:translateY(-3px);
+  transition:opacity .2s ease, transform .2s ease;
 }
 .ctile.is-empty .ctile__n{ background:rgba(9,20,18,.42); }
-/* the "+" slot has no picture behind it, so its badge area follows the page */
-.ctile--add .ctile__n{ background:var(--surface-3); color:var(--ink-3); border-color:var(--line); }
-.ctile__tick{
-  position:absolute; left:5px; top:5px; z-index:2; color:#FFFFFF;
-  background:var(--c); border-radius:99px; padding:2px; display:grid; place-items:center;
-  box-shadow:0 1px 3px rgba(10,21,18,.25);
-}
-.ctile__tick svg{ width:11px; height:11px; }
-
+/* Selected: the category's own colour, drawn as the card's edge and nothing
+   more. The inset ring is the same border doubled, not a glow — it thickens
+   the outline to 2px without softening it or tinting the white the photograph
+   needs. There is no tick: on a grid where exactly one card can be outlined in
+   colour, a badge saying so is a second answer to a question already
+   answered, and it lands on top of the picture. */
 .ctile.is-on{
-  background:color-mix(in srgb,var(--c) 11%,var(--surface));
   border-color:var(--c); box-shadow:0 0 0 1px var(--c) inset;
 }
 
@@ -7804,16 +7821,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var pending = !!state.finder.modelId && !avail;
     var availTotal = avail ? Object.keys(avail).reduce(function (n, k) { return n + avail[k]; }, 0) : 0;
 
-    /* The picture is the tile. The name is an overlay that appears on hover —
-       and is ALWAYS in the accessible name of the button, so a screen reader,
-       a keyboard user and a touch device never depend on a pointer hovering
-       to find out what they are pressing.
+    /* The picture is the tile, and at rest it is ALL of the tile: the name,
+       the count and the gradient behind the name are painted only while the
+       pointer is on the card. Browsing the panel is then a gallery of parts
+       rather than seven captioned boxes, and the answer is one hover away.
 
-       The count is a badge and nothing else. "167 groups" under seven tiles is
-       seven repetitions of a word the panel heading has already said; the
-       number is the only part that differs, so the number is the only part
-       shown. Its unit lives in the button's aria-label, where it costs no
-       pixels and is still announced. */
+       None of that hides anything: name and count are both in the button's
+       accessible name, so a screen reader and a keyboard user get them
+       without a pointer, and on touch — where hover does not exist — the CSS
+       leaves them on.
+
+       The count carries no unit. "167 groups" under seven tiles is seven
+       repetitions of a word the panel heading has already said; the number is
+       the only part that differs, so the number is the only part drawn. */
     var tile = function (id, name, color, ic, count) {
       var on = f.catId === id;
       var n = avail ? (id === 'all' ? availTotal : (avail[id] || 0)) : count;
@@ -7831,7 +7851,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         '<span class="ctile__name" aria-hidden="true">' + esc(name) + '</span>' +
         '</span>' +
         '<span class="ctile__n" aria-hidden="true">' + badge + '</span>' +
-        (on ? '<span class="ctile__tick">' + icon('check') + '</span>' : '') +
+        /* No tick. aria-pressed above already states the selection, and on
+           screen the card's coloured edge says it without covering the part. */
         '</button>';
     };
 
