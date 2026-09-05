@@ -39,7 +39,7 @@
 'use strict';
 
 const { db, admin } = require('../_lib/firebase');
-const { USERS } = require('../_schema/collections');
+const { USERS, GROUP_DETAILS, DEVICE_GROUPS } = require('../_schema/collections');
 const {
   TIERS, FREE_DAILY_SEARCHES, dayKeyFor, resetsAt,
   tierFor, visibleMemberLimit, describe
@@ -135,15 +135,73 @@ async function consumeSearch(uid, now) {
 
 /* ------------------------------------------------------------ group access */
 
+/* ---------------------------------------------------- where members come from
+
+   Firestore `groupDetails`, read through the Admin SDK.
+
+   NOT from api/_data/parts.json. That file is git-ignored on purpose — this
+   repository is public and the file is the fitment list the subscription sells
+   — so it is never in a deployed function, and requiring it in production was
+   a MODULE_NOT_FOUND that turned every group sheet into a 500.
+
+   groupDetails is the right source anyway: the importer already writes it, the
+   importer's own comment says it is "kept for /api/device-parts", and it is
+   closed to every client in firestore.rules. One source, already in
+   production, already protected.
+
+   Cached per warm instance. A group's member list does not change between
+   deployments, so re-reading it for every sheet open would be a Firestore read
+   per click for a constant. */
+const memberCache = new Map();
+const MEMBER_CACHE_MAX = 500;
+
+async function readGroupDetail(groupId) {
+  if (memberCache.has(groupId)) return memberCache.get(groupId);
+
+  /* The local file first when it exists — a local run then needs no service
+     account to open a group sheet. Absent in production, which is the point. */
+  const local = search.groupDetail(groupId);
+  if (local && local.members && local.members.length) {
+    cacheMember(groupId, local);
+    return local;
+  }
+
+  const snap = await db().collection(GROUP_DETAILS).doc(groupId).get();
+  if (!snap.exists) { cacheMember(groupId, null); return null; }
+
+  const d = snap.data() || {};
+  const ids = Array.isArray(d.memberIds) ? d.memberIds : [];
+  const names = Array.isArray(d.memberNames) ? d.memberNames : [];
+
+  const detail = {
+    groupId,
+    partCode: d.partCode || null,
+    oemPartNo: d.oemPartNo || null,
+    masterModelName: d.drawingName || null,
+    memberCount: Number(d.memberCount) || ids.length,
+    members: ids.map((id, i) => ({ id, name: names[i] || id }))
+  };
+  cacheMember(groupId, detail);
+  return detail;
+}
+
+function cacheMember(groupId, value) {
+  /* A crude cap rather than an LRU. There are 3,340 groups and a warm instance
+     sees a handful; this only exists so a scripted walk of every group cannot
+     grow the heap without limit. */
+  if (memberCache.size >= MEMBER_CACHE_MAX) memberCache.clear();
+  memberCache.set(groupId, value);
+}
+
 /**
  * One compatibility group, cut to what this tier may see.
  *
  * @param {string} groupId
  * @param {'free'|'paid'} tier
- * @returns {object|null} null when there is no such group
+ * @returns {Promise<object|null>} null when there is no such group
  */
-function groupForUser(groupId, tier) {
-  const group = search.groupDetail(groupId);
+async function groupForUser(groupId, tier) {
+  const group = await readGroupDetail(groupId);
   if (!group) return null;
 
   const total = group.memberCount;
@@ -174,19 +232,37 @@ function groupForUser(groupId, tier) {
  * Every group that fits a device, each cut to the tier's allowance.
  * Used by the device page, which shows one group per part category.
  */
-function deviceGroupsForUser(modelId, tier) {
-  const compatibility = search.compatibilityFor(modelId);
-  if (!compatibility) return null;
+async function deviceGroupsForUser(modelId, tier) {
+  /* Which groups fit this device, per category. The local file when it is
+     there, Firestore otherwise — same reason as readGroupDetail above. */
+  let byCategory = null;
 
-  return {
-    modelId,
-    categories: compatibility.categories.map(cat => ({
-      categoryId: cat.categoryId,
-      categoryName: cat.categoryName,
-      groups: cat.groups.map(g => groupForUser(g.groupId, tier)).filter(Boolean)
-    })),
-    tier
-  };
+  const local = search.compatibilityFor(modelId);
+  if (local && local.categories.length) {
+    byCategory = local.categories.map(c => ({
+      categoryId: c.categoryId,
+      categoryName: c.categoryName,
+      groupIds: c.groups.map(g => g.groupId)
+    }));
+  } else {
+    const snap = await db().collection(DEVICE_GROUPS).doc(modelId).get();
+    if (!snap.exists) return null;
+    const d = snap.data() || {};
+    byCategory = Object.keys(d).map(categoryId => ({
+      categoryId,
+      categoryName: categoryId,
+      groupIds: Array.isArray(d[categoryId]) ? d[categoryId] : []
+    }));
+  }
+
+  const categories = await Promise.all(byCategory.map(async cat => ({
+    categoryId: cat.categoryId,
+    categoryName: cat.categoryName,
+    groups: (await Promise.all(cat.groupIds.map(id => groupForUser(id, tier))))
+      .filter(Boolean)
+  })));
+
+  return { modelId, categories, tier };
 }
 
 module.exports = { readAccess, consumeSearch, groupForUser, deviceGroupsForUser };

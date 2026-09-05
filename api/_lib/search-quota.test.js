@@ -242,3 +242,36 @@ test('an account with no profile document still gets its three searches', async 
   assert.equal(r.allowed, true);
   assert.equal(r.access.dailySearchesRemaining, 2);
 });
+
+/* ------------------------------------------------------- group lookups */
+
+test('an unknown group is null rather than an empty group', async () => {
+  /* Falls through the local file to Firestore, finds nothing, and says so.
+     An empty group object would render as "no devices recorded" over a group
+     that does not exist. */
+  assert.equal(await entitlements.groupForUser('no-such-group-at-all', 'paid'), null);
+});
+
+test('a group read from Firestore is sliced by tier, exactly as a local one is', async () => {
+  /* Production has no api/_data/parts.json — it is git-ignored because this
+     repository is public — so this is the path that actually runs live. */
+  store.set('groupDetails/gd-1', {
+    partCode: 'MPF-XX-0001',
+    drawingName: 'Master Model',
+    memberCount: 60,
+    memberIds: Array.from({ length: 60 }, (_, i) => 'm' + i),
+    memberNames: Array.from({ length: 60 }, (_, i) => 'Model ' + i)
+  });
+
+  const free = await entitlements.groupForUser('gd-1', 'free');
+  assert.equal(free.memberCount, 60);
+  assert.equal(free.members.length, 10, 'over 50 members: a free account sees ten');
+  assert.equal(free.lockedCount, 50);
+  assert.equal(free.partCode, 'MPF-XX-0001');
+
+  /* And the withheld names are not in the payload. */
+  const serialised = JSON.stringify(free);
+  for (let i = 10; i < 60; i++) {
+    assert.equal(serialised.includes('Model ' + i), false, `Model ${i} leaked`);
+  }
+});

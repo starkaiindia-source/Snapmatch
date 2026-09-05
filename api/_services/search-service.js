@@ -60,7 +60,24 @@ function loadIndex() {
      them with the function. A fs.readFileSync of a relative path is invisible
      to the tracer and 404s in production. */
   const searchIndex = require('../../assets/search-index.json');
-  const parts = require('../_data/parts.json');
+
+  /* OPTIONAL. api/_data/ is git-ignored — deliberately, because this
+     repository is public and the file is the fitment list the subscription
+     sells — so it does NOT exist in a deployed function. Requiring it
+     unconditionally threw MODULE_NOT_FOUND at the top of loadIndex() and took
+     the whole search index down with it, including the model list that has
+     nothing to do with the paid half.
+
+     Present locally: a fast path. Absent: models, brands and categories still
+     load, and the paid lookups come from Firestore instead — see
+     _services/entitlement-service.js, which reads groupDetails through the
+     Admin SDK. */
+  let parts = { groups: {}, deviceGroups: {} };
+  try {
+    parts = require('../_data/parts.json');
+  } catch (err) {
+    console.warn('[search] api/_data/parts.json absent — paid lookups will use Firestore');
+  }
 
   /* The index stores models as compact arrays to keep the file small:
        [ id, fullName, brandId, releaseYear, screenInches, ?, ? ]

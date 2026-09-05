@@ -119,49 +119,49 @@ function groupOfSize(predicate) {
   return null;
 }
 
-test('a real small group is shown whole, with no lock', () => {
+test('a real small group is shown whole, with no lock', async () => {
   const id = groupOfSize(n => n > 0 && n <= 5);
   assert.ok(id, 'the catalogue should contain a group of five or fewer');
 
-  const free = entitlements.groupForUser(id, TIERS.FREE);
+  const free = await entitlements.groupForUser(id, TIERS.FREE);
   assert.equal(free.members.length, free.memberCount);
   assert.equal(free.lockedCount, 0);
   assert.equal(free.locked, false);
 });
 
-test('a real medium group shows five and locks the rest', () => {
+test('a real medium group shows five and locks the rest', async () => {
   const id = groupOfSize(n => n > 5 && n <= 50);
-  const free = entitlements.groupForUser(id, TIERS.FREE);
+  const free = await entitlements.groupForUser(id, TIERS.FREE);
 
   assert.equal(free.members.length, 5);
   assert.equal(free.lockedCount, free.memberCount - 5);
   assert.equal(free.locked, true);
 });
 
-test('a real large group shows ten and locks the rest', () => {
+test('a real large group shows ten and locks the rest', async () => {
   const id = groupOfSize(n => n > 50);
-  const free = entitlements.groupForUser(id, TIERS.FREE);
+  const free = await entitlements.groupForUser(id, TIERS.FREE);
 
   assert.equal(free.members.length, 10);
   assert.equal(free.lockedCount, free.memberCount - 10);
   assert.equal(free.locked, true);
 });
 
-test('a paid account gets every member of a real large group', () => {
+test('a paid account gets every member of a real large group', async () => {
   const id = groupOfSize(n => n > 50);
-  const paid = entitlements.groupForUser(id, TIERS.PAID);
+  const paid = await entitlements.groupForUser(id, TIERS.PAID);
 
   assert.equal(paid.members.length, paid.memberCount);
   assert.equal(paid.lockedCount, 0);
   assert.equal(paid.locked, false);
 });
 
-test('WITHHELD DEVICE NAMES ARE NOT IN THE FREE PAYLOAD', () => {
+test('WITHHELD DEVICE NAMES ARE NOT IN THE FREE PAYLOAD', async () => {
   /* The property the whole design exists for. Hiding rows in the DOM would
      pass every other test in this file and fail this one. */
   const id = groupOfSize(n => n > 50);
-  const free = entitlements.groupForUser(id, TIERS.FREE);
-  const paid = entitlements.groupForUser(id, TIERS.PAID);
+  const free = await entitlements.groupForUser(id, TIERS.FREE);
+  const paid = await entitlements.groupForUser(id, TIERS.PAID);
 
   const serialised = JSON.stringify(free);
   const withheld = paid.members.slice(free.members.length);
@@ -177,10 +177,10 @@ test('WITHHELD DEVICE NAMES ARE NOT IN THE FREE PAYLOAD', () => {
   });
 });
 
-test('the free payload still carries the real total, so the UI can say "10 of 88"', () => {
+test('the free payload still carries the real total, so the UI can say "10 of 88"', async () => {
   const id = groupOfSize(n => n > 50);
-  const free = entitlements.groupForUser(id, TIERS.FREE);
-  const paid = entitlements.groupForUser(id, TIERS.PAID);
+  const free = await entitlements.groupForUser(id, TIERS.FREE);
+  const paid = await entitlements.groupForUser(id, TIERS.PAID);
 
   /* Counting is free; naming is not. A card that cannot say how many devices
      it covers cannot show anyone what they would be buying. */
@@ -188,19 +188,19 @@ test('the free payload still carries the real total, so the UI can say "10 of 88
   assert.ok(free.memberCount > free.members.length);
 });
 
-test('part codes are not tier-gated', () => {
+test('part codes are not tier-gated', async () => {
   /* The account page advertises "Part code, serial number and group number" to
      free accounts. The paid answer is WHICH DEVICES a part fits. */
   const id = groupOfSize(n => n > 50);
-  const free = entitlements.groupForUser(id, TIERS.FREE);
-  const paid = entitlements.groupForUser(id, TIERS.PAID);
+  const free = await entitlements.groupForUser(id, TIERS.FREE);
+  const paid = await entitlements.groupForUser(id, TIERS.PAID);
   assert.equal(free.partCode, paid.partCode);
   assert.match(free.partCode, /^MPF-/);
 });
 
-test('an unknown group is null rather than an empty group', () => {
-  assert.equal(entitlements.groupForUser('no-such-group', TIERS.PAID), null);
-});
+/* "an unknown group is null" moved to search-quota.test.js: the lookup now
+   falls through to Firestore when the local file has no such group, and that
+   needs the stubbed database rather than a real service account. */
 
 /* ------------------------------------------------------- the daily counter */
 

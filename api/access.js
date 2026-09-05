@@ -158,12 +158,12 @@ async function deviceParts(req, res) {
   const tier = access.paid ? TIERS.PAID : TIERS.FREE;
 
   if (groupId) {
-    const group = entitlements.groupForUser(groupId, tier);
+    const group = await entitlements.groupForUser(groupId, tier);
     if (!group) return json(res, 404, { error: 'no such group' });
     return ok(res, { group, access });
   }
 
-  const device = entitlements.deviceGroupsForUser(modelId, tier);
+  const device = await entitlements.deviceGroupsForUser(modelId, tier);
   if (!device) return json(res, 404, { error: 'no such model' });
   return ok(res, { device, access });
 }
