@@ -105,9 +105,13 @@
       if (opts.brandId && opts.brandId !== 'all' && db.modelById[g.masterModelId].brandId !== opts.brandId) return false;
       if (opts.minCount && g.compatibleCount < opts.minCount) return false;
       if (q) {
+        var cat = db.categoryById[g.categoryId];
         var hit = norm(g.groupNumber).indexOf(q) > -1 ||
           norm(g.partCode).indexOf(q) > -1 ||
           norm(g.serialNumber).indexOf(q) > -1 ||
+          /* the part name is on screen above every card; typing it should find
+             them rather than nothing */
+          (cat && norm(cat.name).indexOf(q) > -1) ||
           norm(db.modelById[g.masterModelId].fullName).indexOf(q) > -1;
         /* Group text only. Matching on member names needs the member list,
            which the public catalogue does not carry — and leaking it one

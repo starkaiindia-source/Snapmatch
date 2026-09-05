@@ -29,6 +29,7 @@
 
 const { db, admin } = require('./firebase');
 const { periodFor, derive } = require('./billing-period');
+const { searchFieldsFor } = require('../_schema/user-profile');
 
 const FieldValue = admin.firestore.FieldValue;
 
@@ -224,6 +225,20 @@ async function syncProfile({ uid, email, displayName, photoURL, emailVerified,
      client claiming profileCompleted on a record with no phone number would
      otherwise walk straight into a Checkout that cannot prefill it. */
   doc.profileCompleted = profileIsComplete({ ...prior, ...doc });
+
+  /* Lower-cased mirrors of the fields the admin table searches, plus a
+     digits-only copy of the phone number.
+
+     Written HERE, on the one path every profile write goes through, because a
+     mirror maintained anywhere else is a mirror that goes stale the first time
+     somebody writes a profile by another route. Firestore cannot lower-case at
+     query time, so these fields are the only way a search for "sri balaji"
+     finds "Sri Balaji Mobiles".
+
+     Derived, never authoritative: recomputing them from the real fields is
+     always correct, which is what makes scripts/backfill-user-search.js safe
+     to run repeatedly over the existing records. */
+  Object.assign(doc, searchFieldsFor({ ...prior, ...doc }));
 
   await ref.set(doc, { merge: true });
   const after = await ref.get();

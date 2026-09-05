@@ -195,6 +195,11 @@ const APP_BOOT = [
   'src/data/debug.js', 'src/data/dataset.js', 'src/data/brand-marks.js',
   'src/data/countries.js', 'src/data/firebase.js', 'src/data/firestore.js',
   'src/data/billing.js', 'src/data/auth.js', 'src/data/api.js',
+  /* Kept in step with index.html and with build.js. Three lists that name the
+     same scripts is two lists that can be forgotten — and a script missing
+     from HERE is missing from every pre-rendered page while working perfectly
+     on the SPA shell, which is the hardest version of that bug to notice. */
+  'src/data/analytics.js',
   'src/ui/icons.js', 'src/ui/product-art.js', 'src/data/category-assets.js',
   'src/ui/components.js', 'src/app.js'
 ].map(s => `<script src="/${s}" defer></script>`).join('\n');
@@ -870,7 +875,11 @@ User-agent: *
 Allow: /
 
 # Private or non-content routes. Nothing here is useful in a search result.
+# /admin is tidiness rather than security: it is protected by a server-side
+# role check on every request, and every admin collection is closed to clients
+# in firestore.rules. A crawler that ignored this line would get a sign-in page.
 Disallow: /account
+Disallow: /admin
 Disallow: /api/
 Disallow: /__/
 

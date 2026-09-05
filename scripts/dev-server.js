@@ -113,8 +113,12 @@ http.createServer((req, res) => {
   const url = req.url.split('?')[0];
   let p = decodeURIComponent(url);
 
-  const api = /^\/api\/([A-Za-z0-9_-]+)\/?$/.exec(p);
-  if (api) { runApi(api[1], req, res); return; }
+  /* One optional directory segment, so /api/admin/users reaches
+     api/admin/users.js the same way Vercel routes it. The character class
+     excludes dots and slashes, so nothing can walk out of api/ — and runApi
+     re-checks the resolved path anyway. */
+  const api = /^\/api\/(?:([A-Za-z0-9_-]+)\/)?([A-Za-z0-9_-]+)\/?$/.exec(p);
+  if (api) { runApi(api[1] ? api[1] + '/' + api[2] : api[2], req, res); return; }
 
   if (p === '/') p = '/index.html';
   let file = path.join(ROOT, p);
@@ -132,7 +136,12 @@ http.createServer((req, res) => {
          /group/bt-0001 — are served the app shell, the same fallback Vercel is
          configured to do. Without it a refresh on any deep link is a 404. */
       if (!path.extname(p)) {
-        const shell = fs.readFileSync(path.join(ROOT, 'index.html'));
+        /* The admin app has its own shell. Serving the customer index.html for
+           /admin/users would paint the Finder at an /admin URL — the same
+           mistake vercel.json's /admin route exists to prevent in production. */
+        const shell = fs.readFileSync(path.join(
+          ROOT, /^\/admin(\/|$)/.test(p) ? 'admin/index.html' : 'index.html'
+        ));
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
         res.end(shell);
         return;

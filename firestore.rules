@@ -111,7 +111,24 @@ service cloud.firestore {
           'subscriptionPlan', 'currentPlanId', 'currentSubscriptionId',
           'subscriptionStartedAt', 'subscriptionExpiresAt',
           'plan', 'status', 'role', 'accountStatus',
-          'lastVerifiedAt', 'lastLoginAt', 'emailVerified'
+          'lastVerifiedAt', 'lastLoginAt', 'emailVerified',
+
+          /* Search mirrors. Lower-cased copies of the shop's own fields,
+             written by api/_lib/store.js so the admin table can search
+             case-insensitively — Firestore cannot lower-case at query time.
+
+             Closed to the client for the same reason every derived field is:
+             a browser that could write `mobileShopNameLower` independently of
+             `mobileShopName` could make its record findable under a name it
+             does not have, or unfindable under the one it does. The values are
+             recomputed from the real fields on every server-side write, so
+             there is nothing here a client would ever legitimately set. */
+          'emailLower', 'mobileShopNameLower', 'proprietorNameLower',
+          'displayNameLower', 'mobileDigits',
+
+          /* Reserved. Nothing writes this yet; naming it now means a future
+             "last seen" stamp cannot be forged by the browser that reports it. */
+          'lastActiveAt'
         ];
       }
 
@@ -210,6 +227,78 @@ service cloud.firestore {
       allow read: if signedIn() && resource.data.uid == request.auth.uid;
       allow write: if false;
     }
+
+    /* ================================================================== admin
+       The backend business layer. EVERY collection below is closed to every
+       client in both directions — `allow read, write: if false` — and reached
+       only through the Admin SDK from the routes under api/admin/*.
+
+       That is the strongest form of the requirement that a normal user must
+       not be able to read admin data from the frontend, and it applies to
+       administrators too: an admin's browser holds an ordinary Firebase ID
+       token, so it cannot read one document here either. Their authority lives
+       on the server, in adminUsers/{uid}, and it is the SERVER that reads
+       these collections on their behalf after checking it.
+
+       The practical consequence: no rule here can be got wrong in a way that
+       leaks. There is no condition to get wrong. Access is decided in
+       api/_lib/admin-auth.js, in code that can be read and tested.
+
+       WHY THERE IS NO OWNER-EMAIL CHECK IN THIS FILE
+
+       It would be strictly weaker than what is already here. An owner-only
+       rule such as
+
+           allow read: if request.auth.token.email == '...';
+
+       OPENS these collections to a client that satisfies it — a browser, with
+       the SDK, able to run any query it likes against every analytics event
+       and every admin record. `if false` opens them to nobody, and the owner
+       reaches the same data through /api/admin/*, where the server decides
+       what to return and logs that it did.
+
+       So: the owner restriction lives in api/_schema/roles.js and is enforced
+       in api/_lib/admin-auth.js. There is no admin operation a client can
+       reach for a rule here to guard, which is the point. */
+
+    /* Who is an administrator. The registry api/_lib/admin-auth.js consults on
+       every admin request — and the reason a Firebase custom claim alone is
+       not enough, since a token outlives a revocation by up to an hour. */
+    match /adminUsers/{uid}          { allow read, write: if false; }
+
+    /* Append-only record of what administrators did. Closed to clients so that
+       not even a super_admin can edit one from a browser: a log its subject
+       can rewrite proves nothing. */
+    match /adminAuditLog/{entryId}   { allow read, write: if false; }
+
+    /* --------------------------------------------------------- analytics
+       Behavioural events and their daily rollups.
+
+       Closed to READS as well as writes, and that is the important half. These
+       records describe what visitors did; a collection any signed-in user
+       could query would be one shop able to read another's browsing. Writes
+       arrive through POST /api/events, which validates every event against an
+       allowlist, redacts free text and rate-limits the caller. */
+    match /analyticsEvents/{eventId} { allow read, write: if false; }
+    match /analyticsDaily/{day}      { allow read, write: if false; }
+
+    /* Anonymous visit records. A random session id the browser generated for
+       itself — never a device fingerprint — and closed for the same reason. */
+    match /visitorSessions/{id}      { allow read, write: if false; }
+
+    /* --------------------------------------------------------- catalogue ops
+       The missing-model queue and the AI approval queue.
+
+       Written only by the server: a client-writable request queue is a client
+       that can flood the review list, and a client-writable AI task is a
+       client that can put words in an approval screen an administrator is
+       about to click through. */
+    match /missingModelRequests/{key} { allow read, write: if false; }
+    match /aiTasks/{taskId}           { allow read, write: if false; }
+
+    /* Rate-limit buckets. A caller that could read its own bucket learns
+       nothing useful; one that could write it would have no limit at all. */
+    match /rateLimits/{bucket}        { allow read, write: if false; }
 
     /* anything not matched above is closed */
     match /{document=**} {

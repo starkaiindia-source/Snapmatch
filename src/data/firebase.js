@@ -362,6 +362,45 @@
 
     user: function () { return currentUser; },
 
+    /* ------------------------------------------------------------ the owner
+
+       Whether the account signed in right now is the one that owns this
+       business and its backend.
+
+       WHAT THIS IS FOR, AND WHAT IT IS NOT
+
+       It decides whether to DRAW the Admin Panel link. That is all it does,
+       and it is all a browser is allowed to decide: the panel itself, and
+       every /api/admin/* route behind it, re-checks the same address against
+       the `email` claim on the verified Firebase ID token — server side, on
+       every request, in api/_lib/admin-auth.js.
+
+       So editing this function in the console, or flipping a variable, or
+       setting a localStorage key, produces exactly one thing: a button that
+       leads to a page which refuses you. There is no state here that unlocks
+       anything, because nothing here is asked.
+
+       The address is duplicated between this file and OWNER_EMAIL in
+       api/_schema/roles.js. That is deliberate rather than careless — the
+       alternative is publishing the owner's email to every visitor through
+       /api/firebase-config, and a link that appears one render late while a
+       round trip resolves. A test asserts the two stay identical.
+
+       Normalised on both sides: Google returns the address in whatever case
+       the account was created with, and Stark.ai.India@gmail.com is the same
+       mailbox as stark.ai.india@gmail.com. */
+    OWNER_EMAIL: 'Stark.ai.India@gmail.com',
+
+    isOwner: function () {
+      var user = currentUser;
+      if (!user || !user.email) return false;
+      /* emailVerified as well as the address, matching the server. Google
+         sign-in always sets it, so this costs the owner nothing. */
+      if (user.emailVerified !== true) return false;
+      return String(user.email).trim().toLowerCase() ===
+             String(SM.fb.OWNER_EMAIL).trim().toLowerCase();
+    },
+
     /**
      * A fresh ID token for the Authorization header.
      *

@@ -219,10 +219,17 @@
     if (/^(https?:)?\/\//.test(href) || /^(mailto|tel):/.test(href)) return;
     if (href.indexOf('/') !== 0 && href.indexOf('#/') !== 0) return;
 
-    var r = toRoute(href);
-    /* Only intercept what the app can actually render. A link to
-       /sitemap.xml or /robots.txt must reach the server. */
-    if (!ROUTES[r.name]) return;
+    /* Only intercept what the app can actually render. A link to /admin,
+       /sitemap.xml or /robots.txt must reach the server.
+
+       ownsPath, not toRoute. toRoute FALLS BACK to 'finder' for a path the app
+       does not own — which is right when resolving the current URL, and wrong
+       here: `ROUTES[toRoute('/admin').name]` is `ROUTES.finder`, which is
+       truthy, so every unknown path was intercepted and quietly turned into
+       the Finder. The address bar would say /admin and the screen would show
+       the catalogue. ownsPath asks the question actually being asked — is the
+       FIRST segment a route this app renders. */
+    if (!ownsPath(href)) return;
 
     e.preventDefault();
     go(href);
@@ -324,6 +331,23 @@
 
   function renderPage(r) {
     applySeo(r);
+
+    /* One page_view per route change, with the path and the route name and
+       nothing else. Fire-and-forget: SM.analytics swallows its own errors and
+       is absent from builds that do not include it. */
+    if (SM.analytics) {
+      SM.analytics.track('page_view', { path: location.pathname, routeName: r.name });
+      if (r.name === 'plans') SM.analytics.track('plan_page_viewed', {});
+      if (r.name === 'model' && r.params[0]) {
+        var opened = db.modelById[r.params[0]];
+        SM.analytics.track('model_opened', {
+          modelId: r.params[0],
+          brandId: opened ? opened.brandId : undefined,
+          source: 'route'
+        });
+      }
+    }
+
     var page = document.getElementById('page');
     if (r.name === 'models') return renderModels(page, r.params[0]);
     if (r.name === 'model') return renderDevice(page, r.params[0]);
@@ -340,43 +364,28 @@
     var picked = f.modelId ? db.modelById[f.modelId] : null;
     var st = db.stats;
 
-    var benchInner =
-      (picked ? '' :
-        '<span class="bench__eyebrow">' + icon('sparkle') + 'Compatibility groups for ' + nf(st.models) + ' phone models</span>' +
-        '<h1 class="t-hero">Which parts fit<br><em>this phone?</em></h1>' +
-        '<p class="bench__sub">Type any model. Mobile Parts Finder returns the compatibility group, its master model, the part code and every other device that takes the same part.</p>') +
-      searchHTML(picked) +
-      /* the stat cards are gone; the category rail sits directly under the
-         search instead, and is the only category selector on narrow screens */
-      (picked ? '' : '<div id="catRail">' + categoryRailHTML() + '</div>');
+    var benchInner = benchHTML();
 
-    if (picked) {
-      /* Result page: its own compact sticky head (search + close + category
-         rail). The app header is hidden on narrow screens so it is not
-         repeated above this one. */
-      page.classList.remove('is-ws');
-      document.getElementById('app').classList.add('is-result');
-      page.innerHTML =
-        '<section class="bench rhead"><div class="shell bench__in">' +
-        '<div class="rhead__row">' + searchBoxHTML('q') +
-        '<button class="rhead__x" data-act="exit-result" title="Close result" ' +
-        'aria-label="Close result and return to Finder">' + icon('close') + '</button>' +
-        '</div>' +
-        '<div id="catRail">' + resultRailHTML() + '</div>' +
-        '</div></section>' +
-        '<div class="shell" id="finderBody"></div>';
-      renderSelection();
-      return;
-    }
+    /* ONE LAYOUT, ALWAYS.
+
+       Selecting a model used to swap the whole page for a different DOM: a
+       compact result header and a single full-width column, with the category
+       panel and the brand panel simply gone. The URL never changed, but for
+       anyone using it that IS a different page — the two things you filter
+       with disappear at the moment you have something to filter.
+
+       The workspace is now mounted once and stays. A selected model changes
+       what the CENTRE column contains and nothing else; both side panels keep
+       working and keep narrowing the same result. */
     document.getElementById('app').classList.remove('is-result');
 
-    /* browse mode — full-width workspace. Below 1180px the same markup falls
-       back to the original stacked page (side panels move into the filter
-       sheet), so the mobile and tablet experience is untouched. */
+    /* Below 1180px the same markup falls back to the original stacked page
+       (side panels move into the filter sheet), so the mobile and tablet
+       experience is untouched. */
     page.classList.add('is-ws');
     page.innerHTML =
       '<div class="ws">' +
-      '<section class="bench ws__band"><div class="shell bench__in">' + benchInner + '</div></section>' +
+      '<section class="bench ws__band"><div class="shell bench__in" id="benchIn">' + benchInner + '</div></section>' +
       '<div class="ws__body">' +
       '<aside class="ws__left" id="catPanel" aria-label="Part categories"></aside>' +
       '<div class="ws__center" id="wsCenter">' +
@@ -386,7 +395,37 @@
       '</div>' +
       '<aside class="ws__right" id="brandPanel" aria-label="Brands"></aside>' +
       '</div></div>';
-    renderBrowse();
+    renderWorkspace();
+  }
+
+  /* The hero band: heading, search, category rail. Extracted so that picking a
+     model can repaint THIS and the centre column, instead of rebuilding the
+     page — the panels either side are never touched, so they cannot flicker,
+     lose their scroll position or drop a half-typed brand search. */
+  function benchHTML() {
+    var f = state.finder;
+    var picked = f.modelId ? db.modelById[f.modelId] : null;
+    var st = db.stats;
+    return (picked ? '' :
+        '<span class="bench__eyebrow">' + icon('sparkle') + 'Compatibility groups for ' + nf(st.models) + ' phone models</span>' +
+        '<h1 class="t-hero">Which parts fit<br><em>this phone?</em></h1>' +
+        '<p class="bench__sub">Type any model. Mobile Parts Finder returns the compatibility group, its master model, the part code and every other device that takes the same part.</p>') +
+      searchHTML(picked) +
+      /* the stat cards are gone; the category rail sits directly under the
+         search instead, and is the only category selector on narrow screens */
+      '<div id="catRail">' + railHTML() + '</div>';
+  }
+
+  function renderBench() {
+    var host = document.getElementById('benchIn');
+    if (host) host.innerHTML = benchHTML();
+  }
+
+  /* The category rail under the search. Same component either way — it just
+     counts what is actually on offer: every group when browsing, and this
+     model's own groups once one is selected. */
+  function railHTML() {
+    return state.finder.modelId ? resultRailHTML() : categoryRailHTML();
   }
 
   function stat(v, l, act) {
@@ -469,20 +508,89 @@
   /* Repaints the two side panels and the centre toolbar in place, then reloads
      the results. The bench/search above is left alone so typing is never
      interrupted by a filter click. */
-  function renderBrowse() {
+  /* Repaints the workspace in place: both panels, the centre head and the
+     centre content. Never rebuilds the shell, so the panels keep their scroll
+     position and the brand search keeps its text.
+
+     Every filter change — a model from the search box, a category on the left,
+     a brand on the right — comes through here. That is what makes the three
+     compose instead of one of them replacing the page. */
+  /* Sets the one category filter from any control.
+
+     'all' and null both mean "no category" — the rail said null and the panel
+     said 'all', which is how the same click could look selected in one place
+     and cleared in the other. Both are written, so the whole UI agrees. */
+  function setCategory(id) {
+    var f = state.finder;
+    var next = (!id || id === 'all') ? 'all' : id;
+    /* Tapping the tile that is already on clears it, which is what the tiles
+       have always done. */
+    if (f.filters.catId === next && next !== 'all') next = 'all';
+    f.filters.catId = next;
+    f.catId = next === 'all' ? null : next;
+    f.matchShown = 6;
+    f.page = 1;
+  }
+
+  function renderWorkspace() {
     if (!document.getElementById('catPanel')) { renderFinder(document.getElementById('page')); return; }
     document.getElementById('catPanel').innerHTML = categoryPanelHTML();
     document.getElementById('brandPanel').innerHTML = brandPanelHTML();
     document.getElementById('centerHead').innerHTML = centerHeadHTML();
+
     var rail = document.getElementById('catRail');
     if (rail) {
       var keep = rail.querySelector('.crail') ? rail.querySelector('.crail').scrollLeft : 0;
-      rail.innerHTML = categoryRailHTML();
+      rail.innerHTML = railHTML();
       /* keep the rail where the user had scrolled it */
       var r = rail.querySelector('.crail');
       if (r) r.scrollLeft = keep;
     }
-    loadGroups(true);
+
+    /* One column, two things it can hold: the groups a model matches, or the
+       whole library. */
+    if (state.finder.modelId) loadMatches();
+    else loadGroups(true);
+  }
+
+  /* Kept as the old name so nothing else had to change; the two are the same
+     operation now that there is only one layout. */
+  function renderBrowse() { renderWorkspace(); }
+
+  /* The selected model, as a card at the top of the CENTRE column.
+
+     It used to be the whole page. It is a heading for the results below it,
+     which is what it always was — so it lives in the column those results are
+     in, and the panels either side stay where they are. */
+  function selectedModelHTML() {
+    var f = state.finder;
+    var m = db.modelById[f.modelId];
+    if (!m) return '';
+    var b = db.brandById[m.brandId];
+    /* the double-prime for inches as the character, not the entity: these chips
+       go through esc() and an entity would arrive on screen as its own source */
+    var chips = [
+      m.displaySize ? m.displaySize + '″' : null,
+      m.screenType || null,
+      m.releaseDate || null
+    ].filter(Boolean);
+
+    return '<div class="selmodel">' +
+      SM.brandLogo(b, 'blogo--lg') +
+      '<div class="grow" style="min-width:150px">' +
+      '<span class="t-lab">Selected model</span>' +
+      '<h2 class="t-h3" style="margin-top:2px">' + esc(m.fullName) + '</h2>' +
+      (chips.length
+        ? '<div class="row wrap" style="gap:6px;margin-top:7px">' +
+          chips.map(function (c) { return '<span class="pill">' + esc(c) + '</span>'; }).join('') +
+          '</div>'
+        : '') +
+      '</div>' +
+      '<div class="row wrap" style="gap:8px">' +
+      '<button class="btn btn--outline btn--sm" data-act="open-model" data-id="' + esc(m.id) + '">' +
+      icon('info') + 'Specs</button>' +
+      '<button class="btn btn--ghost btn--sm" data-act="clear-model">' + icon('close') + 'Clear</button>' +
+      '</div></div>';
   }
 
   function centerHeadHTML() {
@@ -492,6 +600,28 @@
         '<input class="input" id="' + id + '" placeholder="Filter groups, part codes…" ' +
         'value="' + esc(f.filters.q) + '" aria-label="Filter groups" /></label>';
     };
+    /* With a model selected the head is that model plus a filter row; the
+       "Compatibility groups" title and the sort control belong to the library
+       view and would be describing something else here. */
+    if (f.modelId) {
+      /* Same section shell as the library view — sticky heading, the desktop
+         filter field in the head, the compact filter bar below it on narrow
+         screens. Only the words change, so the column behaves identically
+         whether it is holding matches or the whole library. */
+      return selectedModelHTML() +
+        '<div class="sec"><div class="sec__head"><div class="sec__title">' +
+        '<h2>Compatible parts</h2><span class="sec__count" id="gcount">…</span></div>' +
+        '<div class="row wrap ws-tools" style="gap:8px">' +
+        '<span class="ws-only">' + searchField('gqd') + '</span></div></div>' +
+        '<div class="fbar">' +
+        '<div class="field grow">' + icon('search') +
+        '<input class="input" id="gq" placeholder="Filter these groups…" value="' +
+        esc(f.filters.q) + '" aria-label="Filter matching groups" /></div>' +
+        '<button class="btn btn--outline btn--icon fbar__btn" data-act="open-filters" aria-label="Filters">' +
+        icon('filter') + (activeFilterCount() ? '<span class="dotn">' + activeFilterCount() + '</span>' : '') +
+        '</button></div></div>';
+    }
+
     return (
       '<div class="sec"><div class="sec__head"><div class="sec__title">' +
       '<h2>Compatibility groups</h2><span class="sec__count" id="gcount">…</span></div>' +
@@ -581,14 +711,27 @@
   /* ---- LEFT panel: part categories as a 2-up grid of icon-over-name tiles --- */
   function categoryPanelHTML() {
     var f = state.finder.filters;
+    /* With a model selected the tiles count THAT model's groups, not the whole
+       library — otherwise the panel offers a category with 812 groups in it and
+       the centre then says there is nothing. A category the model has none of
+       is disabled rather than hidden, so the six categories stay in one place. */
+    var avail = state.finder.modelId ? state.finder.avail : null;
+    var pending = !!state.finder.modelId && !avail;
+    var availTotal = avail ? Object.keys(avail).reduce(function (n, k) { return n + avail[k]; }, 0) : 0;
+
     var tile = function (id, name, color, ic, count, wide) {
       var on = f.catId === id;
-      return '<button type="button" class="ctile' + (on ? ' is-on' : '') + (wide ? ' ctile--wide' : '') + '" ' +
+      var n = avail ? (id === 'all' ? availTotal : (avail[id] || 0)) : count;
+      var empty = !!avail && n === 0;
+      var label = pending ? '…' : (n + ' ' + (n === 1 ? 'group' : 'groups'));
+      return '<button type="button" class="ctile' + (on ? ' is-on' : '') + (wide ? ' ctile--wide' : '') +
+        (empty ? ' is-empty' : '') + '" ' +
         'data-act="filter-cat" data-id="' + id + '" style="--c:' + color + '"' +
+        (empty ? ' disabled' : '') +
         (on ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
         SM.art.category(id === 'all' ? 'all' : id, 'pthumb--tile', name) +
         '<span class="ctile__foot"><span class="ctile__name">' + esc(name) + '</span>' +
-        '<span class="ctile__n">' + count + ' ' + (count === 1 ? 'group' : 'groups') + '</span></span>' +
+        '<span class="ctile__n">' + label + '</span></span>' +
         (on ? '<span class="ctile__tick">' + icon('check') + '</span>' : '') +
         '</button>';
     };
@@ -746,6 +889,7 @@
     if (!lm || !('IntersectionObserver' in window)) return;
     if (io) io.disconnect();
     io = new IntersectionObserver(function (entries) {
+      if (state.finder.modelId) return;
       if (entries[0].isIntersecting && state.finder.hasMore && !state.finder.busy) {
         state.finder.page++; loadGroups(false);
       }
@@ -754,56 +898,68 @@
   }
 
   /* ------------------------------------------------ selected-model workflow */
-  function renderSelection() {
+  function loadMatches() {
     var f = state.finder;
-    var m = db.modelById[f.modelId];
-    var b = db.brandById[m.brandId];
+    var modelAtCall = f.modelId;
 
-    document.getElementById('finderBody').innerHTML =
-      '<div class="sec"><div class="card card--pad" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">' +
-      SM.brandLogo(b, 'blogo--lg') +
-      '<div class="grow" style="min-width:180px">' +
-      '<span class="t-lab">Selected model</span>' +
-      '<h2 class="t-h1" style="margin-top:2px">' + esc(m.fullName) + '</h2>' +
-      '<div class="row wrap" style="gap:6px;margin-top:8px">' +
-      '<span class="pill">' + m.displaySize + '&Prime;</span>' +
-      '<span class="pill">' + esc(m.screenType) + '</span>' +
-      '<span class="pill">' + esc(m.releaseDate) + '</span>' +
-      '</div></div>' +
-      '<div class="row" style="gap:8px">' +
-      '<button class="btn btn--outline btn--sm" data-act="open-model" data-id="' + m.id + '">' + icon('info') + 'Specs</button>' +
-      '<button class="btn btn--ghost btn--sm" data-act="clear-model">' + icon('close') + 'Clear</button>' +
-      '</div></div></div>' +
-
-      /* category picking lives only in the rail above — no duplicate grid */
-      '<div class="sec" id="matchRegion">' + C.skelPlates(2) + '</div>';
-
+    /* The category availability drives the rail and the left-hand counts, so
+       it is fetched once per model and reused. */
     if (!f.avail) {
-      api.categoryAvailability(m.id).then(function (rows) {
-        if (state.finder.modelId !== m.id) return;
+      api.categoryAvailability(f.modelId).then(function (rows) {
+        if (state.finder.modelId !== modelAtCall) return;
         var map = Object.create(null);
         rows.forEach(function (r) { map[r.category.id] = r.count; });
         state.finder.avail = map;
         var rail = document.getElementById('catRail');
-        if (rail) rail.innerHTML = resultRailHTML();
+        if (rail) rail.innerHTML = railHTML();
+        var panel = document.getElementById('catPanel');
+        if (panel) panel.innerHTML = categoryPanelHTML();
       });
     }
-    loadMatches();
-  }
 
-  function loadMatches() {
-    var f = state.finder;
     api.findMatches({ modelId: f.modelId, categoryId: f.catId || 'all' }).then(function (rows) {
-      var host = document.getElementById('matchRegion');
-      if (!host) return;
+      /* The centre column, the same element the group library renders into. */
+      var host = document.getElementById('results');
+      if (!host || state.finder.modelId !== modelAtCall) return;
+      /* The browse view's infinite scroll must not keep firing underneath a
+         result — it would append library groups below the matches. */
+      if (io) io.disconnect();
+      var lm = document.getElementById('loadmore');
+      if (lm) lm.innerHTML = '';
       var m = db.modelById[f.modelId];
       var cat = f.catId ? db.categoryById[f.catId] : null;
 
+      /* The right-hand panel and the filter box narrow this list too — a model,
+         a category and a brand are three filters on one result, not three
+         separate modes. */
+      if (f.filters.brandId && f.filters.brandId !== 'all') {
+        rows = rows.filter(function (r) { return r.master && r.master.brandId === f.filters.brandId; });
+      }
+      /* The same fields the group library searches, so one box means one thing
+         on both sides of the switch. */
+      var q = (f.filters.q || '').toLowerCase().trim();
+      if (q) {
+        var hasq = function (v) { return String(v == null ? '' : v).toLowerCase().indexOf(q) > -1; };
+        rows = rows.filter(function (r) {
+          var g = r.group;
+          return hasq(g.groupNumber) || hasq(g.partCode) || hasq(g.serialNumber) ||
+                 (r.category && hasq(r.category.name)) ||
+                 (r.master && hasq(r.master.fullName)) ||
+                 (r.devices || []).some(function (d) { return hasq(d.fullName); });
+        });
+      }
+
       if (!rows.length) {
+        var cnt0 = document.getElementById('gcount');
+        if (cnt0) cnt0.textContent = 'no matches';
         host.innerHTML = C.state({
           icon: 'alert', brand: true,
-          title: cat ? 'No ' + cat.name.toLowerCase() + ' group for this model yet' : 'No compatibility group for this model yet',
-          text: 'This model is in the database but has not been grouped for this part category. Try another category, or browse the full group library.',
+          title: 'No Compatibility Found',
+          text: esc(m.fullName) + ' is in the database but has no ' +
+            (cat ? cat.name.toLowerCase() + ' ' : '') + 'compatibility group' +
+            (f.filters.brandId !== 'all' && db.brandById[f.filters.brandId]
+              ? ' under ' + esc(db.brandById[f.filters.brandId].name) : '') +
+            ' yet. Nothing unrelated is shown in its place — try another part category, or clear the filters.',
           action: '<div class="row" style="gap:8px"><button class="btn btn--soft" data-act="clear-cat">' + icon('layers') + 'Try all categories</button>' +
             '<button class="btn btn--outline" data-act="clear-model">' + icon('grid') + 'Browse all groups</button></div>'
         });
@@ -826,10 +982,9 @@
       }
 
       var shown = rows.slice(0, f.matchShown);
-      var head = '<div class="sec__head"><div class="sec__title">' +
-        '<h2>' + (rows.length === 1 ? 'Match found' : rows.length + ' matches found') + '</h2>' +
-        '<span class="sec__count">' + esc(m.fullName) + (cat ? ' · ' + esc(cat.name) : '') + '</span>' +
-        '</div></div>' +
+      var cnt = document.getElementById('gcount');
+      if (cnt) cnt.textContent = rows.length === 1 ? '1 match' : rows.length + ' matches';
+      var head =
         (rows.length > 1 && !cat
           ? '<div class="notice notice--brand" style="margin-bottom:14px">' + icon('layers') +
           '<span><b>' + esc(m.fullName) + '</b> appears in ' + rows.length + ' compatibility groups across ' +
@@ -851,12 +1006,17 @@
             '</div>';
         }
         return heading + matchCard(row, m);
-      }).join('') +
-        (rows.length > shown.length
-          ? '<button class="expandbtn" data-act="more-matches">' + icon('chevronDown') +
-          'Show ' + Math.min(6, rows.length - shown.length) + ' more ' +
-          '<span class="muted">(' + (rows.length - shown.length) + ' groups hidden)</span></button>'
-          : '');
+      }).join('');
+
+      /* "Show more" belongs in the column's own footer slot, the same one the
+         library view uses, so the two views scroll and paginate identically. */
+      if (lm) {
+        lm.innerHTML = rows.length > shown.length
+          ? '<button class="btn btn--outline" data-act="more-matches">' + icon('plus') +
+            'Show ' + Math.min(6, rows.length - shown.length) + ' more ' +
+            '<span class="muted">(' + (rows.length - shown.length) + ' hidden)</span></button>'
+          : (rows.length > 6 ? '<span class="t-xs muted">All ' + rows.length + ' matches shown</span>' : '');
+      }
     });
   }
 
@@ -1979,8 +2139,38 @@
       (s.mobile ? '<p class="t-xs muted">' + esc(s.mobile) + '</p>' : '') +
       '<div style="margin-top:8px">' + badge + '</div>' +
       '</div>' +
+      /* Edit, and — for the owner only — the way into the backend.
+
+         Wrapped so the two sit together and wrap onto their own line on a
+         narrow screen instead of squeezing the shop name. With one button the
+         row is visually identical to before, so nothing changes for the
+         4,933 accounts that are not the owner. */
+      '<div class="row" style="gap:8px;flex-wrap:wrap;justify-content:flex-end">' +
       '<button class="btn btn--outline btn--sm" data-act="edit-profile">' + icon('sliders') + 'Edit</button>' +
+      adminLinkHTML() +
+      '</div>' +
       '</div>';
+  }
+
+  /* The Admin Panel link, for the owner account and nobody else.
+
+     SM.fb.isOwner() compares the signed-in Google address against the owner's,
+     and it decides whether to DRAW this — nothing more. /admin and every
+     /api/admin/* route behind it re-check the same address against the
+     verified ID token, server side, on every request. Someone who conjures
+     this button in the console gets a page that refuses them.
+
+     A real <a href> rather than a button, so it can be middle-clicked and so
+     it works if the app never boots. /admin is not in ROUTES, so the app's own
+     click interceptor leaves it alone and the browser navigates to the
+     separate admin shell. */
+  function adminLinkHTML() {
+    if (!SM.fb || !SM.fb.isOwner || !SM.fb.isOwner()) return '';
+    /* No data-act: there is no handler and there should not be one. The
+       browser navigates to /admin on its own, which is the whole point of it
+       being a link. */
+    return '<a class="btn btn--primary btn--sm" href="/admin">' +
+      icon('shield') + 'Admin Panel</a>';
   }
 
   /* plan cards the user can buy straight from Account */
@@ -2673,6 +2863,13 @@
       api.getGroup(s.id).then(function (row) {
         if (!row) { closeSheet(); return; }
         paintGroupSheet(host, row);
+        if (SM.analytics) {
+          SM.analytics.track('compatibility_group_opened', {
+            groupId: s.id,
+            categoryId: row.categoryId,
+            memberCount: row.compatibleCount
+          });
+        }
       });
     }
   }
@@ -2811,6 +3008,17 @@
         if (state.finder.query !== v) return;
         state.suggest = { open: true, q: v, items: items, cursor: -1, mode: 'results', box: box };
         paintSuggest();
+
+        /* The result count is known here and nowhere else, which is what makes
+           a zero-result search recordable at all. trackSearch debounces again
+           on its own, so a burst of keystrokes becomes one event carrying the
+           final term rather than one per letter. */
+        if (SM.analytics) {
+          SM.analytics.trackSearch(v, {
+            searchType: 'model',
+            matchedResultCount: items.length
+          });
+        }
       });
     }, 110);
   }
@@ -2899,8 +3107,15 @@
     pushRecent(id);
     closeSuggest();
     syncSearchInputs(true);
+    /* IN PLACE. The workspace stays mounted: the hero band and the centre
+       column are repainted, the category and brand panels are left exactly as
+       they are. No navigation, no new route, no reload — picking a model is a
+       filter being set, and that is all it does to the page. */
     if (state.route.name !== 'finder') go('/finder');
+    else if (document.getElementById('catPanel')) { renderBench(); renderWorkspace(); }
     else renderFinder(document.getElementById('page'));
+    var sc = wsScroller();
+    if (sc) sc.scrollTop = 0;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -2912,8 +3127,10 @@
   function exitResult() {
     var f = state.finder;
     f.modelId = null; f.catId = null; f.query = ''; f.matchShown = 6; f.avail = null;
+    f.filters.catId = 'all';
     closeSuggest();
     if (state.route.name !== 'finder') { go('/finder'); }
+    else if (document.getElementById('catPanel')) { renderBench(); renderWorkspace(); }
     else { renderFinder(document.getElementById('page')); }
     syncSearchInputs(true);
     window.scrollTo({ top: 0 });
@@ -2962,33 +3179,27 @@
       case 'exit-result':
         exitResult();
         break;
+      /* THE category filter. The tiles on the left and the rail under the
+         search are two controls for one piece of state — they used to be two
+         pieces of state for two layouts, which is why picking a category in
+         one place did nothing in the other. */
       case 'pick-cat':
-        state.finder.catId = state.finder.catId === id ? null : id;
-        state.finder.matchShown = 6;
-        renderSelection();
+      case 'pick-cat-rail':
+      case 'filter-cat':
+        setCategory(id);
+        if (state.sheet) { state.sheet = null; renderSheet(); }
+        renderWorkspace();
         break;
-      /* rail on the result page: 'all' clears the category filter */
-      case 'pick-cat-rail': {
-        state.finder.catId = (id === 'all') ? null : id;
-        state.finder.matchShown = 6;
-        var railHost = document.getElementById('catRail');
-        if (railHost) railHost.innerHTML = resultRailHTML();
-        renderSelection();
+      case 'clear-cat':
+        setCategory('all');
+        renderWorkspace();
         break;
-      }
-      case 'clear-cat': state.finder.catId = null; state.finder.matchShown = 6; renderSelection(); break;
       case 'more-matches': state.finder.matchShown += 6; loadMatches(); break;
 
-      /* browse filters */
-      case 'filter-cat':
-        state.finder.filters.catId = id;
-        if (state.sheet) { state.sheet = null; renderSheet(); }
-        renderBrowse();
-        break;
       case 'filter-brand':
         state.finder.filters.brandId = id;
         if (state.sheet) { state.sheet = null; renderSheet(); }
-        renderBrowse();
+        renderWorkspace();
         break;
       case 'reset-filters':
         state.finder.filters = { q: '', brandId: 'all', catId: 'all', sort: 'default' };
@@ -3413,7 +3624,7 @@
 
   function rerenderCurrent() {
     if (state.route.name === 'finder') {
-      if (state.finder.modelId) renderSelection(); else renderBrowse();
+      renderWorkspace();
     } else if (state.route.name === 'account') renderAccount(document.getElementById('page'));
     else if (state.route.name === 'plans') renderPlans(document.getElementById('page'));
     if (state.sheet && state.sheet.type === 'group') api.getGroup(state.sheet.id).then(function (r) { paintGroupSheet(document.getElementById('overlay'), r); });
@@ -3437,7 +3648,9 @@
         state.finder.filters.q = el.value;
         var twin = document.getElementById(el.id === 'gq' ? 'gqd' : 'gq');
         if (twin && twin.value !== el.value) twin.value = el.value;
-        loadGroups(true);
+        /* the same box narrows whichever list the column is showing */
+        if (state.finder.modelId) { state.finder.matchShown = 6; loadMatches(); }
+        else loadGroups(true);
       }, 220);
     }
     if (el.id === 'mq') {
@@ -3935,6 +4148,11 @@
     /* Back and forward now move between paths, not fragments. */
     window.addEventListener('popstate', route);
     route();
+
+    /* Analytics starts once the app is on screen, never before. It is entirely
+       fire-and-forget — see src/data/analytics.js — and the guard is here
+       rather than inside it so a build without the file simply has none. */
+    if (SM.analytics) SM.analytics.start();
   }).catch(function (err) {
     console.error('[dataset]', (err && err.stack) || err);
     global.__bootError = (err && err.stack) || String(err);

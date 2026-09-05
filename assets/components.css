@@ -93,6 +93,26 @@
 .panel__clear svg{ width:12px; height:12px; }
 .panel + .panel{ margin-top:16px; padding-top:16px; border-top:1px solid var(--line-soft); }
 
+/* --------- the selected model, as the head of the CENTRE column ----------
+   It is a heading for the matches underneath it, not a page of its own: the
+   category panel and the brand panel stay mounted either side of it and keep
+   narrowing the same result. */
+.selmodel{
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  padding:14px 16px; margin-bottom:14px;
+  background:var(--surface-2); border:1px solid var(--line);
+  border-radius:var(--r-lg);
+}
+.selmodel .t-h3{ font-size:clamp(16px,2.4vw,20px); line-height:1.22; }
+@media (max-width:520px){
+  .selmodel{ padding:12px; gap:10px; }
+  .selmodel .blogo--lg{ width:44px; height:44px; }
+}
+
+/* a category this model has no group in: still in its place, plainly off */
+.ctile.is-empty{ opacity:.4; pointer-events:none; }
+.ctile.is-empty .ctile__n{ color:var(--ink-3); }
+
 /* --------- LEFT: image-first category gallery, 3 up ----------------------- */
 .ctiles{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
 @media (max-width:359px){ .ctiles{ grid-template-columns:repeat(2,minmax(0,1fr)); } }

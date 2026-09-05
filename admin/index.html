@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Backend · Mobile Parts Finder</title>
+<meta name="theme-color" content="#0F766E" />
+
+<!-- Internal tooling. Keeping it out of the index is not a security control —
+     the security is in api/_lib/admin-auth.js and firestore.rules — but there
+     is no reason for a business backend to appear in a search result. -->
+<meta name="robots" content="noindex, nofollow" />
+<meta name="referrer" content="no-referrer" />
+
+<link rel="icon" href="/favicon.ico" sizes="any" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+
+<!-- styles.css for the design tokens and components.css for the toast, so the
+     backend and the customer site look like one product. admin.css adds the
+     shell that only exists here. -->
+<link rel="stylesheet" href="/assets/styles.css" />
+<link rel="stylesheet" href="/assets/components.css" />
+<link rel="stylesheet" href="/assets/admin.css" />
+</head>
+<body>
+
+<div id="admin"><div class="adm__gate"><div><h1>Loading the backend…</h1></div></div></div>
+
+<!-- ==========================================================================
+     Scripts.
+
+     The customer app is NOT loaded here: no app.js, no dataset.js, no
+     catalogue. This page shares exactly three things with the site — the
+     debug logger, the Firebase auth module and the icon set — because sharing
+     the authentication module is the whole point. There is one Firebase
+     configuration, one SDK, one auth state, and one identity. An administrator
+     signs in with the same Google account they would use as a customer; what
+     makes the session an admin's is a record on the server.
+
+     Nothing here reads Firestore. Every admin collection is closed to every
+     client by rule, so the only door is /api/admin/*, and admin-api.js is the
+     only file that opens it.
+     ========================================================================== -->
+<script src="/src/data/debug.js" defer></script>
+<script src="/src/data/firebase.js" defer></script>
+<script src="/src/ui/icons.js" defer></script>
+
+<script src="/src/admin/admin-api.js" defer></script>
+<script src="/src/admin/admin-ui.js" defer></script>
+<script src="/src/admin/pages/dashboard.js" defer></script>
+<script src="/src/admin/pages/users.js" defer></script>
+<script src="/src/admin/pages/user-detail.js" defer></script>
+<script src="/src/admin/pages/missing-models.js" defer></script>
+<script src="/src/admin/pages/ai.js" defer></script>
+<script src="/src/admin/pages/settings.js" defer></script>
+<script src="/src/admin/admin-app.js" defer></script>
+
+</body>
+</html>

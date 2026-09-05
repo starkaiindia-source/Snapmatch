@@ -6,7 +6,11 @@ User-agent: *
 Allow: /
 
 # Private or non-content routes. Nothing here is useful in a search result.
+# /admin is tidiness rather than security: it is protected by a server-side
+# role check on every request, and every admin collection is closed to clients
+# in firestore.rules. A crawler that ignored this line would get a sign-in page.
 Disallow: /account
+Disallow: /admin
 Disallow: /api/
 Disallow: /__/
 

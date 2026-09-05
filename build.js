@@ -22,6 +22,7 @@ const JS = [
   'src/data/billing.js',
   'src/data/auth.js',
   'src/data/api.js',
+  'src/data/analytics.js',
   'src/ui/icons.js',
   'src/ui/product-art.js',
   'src/data/category-assets.js',

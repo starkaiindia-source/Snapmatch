@@ -1,0 +1,469 @@
+/* ============================================================
+   Mobile Parts Finder · admin.css
+   ------------------------------------------------------------
+   The internal backend. Loaded only by /admin — never by the
+   customer site, whose CSS this file does not touch.
+
+   It reuses the design tokens from styles.css so the two look
+   like one product, and adds nothing to the customer bundle:
+   the admin app is a separate page with a separate script list.
+
+   The layout is a fixed sidebar with a scrolling work area,
+   which is the shape an operator wants — the navigation stays
+   put while a table of ten thousand users scrolls past it.
+   Below 900px the sidebar becomes a top strip.
+   ============================================================ */
+
+.adm {
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+}
+
+/* ---------------------------------------------------------- rail */
+
+.adm__rail {
+  background: var(--grad-bench);
+  color: #fff;
+  padding: 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.adm__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -.01em;
+  color: #fff;
+  text-decoration: none;
+}
+.adm__brand small {
+  display: block;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--hdr-accent);
+}
+
+.adm__nav { display: flex; flex-direction: column; gap: 2px; }
+.adm__nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  color: rgba(255,255,255,.74);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13px;
+  transition: background .14s, color .14s;
+}
+.adm__nav a:hover { background: rgba(255,255,255,.09); color: #fff; }
+.adm__nav a.is-on { background: rgba(255,255,255,.16); color: #fff; }
+.adm__nav svg { width: 17px; height: 17px; flex: none; }
+
+.adm__me {
+  margin-top: auto;
+  border-top: 1px solid rgba(255,255,255,.14);
+  padding-top: 14px;
+  font-size: 12px;
+  color: rgba(255,255,255,.7);
+  word-break: break-word;
+}
+.adm__me b { display: block; color: #fff; font-size: 13px; }
+.adm__me .adm__role {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: rgba(255,255,255,.16);
+  color: #fff;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.adm__me button {
+  margin-top: 10px;
+  width: 100%;
+  padding: 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(255,255,255,.24);
+  background: transparent;
+  color: rgba(255,255,255,.85);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.adm__me button:hover { background: rgba(255,255,255,.12); color: #fff; }
+
+/* ---------------------------------------------------------- work area */
+
+.adm__main { min-width: 0; padding: 24px 26px 60px; }
+
+.adm__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.adm__head h1 {
+  font-family: var(--f-display);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  margin: 0;
+}
+.adm__head p { margin: 4px 0 0; color: var(--ink-3); font-size: 13px; }
+
+/* ---------------------------------------------------------- cards & tiles */
+
+.adm__card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--sh-1);
+  padding: 16px 18px;
+}
+.adm__card + .adm__card { margin-top: 16px; }
+.adm__card h2 {
+  font-family: var(--f-display);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 3px;
+}
+.adm__card > p.adm__hint { margin: 0 0 14px; color: var(--ink-3); font-size: 12px; }
+
+.adm__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+}
+.adm__tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 13px 14px;
+}
+.adm__tile dt {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 5px;
+}
+.adm__tile dd {
+  margin: 0;
+  font-family: var(--f-display);
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+/* A figure the server could not produce. Visually quieter than a zero,
+   because "we could not count this" and "this is zero" are different
+   statements and the dashboard must not blur them. */
+.adm__tile dd.is-none { color: var(--ink-3); font-size: 19px; font-weight: 600; }
+.adm__tile small { display: block; margin-top: 4px; color: var(--ink-3); font-size: 11px; }
+
+/* ---------------------------------------------------------- filters */
+
+.adm__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.adm__filters input[type="search"],
+.adm__filters input[type="date"],
+.adm__filters select {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  min-width: 0;
+}
+.adm__filters input[type="search"] { flex: 1 1 240px; }
+.adm__filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.adm__btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 13px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.adm__btn:hover { background: var(--surface-2); }
+.adm__btn--primary {
+  background: var(--teal-700);
+  border-color: var(--teal-700);
+  color: #fff;
+}
+.adm__btn--primary:hover { background: var(--teal-600); border-color: var(--teal-600); }
+.adm__btn:disabled { opacity: .5; cursor: default; }
+
+/* ---------------------------------------------------------- table */
+
+.adm__scroll { overflow-x: auto; margin: 0 -18px; padding: 0 18px; }
+
+.adm__table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.adm__table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.adm__table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: middle;
+}
+.adm__table tbody tr { cursor: pointer; }
+.adm__table tbody tr:hover { background: var(--surface-2); }
+.adm__table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.adm__table .mono { font-family: var(--f-mono); font-size: 11.5px; }
+
+/* An em dash for a value that was never collected. Muted so a table of
+   real data does not read as a table of dashes. */
+.adm__none { color: var(--ink-3); }
+
+.adm__who { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.adm__avatar {
+  width: 30px; height: 30px; flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+}
+.adm__avatar--txt {
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 700;
+  color: var(--ink-2);
+}
+.adm__who b { display: block; font-weight: 600; }
+.adm__who span { display: block; color: var(--ink-3); font-size: 12px; }
+
+/* ---------------------------------------------------------- pills */
+
+.adm__pill {
+  display: inline-block;
+  padding: 2.5px 9px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  background: var(--surface-3);
+  color: var(--ink-2);
+}
+.adm__pill--ok { background: var(--ok-bg); color: var(--ok); }
+.adm__pill--warn { background: var(--warn-bg); color: var(--warn); }
+.adm__pill--bad { background: var(--bad-bg); color: var(--bad); }
+.adm__pill--info { background: var(--teal-050); color: var(--teal-700); }
+
+/* ---------------------------------------------------------- states */
+
+.adm__state {
+  text-align: center;
+  padding: 44px 20px;
+  color: var(--ink-3);
+}
+.adm__state b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 5px; }
+.adm__state p { margin: 0 auto; max-width: 460px; font-size: 13px; }
+
+.adm__banner {
+  border-radius: var(--r-sm);
+  padding: 11px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  border: 1px solid;
+}
+.adm__banner--warn { background: var(--warn-bg); border-color: var(--warn); color: var(--ink); }
+.adm__banner--bad { background: var(--bad-bg); border-color: var(--bad); color: var(--ink); }
+.adm__banner--info { background: var(--teal-050); border-color: var(--teal-100); color: var(--ink); }
+.adm__banner b { font-weight: 700; }
+
+.adm__skel {
+  height: 13px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: admShimmer 1.3s linear infinite;
+}
+@keyframes admShimmer { to { background-position: -200% 0; } }
+
+/* ---------------------------------------------------------- detail view */
+
+.adm__grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.adm__defs { margin: 0; display: grid; grid-template-columns: minmax(120px, 40%) 1fr; gap: 0; }
+.adm__defs dt {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.adm__defs dd {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+  margin: 0;
+  word-break: break-word;
+  font-size: 13px;
+}
+
+.adm__timeline { list-style: none; margin: 0; padding: 0; }
+.adm__timeline li {
+  display: grid;
+  grid-template-columns: 152px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+.adm__timeline time { color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.adm__timeline b { font-weight: 600; text-transform: capitalize; }
+.adm__timeline code {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  display: block;
+  margin-top: 2px;
+  word-break: break-all;
+}
+
+/* ---------------------------------------------------------- bar chart
+
+   A plain CSS bar chart. Real values only — a bar with no data has no
+   height rather than a placeholder one, and the series says whether it
+   was truncated. */
+
+.adm__chart { display: flex; align-items: flex-end; gap: 2px; height: 132px; margin-top: 6px; }
+.adm__chart div {
+  flex: 1 1 0;
+  min-width: 2px;
+  background: var(--teal-700);
+  border-radius: 2px 2px 0 0;
+  min-height: 1px;
+  opacity: .85;
+}
+.adm__chart div:hover { opacity: 1; }
+.adm__chartfoot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.adm__rank { list-style: none; margin: 0; padding: 0; }
+.adm__rank li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+.adm__rank span:last-child { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+/* ---------------------------------------------------------- gate */
+
+.adm__gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--f-ui);
+}
+.adm__gate > div {
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+  padding: 34px 28px;
+}
+.adm__gate h1 {
+  font-family: var(--f-display);
+  font-size: 21px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.adm__gate p { color: var(--ink-2); font-size: 14px; margin: 0 0 20px; }
+.adm__gate .adm__btn { width: 100%; padding: 11px; font-size: 14px; }
+.adm__gate .adm__btn + .adm__btn { margin-top: 9px; }
+
+/* ---------------------------------------------------------- responsive */
+
+@media (max-width: 900px) {
+  .adm { grid-template-columns: 1fr; }
+  .adm__rail {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  .adm__nav { flex-direction: row; flex-wrap: wrap; flex: 1 1 100%; }
+  .adm__nav a { padding: 7px 10px; font-size: 12px; }
+  .adm__me { margin-top: 0; border-top: 0; padding-top: 0; flex: 1 1 100%; display: flex;
+             align-items: center; gap: 12px; }
+  .adm__me button { width: auto; margin-top: 0; margin-left: auto; padding: 7px 12px; }
+  .adm__main { padding: 18px 16px 50px; }
+  .adm__scroll { margin: 0 -18px; padding: 0 18px; }
+  .adm__timeline li { grid-template-columns: 1fr; gap: 2px; }
+  .adm__defs { grid-template-columns: 1fr; }
+  .adm__defs dt { border-bottom: 0; padding-bottom: 0; }
+}
