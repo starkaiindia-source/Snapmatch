@@ -4208,6 +4208,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     } catch (e) { return null; }
   }
 
+  /* True when a provider's error text is a pasted HTTP response rather than a
+     sentence — a URL, a status line, or a JSON body. Firebase forwards these
+     verbatim, and they have been landing on the account page as a wall of
+     quoted Google error JSON. Nobody who reads that page can act on it, and a
+     message nobody can act on is worse than a short one, because it reads as
+     the site being broken in a way that is somehow the reader's problem. */
+  function rawProviderNoise(msg) {
+    if (!msg) return false;
+    return /https?:\/\//.test(msg) || /http status/i.test(msg) ||
+           /"error"\s*:/.test(msg) || /UNAUTHENTICATED|PERMISSION_DENIED/.test(msg);
+  }
+
   var gsiLoading = null;
   function loadGsi() {
     if (window.google && window.google.accounts && window.google.accounts.id) return Promise.resolve(true);
@@ -4274,7 +4286,30 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
                 'the Google provider under Authentication → Sign-in method.'
           : code === 'auth/network-request-failed'
               ? 'Could not reach Google. Check the connection and try again.'
+          /* Google accepted the person and then refused the SITE. Firebase's
+             own message for this is a pasted HTTP response — a URL, a status
+             code and a JSON body — which went straight onto the page in front
+             of shop owners who can do nothing with it, and does not say the one
+             thing that matters: nothing is wrong with their Google account, so
+             retrying and re-retrying cannot help.
+
+             It means the project's Google OAuth client is no longer usable —
+             its secret was rotated or the client was deleted in Google Cloud,
+             leaving Firebase holding a credential Google now rejects. Only the
+             owner can fix that, in the console. The raw response stays in the
+             debug log for whoever is doing it. */
+          : code === 'auth/invalid-credential' || code === 'auth/internal-error'
+              ? 'Google sign-in is not working on this site at the moment — the ' +
+                'problem is with the site, not your Google account. The owner ' +
+                'needs to reconnect Google sign-in in the Firebase console.'
+          : rawProviderNoise(err && err.message)
+              ? 'Google sign-in failed. Please try again.'
           : (err && err.message) || 'Google sign-in failed.';
+
+          /* Whatever is shown, the untouched original is still recoverable. */
+          SM.debug.warn('auth', 'google sign-in failed', {
+            code: code || null, raw: (err && err.message) || null
+          });
 
           var e = new Error(message);
           e.code = (code === 'auth/popup-closed-by-user' || code === 'auth/user-cancelled')
