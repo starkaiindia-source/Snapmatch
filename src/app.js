@@ -254,12 +254,18 @@
     if (r.name === 'group') {
       state.finder.groupId = r.params[0] || null;
       state.finder.detailModelId = null;
-      state.finder.groupRow = null;
+      state.finder.groupQ = '';
+      state.finder.groupShown = 80;
+      /* The variant helpers are shared with the model page and hold one
+         device's selection at a time; a group opens on its master. */
+      state.deviceColour = 0;
+      state.deviceVariant = null;
+      state.deviceShot = 0;
       r = { name: 'finder', params: [] };
     } else if (state.finder.groupId) {
       state.finder.groupId = null;
       state.finder.detailModelId = null;
-      state.finder.groupRow = null;
+      state.finder.groupQ = '';
     }
 
     state.sheet = null;
@@ -631,6 +637,33 @@
     return (id && db.modelById[id]) || row.master;
   }
 
+  /* CategoryProductVisual — one place the group view asks for a category's
+     picture, so a second call site cannot start showing a different one.
+
+     Today it delegates to SM.art.category, which already resolves the official
+     logo from Firebase Storage first and the identical file deployed with the
+     site second, falling back to a drawn symbol only when both are
+     unreachable. An explicit imageUrl overrides all of that, and that is the
+     seam the admin panel will write to: once a category record carries its own
+     product photograph, it arrives here as `imageUrl` and no call site changes.
+
+     @param {object} cat   the category record
+     @param {object} opts  { imageUrl, cls } */
+  function categoryVisual(cat, opts) {
+    opts = opts || {};
+    if (!cat) return '';
+    /* categoryImageUrl is not in the schema yet. Reading it now means the
+       import that adds it needs no code change here. */
+    var url = opts.imageUrl || cat.categoryImageUrl || cat.imageUrl || null;
+    var cls = 'catvis' + (opts.cls ? ' ' + opts.cls : '');
+    var inner = url
+      ? '<img class="catvis__img" src="' + esc(url) + '" alt="' + esc(cat.name) + '" ' +
+        'loading="lazy" decoding="async" />'
+      : SM.art.category(cat.id, 'catvis__art', cat.name);
+    return '<span class="' + cls + '" title="' + esc(cat.name) + '" ' +
+      'aria-label="' + esc(cat.name) + '">' + inner + '</span>';
+  }
+
   /* A copy button with nothing to copy is a button that lies. Part code used to
      be null for every group, so this rendered "Part code: " and put an empty
      string on the clipboard. */
@@ -640,93 +673,80 @@
       icon('copy') + esc(label) + ': ' + esc(value) + '</button>';
   }
 
-  /* The red circle with the white X. Deliberately not a grey outline glyph in
-     a corner: this is the only way back to the group list, and someone who
-     cannot find it is stuck in a view they did not mean to be in. */
-  function closeGroupBtn(label) {
-    return '<button type="button" class="gclose" data-act="close-group" ' +
-      'aria-label="' + esc(label || 'Close compatibility group') + '" ' +
-      'title="' + esc(label || 'Close compatibility group') + '">' +
-      icon('close') + '</button>';
-  }
+  /* The sticky bar: back, the master handset, its name, the part codes, the
+     category's own picture, and the filter.
 
-  function groupHeadHTML(row) {
+     It is a SIBLING of everything below it, not a wrapper around the head.
+     position:sticky is bounded by its own parent's box, so nested inside a
+     header block it would unstick the moment that block scrolled past — about
+     200px into a list that can run to 325 devices. As a direct child of the
+     centre column it spans the whole scroll instead.
+
+     The title is the model, and only the model. It used to read "Motorola Razr
+     50 cover group", which put the part category inside the device's name; the
+     category is already said by the picture on the right and by the left-hand
+     rail, and saying it a third time inside the heading made the heading wrong
+     rather than fuller. */
+  function groupBarHTML(row) {
     var g = row.group, cat = row.category, master = row.master;
-    /* The sticky bar is a SIBLING of the head, not a child of it. position:
-       sticky is bounded by its own parent's box, so inside .ghead it would
-       unstick the moment .ghead scrolled past — about 200px into a list that
-       can run to 325 devices. As a direct child of the centre column it spans
-       the whole scroll instead. */
+    var codes = [g.groupNumber, g.partCode, g.oemPartNo].filter(Boolean).join(' · ');
+
     return '<div class="gbar">' +
-        '<div class="ghead__ids">' +
-          '<span class="pill" style="background:' + cat.color + '18;color:' + cat.color + '">' +
-            icon(cat.icon) + esc(cat.name) + '</span>' +
-          '<span class="pill pill--code">' + esc(g.groupNumber) + '</span>' +
-          (g.partCode ? '<span class="pill pill--code">' + esc(g.partCode) + '</span>' : '') +
-          (g.oemPartNo ? '<span class="pill pill--code">' + esc(g.oemPartNo) + '</span>' : '') +
-        '</div>' +
-        closeGroupBtn() +
-      '</div>' +
-      '<div class="ghead" style="--c:' + cat.color + '">' +
-      '<h2 class="ghead__h">' + esc(master.fullName) + ' ' + esc(String(cat.short).toLowerCase()) + ' group</h2>' +
-      '<p class="ghead__sub">' +
-        '<strong>' + nf(g.compatibleCount) + '</strong> ' +
-        (g.compatibleCount === 1 ? 'device takes' : 'devices take') + ' this part. ' +
-        'Select one to see its details.</p>' +
-      '<div class="row wrap" style="gap:8px">' +
-        copyBtn('Part code', g.partCode) + copyBtn('Serial', g.serialNumber) +
-        copyBtn('Group', g.groupNumber) +
-        (g.oemPartNo ? copyBtn('Mfr part no', g.oemPartNo) : '') +
-      '</div>' +
+      '<button type="button" class="gback" data-act="close-group" ' +
+        'aria-label="Back to compatibility groups" title="Back to compatibility groups">' +
+        icon('chevronLeft') + '<span class="gback__t">Back</span></button>' +
+
+      '<span class="gbar__shot">' +
+        SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'gbar__ph' }) +
+      '</span>' +
+
+      '<span class="gbar__id">' +
+        '<span class="gbar__n">' + esc(deviceTitle(master)) + '</span>' +
+        (codes ? '<span class="gbar__codes">' + esc(codes) + '</span>' : '') +
+      '</span>' +
+
+      '<span class="gbar__right">' +
+        categoryVisual(cat, { cls: 'catvis--bar' }) +
+        '<label class="field gbar__filter">' + icon('search') +
+          '<input class="input" id="gdq" placeholder="Filter these devices…" ' +
+          'value="' + esc(state.finder.groupQ || '') + '" ' +
+          'aria-label="Filter devices in this group" /></label>' +
+      '</span>' +
       '</div>';
   }
 
-  /* One device, as a row in the centre column. A button rather than a link:
-     picking one changes the right panel, it does not navigate. */
+  /* One device, as a row you pick. Name only.
+
+     Everything else that used to be here — the photograph, the screen size,
+     the screen type, the year — is on the right the moment the row is picked,
+     and repeating it down a list of 325 turns a selector into a spec sheet
+     nobody reads. This list has one job: switch the panel. */
   function groupDeviceHTML(m, row, sel) {
-    var b = db.brandById[m.brandId];
     var isMaster = m.id === row.master.id;
-    var meta = [ m.displaySize ? esc(m.displaySize) + '&Prime;' : null,
-                 m.screenType ? esc(m.screenType) : null,
-                 m.releaseYear ? esc(String(m.releaseYear)) : null
-               ].filter(Boolean).join(' <i></i> ');
-    return '<button type="button" class="grow-row' + (sel ? ' is-on' : '') + '" ' +
+    return '<button type="button" class="gpick' + (sel ? ' is-on' : '') + '" ' +
       'data-act="pick-device" data-id="' + esc(m.id) + '" ' +
       'aria-pressed="' + (sel ? 'true' : 'false') + '">' +
-      '<span class="grow-row__shot">' +
-        SM.art.photo(m, { alt: m.fullName, cls: 'grow-row__ph' }) + '</span>' +
-      '<span class="grow-row__main">' +
-        '<span class="grow-row__n">' + esc(m.fullName) + '</span>' +
-        '<span class="grow-row__m">' + (b ? esc(b.name) : '') +
-          (meta ? ' <i></i> ' + meta : '') + '</span>' +
-      '</span>' +
-      (isMaster ? '<span class="grow-row__flag">' + icon('crown') + 'Master</span>' : '') +
+      '<span class="gpick__dot" aria-hidden="true"></span>' +
+      '<span class="gpick__n">' + esc(m.fullName) + '</span>' +
+      (isMaster ? '<span class="gpick__flag">' + icon('crown') + 'Master</span>' : '') +
       '</button>';
   }
 
-  /* The centre column while a group is open. Everything the group has, in one
-     scrollable list — no "not listed", because nothing is. */
   function groupCenterHTML(row) {
     var all = api.groupMembers(row.group);
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
-    var shown = list.slice(0, state.finder.groupShown || 60);
-    var sel = detailModel();
 
-    return groupHeadHTML(row) +
-      '<div class="sec"><div class="sec__head"><div class="sec__title">' +
-      '<h2>Devices in this group</h2>' +
-      '<span class="sec__count">' + nf(list.length) +
-      (q ? ' of ' + nf(all.length) : '') + '</span></div>' +
-      '<div class="row wrap ws-tools" style="gap:8px">' +
-      '<span class="ws-only"><label class="field">' + icon('search') +
-      '<input class="input" id="gdq" placeholder="Filter these devices…" ' +
-      'value="' + esc(state.finder.groupQ || '') + '" aria-label="Filter devices in this group" />' +
-      '</label></span></div></div>' +
+    return groupBarHTML(row) +
+      '<div class="gsec">' +
+        '<h2 class="gsec__h">Devices in this group</h2>' +
+        '<span class="gsec__n" id="gdCount">' + nf(list.length) +
+          (q ? ' of ' + nf(all.length) : '') + '</span>' +
+      '</div>' +
       '<div class="fbar"><div class="field grow">' + icon('search') +
-      '<input class="input" id="gdqm" placeholder="Filter these devices…" ' +
-      'value="' + esc(state.finder.groupQ || '') + '" aria-label="Filter devices in this group" />' +
-      '</div></div></div>' +
+        '<input class="input" id="gdqm" placeholder="Filter these devices…" ' +
+        'value="' + esc(state.finder.groupQ || '') + '" ' +
+        'aria-label="Filter devices in this group" /></div></div>' +
       '<div id="groupList">' + groupListHTML(row) + '</div>';
   }
 
@@ -736,69 +756,119 @@
     var all = api.groupMembers(row.group);
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
-    var shown = list.slice(0, state.finder.groupShown || 60);
+    var shown = list.slice(0, state.finder.groupShown || 80);
     var sel = detailModel();
     return (shown.length
-        ? '<div class="grows">' + shown.map(function (m) {
-            return groupDeviceHTML(m, row, !!sel && sel.id === m.id);
-          }).join('') + '</div>' +
-          (list.length > shown.length
-            ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
-              'Show more devices (' + nf(list.length - shown.length) + ' left)</button></div>'
-            : '')
-        : '<div class="notice">' + icon('alert') +
-          '<span>No device in this group matches that filter.</span></div>');
+      ? '<div class="gpicks">' + shown.map(function (m) {
+          return groupDeviceHTML(m, row, !!sel && sel.id === m.id);
+        }).join('') + '</div>' +
+        (list.length > shown.length
+          ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
+            'Show ' + nf(list.length - shown.length) + ' more</button></div>'
+          : '')
+      : '<div class="notice">' + icon('alert') +
+        '<span>No device in this group matches that filter.</span></div>');
   }
 
-  /* The right panel while a group is open: the selected device. Same fields
-     the model page shows, in the space a sidebar has. Absent values are left
-     out rather than printed as a dash — a narrow column full of hyphens reads
-     as broken. */
+  /* The right panel: the selected device, in the space a sidebar has.
+
+     The sections are the same builder the full model page uses, so a field the
+     import adds later appears here too without a second edit. IMPORTED is not
+     passed: on the model page an empty-but-known column is worth a hyphen,
+     because the page is about completeness; in a 240px sidebar a column of
+     hyphens just reads as broken. */
   function groupDetailHTML() {
     var row = currentGroup();
-    var m = detailModel();
-    if (!row || !m) return '';
+    var base = detailModel();
+    if (!row || !base) return '';
+    var m = previewVariants(base);
     var b = db.brandById[m.brandId] || { id: m.brandId, name: m.brand };
     var sp = m.specs || {};
+    var cur = currentVariant(m);
+    var rear = sp.cameraRear || [];
     var isMaster = m.id === row.master.id;
 
-    var fields = [
-      ['Brand', b.name],
-      ['Released', m.releaseDate],
-      ['Display', m.displaySize ? m.displaySize + ' inches' : null],
-      ['Screen type', m.screenType],
-      ['Battery', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null],
-      ['Battery part no.', m.batteryPartNo
-        ? m.batteryPartNo + (m.batteryPartVerified ? ' (verified)' : ' (unverified)') : null],
-      ['Height', m.height],
-      ['Width', m.width],
-      ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null],
-      ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null],
-      ['Device type', m.deviceType]
-    ].filter(function (r) { return r[1] != null && r[1] !== ''; });
-
-    /* Never a nought. The catalogue has no price column, and a rupee sign in
-       front of a zero reads as a price to anyone scanning the number. */
-    var price = sp.launchPriceInr
-      ? '<span class="gdet__price">₹' + nf(sp.launchPriceInr) + '</span>'
-      : '<span class="gdet__price gdet__price--none">Launch price not available</span>';
+    var ramTxt = (sp.ramVariantsGb || []).length ? sp.ramVariantsGb.join(' / ') + ' GB' : null;
+    var romTxt = (sp.storageVariantsGb || []).length
+      ? sp.storageVariantsGb.map(fmtRom).join(' / ') : null;
 
     return '<div class="gdet">' +
-      /* No second close button here. The one in the centre head is sticky and
-         always on screen, and two red circles ten pixels apart read as two
-         different actions. */
       '<div class="gdet__top">' +
         '<span class="t-lab">' + (isMaster ? 'Master model' : 'Selected device') + '</span>' +
       '</div>' +
+
       '<div class="gdet__shot">' +
-        SM.art.photo(m, { alt: m.fullName, eager: true, cls: 'gdet__ph' }) + '</div>' +
+        SM.art.photo(m, { src: deviceImageUrl(m), colourIdx: state.deviceColour || 0,
+                          alt: m.fullName, eager: true, cls: 'gdet__ph' }) +
+      '</div>' +
+
       '<div class="gdet__brand">' + SM.brandLogo(b, 'blogo--sm') +
         (brandHasMark(b) ? '<span>' + esc(b.name) + '</span>' : '') + '</div>' +
       '<h3 class="gdet__n">' + esc(deviceTitle(m)) + '</h3>' +
-      price +
-      '<dl class="gdet__specs">' + fields.map(function (r) {
-        return '<div><dt>' + esc(r[0]) + '</dt><dd>' + esc(String(r[1])) + '</dd></div>';
-      }).join('') + '</dl>' +
+
+      priceHTML(m, cur) +
+      /* Renders nothing at all until the catalogue carries variants — which is
+         the right answer for a device with one known build, and means the
+         import that adds them needs no work here. */
+      variantPickerHTML(m) +
+
+      '<div class="gdet__secs">' +
+        specBlockHTML('Overview', 'info', [
+          ['Brand', b.name],
+          ['Released', m.releaseDate],
+          ['Availability', m.releaseStatus && m.releaseStatus !== 'available'
+            ? m.releaseStatus.replace(/_/g, ' ') : null],
+          ['Device type', m.deviceType]
+        ]) +
+        specBlockHTML('Display', 'phone', [
+          ['Size', m.displaySize ? m.displaySize + ' inches' : null],
+          ['Resolution', m.screenResolution],
+          ['Type', m.screenType],
+          ['Refresh rate', m.refreshRate],
+          ['Protection', m.protection]
+        ]) +
+        specBlockHTML('Body', 'ruler', [
+          ['Height', m.height],
+          ['Width', m.width],
+          ['Thickness', m.thickness],
+          ['Weight', m.weight],
+          ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null],
+          ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null],
+          ['Colours', coloursOf(m).length
+            ? coloursOf(m).map(function (c) { return c.n; }).join(', ') : null]
+        ]) +
+        specBlockHTML('Battery & charging', 'battery', [
+          ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null],
+          ['Battery part number', m.batteryPartNo
+            ? m.batteryPartNo + (m.batteryPartVerified ? ' (verified)' : ' (unverified)') : null],
+          ['Wired charging', sp.chargingWatts ? sp.chargingWatts + 'W' : null],
+          ['Wireless charging', sp.wirelessCharging == null ? null
+            : (sp.wirelessCharging ? 'Supported' : 'Not supported')]
+        ]) +
+        specBlockHTML('Memory', 'layers', [
+          ['RAM', ramTxt],
+          ['Storage', romTxt],
+          ['Expandable', sp.expandable == null ? null
+            : (sp.expandable ? 'microSD supported' : 'Not expandable')]
+        ]) +
+        specBlockHTML('Performance', 'cpu', [
+          ['Chipset', sp.chipset], ['CPU', sp.cpu], ['GPU', sp.gpu]
+        ]) +
+        specBlockHTML('Camera', 'camera', rear.map(function (c) {
+          return [c.role, c.mp + ' MP · ' + c.aperture + (c.ois ? ' · OIS' : '')];
+        }).concat([
+          ['Front camera', sp.cameraFront
+            ? sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture : null],
+          ['Video', sp.videoMax]
+        ])) +
+        specBlockHTML('Network & connectivity', 'signal', [
+          ['Network', sp.networkDetail || sp.network],
+          ['SIM', m.sim], ['Wi-Fi', sp.wifi], ['Bluetooth', sp.bluetooth],
+          ['NFC', sp.nfc == null ? null : (sp.nfc ? 'Yes' : 'No')],
+          ['USB', sp.usb]
+        ]) +
+      '</div>' +
+
       '<div class="gdet__cta">' +
         '<a class="btn btn--outline" href="/model/' + esc(m.id) + '">' +
           icon('info') + 'Full specifications</a>' +
@@ -807,7 +877,6 @@
       '</div>' +
       '</div>';
   }
-
   function renderWorkspace() {
     if (!document.getElementById('catPanel')) { renderFinder(document.getElementById('page')); return; }
     document.getElementById('catPanel').innerHTML = categoryPanelHTML();
@@ -856,7 +925,7 @@
     var panel = document.getElementById('brandPanel');
     if (panel) panel.innerHTML = groupDetailHTML();
     var sel = detailModel();
-    Array.prototype.forEach.call(document.querySelectorAll('.grow-row'), function (el) {
+    Array.prototype.forEach.call(document.querySelectorAll('.gpick'), function (el) {
       var on = !!sel && el.getAttribute('data-id') === sel.id;
       el.classList.toggle('is-on', on);
       el.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -871,7 +940,7 @@
     var all = api.groupMembers(row.group);
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var n = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }).length : all.length;
-    var c = document.querySelector('.ws__head .sec__count');
+    var c = document.getElementById('gdCount');
     if (c) c.textContent = nf(n) + (q ? ' of ' + nf(all.length) : '');
   }
 
@@ -4200,8 +4269,13 @@
       case 'dev-colour':
       case 'dev-shot':
       case 'pick-variant': {
-        var dm = db.modelById[state.deviceId];
+        /* The same three controls serve the model page and the group panel.
+           Which device they are describing differs, so the device is resolved
+           from whichever view is open rather than from state.deviceId alone —
+           that field trails a group opened straight from a link. */
+        var dm = state.finder.groupId ? detailModel() : db.modelById[state.deviceId];
         if (!dm) break;
+        state.deviceId = dm.id;
         dm = previewVariants(dm);
 
         if (act === 'dev-colour') {
@@ -4237,7 +4311,8 @@
           state.deviceVariant = want;
         }
 
-        repaintDevice(dm);
+        if (state.finder.groupId) repaintGroupDetail();
+        else repaintDevice(dm);
         break;
       }
       case 'open-model': go('/model/' + id); break;

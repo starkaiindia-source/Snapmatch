@@ -2012,126 +2012,183 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    rather than squeezed to an unreadable width. */
 @media (max-width:420px){ .gprev__i:nth-child(n+4){ display:none; } }
 
-/* --------------------------------------------------------- the red close X
-   Solid red circle, white glyph, 36px. This is the only way back out of the
-   group view, so it is not a grey outline in a corner. */
-.gclose{
-  flex:none; width:36px; height:36px; padding:0; cursor:pointer;
-  display:inline-flex; align-items:center; justify-content:center;
-  border-radius:50%; border:0;
-  background:#DC2626; color:#fff;
-  box-shadow:0 2px 8px rgba(220,38,38,.35);
-  transition:background .15s, transform .12s, box-shadow .15s;
-}
-.gclose:hover{ background:#B91C1C; transform:scale(1.06); }
-.gclose:active{ transform:scale(.96); }
-.gclose:focus-visible{ outline:2px solid #DC2626; outline-offset:3px; }
-.gclose svg{ width:19px; height:19px; stroke-width:2.6; color:#fff; }
+/* ------------------------------------------------------- the sticky bar
+   Back, the master handset, its name, the part codes, the category's own
+   picture and the filter — one row, and the only thing that stays put while
+   the device list scrolls under it.
 
-/* -------------------------------------------------------- group head (centre) */
-.ghead{ padding:14px 0 16px; margin-bottom:4px; border-bottom:1px solid var(--line); }
-/* Sticky, because the centre column is its own scroller and a group can run
-   to 325 devices. A close button that scrolls off the top of a list that long
-   is a close button the reader cannot find. */
-/* top is the header's own height, not 0: on a desktop the centre column is its
+   top is the header's own height, not 0: on a desktop the centre column is its
    own scroller and the two never meet, but on a phone the WINDOW scrolls and
-   the sticky topbar is already sitting at 0 — a bar stuck to the viewport top
+   the sticky topbar already sits at 0, so a bar stuck to the viewport top
    slides straight under it. */
 .gbar{
-  position:sticky; top:var(--topbar-h); z-index:4;
+  position:sticky; top:var(--topbar-h); z-index:6;
   display:flex; align-items:center; gap:12px;
-  padding:10px 0 9px;
-  /* --paper is the page's own background; --bg does not exist, so the bar
-     was transparent and the device list scrolled through it. */
+  padding:10px 0 10px;
+  /* --paper is the page's own background. Anything transparent here lets the
+     device list scroll through the bar. */
   background:var(--paper);
   border-bottom:1px solid var(--line);
 }
-.ghead__ids{ display:flex; flex-wrap:wrap; gap:7px; flex:1 1 auto; min-width:0; }
-.ghead__h{
-  font-family:var(--f-display); font-weight:800;
-  font-size:clamp(19px,2.2vw,25px); line-height:1.15; letter-spacing:-.02em;
-  margin:0 0 6px; color:var(--ink);
-}
-.ghead__sub{ margin:0 0 12px; font-size:13.5px; color:var(--ink-2); }
-.ghead__sub strong{ color:var(--ink); }
 
-/* ---------------------------------------------------------- device rows */
-.grows{ display:flex; flex-direction:column; gap:7px; padding:4px 0 10px; }
-.grow-row{
-  display:flex; align-items:center; gap:12px; width:100%; text-align:left;
-  padding:9px 12px; cursor:pointer;
-  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
-  transition:border-color .14s, background .14s;
+.gback{
+  flex:none; display:inline-flex; align-items:center; gap:5px;
+  height:36px; padding:0 13px 0 9px; cursor:pointer;
+  background:var(--surface); color:var(--ink-2);
+  border:1px solid var(--line); border-radius:999px;
+  font:inherit; font-size:13px; font-weight:700;
+  transition:border-color .14s, color .14s, background .14s;
 }
-.grow-row:hover{ border-color:var(--teal-500); background:var(--surface-2); }
-.grow-row.is-on{ border-color:var(--teal-600); box-shadow:inset 0 0 0 1px var(--teal-600); }
-.grow-row:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
-.grow-row__shot{ flex:none; width:38px; height:48px; display:flex; align-items:center; justify-content:center; }
-.grow-row__shot .dphoto__img,
-.grow-row__shot .dphoto__art{ max-height:48px; max-width:38px; width:auto; height:auto; object-fit:contain; }
-.grow-row__main{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1 1 auto; }
-.grow-row__n{ font-size:14px; font-weight:700; color:var(--ink); overflow-wrap:anywhere; }
-.grow-row__m{ font-size:12px; color:var(--ink-3); }
-.grow-row__m i{ display:inline-block; width:3px; height:3px; border-radius:50%; background:currentColor; vertical-align:middle; margin:0 5px 2px; }
-.grow-row__flag{
+.gback:hover{ border-color:var(--teal-500); color:var(--teal-700); background:var(--surface-2); }
+.gback:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+.gback svg{ width:17px; height:17px; }
+
+.gbar__shot{ flex:none; width:34px; height:44px; display:flex; align-items:center; justify-content:center; }
+.gbar__shot .dphoto{ width:100%; height:100%; }
+.gbar__shot .dphoto__img,
+.gbar__shot .dphoto__art{ max-height:44px; max-width:34px; width:auto; height:auto; object-fit:contain; }
+
+.gbar__id{ display:flex; flex-direction:column; gap:1px; min-width:0; flex:1 1 auto; }
+.gbar__n{
+  font-family:var(--f-display); font-weight:800; font-size:17px;
+  letter-spacing:-.02em; color:var(--ink);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* Secondary on purpose: the codes matter at the counter, but they are not the
+   name of the thing on the screen. */
+.gbar__codes{
+  font-family:var(--f-mono, ui-monospace, monospace); font-size:11px;
+  color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+
+.gbar__right{ flex:none; display:flex; align-items:center; gap:10px; }
+.gbar__filter{ width:210px; height:36px; }
+
+/* --------------------------------------------------- CategoryProductVisual */
+.catvis{
+  display:inline-flex; align-items:center; justify-content:center;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm);
+  overflow:hidden;
+}
+.catvis--bar{ width:44px; height:44px; padding:5px; }
+.catvis__img,
+.catvis__art{ max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; }
+.catvis .pthumb,
+.catvis img{ max-width:100%; max-height:100%; }
+
+/* -------------------------------------------------- devices in this group */
+.gsec{ display:flex; align-items:baseline; gap:9px; padding:16px 0 8px; }
+.gsec__h{
+  font-family:var(--f-display); font-weight:800; font-size:17px;
+  letter-spacing:-.02em; margin:0; color:var(--ink);
+}
+.gsec__n{
+  font-size:11.5px; font-weight:700; color:var(--ink-3);
+  background:var(--surface-2); border:1px solid var(--line);
+  border-radius:999px; padding:2px 9px;
+}
+
+/* The compact selector. One line each, name only — the photograph, the screen
+   size and the year are on the right the moment a row is picked, and repeating
+   them down a list of 325 turns a selector into a spec sheet nobody reads. */
+.gpicks{ display:flex; flex-direction:column; gap:3px; padding-bottom:10px; }
+.gpick{
+  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  padding:9px 12px; cursor:pointer;
+  background:transparent; border:1px solid transparent; border-radius:var(--r-sm);
+  font:inherit; color:var(--ink);
+  transition:background .12s, border-color .12s;
+}
+.gpick:hover{ background:var(--surface-2); border-color:var(--line); }
+.gpick:focus-visible{ outline:2px solid var(--teal-500); outline-offset:-1px; }
+.gpick.is-on{ background:var(--teal-100); border-color:var(--teal-500); }
+
+.gpick__dot{
+  flex:none; width:14px; height:14px; border-radius:50%;
+  border:1.5px solid var(--line-strong, var(--ink-3)); background:var(--surface);
+  transition:border-color .12s, box-shadow .12s;
+}
+.gpick.is-on .gpick__dot{
+  border-color:var(--teal-600);
+  box-shadow:inset 0 0 0 3px var(--teal-600);
+}
+.gpick__n{
+  flex:1 1 auto; min-width:0; font-size:14px; font-weight:600;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.gpick.is-on .gpick__n{ font-weight:700; color:var(--teal-800, var(--ink)); }
+.gpick__flag{
   flex:none; display:inline-flex; align-items:center; gap:4px;
-  font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+  font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
   color:var(--teal-700);
 }
-.grow-row__flag svg{ width:13px; height:13px; }
+.gpick__flag svg{ width:12px; height:12px; }
 
 /* ------------------------------------------------ right panel: the device */
 .ws__right--detail{ padding-top:0; }
 .gdet{ display:flex; flex-direction:column; gap:10px; }
 .gdet__top{ display:flex; align-items:center; gap:10px; }
-.gdet__top .t-lab{ flex:1 1 auto; }
 .gdet__shot{
   display:flex; align-items:center; justify-content:center;
-  padding:16px; min-height:170px;
+  padding:14px; min-height:180px;
   background:
     radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%),
     var(--surface-2);
   border:1px solid var(--line); border-radius:var(--r);
 }
-/* Bounded so the specifications under it are not pushed off the panel. */
+/* Bounded, so the name and the specifications under it are not pushed off. */
 .gdet__shot .dphoto{ width:100%; }
 .gdet__shot .dphoto__img{ width:min(100%,150px); height:auto; object-fit:contain; }
 .gdet__shot .dphoto__art{ height:170px; width:auto; }
+
 .gdet__brand{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink-2); }
 .gdet__n{
   font-family:var(--f-display); font-weight:800; font-size:19px;
   line-height:1.15; letter-spacing:-.02em; margin:0; color:var(--ink);
   overflow-wrap:anywhere;
 }
-.gdet__price{
-  font-family:var(--f-display); font-weight:800; font-size:20px;
-  color:var(--ink); font-variant-numeric:tabular-nums;
-}
-.gdet__price--none{ font-family:var(--f-ui); font-size:13px; font-weight:600; color:var(--ink-3); }
-.gdet__specs{ margin:2px 0 0; padding:0; }
-.gdet__specs > div{
-  display:flex; justify-content:space-between; gap:12px;
-  padding:7px 0; border-bottom:1px solid var(--line-soft);
-}
-.gdet__specs > div:last-child{ border-bottom:0; }
-.gdet__specs dt{ font-size:12.5px; color:var(--ink-3); }
-.gdet__specs dd{ margin:0; font-size:12.5px; font-weight:600; color:var(--ink); text-align:right; overflow-wrap:anywhere; }
-.gdet__cta{ display:flex; flex-direction:column; gap:7px; margin-top:4px; }
+
+/* The price card and the variant chips are the model page's own components,
+   narrowed to fit a sidebar. */
+.gdet .dprice{ padding:10px 13px; }
+.gdet .dprice__n{ font-size:21px; }
+.gdet .vpick{ padding:11px; margin:0; }
+.gdet .vpick__l{ width:auto; }
+
+.gdet__secs{ display:flex; flex-direction:column; gap:9px; }
+.gdet__secs .dsec__h{ font-size:12.5px; padding:9px 12px; }
+.gdet__secs .dsec__b{ padding:2px 12px 9px; }
+.gdet__secs .dspec{ padding:6px 0; }
+.gdet__secs .dspec dt{ font-size:12px; }
+.gdet__secs .dspec dd{ font-size:12.5px; }
+
+.gdet__cta{ display:flex; flex-direction:column; gap:7px; margin-top:2px; }
 .gdet__cta .btn{ width:100%; justify-content:center; }
 
-/* -------------------------------------------------------------- narrow
-   Below the workspace breakpoint the three panels already stack; the group
-   view rides that same layout, so it stays a page state rather than becoming
-   a popup on a phone. The close button grows a little for the thumb. */
 @media (min-width:1180px){
   /* The centre column scrolls independently here, so the bar sticks to the top
      of that column rather than to the page. */
   .gbar{ top:0; }
 }
 
+/* -------------------------------------------------------------- narrow
+   Below the workspace breakpoint the three panels already stack, so the group
+   view rides that layout: it stays a page state rather than becoming a popup
+   on a phone. The bar keeps back, name and codes; the filter drops to the
+   full-width bar that already exists under it, and the category picture stays
+   because it is the smallest thing in the row and the one that says which part
+   this group is about. */
 @media (max-width:1179px){
   .ws__right--detail{ display:block; }
-  .gclose{ width:40px; height:40px; }
-  .gclose svg{ width:21px; height:21px; }
-  .gdet__shot{ min-height:150px; }
+  .gdet__shot{ min-height:160px; }
+}
+@media (max-width:900px){
+  .gbar__filter{ display:none; }
+}
+@media (max-width:560px){
+  .gbar{ gap:9px; padding:9px 0; }
+  .gback{ padding:0 9px; }
+  .gback__t{ display:none; }
+  .gbar__n{ font-size:15.5px; }
+  .catvis--bar{ width:38px; height:38px; }
 }
