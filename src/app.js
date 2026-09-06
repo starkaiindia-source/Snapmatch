@@ -3020,6 +3020,15 @@
      sometimes without it: Coolpad's rows are "C35". Printing brand + name
      blindly gives "Apple Apple iPad Air 13 (2026)" on the first and the right
      answer on the second, so the prefix is checked rather than assumed. */
+  /* SM.brandLogo has three tiers: a logo file, a vector mark, and — when the
+     brand has neither — the brand's own name set as a wordmark. That last one
+     is already the name, so printing the name beside it gives "CoolpadCoolpad".
+     Ask which tier came back before adding a text line to it. */
+  function brandHasMark(b) {
+    return !!((SM.brandFiles && SM.brandFiles[b.id]) ||
+              (SM.brandMarks && SM.brandMarks[b.id]));
+  }
+
   function deviceTitle(m) {
     var brand = m.brand || '';
     var name = m.fullName || m.modelName || '';
@@ -3088,7 +3097,7 @@
         '<div class="dhead">' +
           '<div class="dhead__in">' +
             '<button class="btn btn--icon" data-act="dev-back" aria-label="Back">' + icon('chevronLeft') + '</button>' +
-            SM.brandLogo(b, 'blogo--sm') +
+            (brandHasMark(b) ? SM.brandLogo(b, 'blogo--sm') : '') +
             '<span class="dhead__t">' + esc(title) + '</span>' +
             '<button class="btn btn--primary dhead__cta" data-act="find-parts" data-id="' + esc(m.id) + '">' +
               icon('search') + '<span>Find parts</span></button>' +
@@ -3111,7 +3120,8 @@
 
             '<div class="dv3__id">' +
               '<div class="did__brand">' + SM.brandLogo(b, 'blogo--sm') +
-                '<span>' + esc(m.brand || b.name) + '</span></div>' +
+                (brandHasMark(b) ? '<span>' + esc(m.brand || b.name) + '</span>' : '') +
+              '</div>' +
               '<h1 class="did__name">' + esc(title) + '</h1>' +
 
               '<div class="did__meta">' +
