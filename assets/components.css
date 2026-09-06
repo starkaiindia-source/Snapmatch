@@ -1838,7 +1838,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   border:1px solid var(--line); border-radius:var(--r-lg);
   overflow:hidden;
 }
-.dgal__main .dphoto{ max-height:100%; }
+/* The wrapper has to span the panel. It is an inline-flex span, so left to
+   itself it shrinks to the image's own 160px — and then the image's
+   width:min(100%,320px) resolves that 100% against 160px and never grows. */
+.dgal__main .dphoto{ width:100%; max-height:100%; }
 /* The catalogue's images are a uniform 160x212 — the device drawn inside a
    fixed box, whatever it is. Rendered at that size they sit in the middle of a
    500px panel looking like an afterthought; rendered to the full panel they go
