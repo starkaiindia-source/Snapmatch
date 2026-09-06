@@ -103,6 +103,20 @@
       }
     },
     {
+      "src": "/assets/(brand|brands|categories)/(.*)",
+      "headers": {
+        "Cache-Control": "public, max-age=604800"
+      },
+      "continue": true
+    },
+    {
+      "src": "/assets/(dataset|search-index).json",
+      "headers": {
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=86400"
+      },
+      "continue": true
+    },
+    {
       "handle": "filesystem"
     },
     {
