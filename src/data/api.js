@@ -367,37 +367,63 @@
   }
 
   /* ---------------------------------------------------------------- models
-     The handsets worth putting in front of a counter: the ones the most part
-     groups fit. That number is what makes a model useful to stock for — a
-     phone with six part groups is six things you can sell for it — and it is
-     already on the model card, so the ranking and the card agree.
+     THE NEWEST HANDSETS, and a spread of them.
 
-     It is counted from db.groupsByModel, the same public map the device pages
-     read. No member list is opened and nothing withheld becomes visible: a
-     count of groups is not a list of them. */
-  var suggestModelCache = Object.create(null);
+     Ranked on the release date the importer stored — the same field Trending
+     uses — so the strip refreshes itself as an import lands rather than
+     needing a list kept by hand. A model with no usable date cannot be called
+     new and is left out; it is still in /models with everything else.
 
-  function suggestModels(opts) {
+     BALANCED, because strict date order is not what this section is for. The
+     catalogue arrives in waves, so the twelve newest handsets are routinely
+     eight Vivos and four Oppos — true, and useless as a look at what is new.
+     Each brand offers its newest remaining phone in turn, so twelve cards are
+     twelve brands where there are twelve to give. Inside a brand it is still
+     strictly newest first, and the tie-break is the id, so the order is total.
+
+     Only models the catalogue actually has parts for: this sits on the parts
+     page and its one action is "find the parts", which has to lead somewhere. */
+  var newModelCache = Object.create(null);
+
+  function newModels(opts) {
     opts = opts || {};
     var cat = opts.categoryId && opts.categoryId !== 'all' ? opts.categoryId : null;
     var brand = opts.brandId && opts.brandId !== 'all' ? opts.brandId : null;
     var want = Math.max(1, (opts.limit | 0) || 12);
     var key = [cat || 'all', brand || 'all', want].join('|');
-    if (suggestModelCache[key]) return suggestModelCache[key];
+    if (newModelCache[key]) return newModelCache[key];
 
     var counts = db.partCountsByCategory || {};
-    var out = db.models.filter(function (m) {
+    var pool = db.models.filter(function (m) {
       if (brand && m.brandId !== brand) return false;
+      if (!parseReleaseTs(m.releaseDateIso)) return false;
       return groupCountFor(m.id, cat, counts) > 0;
     }).sort(function (a, b) {
-      var ga = groupCountFor(a.id, cat, counts), gb = groupCountFor(b.id, cat, counts);
-      if (gb !== ga) return gb - ga;
       var ta = parseReleaseTs(a.releaseDateIso), tb = parseReleaseTs(b.releaseDateIso);
       if (tb !== ta) return tb - ta;
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    }).slice(0, want);
+    });
 
-    suggestModelCache[key] = out;
+    /* Round-robin the date-ordered pool by brand. A stable partition keeps
+       each brand's list newest-first, so every pick is still the newest thing
+       that brand has left. */
+    var byBrand = Object.create(null), order = [];
+    pool.forEach(function (m) {
+      if (!byBrand[m.brandId]) { byBrand[m.brandId] = []; order.push(m.brandId); }
+      byBrand[m.brandId].push(m);
+    });
+
+    var out = [];
+    for (var i = 0; out.length < want; i++) {
+      var any = false;
+      for (var k = 0; k < order.length && out.length < want; k++) {
+        var list = byBrand[order[k]];
+        if (i < list.length) { out.push(list[i]); any = true; }
+      }
+      if (!any) break;
+    }
+
+    newModelCache[key] = out;
     return out;
   }
 
@@ -553,8 +579,8 @@
     trendingMax: function () { return TRENDING_MAX; },
     suggestMax: function () { return SUGGEST_MAX; },
 
-    /* The handsets the most part groups fit, for the current filter. */
-    suggestModels: function (opts) { return respond(suggestModels(opts), LAT.fast); },
+    /* The newest handsets in the catalogue, spread across brands. */
+    newModels: function (opts) { return respond(newModels(opts), LAT.fast); },
 
 
     getGroup: function (groupId) {

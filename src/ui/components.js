@@ -302,6 +302,51 @@
       '</button>';
   };
 
+  /* A NEW MODEL, as a product card: the manufacturer's own photograph on top,
+     the name and the screen size under it, and one action.
+
+     The photograph is the URL the GSMArena import stored on the model — the
+     real press shot, not a drawing. When a model has none, or the URL fails,
+     the card falls back to SM.art.device(), which draws THAT handset from its
+     own numbers (its true aspect ratio, its finish, its camera treatment)
+     rather than showing a generic phone or a brand logo standing in for a
+     product. A wrong picture of a phone is worse than an honest drawing of it.
+
+     The action is a search icon and nothing else. It carries the model name in
+     its accessible name, so "Search parts for Huawei Mate 80 Pro Max" is what
+     a screen reader announces — the label the icon is standing in for. */
+  C.newModelCard = function (m) {
+    var alt = m.fullName + ' — press image';
+    var art = m.image
+      ? '<img class="ncard__img" src="' + esc(m.image) + '" alt="' + esc(alt) + '" ' +
+        'loading="lazy" decoding="async" ' +
+        'onerror="SM.modelShotFailed(this,\'' + esc(m.id) + '\')" />'
+      : SM.art.device(m, 0, 'ncard__svg');
+
+    var bits = [];
+    if (m.displaySize) bits.push(m.displaySize + '&Prime;');
+    if (m.releaseYear) bits.push(esc(String(m.releaseYear)));
+
+    return '<article class="ncard">' +
+      '<div class="ncard__shot">' + art + '</div>' +
+      '<div class="ncard__body">' +
+      '<h4 class="ncard__n" title="' + esc(m.fullName) + '">' + esc(m.fullName) + '</h4>' +
+      (bits.length ? '<span class="ncard__m">' + bits.join(' <i></i> ') + '</span>' : '') +
+      '</div>' +
+      '<button type="button" class="ncard__go" data-act="find-parts" data-id="' + esc(m.id) + '" ' +
+      'title="Search parts for ' + esc(m.fullName) + '" ' +
+      'aria-label="Search parts for ' + esc(m.fullName) + '">' + icon('search') + '</button>' +
+      '</article>';
+  };
+
+  /* The press shot did not load. Swap in the drawing of that same handset —
+     never a broken-image glyph, and never a different phone. */
+  SM.modelShotFailed = function (img, modelId) {
+    var m = SM.db && SM.db.modelById && SM.db.modelById[modelId];
+    if (!m || !img.parentNode) { img.remove(); return; }
+    img.outerHTML = SM.art.device(m, 0, 'ncard__svg');
+  };
+
   C.specSheet = function (m) {
     var rows = [
       ['Brand', m.brand], ['Model name', m.modelName], ['Release date', m.releaseDate],

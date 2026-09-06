@@ -610,17 +610,68 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    walks down the ranking rather than across a row of it. */
 .suggestrow{ grid-template-rows:repeat(2,auto); align-items:start; }
 
-/* One handset per column. The model card is a row built for a full-width list,
-   so in a column it needs its meta line kept on one line and the chevron
-   dropped — the whole card is the button, and an arrow pointing at the edge of
-   a carousel is one arrow too many next to the carousel's own. */
-.modelrow{ grid-auto-columns:minmax(252px,286px); }
-.modelrow .mcard{ padding:11px 12px; gap:10px; }
-.modelrow .mcard__m{
-  font-size:11.5px; gap:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+/* ---- new-model card -----------------------------------------------------
+   A product card: the manufacturer's own press shot on top, the name and size
+   under it, one action. Narrower columns than the group plates, because a
+   phone photograph is portrait and a wide card would be mostly margin. */
+.modelrow{ grid-auto-columns:minmax(158px,172px); }
+.ncard{
+  position:relative; display:flex; flex-direction:column; height:100%;
+  border-radius:var(--r); overflow:hidden;
+  background:var(--surface); border:1px solid var(--line);
+  transition:transform .18s cubic-bezier(.2,.8,.3,1), border-color .18s, box-shadow .18s;
 }
-.modelrow .mcard__n{ font-size:14px; }
-.modelrow .mcard__go{ display:none; }
+.ncard:hover{ transform:translateY(-2px); border-color:var(--teal-500); box-shadow:var(--sh-1); }
+/* The press shots are photographs on white, so the well is white in both
+   themes — the same reasoning as the category tiles: matching the picture's
+   own ground is what stops it reading as a pasted-on rectangle. */
+.ncard__shot{
+  position:relative; display:grid; place-items:center;
+  aspect-ratio:1/1; background:var(--ctile-paper); padding:10px;
+  border-bottom:1px solid var(--line);
+}
+/* A DEFINITE box, not max-width on an auto size. An image sized only by its
+   own intrinsic dimensions is 0x0 until it loads, a zero-area box never
+   intersects the viewport, and a lazy image that never intersects never loads
+   — so it stays 0x0 for good. Filling the well instead gives it area from the
+   first frame, which is what lets loading="lazy" actually fire, and contain
+   keeps every shot at its true proportions inside one consistent area. */
+.ncard__img,.ncard__svg{
+  width:100%; height:100%; object-fit:contain; display:block;
+}
+.ncard__body{ padding:9px 10px 34px; display:flex; flex-direction:column; gap:3px; }
+.ncard__n{
+  margin:0; font-size:12.5px; font-weight:700; line-height:1.25; letter-spacing:-.012em;
+  color:var(--ink);
+  overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+.ncard__m{
+  font-size:11px; font-weight:600; color:var(--ink-3);
+  display:flex; align-items:center; gap:6px;
+}
+.ncard__m i{ font-style:normal; width:3px; height:3px; border-radius:99px; background:currentColor; }
+/* The only action, and an icon alone — its accessible name carries the model,
+   so nothing is lost by not printing "Find parts" on every card. */
+.ncard__go{
+  position:absolute; right:8px; bottom:8px;
+  width:30px; height:30px; border-radius:99px; display:grid; place-items:center;
+  background:var(--teal-050); color:var(--teal-700); border:1px solid var(--teal-100);
+  transition:background .16s, color .16s, transform .16s;
+}
+.ncard__go svg{ width:15px; height:15px; }
+.ncard__go:hover{ background:var(--grad-brand); color:#fff; border-color:transparent; transform:scale(1.06); }
+.ncard__go:focus-visible{ outline:2px solid var(--teal-600); outline-offset:2px; }
+
+/* "All models" beside the section heading — a way out to the full catalogue
+   from a strip that is deliberately only fourteen of it. */
+.feed__more{
+  margin-left:auto; display:inline-flex; align-items:center; gap:4px;
+  font-size:12px; font-weight:700; color:var(--teal-700);
+  padding:3px 7px; border-radius:var(--r-xs);
+  transition:background .14s;
+}
+.feed__more:hover{ background:var(--teal-050); }
+.feed__more svg{ width:14px; height:14px; }
 
 .trendrow > *,.suggestrow > *,.modelrow > *{ scroll-snap-align:start; }
 .trendrow::-webkit-scrollbar,

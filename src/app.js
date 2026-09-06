@@ -22,7 +22,7 @@
       /* The trending head of the feed, and how many groups sit BELOW it. The
          header still counts everything the filter matches, so `total` cannot
          also stand for "how many are left to page through". */
-      trending: [], suggest: [], suggestModels: [], restTotal: 0
+      trending: [], suggest: [], newModels: [], restTotal: 0
     },
     models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
       /* View state, not query state: the same records are already in memory,
@@ -1010,14 +1010,14 @@
        the group query, and only when it is going to be drawn. */
     if (reset) {
       if (sectionWanted(f, 'suggest')) {
-        api.suggestModels({
-          categoryId: f.filters.catId, brandId: f.filters.brandId, limit: 12
+        api.newModels({
+          categoryId: f.filters.catId, brandId: f.filters.brandId, limit: 14
         }).then(function (models) {
-          f.suggestModels = models || [];
+          f.newModels = models || [];
           paintGroups();
         });
       } else {
-        f.suggestModels = [];
+        f.newModels = [];
       }
     }
   }
@@ -1043,7 +1043,7 @@
 
     var trending = sectionWanted(f, 'trending') ? (f.trending || []) : [];
     var suggest = sectionWanted(f, 'suggest') ? (f.suggest || []) : [];
-    var sModels = sectionWanted(f, 'suggest') ? (f.suggestModels || []) : [];
+    var sModels = sectionWanted(f, 'suggest') ? (f.newModels || []) : [];
     var view = f.filters.view || 'both';
     var onlyTrending = view === 'trending';
     var onlySuggest = view === 'suggest';
@@ -1084,17 +1084,19 @@
         '</section>';
     }
 
-    /* Handsets before parts: "which phones are worth stocking for" is the
-       question a counter asks first, and the answer is the phone the most part
-       groups fit. Existing model card, existing open-model action. */
+    /* Handsets before parts. What a counter wants to know first is what has
+       just come out — a phone released last month is the one being brought in
+       with a cracked screen — so this is the newest of them, with a way
+       through to the whole catalogue beside it. */
     var models = '';
     if (sModels.length) {
       models =
         '<section class="feed feed--models">' +
-        '<div class="feed__head"><h3 class="feed__title">' + icon('phone') + 'Suggested models</h3>' +
-        '<span class="feed__note">Most part groups available</span></div>' +
-        rail('railModels', 'modelrow', 'Suggested models',
-             sModels.map(function (m) { return C.modelCard(m, ''); }).join('')) +
+        '<div class="feed__head"><h3 class="feed__title">' + icon('sparkle') + 'New models</h3>' +
+        '<span class="feed__note">Latest releases across every brand</span>' +
+        '<a class="feed__more" href="/models">All models' + icon('arrowRight') + '</a></div>' +
+        rail('railModels', 'modelrow', 'New models',
+             sModels.map(function (m) { return C.newModelCard(m); }).join('')) +
         '</section>';
     }
 
@@ -3748,6 +3750,11 @@
         break;
       }
       case 'pick-model': pickModel(id); break;
+      /* The search icon on a new-model card. Deliberately the SAME call the
+         search box makes, so this counts against a free account's daily
+         searches exactly as typing the name would — a second route to the
+         answer must not be a way around the meter. */
+      case 'find-parts': pickModel(id); break;
       case 'clear-model':
       case 'exit-result':
         exitResult();
