@@ -640,8 +640,8 @@
         : '') +
       '</div>' +
       '<div class="row wrap" style="gap:8px">' +
-      '<button class="btn btn--outline btn--sm" data-act="open-model" data-id="' + esc(m.id) + '">' +
-      icon('info') + 'Specs</button>' +
+      '<a class="btn btn--outline btn--sm" href="/model/' + esc(m.id) + '">' +
+      icon('info') + 'Specs</a>' +
       '<button class="btn btn--ghost btn--sm" data-act="clear-model">' + icon('close') + 'Clear</button>' +
       '</div></div>';
   }
@@ -1504,7 +1504,12 @@
   function deviceGridHTML(items) {
     return '<div class="dgrid">' + items.map(function (m) {
       var gc = groupCountOf(m);
-      return '<button type="button" class="dcard" data-act="open-model" data-id="' + esc(m.id) + '">' +
+      /* A real href, not a button with a click handler. The delegated
+         listener in the router intercepts it and navigates without a reload,
+         so the behaviour is identical — but a crawler can follow it and a
+         person can middle-click it. Every model page on this site was
+         unreachable except through the sitemap because these were buttons. */
+      return '<a class="dcard" href="/model/' + esc(m.id) + '">' +
         '<span class="dcard__shot">' + SM.art.device(m, 0) + '</span>' +
         '<span class="dcard__b">' +
           '<span class="dcard__n">' + esc(m.modelName) + '</span>' +
@@ -1515,7 +1520,7 @@
             : '') +
             (gc ? '<span class="tag">' + gc + ' part' + (gc === 1 ? '' : 's') + '</span>' : '') +
           '</span>' +
-        '</span></button>';
+        '</span></a>';
     }).join('') + '</div>';
   }
 
@@ -1523,7 +1528,7 @@
     return '<div class="dlist">' + items.map(function (m) {
       var sp = m.specs || {};
       var gc = groupCountOf(m);
-      return '<button type="button" class="drow" data-act="open-model" data-id="' + esc(m.id) + '">' +
+      return '<a class="drow" href="/model/' + esc(m.id) + '">' +
         '<span class="drow__shot">' + SM.art.device(m, 0) + '</span>' +
         '<span class="drow__main">' +
           '<span class="drow__n">' + esc(m.fullName) + '</span>' +
@@ -1564,8 +1569,9 @@
          a bare " GB" for RAM and storage the catalogue has never carried. */
       var dash = '<span class="c-none">-</span>';
       var cell = {
-        device: '<span class="tcell-dev">' + SM.art.device(m, 0, 'dvc--xs') +
-                '<span>' + esc(m.modelName) + '</span></span>',
+        device: '<a class="tcell-dev" href="/model/' + esc(m.id) + '">' +
+                SM.art.device(m, 0, 'dvc--xs') +
+                '<span>' + esc(m.modelName) + '</span></a>',
         size: m.displaySize ? esc(m.displaySize) + '&Prime;' : dash,
         curve: m.screenCurve
           ? '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>'
@@ -3720,6 +3726,10 @@
       exitResult();
       return;
     }
+    /* The router's link handler runs first and calls preventDefault on any
+       in-app href. Without this guard a model card that is BOTH an <a> and
+       inside a [data-act] row navigates twice and re-renders for nothing. */
+    if (e.defaultPrevented) return;
     var t = e.target.closest('[data-act]');
     if (!t) {
       if (!e.target.closest('.searchwrap')) closeSuggest();

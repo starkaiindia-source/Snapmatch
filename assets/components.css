@@ -1834,3 +1834,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 }
 .sharetile:hover{ background:var(--teal-050); border-color:var(--teal-100); color:var(--teal-700); transform:translateY(-1px); }
 .sharetile svg{ width:19px; height:19px; }
+
+/* The device grid, list rows, table name cell and search result cards are
+   <a href> rather than <button>: that is what makes a model page reachable by
+   a crawler and by a middle-click. A button carries no colour or underline of
+   its own, so those are reset here rather than in every rule above. */
+.dcard, .drow, .mcard, .tcell-dev{ text-decoration:none; color:inherit; }
+.dcard:hover, .drow:hover, .mcard:hover, .tcell-dev:hover{ text-decoration:none; }
+.tcell-dev{ color:inherit; }

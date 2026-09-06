@@ -89,3 +89,36 @@
 .seo__spec th{ font-weight:600; color:var(--ink-3); width:44%; }
 .seo__spec td{ color:var(--ink-1); }
 .seo__spec .c-none{ color:var(--ink-3); }
+
+/* A compatibility group: the part code line, then every handset it fits.
+   Bordered rather than plain so a page carrying eight of them still reads as
+   eight separate answers instead of one long paragraph. */
+.seo__group{
+  border:1px solid var(--line); border-radius:var(--r-sm);
+  background:var(--surface); padding:14px 16px; margin:0 0 12px;
+}
+.seo__group p{ margin:0 0 8px; }
+.seo__group p:last-child{ margin-bottom:0; }
+.seo__groupmeta{ font-size:13.5px; color:var(--ink-3); }
+.seo__groupmeta b{ color:var(--ink-1); font-family:var(--f-mono, ui-monospace, monospace); }
+
+/* Model name lists. Dense on purpose: these run to sixty names and they are
+   the site's internal link graph, not decoration. */
+.seo__models{
+  display:flex; flex-wrap:wrap; gap:6px 8px;
+  list-style:none; padding:0; margin:8px 0 4px;
+}
+.seo__models li{ margin:0; }
+.seo__models a{
+  display:inline-block; padding:5px 10px; font-size:13.5px;
+  border:1px solid var(--line); border-radius:999px;
+  background:var(--bg, transparent); color:var(--ink-1); text-decoration:none;
+}
+.seo__models a:hover{ border-color:var(--teal-600); color:var(--teal-600); }
+
+.seo__more{ font-size:13.5px; color:var(--ink-3); margin-top:8px; }
+
+.seo__main h3{
+  font-family:var(--f-display, inherit);
+  font-size:16.5px; margin:22px 0 6px; color:var(--ink-2);
+}

@@ -75,6 +75,164 @@ dataset.brands.forEach(r => { BRAND_BY_ID[r[0]] = r[1]; });
 const CAT_BY_ID = {};
 dataset.categories.forEach(c => { CAT_BY_ID[c.id] = c.name; });
 
+/* ------------------------------------------------------- compatibility index
+
+   dataset.json stores the edge list one way round: a model, and the groups it
+   belongs to. Every page worth publishing asks the opposite question — given
+   this part, what else does it fit — so the inverse is built once, here.
+
+   This is the product in two objects. Without it a model page can only say
+   "6 groups" and point at the finder, which is what made 4,933 model pages
+   near-identical to each other and, to a crawler, not worth keeping. */
+const GROUP_BY_ID = {};
+{
+  const GC = {};
+  dataset.groupCols.forEach((k, i) => { GC[k] = i; });
+  dataset.groups.forEach(r => {
+    GROUP_BY_ID[r[GC.id]] = {
+      id: r[GC.id], no: r[GC.no], part: r[GC.part], oem: r[GC.oem],
+      cat: r[GC.cat], master: r[GC.mm], count: r[GC.cnt]
+    };
+  });
+}
+
+const GROUP_MEMBERS = {};
+Object.keys(MODEL_GROUPS).forEach(mid => {
+  const byCat = MODEL_GROUPS[mid];
+  Object.keys(byCat).forEach(cat => {
+    (byCat[cat] || []).forEach(gid => {
+      (GROUP_MEMBERS[gid] = GROUP_MEMBERS[gid] || []).push(mid);
+    });
+  });
+});
+
+const MODEL_BY_ID = {};
+MODELS.forEach(m => { MODEL_BY_ID[m.id] = m; });
+
+/* Brand -> its models, newest first. Release date is the order a counter wants:
+   the handset that walked in this morning is more likely to be recent. Models
+   the source has no date for sort last rather than being dropped. */
+const MODELS_BY_BRAND = {};
+MODELS.forEach(m => {
+  (MODELS_BY_BRAND[m.brandId] = MODELS_BY_BRAND[m.brandId] || []).push(m);
+});
+Object.keys(MODELS_BY_BRAND).forEach(b => {
+  MODELS_BY_BRAND[b].sort((x, y) => {
+    const a = x.releaseDate || '', c = y.releaseDate || '';
+    if (a && c && a !== c) return c < a ? -1 : 1;
+    if (a && !c) return -1;
+    if (!a && c) return 1;
+    return String(x.name).localeCompare(String(y.name));
+  });
+});
+
+/* The words people actually type. "Screen Guards" is the catalogue's column
+   heading; "tempered glass" is the search. Headings use this, tables use the
+   catalogue name, and neither is invented. */
+const CAT_INTENT = {
+  'screen-guards': 'tempered glass',
+  'back-cover': 'back cover',
+  'combo-display': 'display',
+  'middle-frame': 'middle frame',
+  'cc-board': 'CC board',
+  battery: 'battery'
+};
+const intentOf = c => CAT_INTENT[c.id] || String(c.name).toLowerCase();
+
+/** Groups this model is in, per category, each with the other models in it. */
+function compatFor(modelId) {
+  const byCat = MODEL_GROUPS[modelId] || {};
+  return CATS.map(c => {
+    const gids = byCat[c.id] || [];
+    if (!gids.length) return null;
+    return {
+      cat: c,
+      groups: gids.map(gid => ({
+        g: GROUP_BY_ID[gid] || { id: gid },
+        others: (GROUP_MEMBERS[gid] || [])
+          .filter(id => id !== modelId)
+          .map(id => MODEL_BY_ID[id])
+          .filter(Boolean)
+      }))
+    };
+  }).filter(Boolean);
+}
+
+/* A group can run to 325 members, and the member list is the thing the
+   subscription sells. api/_schema/entitlement.js gives a free account the
+   whole group up to five members, then five, then ten — these pages are the
+   free view of the catalogue, so they publish exactly that and count the rest.
+
+   Publishing the full list would hand every subscription's worth of data to
+   anyone with curl. It would also make the pre-rendered HTML say more than the
+   app shows the same visitor a second later, which is the mismatch between
+   served and rendered content that Google calls cloaking. Mirroring the free
+   tier fixes both at once. */
+const SMALL_GROUP_MAX = 5;
+const MEDIUM_GROUP_MAX = 50;
+const FREE_MEMBERS_MEDIUM = 5;
+const FREE_MEMBERS_LARGE = 10;
+
+function freeMemberLimit(total) {
+  const n = Number(total);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (n <= SMALL_GROUP_MAX) return n;
+  if (n <= MEDIUM_GROUP_MAX) return FREE_MEMBERS_MEDIUM;
+  return FREE_MEMBERS_LARGE;
+}
+
+const linkList = list => '<ul class="seo__models">' +
+  list.map(o => `<li><a href="/model/${esc(o.id)}">${esc(o.name)}</a></li>`).join('') +
+  '</ul>';
+
+/* Catalogue navigation — a brand's own models, a handset's contemporaries.
+   Model names, brands and years are the free catalogue (assets/search-index.json
+   ships them to every visitor), so nothing here is gated. */
+function modelLinks(list, cap) {
+  const shown = list.slice(0, cap || 60);
+  const rest = list.length - shown.length;
+  return linkList(shown) + (rest > 0
+    ? `<p class="seo__more">and ${nf(rest)} more — ` +
+      `<a href="/finder">open the Device Finder</a>.</p>`
+    : '');
+}
+
+/**
+ * A group's members, cut to the free allowance.
+ *
+ * @param {Array}  list      the members available to list
+ * @param {number} total     the real size of the group
+ * @param {number} reserved  free slots already spent — 1 on a model page,
+ *                           where the model whose page it is occupies one,
+ *                           exactly as it does in the app's own response.
+ */
+function groupMemberLinks(list, total, reserved) {
+  const limit = Math.max(0, freeMemberLimit(total) - (reserved || 0));
+  const shown = list.slice(0, limit);
+  const rest = list.length - shown.length;
+  return { html: (shown.length ? linkList(shown) : '') + (rest > 0
+    ? `<p class="seo__more">${nf(rest)} further ${rest === 1 ? 'model' : 'models'} in this ` +
+      `group. <a href="/plans">See the full fitment list with a plan</a>.</p>`
+    : ''), shown };
+}
+
+/* Contemporaries, not just the first N alphabetically: walk outwards from this
+   model's position in the brand's date-sorted list, so a 2024 handset is
+   related to 2024 handsets. */
+function siblingModels(m, n) {
+  const list = MODELS_BY_BRAND[m.brandId] || [];
+  const i = list.findIndex(x => x.id === m.id);
+  if (i < 0) return list.slice(0, n);
+  const out = [];
+  let a = i - 1, b = i + 1;
+  while (out.length < n && (a >= 0 || b < list.length)) {
+    if (b < list.length) out.push(list[b++]);
+    if (out.length < n && a >= 0) out.push(list[a--]);
+  }
+  return out;
+}
+
+
 const nf = n => Number(n).toLocaleString('en-IN');
 const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -146,9 +304,9 @@ function head(p) {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>${esc(p.title)}</title>
 <meta name="description" content="${esc(p.description)}" />
-<link rel="canonical" href="${esc(canonical)}" />
-<meta name="theme-color" content="#0F766E" />
-<meta name="robots" content="index, follow, max-image-preview:large" />
+${p.noindex ? '' : `<link rel="canonical" href="${esc(canonical)}" />
+`}<meta name="theme-color" content="#0F766E" />
+<meta name="robots" content="${p.noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large'}" />
 
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="${esc(BRAND)}" />
@@ -383,23 +541,62 @@ function homepage() {
 function categoryPage(cat) {
   const copy = CATEGORY_COPY[cat.id];
   const url = '/categories/' + cat.id;
+  const intent = intentOf(cat);
   const trail = [
     { name: 'Home', url: '/' },
     { name: 'Parts categories', url: '/categories' },
     { name: cat.name, url }
   ];
+
+  /* The groups in this category, biggest first. A group that covers 40 handsets
+     is the one a shop wants to know about, and it is also the most useful link
+     for a crawler arriving on this page: it leads somewhere dense. */
+  const groups = Object.keys(GROUP_BY_ID)
+    .map(id => GROUP_BY_ID[id])
+    .filter(g => g.cat === cat.id)
+    .map(g => ({ g, members: (GROUP_MEMBERS[g.id] || []).map(id => MODEL_BY_ID[id]).filter(Boolean) }))
+    .sort((a, b) => b.members.length - a.members.length);
+
+  const SHOWN = 40;
+  const top = groups.slice(0, SHOWN);
+  const rest = groups.length - top.length;
+
+  const groupHTML = top.map(({ g, members }) => {
+    const master = MODEL_BY_ID[g.master];
+    const meta = [
+      g.no ? `Group <b>${esc(g.no)}</b>` : null,
+      g.part ? `part code <b>${esc(g.part)}</b>` : null,
+      master ? `cut from <a href="/model/${esc(master.id)}">${esc(master.name)}</a>` : null
+    ].filter(Boolean).join(' · ');
+    return `<div class="seo__group">
+      <p class="seo__groupmeta">${meta}</p>
+      ${members.length
+        ? `<p>Fits ${nf(members.length)} ${members.length === 1 ? 'model' : 'models'}:</p>` +
+          groupMemberLinks(members, members.length, 0).html
+        : ''}
+    </div>`;
+  }).join('\n    ');
+
   const body = `
     <h1>${esc(copy.h1)}</h1>
     <p class="seo__lede">${esc(copy.lede)}</p>
-    <p><strong>${nf(cat.groups)}</strong> ${esc(cat.name.toLowerCase())} compatibility groups are
+    <p><strong>${nf(cat.groups)}</strong> ${esc(String(cat.name).toLowerCase())} compatibility groups are
     recorded in the catalogue.
     <a href="/finder">Search the Device Finder</a> to match a specific handset.</p>
 
-    <h2>How ${esc(cat.name.toLowerCase())} compatibility works here</h2>
+    <h2>How ${esc(String(cat.name).toLowerCase())} compatibility works here</h2>
     <p>A compatibility group is one part and every device it fits. Each group carries a part
     code, a serial number, the master model it is cut from, and the full list of compatible
     devices. Where the source data records a manufacturer part number it is shown alongside;
     where it does not, the field is left blank rather than filled with a guess.</p>
+
+    <h2>${esc(cat.name)} groups that cover the most models</h2>
+    <p>The ${nf(top.length)} widest-fitting ${esc(intent)} groups in the catalogue, largest
+    first. Each model name links to its own compatibility page.</p>
+    ${groupHTML}
+    ${rest > 0 ? `<p class="seo__more">${nf(rest)} further ${esc(intent)} groups are in the
+    catalogue. <a href="/finder">Search a handset in the Device Finder</a> to find the group
+    it belongs to.</p>` : ''}
 
     <h2>Other part categories</h2>
     <ul class="seo__grid">
@@ -408,7 +605,7 @@ function categoryPage(cat) {
         <span>${nf(c.groups)} groups</span></a></li>`).join('\n      ')}
     </ul>
 
-    <h2>Browse ${esc(cat.name.toLowerCase())} by brand</h2>
+    <h2>Browse ${esc(String(cat.name).toLowerCase())} by brand</h2>
     <ul class="seo__grid">
       ${BRANDS.slice(0, 16).map(b => `<li><a href="/models/${b.id}"><b>${esc(b.name)}</b>
         <span>${nf(b.models)} models</span></a></li>`).join('\n      ')}
@@ -418,7 +615,7 @@ function categoryPage(cat) {
     url,
     title: `${cat.name} Compatible Mobile Models | ${BRAND}`,
     description: `${cat.name} compatibility for ${nf(STATS.models)} phone models — ` +
-      `${nf(cat.groups)} groups showing which devices share the same part. ` +
+      `${nf(cat.groups)} groups showing which devices share the same ${intent}. ` +
       `For mobile shops, accessory dealers and repair technicians.`,
     body,
     breadcrumbHTML: breadcrumb(trail),
@@ -451,6 +648,34 @@ function brandPage(b) {
     { name: 'All mobile models', url: '/models' },
     { name: b.name, url }
   ];
+
+  const list = MODELS_BY_BRAND[b.id] || [];
+  const withData = list.filter(m => (MODEL_GROUPS[m.id] || null)).length;
+
+  /* Every model, as a real link, grouped by release year.
+
+     This is the fix for the thing that kept 4,933 model pages out of the index:
+     nothing on the site linked to any of them. They existed, they were in the
+     sitemap, and they had no path in from the homepage — so they were crawled
+     late, shallowly, or not at all. A brand page that lists its own models is
+     the obvious route, and it is what a visitor wants from this page anyway. */
+  const byYear = {};
+  list.forEach(m => {
+    const y = m.year || String(m.releaseDate || '').slice(0, 4) || 'Undated';
+    (byYear[y] = byYear[y] || []).push(m);
+  });
+  const years = Object.keys(byYear).sort((x, y) => {
+    if (x === 'Undated') return 1;
+    if (y === 'Undated') return -1;
+    return Number(y) - Number(x);
+  });
+
+  const modelIndex = years.map(y => `
+      <h3>${esc(b.name)} ${y === 'Undated' ? 'models without a recorded release date' : y}</h3>
+      <ul class="seo__models">${byYear[y].map(m =>
+        `<li><a href="/model/${esc(m.id)}">${esc(m.name)}</a></li>`).join('')}</ul>`
+  ).join('\n');
+
   const body = `
     <h1>${esc(b.name)} mobile models &amp; compatible parts finder</h1>
     <p class="seo__lede">${nf(b.models)} ${esc(b.name)} models are in the catalogue, with
@@ -460,7 +685,9 @@ function brandPage(b) {
     <h2>What is recorded for each ${esc(b.name)} model</h2>
     <p>Model name, release date, display size, body dimensions, screen area and battery
     capacity, together with the compatibility groups the device belongs to across every part
-    category. Fields the source does not carry are shown as “-” rather than estimated.</p>
+    category. ${nf(withData)} of the ${nf(list.length)} ${esc(b.name)} models currently carry
+    compatibility data; the rest are listed with their specifications while groups are added.
+    Fields the source does not carry are shown as “-” rather than estimated.</p>
 
     <h2>${esc(b.name)} parts by category</h2>
     <ul class="seo__grid">
@@ -468,8 +695,13 @@ function brandPage(b) {
         <span>${nf(c.groups)} groups</span></a></li>`).join('\n      ')}
     </ul>
 
-    <p><a href="/finder">Open the Device Finder</a> to match a specific ${esc(b.name)}
-    handset to its compatibility groups.</p>
+    <h2>All ${nf(list.length)} ${esc(b.name)} models</h2>
+    <p>Newest first. Each one opens its own compatibility page — the parts that fit it,
+    the part codes, and the other handsets that take the same part.</p>
+${modelIndex}
+
+    <p class="seo__also"><a href="/finder">Open the Device Finder</a> to match a specific
+    ${esc(b.name)} handset to its compatibility groups.</p>
 
     <h2>Other brands</h2>
     <ul class="seo__grid">
@@ -481,9 +713,9 @@ function brandPage(b) {
   return {
     url,
     title: `${b.name} Mobile Models & Compatible Parts Finder | ${BRAND}`,
-    description: `${nf(b.models)} ${b.name} models with compatible tempered glass, back cover, ` +
-      `combo display, CC board, middle frame and battery groups. ` +
-      `Spare-part compatibility for mobile shops and repair technicians.`,
+    description: `All ${nf(b.models)} ${b.name} models with compatible tempered glass, back ` +
+      `cover, combo display, CC board, middle frame and battery groups. Part codes and ` +
+      `fitment lists for mobile shops and repair technicians.`,
     body,
     breadcrumbHTML: breadcrumb(trail),
     jsonld: [breadcrumbLd(trail)]
@@ -706,9 +938,27 @@ function specRow(label, value) {
 function modelPage(m) {
   const url = '/model/' + m.id;
   const brandName = BRAND_BY_ID[m.brandId] || m.brandId;
-  const groups = MODEL_GROUPS[m.id] || {};
-  const cats = Object.keys(groups).filter(k => (groups[k] || []).length);
-  const totalGroups = cats.reduce((n, k) => n + groups[k].length, 0);
+  const compat = compatFor(m.id);
+  const totalGroups = compat.reduce((n, s) => n + s.groups.length, 0);
+
+  /* Distinct models reachable from this one through any shared part. This is
+     both the page's headline number and its outbound link set — the thing that
+     turns 4,933 orphans into a mesh a crawler can walk. */
+  const reach = [];
+  const seen = {};
+  compat.forEach(s => s.groups.forEach(e => {
+    e.view = groupMemberLinks(e.others, e.others.length + 1, 1);
+    e.others.forEach(o => { if (!seen[o.id]) { seen[o.id] = 1; reach.push(o); } });
+  }));
+
+  /* Only the names the page actually prints. A count is free — the API returns
+     memberCount and lockedCount to a free caller — but a name is not, and
+     structured data is served content like any other. */
+  const shownModels = [];
+  const shownSeen = {};
+  compat.forEach(s => s.groups.forEach(e => e.view.shown.forEach(o => {
+    if (!shownSeen[o.id]) { shownSeen[o.id] = 1; shownModels.push(o); }
+  })));
 
   /* The model name usually already starts with the brand; saying it twice reads
      badly in a breadcrumb that is mostly the model name. */
@@ -722,28 +972,68 @@ function modelPage(m) {
     { name: short, url }
   ];
 
-  const partsList = cats.length
-    ? '<ul class="seo__grid">' + cats.map(k =>
-        `<li><a href="/categories/${k}"><b>${esc(CAT_BY_ID[k] || k)}</b>` +
-        `<span>${groups[k].length} ${groups[k].length === 1 ? 'group' : 'groups'}</span></a></li>`
-      ).join('') + '</ul>'
-    : '<p>No compatibility group covers this model yet. It is in the catalogue and will be ' +
-      'matched as groups are added.</p>';
+  /* One block per group: what the part is called, where it is cut from, and
+     every other handset that takes it. The part code is what gets read down a
+     phone to a supplier, so it is the first thing on the line. */
+  const groupBlock = (cat, e) => {
+    const g = e.g;
+    const master = MODEL_BY_ID[g.master];
+    const intent = intentOf(cat);
+    const meta = [
+      g.no ? `Group <b>${esc(g.no)}</b>` : `Group <b>${esc(g.id)}</b>`,
+      g.part ? `part code <b>${esc(g.part)}</b>` : null,
+      g.oem ? `OEM ${esc(g.oem)}` : null,
+      master && master.id !== m.id
+        ? `cut from <a href="/model/${esc(master.id)}">${esc(master.name)}</a>`
+        : (master ? 'this model is the master' : null)
+    ].filter(Boolean).join(' · ');
+
+    return `<div class="seo__group">
+      <p class="seo__groupmeta">${meta}</p>
+      ${e.others.length
+        ? `<p>The same ${esc(intent)} also fits ` +
+          `<strong>${nf(e.others.length)}</strong> other ` +
+          `${e.others.length === 1 ? 'model' : 'models'}:</p>` + e.view.html
+        : `<p>No other handset in the catalogue shares this ${esc(intent)} — ` +
+          `it is specific to the ${esc(m.name)}.</p>`}
+    </div>`;
+  };
+
+  const compatHTML = compat.map(s => `
+    <h2>${esc(m.name)} ${esc(intentOf(s.cat))} compatibility</h2>
+    ${s.groups.map(e => groupBlock(s.cat, e)).join('\n    ')}
+    <p class="seo__also">All <a href="/categories/${s.cat.id}">${esc(String(s.cat.name).toLowerCase())} compatibility groups</a>.</p>`
+  ).join('\n');
+
+  const siblings = siblingModels(m, 18);
+  const siblingHTML = siblings.length ? `
+    <h2>Other ${esc(brandName)} models</h2>
+    <p>Handsets released around the same time, with their own compatibility lists.</p>
+    ${modelLinks(siblings, 18)}` : '';
+
+  const summary = totalGroups
+    ? `<p><strong>${esc(m.name)}</strong> appears in <strong>${totalGroups}</strong> compatibility
+    ${totalGroups === 1 ? 'group' : 'groups'} across ${compat.length}
+    part ${compat.length === 1 ? 'category' : 'categories'}, and shares at least one part with
+    <strong>${nf(reach.length)}</strong> other ${reach.length === 1 ? 'model' : 'models'}.</p>
+    <ul class="seo__grid">${compat.map(s =>
+      `<li><a href="/categories/${s.cat.id}"><b>${esc(s.cat.name)}</b>` +
+      `<span>${s.groups.length} ${s.groups.length === 1 ? 'group' : 'groups'}</span></a></li>`
+    ).join('')}</ul>`
+    : `<p>No compatibility group covers the ${esc(m.name)} yet. The handset is in the
+    catalogue with the specifications below, and will be matched as groups are added.
+    <a href="/finder">Search another model</a>.</p>`;
 
   const body = `
     <h1>${esc(m.name)} — compatible spare parts</h1>
     <p class="seo__lede">Which tempered glass, back cover, combo display, middle frame,
     CC board and battery fit the ${esc(m.name)}, and which other phone models take the
     same parts.</p>
-    ${m.img ? `<p><img src="${esc(m.img)}" alt="${esc(m.name)}" width="180" loading="lazy" referrerpolicy="no-referrer" style="border-radius:12px" /></p>` : ''}
+    ${m.img ? `<p><img src="${esc(m.img)}" alt="${esc(m.name)}" width="180" height="240" loading="lazy" decoding="async" referrerpolicy="no-referrer" style="border-radius:12px;height:auto" /></p>` : ''}
 
     <h2>Parts that fit this model</h2>
-    ${totalGroups ? `<p>${esc(m.name)} appears in <strong>${totalGroups}</strong> compatibility
-    ${totalGroups === 1 ? 'group' : 'groups'} across ${cats.length}
-    part ${cats.length === 1 ? 'category' : 'categories'}.
-    <a href="/finder">Open the Device Finder</a> for the full fitment list and part codes.</p>` : ''}
-    ${partsList}
-
+    ${summary}
+${compatHTML}
     <h2>${esc(m.name)} specifications</h2>
     <p>What the catalogue records. Fields the source does not carry are shown as “-”
     rather than estimated.</p>
@@ -761,20 +1051,90 @@ function modelPage(m) {
       ${specRow('Battery part number', m.batteryPart
           ? m.batteryPart + (m.batteryVerified ? ' (verified)' : ' (unverified)') : null)}
     </tbody></table>
-
-    <p><a href="/models/${esc(m.brandId)}">All ${esc(brandName)} models</a> ·
+${siblingHTML}
+    <p class="seo__also"><a href="/models/${esc(m.brandId)}">All ${esc(brandName)} models</a> ·
     <a href="/finder">Match another handset</a></p>`;
+
+  /* An ItemList of the models actually listed on the page. Nothing is claimed
+     that the page does not show, and no Product/Offer/Rating is emitted — the
+     catalogue has no prices, no stock and no reviews to describe. */
+  const jsonld = [breadcrumbLd(trail)];
+  if (shownModels.length) {
+    jsonld.push({
+      '@context': 'https://schema.org',
+      '@type': 'ItemList',
+      name: `Models compatible with the ${m.name}`,
+      numberOfItems: shownModels.length,
+      itemListElement: shownModels.map((o, i) => ({
+        '@type': 'ListItem', position: i + 1, name: o.name, url: ORIGIN + '/model/' + o.id
+      }))
+    });
+  }
+
+  /* The description names the categories this model actually has data for and
+     the size of its compatibility set. Two models in the same group still get
+     different sentences, because the counts and the category mix differ. */
+  const catWords = compat.map(s => intentOf(s.cat));
+  const description = totalGroups
+    ? `${m.name} spare parts compatibility: ${catWords.join(', ')} — ` +
+      `${totalGroups} ${totalGroups === 1 ? 'group' : 'groups'} and ${nf(reach.length)} other ` +
+      `${reach.length === 1 ? 'model' : 'models'} that take the same parts. ` +
+      `Part codes for mobile shops, dealers and repair technicians.`
+    : `${m.name} specifications and spare-part compatibility — ` +
+      `brand, release date, display size, body dimensions and battery, with related ` +
+      `${brandName} models in the Mobile Parts Finder catalogue.`;
 
   return {
     url,
     title: `${m.name} — Compatible Spare Parts & Models | ${BRAND}`,
-    description: `Compatible tempered glass, back cover, combo display, CC board, middle ` +
-      `frame and battery for the ${m.name}` +
-      (totalGroups ? ` — ${totalGroups} compatibility ${totalGroups === 1 ? 'group' : 'groups'}` : '') +
-      `, with the other models that take the same parts.`,
+    description,
     body,
+    hasCompat: totalGroups > 0,
     breadcrumbHTML: breadcrumb(trail),
-    jsonld: [breadcrumbLd(trail)]
+    jsonld
+  };
+}
+
+/* A real 404, because the alternative was worse than it looked.
+
+   Every unknown URL used to be answered with the homepage, at status 200. That
+   is a soft 404: Google crawls a typo, a dead link or a stale URL, gets a page
+   that says "200 OK" and contains the entire homepage, and has to decide what
+   it just found. The whole class of them competes with the homepage for the
+   homepage's own content.
+
+   This page says not-found in the status line, in the title and in the robots
+   tag, and then does the one useful thing a 404 can do — offer the routes in. */
+function notFoundPage() {
+  return {
+    url: '/404',
+    noindex: true,
+    title: `Page not found | ${BRAND}`,
+    description: 'That URL is not in the catalogue. Search a handset in the Device Finder, ' +
+      'or browse the model list by brand.',
+    breadcrumbHTML: '',
+    jsonld: [],
+    body: `
+    <h1>That page is not in the catalogue</h1>
+    <p class="seo__lede">The URL may be mistyped, or it may point at a model or group that
+    is no longer listed. Nothing is broken — the catalogue is below.</p>
+
+    <h2>Find a handset</h2>
+    <p><a href="/finder">Open the Device Finder</a> and type any model name to get its
+    compatibility groups, part codes and the other devices that take the same part.</p>
+
+    <h2>Browse by brand</h2>
+    <ul class="seo__grid">
+      ${BRANDS.slice(0, 12).map(b => `<li><a href="/models/${b.id}"><b>${esc(b.name)}</b>
+        <span>${nf(b.models)} models</span></a></li>`).join('\n      ')}
+    </ul>
+    <p class="seo__also"><a href="/models">All ${STATS.brands} brands</a></p>
+
+    <h2>Browse by part</h2>
+    <ul class="seo__grid">
+      ${CATS.map(c => `<li><a href="/categories/${c.id}"><b>${esc(c.name)}</b>
+        <span>${nf(c.groups)} groups</span></a></li>`).join('\n      ')}
+    </ul>`
   };
 }
 
@@ -854,8 +1214,8 @@ ${urls}
 ${modelPages.map(p => `  <url>
     <loc>${ORIGIN}${p.url}</loc>
     <lastmod>${today}</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
+    <changefreq>${p.hasCompat ? 'monthly' : 'yearly'}</changefreq>
+    <priority>${p.hasCompat ? '0.6' : '0.3'}</priority>
   </url>`).join('\n')}
 </urlset>
 `);
@@ -890,6 +1250,9 @@ Disallow: /__/
 # so Search Console reports coverage for the two separately.
 Sitemap: ${ORIGIN}/sitemap.xml
 `);
+
+  /* ---- 404 ---- */
+  fs.writeFileSync(path.join(ROOT, '404.html'), shell(notFoundPage()));
 
   /* ---- manifest ---- */
   fs.writeFileSync(path.join(ROOT, 'site.webmanifest'), JSON.stringify({

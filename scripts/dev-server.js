@@ -166,18 +166,21 @@ http.createServer((req, res) => {
 
   fs.readFile(file, (err, buf) => {
     if (err) {
-      /* Clean URLs the app owns but that have no file — /model/samsung-galaxy-a11,
-         /group/bt-0001 — are served the app shell, the same fallback Vercel is
-         configured to do. Without it a refresh on any deep link is a 404. */
-      if (!path.extname(p)) {
-        /* The admin app has its own shell. Serving the customer index.html for
-           /admin/users would paint the Finder at an /admin URL — the same
-           mistake vercel.json's /admin route exists to prevent in production. */
-        const shell = fs.readFileSync(path.join(
-          ROOT, /^\/admin(\/|$)/.test(p) ? 'admin/index.html' : 'index.html'
-        ));
+      /* /admin, and the two app screens with no pre-rendered file, get a shell —
+         which is what vercel.json now routes in production. Everything else is a
+         real 404. Answering an unknown URL with index.html at status 200 is a
+         soft 404, and it used to happen here and in production alike. */
+      const shellFor = /^\/admin(\/|$)/.test(p) ? 'admin/index.html'
+        : /^\/(account|group)(\/|$)/.test(p) ? 'index.html' : null;
+      if (shellFor && !path.extname(p)) {
+        const shell = fs.readFileSync(path.join(ROOT, shellFor));
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
         res.end(shell);
+        return;
+      }
+      if (!path.extname(p) && fs.existsSync(path.join(ROOT, '404.html'))) {
+        res.writeHead(404, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
+        res.end(fs.readFileSync(path.join(ROOT, '404.html')));
         return;
       }
       res.writeHead(404); res.end('not found'); return;

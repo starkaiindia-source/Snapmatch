@@ -14,6 +14,10 @@
       "use": "@vercel/static"
     },
     {
+      "src": "404.html",
+      "use": "@vercel/static"
+    },
+    {
       "src": "robots.txt",
       "use": "@vercel/static"
     },
@@ -122,8 +126,17 @@
       "dest": "/admin/index.html"
     },
     {
-      "src": "/(.*)",
+      "src": "/(account|group)(?:/.*)?$",
       "dest": "/index.html"
+    },
+    {
+      "src": "/$",
+      "dest": "/index.html"
+    },
+    {
+      "src": "/(.*)",
+      "status": 404,
+      "dest": "/404.html"
     }
   ]
 }

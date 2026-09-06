@@ -292,14 +292,16 @@
   C.modelCard = function (m, q) {
     var b = SM.db.brandById[m.brandId];
     var gc = (SM.db.groupsByModel[m.id] || []).length;
-    return '<button type="button" class="mcard" data-act="open-model" data-id="' + m.id + '">' +
+    /* An href for the same reason the device grid uses one: this is how a
+       crawler — and a middle-click — reaches a model page. */
+    return '<a class="mcard" href="/model/' + m.id + '">' +
       SM.brandLogo(b) +
       '<span class="grow">' +
       '<span class="mcard__n" style="display:block">' + mark(m.fullName, q) + '</span>' +
       '<span class="mcard__m">' + m.displaySize + '&Prime; <i></i> ' + esc(String(m.releaseYear)) + (gc ? ' <i></i> ' + gc + ' part groups' : '') + '</span>' +
       '</span>' +
       '<span class="mcard__go">' + icon('chevronRight') + '</span>' +
-      '</button>';
+      '</a>';
   };
 
   /* A NEW MODEL, as a product card: the manufacturer's own photograph on top,
