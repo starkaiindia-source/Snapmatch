@@ -399,6 +399,45 @@
         '</svg>';
     },
 
+    /* ------------------------------------------------------------- photo
+
+       The manufacturer's own photograph of THIS handset, from the image URL
+       the import stored on the model. 4,873 of the 4,933 devices have one.
+
+       device() above draws a handset from its numbers, which is the right
+       answer for a grid of sixty thumbnails and the wrong one for the page
+       about a single phone: a drawing of a Coolpad C35 and a drawing of a
+       Redmi 13 differ only in corner radius. So the real photograph leads
+       here, and the drawing stays as the fallback for the sixty devices with
+       no image and for a URL that fails to load.
+
+       No width or height is imposed. A tablet is not a tall phone and a watch
+       is neither; the container bounds the image and object-fit:contain keeps
+       whatever ratio the file actually has.
+
+       @param {object} m          the device
+       @param {object} [opts]     {src, colourIdx, cls, eager, alt}
+    */
+    photo: function (m, opts) {
+      opts = opts || {};
+      var url = opts.src || m.image || null;
+      var cls = opts.cls ? ' ' + opts.cls : '';
+      var alt = opts.alt || m.fullName || '';
+      /* The drawing ships with every photo rather than being swapped in by a
+         second render pass: onerror fires long after the HTML is written, and
+         the fallback has to already be in the DOM for CSS to reveal it. */
+      var art = SM.art.device(m, opts.colourIdx || 0, 'dphoto__art');
+      if (!url) return '<span class="dphoto dphoto--art' + cls + '">' + art + '</span>';
+      return '<span class="dphoto' + cls + '">' +
+        '<img class="dphoto__img" src="' + esc(url) + '" alt="' + esc(alt) + '" ' +
+          'loading="' + (opts.eager ? 'eager' : 'lazy') + '" decoding="async" ' +
+          /* The image host is a third party; sending it this site's URLs on
+             every device page is a referrer leak with nothing to gain. */
+          'referrerpolicy="no-referrer" ' +
+          'onerror="this.closest(&quot;.dphoto&quot;).classList.add(&quot;is-failed&quot;)" />' +
+        art + '</span>';
+    },
+
     /* Delegates to SM.brandLogo, which owns the file -> vector -> wordmark
        order. Kept as an alias because callers and docs already use it. */
     brand: function (brand, cls) { return SM.brandLogo(brand, cls); }

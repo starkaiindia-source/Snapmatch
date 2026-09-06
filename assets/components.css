@@ -1183,66 +1183,35 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .dhead__cta{ flex:none; }
 
 /* ---------------------------------------------------------------------- hero */
-.dhero{
-  display:grid; gap:22px; align-items:center;
-  padding:24px 0 8px;
-}
-.dshot{
-  display:grid; place-items:center;
-  background:
-    radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%),
-    var(--surface-2);
-  border:1px solid var(--line); border-radius:var(--r);
-  padding:26px 20px; min-height:260px;
-}
-.dshot__svg{ height:230px; width:auto; max-width:100%; filter:drop-shadow(0 14px 26px rgba(0,0,0,.24)); }
-
-.dintro{ min-width:0; }
-.dintro__brand{
-  display:flex; align-items:center; gap:9px;
-  font-size:13.5px; font-weight:600; color:var(--ink-2); margin-bottom:10px;
-}
-.dintro__h{
-  font-family:var(--f-display); font-weight:800;
-  font-size:clamp(24px,5.4vw,38px); line-height:1.06; letter-spacing:-.03em;
-  margin:0 0 12px; text-wrap:balance; color:var(--ink);
-}
-.dintro__meta{ display:flex; flex-wrap:wrap; gap:7px; margin-bottom:16px; }
+/* Chips carried over from the old hero: still used by the model page's
+   meta row and its colour swatches. */
 .dmeta{
   display:inline-flex; align-items:center; gap:6px;
   background:var(--surface-2); border:1px solid var(--line); border-radius:99px;
   padding:5px 11px; font-size:12.5px; font-weight:600; color:var(--ink-2);
 }
+
 .dmeta svg{ width:14px; height:14px; flex:none; }
 
-.dprice{ display:flex; align-items:baseline; gap:9px; margin-bottom:18px; }
-.dprice__n{
-  font-family:var(--f-display); font-weight:800; font-size:26px;
-  letter-spacing:-.025em; color:var(--ink); font-variant-numeric:tabular-nums;
-}
-.dprice__l{ font-size:12.5px; color:var(--ink-3); }
-
-/* --------------------------------------------------------------- colours */
-.dcolours{ margin-bottom:20px; }
-.dcolours .t-lab{ display:block; margin-bottom:9px; }
 .dsw__row{ display:flex; flex-wrap:wrap; gap:9px; }
+
 .dsw{
   width:34px; height:34px; border-radius:11px; padding:0; cursor:pointer;
   background:var(--sw); border:1px solid rgba(0,0,0,.22);
   box-shadow:inset 0 -6px 10px -6px rgba(0,0,0,.45);
   transition:transform .12s ease, box-shadow .12s ease;
 }
+
 .dsw:hover{ transform:translateY(-1px); }
+
 /* The ring is drawn OUTSIDE the swatch so it reads on a white finish as well
    as a black one — an inset ring disappears into a pale colour. */
 .dsw.is-on{
   box-shadow:0 0 0 2px var(--surface), 0 0 0 4px var(--teal-500),
              inset 0 -6px 10px -6px rgba(0,0,0,.45);
 }
-.dsw:focus-visible{ outline:2px solid var(--teal-500); outline-offset:3px; }
 
-.dintro__cta{ display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
-.dintro__note{ font-size:13px; color:var(--ink-3); }
+.dsw:focus-visible{ outline:2px solid var(--teal-500); outline-offset:3px; }
 
 /* ------------------------------------------------------------- key specs
    The four numbers a repair quote turns on. Scanned, never read. */
@@ -1652,7 +1621,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 /* A real content container. Without this the page ran to the browser edge on
    a wide window and looked unfinished. */
 .dev-page .wrap{
-  max-width:1240px; margin-inline:auto;
+  max-width:1360px; margin-inline:auto;
   padding-inline:clamp(16px, 4vw, 32px);
 }
 
@@ -1666,8 +1635,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
 /* --------------------------------------------------------- variant picker */
 .vpick{
-  display:flex; flex-direction:column; gap:11px;
-  padding:14px; margin-bottom:18px;
+  display:flex; flex-direction:column; gap:9px;
+  padding:12px; margin-bottom:0;
   background:var(--surface-2); border:1px solid var(--line); border-radius:var(--r);
 }
 .vpick__row{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
@@ -1694,23 +1663,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    row jump every time RAM changes. */
 .vchip:disabled{ opacity:.4; cursor:not-allowed; text-decoration:line-through; }
 .vchip:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
-
-.vpick__out{
-  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
-  padding-top:11px; border-top:1px solid var(--line);
-}
-.vprice{
-  font-family:var(--f-display); font-weight:800; font-size:21px;
-  letter-spacing:-.025em; color:var(--ink); font-variant-numeric:tabular-nums;
-}
-.vmeta{ font-size:12.5px; color:var(--ink-3); }
-.vstock{
-  display:inline-flex; align-items:center; gap:4px; margin-left:auto;
-  font-size:11.5px; font-weight:700;
-}
-.vstock svg{ width:13px; height:13px; }
-.vstock.is-in{ color:var(--teal-700); }
-.vstock.is-out{ color:var(--ink-3); }
 
 @media (max-width:520px){
   .vpick__l{ width:100%; }
@@ -1842,3 +1794,182 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .dcard, .drow, .mcard, .tcell-dev{ text-decoration:none; color:inherit; }
 .dcard:hover, .drow:hover, .mcard:hover, .tcell-dev:hover{ text-decoration:none; }
 .tcell-dev{ color:inherit; }
+
+/* ==========================================================================
+   MODEL PAGE — photograph, identity, specifications
+
+   Three columns on a desktop. The photograph is the widest because it is the
+   only column whose content cannot be summarised; identity carries the name,
+   the price and the controls; specifications is the long column.
+
+   Everything below is new structure only. The chips, swatches, highlight cards
+   and spec rows keep the classes and the styling they already had.
+   ========================================================================== */
+
+.dv3{
+  display:grid;
+  grid-template-columns:minmax(0,1.35fr) minmax(0,1fr) minmax(0,1fr);
+  gap:26px;
+  align-items:start;
+  margin:14px 0 10px;
+}
+
+/* Sticky on the MEDIA column, not on the specs. The spec sheet is the long
+   content — pinning that would fight the scroll it wants to do — whereas
+   keeping the handset on screen while the specs go past is the point. */
+@media (min-width:1100px){
+  .dv3__media{ position:sticky; top:88px; align-self:start; }
+}
+
+/* ------------------------------------------------------------------ gallery
+
+   No aspect-ratio is imposed on the image. A tablet is not a tall phone and a
+   watch is neither, so the box is bounded and object-fit:contain keeps
+   whatever ratio the file actually has. The cap is in vh so a portrait shot
+   can never push the model's name below the fold. */
+.dgal{ display:flex; flex-direction:column; gap:12px; }
+
+.dgal__main{
+  display:flex; align-items:center; justify-content:center;
+  min-height:400px; max-height:62vh; padding:24px;
+  background:
+    radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%),
+    var(--surface-2);
+  border:1px solid var(--line); border-radius:var(--r-lg);
+  overflow:hidden;
+}
+.dgal__main .dphoto{ max-height:100%; }
+/* The catalogue's images are a uniform 160x212 — the device drawn inside a
+   fixed box, whatever it is. Rendered at that size they sit in the middle of a
+   500px panel looking like an afterthought; rendered to the full panel they go
+   soft. 320px is a shade under 2x, which these flat studio renders carry
+   without visible softening, and it fills the column.
+
+   width, not height: every source image has the same ratio, so constraining
+   the width is enough and height:auto keeps it undistorted. */
+.dgal__main .dphoto__img{
+  width:min(100%, 320px); height:auto;
+  max-height:calc(62vh - 48px); object-fit:contain;
+  filter:drop-shadow(0 16px 30px rgba(0,0,0,.22));
+}
+.dgal__main .dphoto__art{ height:230px; width:auto; max-width:100%; }
+
+/* The manufacturer's photograph leads; the drawn handset is the fallback for
+   the sixty devices with no image URL and for a URL that fails. Both are in
+   the HTML because onerror fires long after the markup is written, so the
+   fallback has to already be there for CSS to reveal. */
+.dphoto{ position:relative; display:inline-flex; align-items:center; justify-content:center; }
+.dphoto .dphoto__art{ display:none; }
+.dphoto.is-failed .dphoto__img{ display:none; }
+.dphoto.is-failed .dphoto__art,
+.dphoto--art .dphoto__art{ display:block; }
+
+/* Architecture for front / back / side / colour shots. Not drawn at all while
+   there is one image — a strip of empty placeholders is worse than no strip. */
+.dgal__rail{ display:flex; gap:8px; flex-wrap:wrap; }
+.dthumb{
+  width:64px; height:64px; padding:7px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r-sm); transition:border-color .14s, box-shadow .14s;
+}
+.dthumb:hover{ border-color:var(--ink-3); }
+.dthumb.is-on{ border-color:var(--teal-500); box-shadow:inset 0 0 0 1px var(--teal-500); }
+.dthumb:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+.dthumb .dphoto__img,
+.dthumb .dphoto__art{ max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; }
+
+/* ----------------------------------------------------------------- identity */
+/* The gap is tight on purpose. Everything in this column — name, date,
+   price, highlights, the three selectors and the Find parts button — has to
+   fit above the fold on a 900px-tall laptop, which is the whole point of
+   moving the specs out into their own column. */
+.dv3__id{ display:flex; flex-direction:column; gap:11px; min-width:0; }
+
+.did__brand{
+  display:flex; align-items:center; gap:9px;
+  font-size:13.5px; font-weight:600; color:var(--ink-2);
+}
+.did__name{
+  font-family:var(--f-display); font-weight:800;
+  font-size:clamp(23px,2.5vw,32px); line-height:1.08; letter-spacing:-.03em;
+  margin:0; text-wrap:balance; color:var(--ink); overflow-wrap:anywhere;
+}
+.did__meta{ display:flex; flex-wrap:wrap; gap:7px; }
+
+/* Price as a card rather than a line: it is a value that changes when a chip
+   is clicked, and it needs to read as one thing when it says a number and
+   when it says the number is not recorded. Never a nought — see priceHTML. */
+.dprice{
+  display:flex; flex-direction:column; gap:2px; align-items:flex-start;
+  padding:10px 14px; margin:0;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:var(--r);
+}
+.dprice__l{
+  font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--ink-3);
+}
+.dprice__n{
+  font-family:var(--f-display); font-weight:800; font-size:27px;
+  letter-spacing:-.025em; color:var(--ink); font-variant-numeric:tabular-nums;
+}
+.dprice__v{ font-size:12.5px; font-weight:600; color:var(--ink-2); font-variant-numeric:tabular-nums; }
+.dprice__s{ display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--ink-3); }
+.dprice__s svg{ width:13px; height:13px; }
+.dprice--none .dprice__na{ font-size:16px; font-weight:700; color:var(--ink-3); }
+
+/* The highlight cards sit in the identity column now, one per line on a narrow
+   column and two across when there is room. */
+/* Three across rather than two: the same six facts in two rows instead of
+   three, which is what buys the CTA its place above the fold. */
+.dv3 .dkeys{ grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:8px; margin:0; }
+.dv3 .dkey{ padding:10px 11px; }
+.dv3 .dkey__i{ margin-bottom:6px; }
+
+/* The selected colour's name, beside its swatches. */
+.vpick__name{ font-size:12.5px; font-weight:600; color:var(--ink-2); }
+
+/* The handset beside the Body heading — a footnote to the dimensions. Pushed
+   to the end of the header row and kept small and quiet on purpose. */
+.dsec__art{ margin-left:auto; display:flex; align-items:center; opacity:.85; }
+.dsec__art .dphoto__img,
+.dsec__art .dphoto__art{ height:34px; width:auto; max-width:34px; object-fit:contain; }
+
+.did__cta{ display:flex; flex-direction:column; align-items:stretch; gap:7px; }
+.did__cta .btn{ width:100%; justify-content:center; }
+.did__note{ font-size:12.5px; color:var(--ink-3); text-align:center; }
+
+/* ----------------------------------------------------------- specifications */
+.dv3__specs{ display:flex; flex-direction:column; gap:12px; min-width:0; }
+.dv3__h{
+  font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--ink-3); margin:0 0 2px;
+}
+
+/* ------------------------------------------------------------------ tablet
+   Two columns: the handset beside its identity, specifications full width
+   under both. Three columns at this width leaves each too narrow to read. */
+@media (max-width:1099px){
+  .dv3{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:22px; }
+  .dv3__specs{ grid-column:1 / -1; }
+  .dgal__main{ min-height:340px; max-height:52vh; }
+  .dgal__main .dphoto__img{ width:min(100%, 280px); max-height:calc(52vh - 48px); }
+}
+
+/* Once the spec block is full width, two columns of sections — otherwise a
+   long sheet becomes one very tall ribbon with empty space beside it. */
+@media (min-width:760px) and (max-width:1099px){
+  .dv3__specs{ display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
+  .dv3__h{ grid-column:1 / -1; }
+}
+
+/* ------------------------------------------------------------------ mobile
+   One column, in the order the DOM already has: image, brand, name, date,
+   price, highlights, colour, RAM, storage, Find parts, specifications. */
+@media (max-width:759px){
+  .dv3{ grid-template-columns:minmax(0,1fr); gap:18px; }
+  .dgal__main{ min-height:0; max-height:46vh; padding:16px; }
+  .dgal__main .dphoto__img{ width:min(100%, 240px); max-height:calc(46vh - 32px); }
+  .dgal__main .dphoto__art{ height:200px; }
+  .dthumb{ width:54px; height:54px; }
+}

@@ -2648,48 +2648,6 @@
      repair quote, then the full sheet, then compatibility.
      ========================================================================== */
 
-  /* Draws the handset itself. There is no product photography in the sample
-     data, and a stock image of the wrong phone would be worse than none — so
-     the device is rendered from its own numbers: real aspect ratio from the
-     screen resolution, real corner radius by tier, and the finish the viewer
-     picked. It is honest about being a drawing and it never 404s. */
-  function deviceShotHTML(m, colourIndex) {
-    var sp = m.specs;
-    var col = (sp.colors && sp.colors[colourIndex || 0]) || { n: 'Black', h: '#15171A' };
-    var res = String(m.screenResolution).match(/(\d+)\s*x\s*(\d+)/);
-    var pw = res ? Number(res[1]) : 1080;
-    var ph = res ? Number(res[2]) : 2340;
-    var W = 150;
-    var H = Math.round(W * (ph / pw));
-    var pad = 6;
-    var radius = m.tier === 'flag' ? 22 : 18;
-
-    /* a light finish needs a visible outline or it vanishes on the white chip */
-    var light = parseInt(col.h.slice(1, 3), 16) * 0.299 +
-                parseInt(col.h.slice(3, 5), 16) * 0.587 +
-                parseInt(col.h.slice(5, 7), 16) * 0.114 > 190;
-
-    return '<svg class="dshot__svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
-      'aria-label="' + esc(m.fullName) + ' in ' + esc(col.n) + '">' +
-      '<defs><linearGradient id="dsg" x1="0" y1="0" x2="1" y2="1">' +
-      '<stop offset="0" stop-color="#fff" stop-opacity=".28"/>' +
-      '<stop offset=".45" stop-color="#fff" stop-opacity=".04"/>' +
-      '<stop offset="1" stop-color="#000" stop-opacity=".18"/></linearGradient></defs>' +
-      /* body */
-      '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="' + radius + '" fill="' + esc(col.h) + '"' +
-      (light ? ' stroke="rgba(0,0,0,.22)" stroke-width="1"' : '') + '/>' +
-      /* screen */
-      '<rect x="' + pad + '" y="' + pad + '" width="' + (W - pad * 2) + '" height="' + (H - pad * 2) +
-      '" rx="' + (radius - 5) + '" fill="#0B1211"/>' +
-      /* highlight */
-      '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="' + radius + '" fill="url(#dsg)"/>' +
-      /* camera island — Apple gets the pill, everyone else the punch-hole */
-      (m.brandId === 'apple' && m.releaseYear >= 2022
-        ? '<rect x="' + (W / 2 - 17) + '" y="' + (pad + 6) + '" width="34" height="11" rx="5.5" fill="#05090A"/>'
-        : '<circle cx="' + (W / 2) + '" cy="' + (pad + 12) + '" r="4.4" fill="#05090A"/>') +
-      '</svg>';
-  }
-
   /* One highlight tile. Kept deliberately terse — this band is scanned, not read. */
   /* A highlight card with no value is not rendered. Six cards reading "—" tell
      a reader the page is broken; four real ones tell them what is known. */
@@ -2762,7 +2720,11 @@
      would be a longer page saying exactly the same thing. */
   var IMPORTED = true;
 
-  function specBlockHTML(title, iconName, rows) {
+  /* `aside` is an optional scrap of markup for the section header — the Body
+     block uses it to show the handset itself at thumbnail size. It is a visual
+     footnote to the dimensions, not a second hero: the real photograph is
+     already 40 pixels to the left. */
+  function specBlockHTML(title, iconName, rows, aside) {
     var body = rows.filter(function (r) {
       if (!r) return false;
       var has = r[1] != null && r[1] !== '';
@@ -2775,116 +2737,342 @@
     }).join('');
     if (!body) return '';
     return '<section class="dsec">' +
-      '<h3 class="dsec__h">' + icon(iconName) + esc(title) + '</h3>' +
+      '<h3 class="dsec__h">' + icon(iconName) + esc(title) +
+        (aside ? '<span class="dsec__art">' + aside + '</span>' : '') + '</h3>' +
       '<dl class="dsec__b">' + body + '</dl></section>';
   }
 
-  /* ------------------------------------------------------------- variants
-     The configuration picker. RAM and storage are chosen separately because
-     that is how a buyer thinks about them, but they are not independent: not
-     every pair is sold. Picking a RAM that has no build at the current storage
-     moves storage to the nearest one that exists rather than showing a price
-     for a phone nobody makes. */
-  function variantsOf(m) { return (m.specs && m.specs.variants) || []; }
+  /* The rupee sign as a named constant so the glyph appears once rather than
+     inline in every price string. */
+  var RUPEE = '₹';
 
-  function findVariant(m, ramGb, storageGb) {
+  /* ------------------------------------------------------------- variants
+
+     A variant is one build of a device: a RAM size, a storage size, sometimes a
+     colour, and the price that build launched at. The catalogue carries none of
+     it yet — dataset.fieldsAbsent lists ram, storage, colours, price and
+     variants — so on production data every control below renders as nothing at
+     all, which is the right answer for a model with one known build.
+
+     What is here is the shape the import can pour into. Nothing is hardcoded:
+     the selectors are built from whatever variants the model actually has, and
+     a combination the data does not contain is never offered as selectable.
+
+     To see the controls before the data exists, add ?preview=variants to a
+     model URL. That synthesises a configuration in memory, for looking at. It
+     is never persisted and never leaves the tab. */
+
+  function variantsOf(m) { return (m.specs && m.specs.variants) || []; }
+  function coloursOf(m) { return (m.specs && m.specs.colors) || []; }
+
+  function colourAt(m, i) { return coloursOf(m)[i] || null; }
+  function colourNameAt(m, i) { var c = colourAt(m, i); return c ? c.n : null; }
+
+  /* Variants for one colour — but only when the data actually distinguishes
+     them. A catalogue whose variants carry no colour field behaves exactly as
+     it did before colours existed, rather than filtering everything away. */
+  function variantsForColour(m, colourName) {
     var vs = variantsOf(m);
-    return vs.find(function (v) { return v.ramGb === ramGb && v.storageGb === storageGb; }) || null;
+    if (!colourName) return vs;
+    var tagged = vs.filter(function (v) { return v.colour != null; });
+    if (!tagged.length) return vs;
+    return tagged.filter(function (v) { return v.colour === colourName; });
   }
 
-  /* The variant currently selected, falling back to the cheapest build. */
+  function findVariant(m, ramGb, storageGb, colourName) {
+    return variantsForColour(m, colourName).find(function (v) {
+      return v.ramGb === ramGb && v.storageGb === storageGb;
+    }) || null;
+  }
+
+  /* The build currently selected. Falls back to the first the data offers, so
+     the page always has a coherent selection to price and to label. */
   function currentVariant(m) {
-    var vs = variantsOf(m);
-    if (!vs.length) return null;
+    var pool = variantsForColour(m, colourNameAt(m, state.deviceColour || 0));
+    if (!pool.length) return null;
     var sel = state.deviceVariant;
     if (sel) {
-      var hit = findVariant(m, sel.ramGb, sel.storageGb);
+      var hit = pool.find(function (v) {
+        return v.ramGb === sel.ramGb && v.storageGb === sel.storageGb;
+      });
       if (hit) return hit;
+      /* Changing colour can land on a build that colour is not sold in. Keep
+         the chosen RAM and take the nearest storage that does exist. */
+      var sameRam = pool.filter(function (v) { return v.ramGb === sel.ramGb; });
+      if (sameRam.length) {
+        sameRam.sort(function (a, b) {
+          return Math.abs(a.storageGb - sel.storageGb) - Math.abs(b.storageGb - sel.storageGb);
+        });
+        return sameRam[0];
+      }
     }
-    return vs[0];
+    return pool[0];
   }
 
-  function variantPickerHTML(m) {
-    var vs = variantsOf(m);
-    if (vs.length < 2) return '';
-    var cur = currentVariant(m);
-    var rams = Array.from(new Set(vs.map(function (v) { return v.ramGb; })));
-    var roms = Array.from(new Set(vs.map(function (v) { return v.storageGb; })));
+  var fmtRom = function (g) { return g >= 1024 ? (g / 1024) + ' TB' : g + ' GB'; };
 
-    var fmtRom = function (g) { return g >= 1024 ? (g / 1024) + ' TB' : g + ' GB'; };
+  function variantLabel(v) {
+    if (!v) return null;
+    return join(' · ', [v.ramGb ? v.ramGb + ' GB' : null,
+                        v.storageGb ? fmtRom(v.storageGb) : null,
+                        v.colour || null]);
+  }
 
-    var chip = function (kind, value, label, on, enabled) {
-      return '<button type="button" class="vchip' + (on ? ' is-on' : '') + '" ' +
-        'data-act="pick-variant" data-kind="' + kind + '" data-value="' + value + '" ' +
-        (enabled ? '' : 'disabled ') +
-        'aria-pressed="' + (on ? 'true' : 'false') + '">' + label + '</button>';
-    };
+  /* ---------------------------------------------------------------- price
 
-    return '<div class="vpick">' +
-      '<div class="vpick__row">' +
-        '<span class="vpick__l">RAM</span>' +
-        '<div class="vpick__chips">' + rams.map(function (r) {
-          return chip('ram', r, r + ' GB', cur.ramGb === r, true);
-        }).join('') + '</div>' +
-      '</div>' +
-      '<div class="vpick__row">' +
-        '<span class="vpick__l">Storage</span>' +
-        '<div class="vpick__chips">' + roms.map(function (g) {
-          /* A storage that does not exist at the chosen RAM is shown but
-             disabled — hiding it would make the row jump on every RAM click. */
-          var v = findVariant(m, cur.ramGb, g);
-          return chip('storage', g, fmtRom(g), cur.storageGb === g, !!v);
-        }).join('') + '</div>' +
-      '</div>' +
-      '<div class="vpick__out" id="variantOut">' + variantOutHTML(m, cur) + '</div>' +
+     Never zero. The page used to print a rupee sign, a nought and the caption
+     "launch price not recorded yet", which reads as a price to anyone scanning
+     the number rather than the caption. A launch price is the one figure here
+     that gets quoted to a customer, so an absent one says it is absent. */
+  function priceOf(m, v) {
+    if (v && v.priceInr) return v.priceInr;
+    return (m.specs && m.specs.launchPriceInr) || null;
+  }
+
+  function priceHTML(m, v) {
+    var inr = priceOf(m, v);
+    if (!inr) {
+      return '<div class="dprice dprice--none">' +
+        '<span class="dprice__l">Launch price</span>' +
+        '<span class="dprice__na">Not available</span></div>';
+    }
+    var lab = variantLabel(v);
+    return '<div class="dprice">' +
+      '<span class="dprice__l">Launch price</span>' +
+      '<span class="dprice__n">' + RUPEE + nf(inr) + '</span>' +
+      /* The build this price is for, in its own element: the label above is
+         upper-cased, and running a colour name through that turns "Ocean Blue"
+         into shouting. */
+      (lab ? '<span class="dprice__v">' + esc(lab) + '</span>' : '') +
+      (v && v.available === false
+        ? '<span class="dprice__s">' + icon('alert') + 'Not in stock</span>' : '') +
       '</div>';
   }
 
-  function variantOutHTML(m, v) {
-    if (!v) return '';
-    return '<span class="vprice">₹' + nf(v.priceInr) + '</span>' +
-      '<span class="vmeta">' + v.ramGb + ' GB · ' +
-        (v.storageGb >= 1024 ? (v.storageGb / 1024) + ' TB' : v.storageGb + ' GB') + '</span>' +
-      '<span class="vstock ' + (v.available ? 'is-in' : 'is-out') + '">' +
-        icon(v.available ? 'check' : 'alert') +
-        (v.available ? 'Available' : 'Not in stock') + '</span>';
+  /* ---------------------------------------------------------------- images
+
+     One list, in the order a gallery should show them: the selected build's own
+     photograph first, then any colour or variant shots, then the model default.
+     Deduplicated, because today those are all the same file.
+
+     With one entry the thumbnail rail is not drawn at all — an empty strip is
+     worse than no strip. */
+  function deviceImageUrl(m) {
+    var v = currentVariant(m);
+    if (v && v.imageUrl) return v.imageUrl;
+    var c = colourAt(m, state.deviceColour || 0);
+    if (c && c.imageUrl) return c.imageUrl;
+    return m.image || null;
+  }
+
+  function deviceImages(m) {
+    var out = [], seen = {};
+    function push(url, label) {
+      if (!url || seen[url]) return;
+      seen[url] = 1;
+      out.push({ url: url, label: label || m.fullName });
+    }
+    push(deviceImageUrl(m), m.fullName);
+    coloursOf(m).forEach(function (c) { push(c.imageUrl, c.n); });
+    variantsOf(m).forEach(function (v) { push(v.imageUrl, variantLabel(v)); });
+    push(m.image, m.fullName);
+    return out;
+  }
+
+  function galleryHTML(m) {
+    var shots = deviceImages(m);
+    var active = state.deviceShot || 0;
+    if (active >= shots.length) active = 0;
+    var main = shots[active] || { url: null, label: m.fullName };
+
+    return '<div class="dgal">' +
+      '<div class="dgal__main" id="devShot">' +
+        SM.art.photo(m, { src: main.url, colourIdx: state.deviceColour || 0,
+                          eager: true, alt: main.label }) +
+      '</div>' +
+      (shots.length > 1
+        ? '<div class="dgal__rail">' + shots.map(function (s, i) {
+            return '<button type="button" class="dthumb' + (i === active ? ' is-on' : '') + '" ' +
+              'data-act="dev-shot" data-i="' + i + '" aria-pressed="' + (i === active) + '" ' +
+              'title="' + esc(s.label) + '">' +
+              SM.art.photo(m, { src: s.url, colourIdx: state.deviceColour || 0, alt: s.label }) +
+              '</button>';
+          }).join('') + '</div>'
+        : '') +
+      '</div>';
+  }
+
+  /* --------------------------------------------------------- the selectors
+
+     Three rows, each drawn only when the data has more than one thing to
+     choose between. A single-colour, single-build device gets no controls at
+     all rather than a row containing one disabled chip. */
+  function chipHTML(kind, value, label, on, enabled) {
+    return '<button type="button" class="vchip' + (on ? ' is-on' : '') + '" ' +
+      'data-act="pick-variant" data-kind="' + kind + '" data-value="' + esc(value) + '" ' +
+      (enabled ? '' : 'disabled ') +
+      'aria-pressed="' + (on ? 'true' : 'false') + '">' + esc(label) + '</button>';
+  }
+
+  function colourRowHTML(m) {
+    var cs = coloursOf(m);
+    if (cs.length < 2) return '';
+    var ci = state.deviceColour || 0;
+    return '<div class="vpick__row">' +
+      '<span class="vpick__l">Colour</span>' +
+      '<div class="vpick__chips dsw__row">' + cs.map(function (c, i) {
+        return '<button type="button" class="dsw' + (i === ci ? ' is-on' : '') + '" ' +
+          'data-act="dev-colour" data-i="' + i + '" style="--sw:' + esc(c.h) + '" ' +
+          'title="' + esc(c.n) + '" aria-label="' + esc(c.n) + '"' +
+          (i === ci ? ' aria-current="true"' : '') + '></button>';
+      }).join('') + '</div>' +
+      '<span class="vpick__name">' + esc(cs[ci] ? cs[ci].n : '') + '</span></div>';
+  }
+
+  function variantPickerHTML(m) {
+    var colour = colourNameAt(m, state.deviceColour || 0);
+    var pool = variantsForColour(m, colour);
+    var cur = currentVariant(m);
+    var uniq = function (key) {
+      return Array.from(new Set(pool.map(function (v) { return v[key]; })))
+        .filter(function (x) { return x != null; })
+        .sort(function (a, b) { return a - b; });
+    };
+    var rams = uniq('ramGb');
+    var roms = uniq('storageGb');
+
+    var rowsHTML = colourRowHTML(m) +
+      (rams.length > 1
+        ? '<div class="vpick__row"><span class="vpick__l">RAM</span><div class="vpick__chips">' +
+          rams.map(function (r) {
+            return chipHTML('ram', r, r + ' GB', !!(cur && cur.ramGb === r), true);
+          }).join('') + '</div></div>'
+        : '') +
+      (roms.length > 1
+        ? '<div class="vpick__row"><span class="vpick__l">Storage</span><div class="vpick__chips">' +
+          roms.map(function (g) {
+            /* A storage the chosen RAM is not sold with is shown, disabled.
+               Hiding it would make the row jump on every RAM click, and the
+               absence is information: that pair is not a phone anyone makes. */
+            var ok = !!(cur && findVariant(m, cur.ramGb, g, colour));
+            return chipHTML('storage', g, fmtRom(g), !!(cur && cur.storageGb === g), ok);
+          }).join('') + '</div></div>'
+        : '');
+
+    return rowsHTML ? '<div class="vpick">' + rowsHTML + '</div>' : '';
+  }
+
+  /* ------------------------------------------------- development preview
+
+     Runs only with ?preview=variants on the URL. Builds a configuration in
+     memory so the selectors, the price switching and the colour-to-image path
+     can be looked at before the import that supplies them exists. Deterministic
+     from the model id, so a reload shows the same thing.
+
+     Never written to Firestore, never sent anywhere, never runs without the
+     flag. The brief asks for the architecture now and for no invented values in
+     production; this is how both hold at once. */
+  function previewVariants(m) {
+    if (!/[?&]preview=variants/.test(location.search)) return m;
+    if (m.__preview) return m;
+
+    var seed = 0, src = String(m.id);
+    for (var i = 0; i < src.length; i++) seed = (seed * 31 + src.charCodeAt(i)) >>> 0;
+    var pick = function (arr, shift) { return arr[(seed >> shift) % arr.length]; };
+
+    var COLOURS = [{ n: 'Midnight', h: '#15171A' }, { n: 'Ocean Blue', h: '#1F4E79' },
+                   { n: 'Mint', h: '#8FD3B6' }, { n: 'Starlight', h: '#EDE7DC' }];
+    var rams = pick([[4, 6, 8], [6, 8, 12], [8, 12]], 2);
+    var roms = pick([[64, 128, 256], [128, 256], [128, 256, 512]], 5);
+    var base = 8000 + (seed % 40) * 750;
+    var colors = COLOURS.slice(0, 2 + (seed % 3));
+
+    var variants = [];
+    colors.forEach(function (c) {
+      rams.forEach(function (r, ri) {
+        roms.forEach(function (g, gi) {
+          /* Not every pair is sold — that is the whole point of a matrix. */
+          if (ri === 0 && gi === roms.length - 1) return;
+          variants.push({
+            variantId: m.id + '-' + r + '-' + g + '-' + c.n.toLowerCase().replace(/\s+/g, '-'),
+            ramGb: r, storageGb: g, colour: c.n,
+            priceInr: base + ri * 2500 + gi * 2000,
+            available: !(ri === rams.length - 1 && gi === 0),
+            imageUrl: null
+          });
+        });
+      });
+    });
+
+    var clone = Object.assign({}, m);
+    clone.specs = Object.assign({}, m.specs, {
+      colors: colors, variants: variants,
+      ramVariantsGb: rams, storageVariantsGb: roms, launchPriceInr: base
+    });
+    clone.__preview = true;
+    return clone;
+  }
+
+  /* ------------------------------------------------------------ identity
+
+     Brand line, then the full model name. The export usually stores the name
+     with the brand already on the front — "Apple iPad Air 13 (2026)" — and
+     sometimes without it: Coolpad's rows are "C35". Printing brand + name
+     blindly gives "Apple Apple iPad Air 13 (2026)" on the first and the right
+     answer on the second, so the prefix is checked rather than assumed. */
+  function deviceTitle(m) {
+    var brand = m.brand || '';
+    var name = m.fullName || m.modelName || '';
+    if (!brand) return name;
+    var lower = name.toLowerCase(), bl = brand.toLowerCase();
+    if (lower === bl || lower.indexOf(bl + ' ') === 0) return name;
+    return brand + ' ' + name;
+  }
+
+  /* Swap only what a selection changed: the photograph and its rail, the
+     price, and which chips are lit. Re-rendering the page would throw away the
+     reader's scroll position halfway down the spec column, which is exactly
+     where someone comparing two builds is standing. */
+  function repaintDevice(m) {
+    var media = document.querySelector('.dv3__media');
+    if (media) media.innerHTML = galleryHTML(m);
+
+    var price = document.querySelector('.dprice');
+    if (price) price.outerHTML = priceHTML(m, currentVariant(m));
+
+    var pick = document.querySelector('.vpick');
+    var next = variantPickerHTML(m);
+    if (pick && next) pick.outerHTML = next;
   }
 
   function renderDevice(page, id) {
     page.innerHTML = '<div class="wrap dev-page">' + C.skelRows(5) + '</div>';
 
     if (state.deviceId !== id) {
-      state.deviceId = id; state.deviceColour = 0; state.deviceVariant = null;
+      state.deviceId = id;
+      state.deviceColour = 0;
+      state.deviceVariant = null;
+      state.deviceShot = 0;
     }
 
     api.getModel(id).then(function (r) {
       if (!r) { go('/models'); return; }
-      var m = r.model;
+      var m = previewVariants(r.model);
       var b = db.brandById[m.brandId] || { id: m.brandId, name: m.brand };
       var sp = m.specs;
-      var ci = state.deviceColour || 0;
-      if (ci >= (sp.colors || []).length) ci = 0;
+      var cur = currentVariant(m);
+      var title = deviceTitle(m);
 
       var rear = sp.cameraRear || [];
       var mainCam = rear[0] || { mp: 0 };
-      var ramTxt = (sp.ramVariantsGb || []).join(' / ') + ' GB';
-      var romTxt = (sp.storageVariantsGb || []).map(function (g) {
-        return g >= 1024 ? (g / 1024) + ' TB' : g + ' GB';
-      }).join(' / ');
+      var ramTxt = (sp.ramVariantsGb || []).length ? sp.ramVariantsGb.join(' / ') + ' GB' : null;
+      var romTxt = (sp.storageVariantsGb || []).length
+        ? sp.storageVariantsGb.map(fmtRom).join(' / ') : null;
 
-      var meta = [
-        ['calendar', m.releaseDate],
-        ['signal', sp.network],
-        ['check', sp.status]
-      ].map(function (x) {
-        return '<span class="dmeta">' + icon(x[0]) + esc(x[1]) + '</span>';
-      }).join('');
-
-      var swatches = (sp.colors || []).map(function (c, i) {
-        return '<button class="dsw' + (i === ci ? ' is-on' : '') + '" data-act="dev-colour" data-i="' + i + '" ' +
-          'style="--sw:' + esc(c.h) + '" title="' + esc(c.n) + '" aria-label="' + esc(c.n) + '"' +
-          (i === ci ? ' aria-current="true"' : '') + '></button>';
-      }).join('');
+      /* The selected build wins over the range: once someone has picked 8 GB,
+         "8 GB" is more use to them than "6 / 8 / 12 GB". */
+      var ramNow = cur && cur.ramGb ? cur.ramGb + ' GB' : ramTxt;
+      var romNow = cur && cur.storageGb ? fmtRom(cur.storageGb) : romTxt;
 
       var compat = r.groupCount
         ? '<div class="cats">' + r.categories.filter(function (c) { return c.count; }).map(function (c) {
@@ -2901,7 +3089,7 @@
           '<div class="dhead__in">' +
             '<button class="btn btn--icon" data-act="dev-back" aria-label="Back">' + icon('chevronLeft') + '</button>' +
             SM.brandLogo(b, 'blogo--sm') +
-            '<span class="dhead__t">' + esc(m.fullName) + '</span>' +
+            '<span class="dhead__t">' + esc(title) + '</span>' +
             '<button class="btn btn--primary dhead__cta" data-act="find-parts" data-id="' + esc(m.id) + '">' +
               icon('search') + '<span>Find parts</span></button>' +
           '</div>' +
@@ -2909,150 +3097,156 @@
 
         '<div class="wrap">' +
 
-          /* ------------------------------------------------------------ hero */
-          '<div class="dhero">' +
-            '<div class="dshot">' + SM.art.device(m, ci) + '</div>' +
-            '<div class="dintro">' +
-              '<div class="dintro__brand">' + SM.brandLogo(b, 'blogo--sm') +
-                '<span>' + esc(m.brand) + '</span></div>' +
-              '<h1 class="dintro__h">' + esc(m.modelName) + '</h1>' +
-              '<div class="dintro__meta">' + meta + '</div>' +
-              /* The workbook carries no price column, so this is 0 for every
-                 device until the enrichment pass runs. Shown rather than
-                 hidden, and shown as 0 rather than as a guess: a launch price
-                 invented from a similar handset is the one number in here that
-                 would be quoted to a customer. */
-              '<div class="dprice' + (sp.launchPriceInr ? '' : ' dprice--unknown') + '">' +
-                '<span class="dprice__n">₹' + nf(sp.launchPriceInr || 0) + '</span>' +
-                '<span class="dprice__l">' +
-                (sp.launchPriceInr ? 'from · launch price' : 'launch price not recorded yet') +
-                '</span></div>' +
+          /* -------------------------------------------------- three columns
+
+             Photograph, identity, specifications. The photograph is the widest
+             because it is the only column whose content cannot be summarised,
+             and it is sticky because it is what the other two columns are
+             about: scrolling a spec sheet with the handset still on screen is
+             the point of the layout. The spec column is the long one, so
+             sticking THAT would just pin a panel that wants to scroll. */
+          '<div class="dv3">' +
+
+            '<div class="dv3__media">' + galleryHTML(m) + '</div>' +
+
+            '<div class="dv3__id">' +
+              '<div class="did__brand">' + SM.brandLogo(b, 'blogo--sm') +
+                '<span>' + esc(m.brand || b.name) + '</span></div>' +
+              '<h1 class="did__name">' + esc(title) + '</h1>' +
+
+              '<div class="did__meta">' +
+                (m.releaseDate
+                  ? '<span class="dmeta">' + icon('calendar') + esc(m.releaseDate) + '</span>' : '') +
+                (m.releaseStatus && m.releaseStatus !== 'available'
+                  ? '<span class="dmeta">' + icon('alert') +
+                    esc(m.releaseStatus.replace(/_/g, ' ')) + '</span>' : '') +
+                (m.deviceType
+                  ? '<span class="dmeta">' + icon('phone') + esc(m.deviceType) + '</span>' : '') +
+              '</div>' +
+
+              priceHTML(m, cur) +
+
+              /* Highlights: the six numbers a counter reads before quoting.
+                 keySpecHTML drops anything null, so a sparse device shows four
+                 cards rather than four cards and four blanks. */
+              '<div class="dkeys">' +
+                keySpecHTML('calendar', 'Released', m.releaseDate,
+                  m.releaseYear ? String(m.releaseYear) : null) +
+                keySpecHTML('phone', 'Display', m.displaySize ? m.displaySize + '"' : null,
+                  join(' · ', [m.screenResolution, m.screenType])) +
+                keySpecHTML('battery', 'Battery', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null,
+                  sp.chargingWatts ? sp.chargingWatts + 'W charging' : null) +
+                keySpecHTML('ruler', 'Body', join(' × ', [m.height, m.width]),
+                  m.screenCm2 ? m.screenCm2 + ' cm² screen' : null) +
+                keySpecHTML('cpu', 'Processor', sp.chipset, join(' · ', [sp.cpu, sp.gpu])) +
+                keySpecHTML('layers', 'Memory', ramNow, romNow) +
+                keySpecHTML('camera', 'Main camera', mainCam.mp ? mainCam.mp + ' MP' : null,
+                  rear.length ? rear.length + ' rear' : null) +
+              '</div>' +
+
               variantPickerHTML(m) +
-              (swatches
-                ? '<div class="dcolours"><span class="t-lab">' +
-                  esc((sp.colors || []).length) + ' colour' + ((sp.colors || []).length === 1 ? '' : 's') +
-                  ' · ' + esc(sp.colors[ci].n) + '</span>' +
-                  '<div class="dsw__row">' + swatches + '</div></div>'
-                : '') +
-              '<div class="dintro__cta">' +
+
+              '<div class="did__cta">' +
+                /* The stable model id, never the displayed name: two catalogues
+                   can hold a "C35" and only one of them is this one. */
                 '<button class="btn btn--primary btn--lg" data-act="find-parts" data-id="' + esc(m.id) + '">' +
                   icon('search') + 'Find parts for this model</button>' +
                 (r.groupCount
-                  ? '<span class="dintro__note">' + nf(r.groupCount) + ' compatibility group' +
+                  ? '<span class="did__note">' + nf(r.groupCount) + ' compatibility group' +
                     (r.groupCount === 1 ? '' : 's') + '</span>'
                   : '') +
               '</div>' +
             '</div>' +
-          '</div>' +
 
-          /* The specs that decide a repair quote, beside the device rather than
-             below the fold — a three-column band so the hero balances instead
-             of leaving the right half of a desktop window empty. */
-          '<div class="dkeys">' +
-            keySpecHTML('phone', 'Display', m.displaySize ? m.displaySize + '"' : null,
-              join(' · ', [m.screenResolution, m.screenType, m.screenRatio])) +
-            keySpecHTML('cpu', 'Processor', sp.chipset, join(' · ', [sp.cpu, sp.gpu])) +
-            keySpecHTML('camera', 'Main camera', mainCam.mp ? mainCam.mp + ' MP' : null,
-              rear.length ? rear.length + ' rear' : null) +
-            keySpecHTML('battery', 'Battery', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null,
-              sp.chargingWatts ? sp.chargingWatts + 'W' + (sp.wirelessCharging ? ' · wireless' : '') : null) +
-            keySpecHTML('layers', 'Memory', sp.ramVariantsGb ? ramTxt : null, sp.storageVariantsGb ? romTxt : null) +
-            keySpecHTML('signal', 'Network', sp.network, sp.wifi) +
-            keySpecHTML('ruler', 'Body', join(' × ', [m.height, m.width]),
-              m.screenCm2 ? m.screenCm2 + ' cm² screen' : null) +
-            keySpecHTML('calendar', 'Released', m.releaseDate, m.releaseYear ? String(m.releaseYear) : null) +
-          '</div>' +
-
-          /* --------------------------------------------------- full spec sheet */
-          '<div class="dsecs">' +
-            specBlockHTML('Display', 'phone', [
-              ['Size', m.displaySize ? m.displaySize + ' inches' : null, IMPORTED],
-              ['Resolution', m.screenResolution],
-              ['Type', m.screenType],
-              ['Refresh rate', m.refreshRate],
-              ['Pixel density', m.ppi],
-              ['Aspect ratio', m.screenRatio],
-              ['Protection', m.protection]
-            ]) +
-            specBlockHTML('Performance', 'cpu', [
-              ['Chipset', sp.chipset],
-              ['CPU', sp.cpu],
-              ['GPU', sp.gpu],
-              ['Process', sp.fabrication]
-            ]) +
-            specBlockHTML('Memory', 'layers', [
-              ['RAM', sp.ramVariantsGb ? ramTxt : null],
-              ['Storage', sp.storageVariantsGb ? romTxt : null],
-              ['Expandable', sp.expandable == null ? null
-                : (sp.expandable ? 'microSD supported' : 'Not expandable')]
-            ]) +
-            /* Every row here tolerates a null: this page must render for a
-               catalogue that carries only names and dimensions as readily as
-               for one with a full spec sheet. specBlockHTML drops null rows
-               and omits a section that ends up with none. */
-            specBlockHTML('Camera', 'camera', rear.map(function (c) {
-              return [c.role, c.mp + ' MP · ' + c.aperture + (c.ois ? ' · OIS' : '')];
-            }).concat([
-              ['Front camera', sp.cameraFront ? sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture : null],
-              ['Video', sp.videoMax]
-            ])) +
-            specBlockHTML('Battery & charging', 'battery', [
-              ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null, IMPORTED],
-              /* The manufacturer's own battery code, from the category export.
-                 Recorded for 288 devices; the flag says whether the owner has
-                 checked it, because an unverified code is still worth showing
-                 and still worth labelling as unverified. */
-              ['Battery part number', m.batteryPartNo
-                ? m.batteryPartNo + (m.batteryPartVerified ? ' (verified)' : ' (unverified)')
-                : null],
-              ['Type', sp.batteryType],
-              ['Wired charging', sp.chargingWatts ? sp.chargingWatts + 'W' : null],
-              ['Wireless charging', sp.wirelessCharging == null ? null
-                : (sp.wirelessCharging ? 'Supported' : 'Not supported')]
-            ]) +
-            specBlockHTML('Software', 'sparkle', [
-              ['Operating system', sp.os ? sp.os + ' ' + (sp.osVersion || '') : null],
-              ['Interface', sp.skin]
-              /* Release date lives in its own highlight card and in Source —
-                 filed under Software it was the only row keeping an otherwise
-                 empty section on the page. */
-            ]) +
-            specBlockHTML('Network & connectivity', 'signal', [
-              ['Network', sp.networkDetail],
-              ['SIM', m.sim],
-              ['Wi-Fi', sp.wifi],
-              ['Bluetooth', sp.bluetooth],
-              ['NFC', sp.nfc == null ? null : (sp.nfc ? 'Yes' : 'No')],
-              ['USB', sp.usb],
-              ['Headphone jack', sp.headphoneJack == null ? null : (sp.headphoneJack ? '3.5 mm' : 'None')]
-            ]) +
-            specBlockHTML('Body', 'ruler', [
-              ['Height', m.height, IMPORTED],
-              ['Width', m.width, IMPORTED],
-              ['Thickness', m.thickness],
-              ['Weight', m.weight],
-              ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null, IMPORTED],
-              ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null, IMPORTED],
-              ['Colours', sp.colors ? sp.colors.map(function (c) { return c.n; }).join(', ') : null]
-            ]) +
-            specBlockHTML('Sensors', 'shield', [
-              ['Sensors', sp.sensors ? sp.sensors.join(', ') : null]
-            ]) +
-            /* The source link is the one field the export always has and the
-               UI had nowhere to show. It is also the attribution the licence
-               asks for. */
-            specBlockHTML('Source', 'linkOut', [
-              ['Released', m.releaseDate, IMPORTED],
-              /* available / coming_soon / cancelled, as the export records it.
-                 "Available" is the ordinary case and saying so on every device
-                 is noise, so only the two that change what a shop would order
-                 are shown. */
-              ['Availability', m.releaseStatus && m.releaseStatus !== 'available'
-                ? m.releaseStatus.replace(/_/g, ' ')
-                : null],
-              ['Catalogue entry', m.sourceUrl ? m.sourceUrl.replace(/^https?:\/\//, '') : null, IMPORTED],
-              ['Device type', m.deviceType + (m.typeDerived ? ' (read from the model name)' : '')]
-            ]) +
+            '<div class="dv3__specs">' +
+              '<h2 class="dv3__h">Specifications</h2>' +
+              specBlockHTML('Display', 'phone', [
+                ['Size', m.displaySize ? m.displaySize + ' inches' : null, IMPORTED],
+                ['Resolution', m.screenResolution],
+                ['Type', m.screenType],
+                ['Refresh rate', m.refreshRate],
+                ['Pixel density', m.ppi],
+                ['Aspect ratio', m.screenRatio],
+                ['Protection', m.protection]
+              ]) +
+              specBlockHTML('Body', 'ruler', [
+                ['Height', m.height, IMPORTED],
+                ['Width', m.width, IMPORTED],
+                ['Thickness', m.thickness],
+                ['Weight', m.weight],
+                ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null, IMPORTED],
+                ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null, IMPORTED],
+                ['Colours', coloursOf(m).length
+                  ? coloursOf(m).map(function (c) { return c.n; }).join(', ') : null]
+              ], SM.art.photo(m, { src: deviceImageUrl(m), colourIdx: state.deviceColour || 0,
+                                   alt: '', cls: 'dphoto--mini' })) +
+              specBlockHTML('Battery & charging', 'battery', [
+                ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null, IMPORTED],
+                /* The manufacturer's own battery code, from the category export.
+                   The flag says whether the owner has checked it, because an
+                   unverified code is still worth showing and still worth
+                   labelling as unverified. */
+                ['Battery part number', m.batteryPartNo
+                  ? m.batteryPartNo + (m.batteryPartVerified ? ' (verified)' : ' (unverified)')
+                  : null],
+                ['Type', sp.batteryType],
+                ['Wired charging', sp.chargingWatts ? sp.chargingWatts + 'W' : null],
+                ['Wireless charging', sp.wirelessCharging == null ? null
+                  : (sp.wirelessCharging ? 'Supported' : 'Not supported')]
+              ]) +
+              specBlockHTML('Memory', 'layers', [
+                ['RAM', ramTxt],
+                ['Storage', romTxt],
+                ['Expandable', sp.expandable == null ? null
+                  : (sp.expandable ? 'microSD supported' : 'Not expandable')]
+              ]) +
+              specBlockHTML('Performance', 'cpu', [
+                ['Chipset', sp.chipset],
+                ['CPU', sp.cpu],
+                ['GPU', sp.gpu],
+                ['Process', sp.fabrication]
+              ]) +
+              /* Every row tolerates a null: this column has to render for a
+                 catalogue carrying only names and dimensions as readily as for
+                 one with a full sheet. specBlockHTML drops null rows and omits
+                 a section that ends up with none. */
+              specBlockHTML('Camera', 'camera', rear.map(function (c) {
+                return [c.role, c.mp + ' MP · ' + c.aperture + (c.ois ? ' · OIS' : '')];
+              }).concat([
+                ['Front camera', sp.cameraFront
+                  ? sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture : null],
+                ['Video', sp.videoMax]
+              ])) +
+              specBlockHTML('Software', 'sparkle', [
+                ['Operating system', sp.os ? sp.os + ' ' + (sp.osVersion || '') : null],
+                ['Interface', sp.skin]
+              ]) +
+              specBlockHTML('Network & connectivity', 'signal', [
+                ['Network', sp.networkDetail || sp.network],
+                ['SIM', m.sim],
+                ['Wi-Fi', sp.wifi],
+                ['Bluetooth', sp.bluetooth],
+                ['NFC', sp.nfc == null ? null : (sp.nfc ? 'Yes' : 'No')],
+                ['USB', sp.usb],
+                ['Headphone jack', sp.headphoneJack == null ? null
+                  : (sp.headphoneJack ? '3.5 mm' : 'None')]
+              ]) +
+              specBlockHTML('Sensors', 'shield', [
+                ['Sensors', sp.sensors ? sp.sensors.join(', ') : null]
+              ]) +
+              /* General closes the column. It carries the release facts that
+                 used to sit in a "Source" block alongside a link to the site the
+                 data was imported from — which is an internal provenance note,
+                 not something a visitor came here for. The link is gone from
+                 the page; the field stays in the record for the admin tools. */
+              specBlockHTML('General', 'info', [
+                ['Released', m.releaseDate, IMPORTED],
+                ['Availability', m.releaseStatus && m.releaseStatus !== 'available'
+                  ? m.releaseStatus.replace(/_/g, ' ') : null],
+                ['Device type', m.deviceType
+                  ? m.deviceType + (m.typeDerived ? ' (read from the model name)' : '') : null]
+              ]) +
+            '</div>' +
           '</div>' +
 
           /* ------------------------------------------------------ compatibility */
@@ -3891,55 +4085,51 @@
       case 'dev-back':
         if (history.length > 1) history.back(); else go('/models');
         break;
+      /* One path for all three selectors. Picking a colour, a RAM, a storage
+         or a thumbnail changes the same handful of things — which photograph
+         is shown, what the price says, which chips are lit — so they share a
+         repaint instead of each re-rendering the page underneath the reader. */
+      case 'dev-colour':
+      case 'dev-shot':
       case 'pick-variant': {
         var dm = db.modelById[state.deviceId];
         if (!dm) break;
-        var kind = t.getAttribute('data-kind');
-        var val = Number(t.getAttribute('data-value'));
-        var cur = currentVariant(dm);
-        var want = { ramGb: cur.ramGb, storageGb: cur.storageGb };
-        want[kind === 'ram' ? 'ramGb' : 'storageGb'] = val;
+        dm = previewVariants(dm);
 
-        /* Changing RAM can land on a pair that is not sold. Rather than show a
-           price for a phone nobody makes, fall back to the nearest storage
-           that does exist at the chosen RAM. */
-        if (!findVariant(dm, want.ramGb, want.storageGb)) {
-          var alt = variantsOf(dm).filter(function (v) { return v.ramGb === want.ramGb; });
-          if (!alt.length) break;
-          alt.sort(function (a, b) {
-            return Math.abs(a.storageGb - want.storageGb) - Math.abs(b.storageGb - want.storageGb);
-          });
-          want.storageGb = alt[0].storageGb;
-        }
-        state.deviceVariant = want;
+        if (act === 'dev-colour') {
+          state.deviceColour = Number(t.getAttribute('data-i')) || 0;
+          /* A new colour means a new lead photograph; keeping the old index
+             would leave the rail highlighting a shot of the previous finish. */
+          state.deviceShot = 0;
+        } else if (act === 'dev-shot') {
+          state.deviceShot = Number(t.getAttribute('data-i')) || 0;
+        } else {
+          var kind = t.getAttribute('data-kind');
+          var val = Number(t.getAttribute('data-value'));
+          var colour = colourNameAt(dm, state.deviceColour || 0);
+          var cv = currentVariant(dm);
+          if (!cv) break;
+          var want = { ramGb: cv.ramGb, storageGb: cv.storageGb };
+          want[kind === 'ram' ? 'ramGb' : 'storageGb'] = val;
 
-        /* Repaint only the picker — re-rendering the page would throw away the
-           reader's scroll position halfway down a spec sheet. */
-        var pick = document.querySelector('.vpick');
-        if (pick) pick.outerHTML = variantPickerHTML(dm);
-        break;
-      }
-
-      case 'dev-colour': {
-        /* Repaint only the handset and the swatch row. Re-rendering the whole
-           page would throw away the reader's scroll position mid-spec-sheet. */
-        state.deviceColour = Number(t.getAttribute('data-i')) || 0;
-        var dm = db.modelById[state.deviceId];
-        var shot = document.querySelector('.dshot');
-        if (dm && shot) {
-          shot.innerHTML = deviceShotHTML(dm, state.deviceColour);
-          var lab = document.querySelector('.dcolours .t-lab');
-          if (lab) {
-            lab.textContent = dm.specs.colors.length + ' colour' +
-              (dm.specs.colors.length === 1 ? '' : 's') + ' · ' +
-              dm.specs.colors[state.deviceColour].n;
+          /* Changing RAM can land on a pair nobody sells. Rather than price a
+             phone that does not exist, keep the chosen RAM and move to the
+             nearest storage that does. */
+          if (!findVariant(dm, want.ramGb, want.storageGb, colour)) {
+            var alt = variantsForColour(dm, colour).filter(function (v) {
+              return v.ramGb === want.ramGb;
+            });
+            if (!alt.length) break;
+            alt.sort(function (a, b) {
+              return Math.abs(a.storageGb - want.storageGb) -
+                     Math.abs(b.storageGb - want.storageGb);
+            });
+            want.storageGb = alt[0].storageGb;
           }
-          Array.prototype.forEach.call(document.querySelectorAll('.dsw'), function (el, i) {
-            var on = i === state.deviceColour;
-            el.classList.toggle('is-on', on);
-            if (on) el.setAttribute('aria-current', 'true'); else el.removeAttribute('aria-current');
-          });
+          state.deviceVariant = want;
         }
+
+        repaintDevice(dm);
         break;
       }
       case 'open-model': go('/model/' + id); break;
