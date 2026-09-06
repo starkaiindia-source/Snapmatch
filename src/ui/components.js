@@ -89,26 +89,38 @@
   };
 
 
-  /* --------------------------------------------------- compatibility plate */
-  function bars(count) {
-    var out = '', base = Math.min(1, Math.log(count + 1) / Math.log(280));
-    for (var i = 0; i < 5; i++) {
-      var h = 5 + Math.round(base * 17 * ((i + 2) / 6) + (i * 1.4));
-      out += '<span style="height:' + Math.min(22, h) + 'px"></span>';
-    }
-    return out;
-  }
+  /* A row of the handsets a group actually covers.
+
+     This replaced two things. The first was a bar chart standing in for the
+     device count — a five-bar sparkline of a single number, which is a picture
+     of nothing. The second was the line "324 more devices — not listed", which
+     read as a statement that the catalogue does not have those devices. It has
+     all of them; that sentence was about what the card had been given, and it
+     said the wrong thing about the product.
+
+     What a reader wants from a group card is what the group covers, so the
+     card shows five of them, with their real photographs. api.groupPreview
+     picks them and keeps the count inside the free-tier allowance. */
+  C.groupPreview = function (row, max) {
+    var g = row.group, master = row.master;
+    var picks = (SM.api && SM.api.groupPreview) ? SM.api.groupPreview(g, max || 5) : [];
+    if (!picks.length) return '';
+
+    return '<div class="gprev" aria-label="Devices in this group">' +
+      picks.map(function (m) {
+        var isMaster = master && m.id === master.id;
+        return '<span class="gprev__i' + (isMaster ? ' is-master' : '') + '" ' +
+          'title="' + esc(m.fullName) + '">' +
+          SM.art.photo(m, { alt: m.fullName, cls: 'gprev__ph' }) +
+          '<span class="gprev__n">' + esc(m.modelName || m.fullName) + '</span>' +
+          '</span>';
+      }).join('') +
+      '</div>';
+  };
 
   C.plate = function (row, opts) {
     opts = opts || {};
     var g = row.group, cat = row.category, master = row.master;
-    /* row.devices is null only when a group's member list is genuinely absent
-       from the catalogue. It is no longer the normal case: the bundle carries
-       all 12,239 fitments. */
-    var locked = !row.devices;
-    var others = locked ? [] : row.devices.filter(function (d) { return d.id !== master.id; });
-    var preview = others.slice(0, 3);
-    var hidden = locked ? Math.max(0, (row.deviceCount || 1) - 1) : others.length - preview.length;
     var b = SM.db.brandById[master.brandId];
 
     return '<article class="plate" style="--c:' + cat.color + '" data-act="open-group" data-id="' + g.groupId + '" ' +
@@ -142,25 +154,9 @@
       '<span class="fitline__t">' + (g.compatibleCount === 1
         ? 'model-specific part<br>no shared fitment'
         : 'devices in this<br>' + esc(cat.short) + ' group') + '</span>' +
-      '<span class="fitline__bar">' + bars(g.compatibleCount) + '</span>' +
       '</div>' +
 
-      '<div class="devchips">' +
-      (others.length
-        ? preview.map(function (d) {
-          var hit = opts.highlightId && d.id === opts.highlightId;
-          return '<span class="devchip' + (hit ? ' devchip--hit' : '') + '">' + esc(d.fullName) + '</span>';
-        }).join('') + (hidden > 0 ? '<span class="devchip devchip--more">+' + hidden + ' more</span>' : '')
-        : locked
-          /* No member list for this group at all. Saying "fits X only" would
-             contradict the count printed directly above it, so the card says
-             what is true: how many, and that the names are not recorded. */
-          ? (hidden > 0
-              ? '<span class="devchip devchip--more">' + hidden +
-                ' more ' + (hidden === 1 ? 'device' : 'devices') + ' — not listed</span>'
-              : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>')
-          : '<span class="devchip devchip--more">Fits ' + esc(master.modelName) + ' only</span>') +
-      '</div>' +
+      C.groupPreview(row, 5) +
       '</div>' +
       '<div class="plate__foot">' +
       '<span class="mono">' + esc(g.serialNumber) + '</span>' +

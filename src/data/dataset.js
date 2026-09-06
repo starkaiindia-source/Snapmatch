@@ -279,6 +279,22 @@
       partCounts[modelId] = counts;
     });
 
+    /* The same edge list read the other way round: group -> the devices in it.
+       Built here rather than fetched because the bundle already carries every
+       edge — inverting a map that is in memory costs one pass and no request.
+
+       This is what lets a group card show the handsets it covers instead of a
+       sentence about how many it covers. How MANY of them a given card may
+       name is not decided here: that is the free-tier allowance, applied at
+       the point of display in api.groupPreview. */
+    var membersByGroup = Object.create(null);
+    Object.keys(groupsByModel).forEach(function (modelId) {
+      var ids = groupsByModel[modelId];
+      for (var i = 0; i < ids.length; i++) {
+        (membersByGroup[ids[i]] || (membersByGroup[ids[i]] = [])).push(modelId);
+      }
+    });
+
     /* Total fitments. It read g.memberCount, which this layer never sets — the
        field is called compatibleCount here — so the figure had been NaN since
        the rename. */
@@ -297,6 +313,7 @@
       categoryById: categoryById,
       groupById: groupById,
       groupsByModel: groupsByModel,
+      membersByGroup: membersByGroup,
       partCountsByCategory: partCounts,
       /* So the UI can state its own limits instead of rendering blank rows. */
       coverage: {

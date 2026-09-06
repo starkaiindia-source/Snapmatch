@@ -22,7 +22,10 @@
       /* The trending head of the feed, and how many groups sit BELOW it. The
          header still counts everything the filter matches, so `total` cannot
          also stand for "how many are left to page through". */
-      trending: [], suggest: [], newModels: [], restTotal: 0
+      trending: [], suggest: [], newModels: [], restTotal: 0,
+      /* An open compatibility group, and which of its devices the right panel
+         is describing. Both null means the finder is in its default state. */
+      groupId: null, detailModelId: null, groupQ: '', groupShown: 60
     },
     models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
       /* View state, not query state: the same records are already in memory,
@@ -43,7 +46,6 @@
     brandQ: '',
     suggest: { open: false, q: '', items: [], cursor: -1 },
     sheet: null,           /* { type:'group'|'model'|'filters'|'demo', id } */
-    devView: { shown: 60, q: '' }
   };
 
   function store(k, v) {
@@ -236,15 +238,30 @@
 
   function route() {
     var r = parseHash();
-    /* A model used to open as a bottom sheet. It is a full page now — see
-       renderDevice — so only groups still take the overlay path. */
+
+    /* A group is a STATE OF THE FINDER, not a window over it.
+
+       It used to open a sheet: a scrim over the whole page, the categories on
+       the left and the brands on the right covered up, and the only way back a
+       Close button. That is a browser popup wearing the app's colours — and it
+       threw away the two panels a person filters with at the moment they had
+       something to filter.
+
+       So /group/<id> now resolves to the finder with that group selected. The
+       URL still says which group, so it is still shareable and still
+       bookmarkable; the centre column holds the group's devices and the right
+       panel holds whichever device is selected. Nothing overlays anything. */
     if (r.name === 'group') {
-      state.sheet = { type: r.name, id: r.params[0] };
-      state.devView = { shown: 60, q: '' };
-      if (!document.getElementById('page').innerHTML) renderPage(state.route);
-      renderSheet();
-      return;
+      state.finder.groupId = r.params[0] || null;
+      state.finder.detailModelId = null;
+      state.finder.groupRow = null;
+      r = { name: 'finder', params: [] };
+    } else if (state.finder.groupId) {
+      state.finder.groupId = null;
+      state.finder.detailModelId = null;
+      state.finder.groupRow = null;
     }
+
     state.sheet = null;
     document.getElementById('overlay').innerHTML = '';
     document.body.style.overflow = '';
@@ -254,7 +271,6 @@
     renderPage(r);
     window.scrollTo({ top: 0, behavior: 'instant' in document.documentElement.style ? 'instant' : 'auto' });
   }
-
   /* Navigation writes a clean path through the History API. Nothing sets
      location.hash any more, which is what stops the address bar flipping back
      to a fragment the moment the app takes over a pre-rendered page. */
@@ -459,7 +475,10 @@
     var f = state.finder;
     var picked = f.modelId ? db.modelById[f.modelId] : null;
     var st = db.stats;
-    return (picked ? '' :
+    /* The hero is the finder's front door. With a model picked — or a group
+       open — the reader is past it, and half a phone screen of "Which parts fit
+       this phone?" above their result is just something to scroll past. */
+    return ((picked || state.finder.groupId) ? '' :
         '<span class="bench__eyebrow">' + icon('sparkle') + 'Compatibility groups for ' + nf(st.models) + ' phone models</span>' +
         '<h1 class="t-hero">Which parts fit<br><em>this phone?</em></h1>' +
         '<p class="bench__sub">Type any model. Mobile Parts Finder returns the compatibility group, its master model, the part code and every other device that takes the same part.</p>') +
@@ -585,10 +604,234 @@
     f.page = 1;
   }
 
+  /* ======================================================================
+     INLINE GROUP VIEW
+
+     The centre column holds the selected group's devices; the right panel
+     holds whichever of them is selected, starting with the master. The left
+     categories never move. There is no overlay anywhere in here.
+     ====================================================================== */
+
+  /** The group currently open, resolved from the catalogue. */
+  function currentGroup() {
+    var id = state.finder.groupId;
+    if (!id) return null;
+    var g = db.groupById[id];
+    if (!g) return null;
+    var master = db.modelById[g.masterModelId];
+    if (!master) return null;
+    return { group: g, category: db.categoryById[g.categoryId], master: master };
+  }
+
+  /** The device the right panel is describing: the picked one, or the master. */
+  function detailModel() {
+    var row = currentGroup();
+    if (!row) return null;
+    var id = state.finder.detailModelId;
+    return (id && db.modelById[id]) || row.master;
+  }
+
+  /* A copy button with nothing to copy is a button that lies. Part code used to
+     be null for every group, so this rendered "Part code: " and put an empty
+     string on the clipboard. */
+  function copyBtn(label, value) {
+    if (value == null || String(value).trim() === '') return '';
+    return '<button class="copybtn" data-act="copy" data-copy="' + esc(value) + '">' +
+      icon('copy') + esc(label) + ': ' + esc(value) + '</button>';
+  }
+
+  /* The red circle with the white X. Deliberately not a grey outline glyph in
+     a corner: this is the only way back to the group list, and someone who
+     cannot find it is stuck in a view they did not mean to be in. */
+  function closeGroupBtn(label) {
+    return '<button type="button" class="gclose" data-act="close-group" ' +
+      'aria-label="' + esc(label || 'Close compatibility group') + '" ' +
+      'title="' + esc(label || 'Close compatibility group') + '">' +
+      icon('close') + '</button>';
+  }
+
+  function groupHeadHTML(row) {
+    var g = row.group, cat = row.category, master = row.master;
+    /* The sticky bar is a SIBLING of the head, not a child of it. position:
+       sticky is bounded by its own parent's box, so inside .ghead it would
+       unstick the moment .ghead scrolled past — about 200px into a list that
+       can run to 325 devices. As a direct child of the centre column it spans
+       the whole scroll instead. */
+    return '<div class="gbar">' +
+        '<div class="ghead__ids">' +
+          '<span class="pill" style="background:' + cat.color + '18;color:' + cat.color + '">' +
+            icon(cat.icon) + esc(cat.name) + '</span>' +
+          '<span class="pill pill--code">' + esc(g.groupNumber) + '</span>' +
+          (g.partCode ? '<span class="pill pill--code">' + esc(g.partCode) + '</span>' : '') +
+          (g.oemPartNo ? '<span class="pill pill--code">' + esc(g.oemPartNo) + '</span>' : '') +
+        '</div>' +
+        closeGroupBtn() +
+      '</div>' +
+      '<div class="ghead" style="--c:' + cat.color + '">' +
+      '<h2 class="ghead__h">' + esc(master.fullName) + ' ' + esc(String(cat.short).toLowerCase()) + ' group</h2>' +
+      '<p class="ghead__sub">' +
+        '<strong>' + nf(g.compatibleCount) + '</strong> ' +
+        (g.compatibleCount === 1 ? 'device takes' : 'devices take') + ' this part. ' +
+        'Select one to see its details.</p>' +
+      '<div class="row wrap" style="gap:8px">' +
+        copyBtn('Part code', g.partCode) + copyBtn('Serial', g.serialNumber) +
+        copyBtn('Group', g.groupNumber) +
+        (g.oemPartNo ? copyBtn('Mfr part no', g.oemPartNo) : '') +
+      '</div>' +
+      '</div>';
+  }
+
+  /* One device, as a row in the centre column. A button rather than a link:
+     picking one changes the right panel, it does not navigate. */
+  function groupDeviceHTML(m, row, sel) {
+    var b = db.brandById[m.brandId];
+    var isMaster = m.id === row.master.id;
+    var meta = [ m.displaySize ? esc(m.displaySize) + '&Prime;' : null,
+                 m.screenType ? esc(m.screenType) : null,
+                 m.releaseYear ? esc(String(m.releaseYear)) : null
+               ].filter(Boolean).join(' <i></i> ');
+    return '<button type="button" class="grow-row' + (sel ? ' is-on' : '') + '" ' +
+      'data-act="pick-device" data-id="' + esc(m.id) + '" ' +
+      'aria-pressed="' + (sel ? 'true' : 'false') + '">' +
+      '<span class="grow-row__shot">' +
+        SM.art.photo(m, { alt: m.fullName, cls: 'grow-row__ph' }) + '</span>' +
+      '<span class="grow-row__main">' +
+        '<span class="grow-row__n">' + esc(m.fullName) + '</span>' +
+        '<span class="grow-row__m">' + (b ? esc(b.name) : '') +
+          (meta ? ' <i></i> ' + meta : '') + '</span>' +
+      '</span>' +
+      (isMaster ? '<span class="grow-row__flag">' + icon('crown') + 'Master</span>' : '') +
+      '</button>';
+  }
+
+  /* The centre column while a group is open. Everything the group has, in one
+     scrollable list — no "not listed", because nothing is. */
+  function groupCenterHTML(row) {
+    var all = api.groupMembers(row.group);
+    var q = String(state.finder.groupQ || '').trim().toLowerCase();
+    var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
+    var shown = list.slice(0, state.finder.groupShown || 60);
+    var sel = detailModel();
+
+    return groupHeadHTML(row) +
+      '<div class="sec"><div class="sec__head"><div class="sec__title">' +
+      '<h2>Devices in this group</h2>' +
+      '<span class="sec__count">' + nf(list.length) +
+      (q ? ' of ' + nf(all.length) : '') + '</span></div>' +
+      '<div class="row wrap ws-tools" style="gap:8px">' +
+      '<span class="ws-only"><label class="field">' + icon('search') +
+      '<input class="input" id="gdq" placeholder="Filter these devices…" ' +
+      'value="' + esc(state.finder.groupQ || '') + '" aria-label="Filter devices in this group" />' +
+      '</label></span></div></div>' +
+      '<div class="fbar"><div class="field grow">' + icon('search') +
+      '<input class="input" id="gdqm" placeholder="Filter these devices…" ' +
+      'value="' + esc(state.finder.groupQ || '') + '" aria-label="Filter devices in this group" />' +
+      '</div></div></div>' +
+      '<div id="groupList">' + groupListHTML(row) + '</div>';
+  }
+
+  /* Just the list. Repainted on its own when the filter changes, so the input
+     keeps its caret and its focus. */
+  function groupListHTML(row) {
+    var all = api.groupMembers(row.group);
+    var q = String(state.finder.groupQ || '').trim().toLowerCase();
+    var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
+    var shown = list.slice(0, state.finder.groupShown || 60);
+    var sel = detailModel();
+    return (shown.length
+        ? '<div class="grows">' + shown.map(function (m) {
+            return groupDeviceHTML(m, row, !!sel && sel.id === m.id);
+          }).join('') + '</div>' +
+          (list.length > shown.length
+            ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
+              'Show more devices (' + nf(list.length - shown.length) + ' left)</button></div>'
+            : '')
+        : '<div class="notice">' + icon('alert') +
+          '<span>No device in this group matches that filter.</span></div>');
+  }
+
+  /* The right panel while a group is open: the selected device. Same fields
+     the model page shows, in the space a sidebar has. Absent values are left
+     out rather than printed as a dash — a narrow column full of hyphens reads
+     as broken. */
+  function groupDetailHTML() {
+    var row = currentGroup();
+    var m = detailModel();
+    if (!row || !m) return '';
+    var b = db.brandById[m.brandId] || { id: m.brandId, name: m.brand };
+    var sp = m.specs || {};
+    var isMaster = m.id === row.master.id;
+
+    var fields = [
+      ['Brand', b.name],
+      ['Released', m.releaseDate],
+      ['Display', m.displaySize ? m.displaySize + ' inches' : null],
+      ['Screen type', m.screenType],
+      ['Battery', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null],
+      ['Battery part no.', m.batteryPartNo
+        ? m.batteryPartNo + (m.batteryPartVerified ? ' (verified)' : ' (unverified)') : null],
+      ['Height', m.height],
+      ['Width', m.width],
+      ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null],
+      ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null],
+      ['Device type', m.deviceType]
+    ].filter(function (r) { return r[1] != null && r[1] !== ''; });
+
+    /* Never a nought. The catalogue has no price column, and a rupee sign in
+       front of a zero reads as a price to anyone scanning the number. */
+    var price = sp.launchPriceInr
+      ? '<span class="gdet__price">₹' + nf(sp.launchPriceInr) + '</span>'
+      : '<span class="gdet__price gdet__price--none">Launch price not available</span>';
+
+    return '<div class="gdet">' +
+      /* No second close button here. The one in the centre head is sticky and
+         always on screen, and two red circles ten pixels apart read as two
+         different actions. */
+      '<div class="gdet__top">' +
+        '<span class="t-lab">' + (isMaster ? 'Master model' : 'Selected device') + '</span>' +
+      '</div>' +
+      '<div class="gdet__shot">' +
+        SM.art.photo(m, { alt: m.fullName, eager: true, cls: 'gdet__ph' }) + '</div>' +
+      '<div class="gdet__brand">' + SM.brandLogo(b, 'blogo--sm') +
+        (brandHasMark(b) ? '<span>' + esc(b.name) + '</span>' : '') + '</div>' +
+      '<h3 class="gdet__n">' + esc(deviceTitle(m)) + '</h3>' +
+      price +
+      '<dl class="gdet__specs">' + fields.map(function (r) {
+        return '<div><dt>' + esc(r[0]) + '</dt><dd>' + esc(String(r[1])) + '</dd></div>';
+      }).join('') + '</dl>' +
+      '<div class="gdet__cta">' +
+        '<a class="btn btn--outline" href="/model/' + esc(m.id) + '">' +
+          icon('info') + 'Full specifications</a>' +
+        '<button class="btn btn--primary" data-act="find-parts" data-id="' + esc(m.id) + '">' +
+          icon('search') + 'Find parts</button>' +
+      '</div>' +
+      '</div>';
+  }
+
   function renderWorkspace() {
     if (!document.getElementById('catPanel')) { renderFinder(document.getElementById('page')); return; }
     document.getElementById('catPanel').innerHTML = categoryPanelHTML();
-    document.getElementById('brandPanel').innerHTML = brandPanelHTML();
+
+    /* With a group open the right panel stops being the brand list and becomes
+       the selected device. Both panels stay mounted either way — the left one
+       never changes, which is what keeps this a state change rather than a
+       different page. */
+    var grp = currentGroup();
+    document.getElementById('brandPanel').innerHTML =
+      grp ? groupDetailHTML() : brandPanelHTML();
+    document.getElementById('brandPanel').classList.toggle('ws__right--detail', !!grp);
+
+    if (grp) {
+      document.getElementById('centerHead').innerHTML = groupCenterHTML(grp);
+      var res0 = document.getElementById('results');
+      if (res0) res0.innerHTML = '';
+      var lm0 = document.getElementById('loadmore');
+      if (lm0) lm0.innerHTML = '';
+      var rail0 = document.getElementById('catRail');
+      if (rail0) rail0.innerHTML = railHTML();
+      return;
+    }
+
     document.getElementById('centerHead').innerHTML = centerHeadHTML();
 
     var rail = document.getElementById('catRail');
@@ -604,6 +847,32 @@
        whole library. */
     if (state.finder.modelId) loadMatches();
     else loadGroups(true);
+  }
+
+  /* Picking a device changes one panel. Repainting the whole workspace would
+     rebuild the centre list and throw away its scroll position, which is where
+     the reader is standing when they pick. */
+  function repaintGroupDetail() {
+    var panel = document.getElementById('brandPanel');
+    if (panel) panel.innerHTML = groupDetailHTML();
+    var sel = detailModel();
+    Array.prototype.forEach.call(document.querySelectorAll('.grow-row'), function (el) {
+      var on = !!sel && el.getAttribute('data-id') === sel.id;
+      el.classList.toggle('is-on', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  function repaintGroupList() {
+    var row = currentGroup();
+    if (!row) return;
+    var host = document.getElementById('groupList');
+    if (host) host.innerHTML = groupListHTML(row);
+    var all = api.groupMembers(row.group);
+    var q = String(state.finder.groupQ || '').trim().toLowerCase();
+    var n = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }).length : all.length;
+    var c = document.querySelector('.ws__head .sec__count');
+    if (c) c.textContent = nf(n) + (q ? ' of ' + nf(all.length) : '');
   }
 
   /* Kept as the old name so nothing else had to change; the two are the same
@@ -1329,7 +1598,7 @@
       '<span class="pill pill--code">' + esc(g.groupNumber) + '</span>' +
       '<span class="pill" style="background:' + cat.color + '18;color:' + cat.color + '">' + icon(cat.icon) + esc(cat.name) + '</span>' +
       '<button class="btn btn--ghost btn--sm" style="margin-left:auto" data-act="open-group" data-id="' + g.groupId + '">' +
-      'Group sheet ' + icon('arrowRight') + '</button>' +
+      'Open group ' + icon('arrowRight') + '</button>' +
       '</div>' +
       '<div class="match__body">' +
       '<div class="stack" style="gap:14px">' +
@@ -3432,197 +3701,9 @@
       return;
     }
 
-    if (s.type === 'group') {
-      host.innerHTML = '<div class="scrim" data-act="close-sheet"></div><div class="sheet"><div class="sheet__grab"></div>' +
-        '<div class="sheet__head"><div class="skel" style="height:22px;width:50%"></div></div>' +
-        '<div class="sheet__body">' + C.skelPlate() + '</div></div>';
-      api.getGroup(s.id).then(function (row) {
-        if (!row) { closeSheet(); return; }
-        paintGroupSheet(host, row);
-        if (SM.analytics) {
-          SM.analytics.track('compatibility_group_opened', {
-            groupId: s.id,
-            categoryId: row.categoryId,
-            memberCount: row.compatibleCount
-          });
-        }
-      });
-    }
+
   }
 
-  function countryRowsHTML(q) {
-    var list = SM.countries.search(q);
-    if (!list.length) return '<div class="brandempty">' + icon('search') + '<span>No country found</span></div>';
-    return list.map(function (c) {
-      return '<button class="crow' + (reg.country === c.code ? ' is-on' : '') + '" ' +
-        'data-act="pick-country" data-id="' + c.code + '">' +
-        '<span class="crow__flag">' + c.flag + '</span>' +
-        '<span class="crow__name">' + esc(c.name) + '</span>' +
-        '<span class="crow__dial">' + esc(c.dial) + '</span></button>';
-    }).join('');
-  }
-  function paintCountryRows(q) {
-    var host = document.getElementById('countryRows');
-    if (host) host.innerHTML = countryRowsHTML(q);
-  }
-
-  function paintSheet(host, titleHTML, bodyHTML, footHTML, rawTitle) {
-    host.innerHTML = '<div class="scrim" data-act="close-sheet"></div>' +
-      '<div class="sheet" role="dialog" aria-modal="true"><div class="sheet__grab"></div>' +
-      '<div class="sheet__head">' + (rawTitle ? titleHTML : '<div class="t-h3 grow">' + esc(titleHTML) + '</div>') +
-      '<button class="iconbtn" style="margin-left:auto" data-act="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
-      '<div class="sheet__body">' + bodyHTML + '</div>' +
-      (footHTML ? '<div class="sheet__foot">' + footHTML + '</div>' : '') +
-      '</div>';
-  }
-
-  function paintGroupSheet(host, row) {
-    var g = row.group, cat = row.category, master = row.master;
-
-    var title = '<div class="row" style="gap:9px;flex-wrap:wrap">' +
-      '<span class="pill" style="background:' + cat.color + '18;color:' + cat.color + '">' + icon(cat.icon) + esc(cat.name) + '</span>' +
-      '<span class="pill pill--code">' + esc(g.groupNumber) + '</span></div>';
-
-    var body =
-      '<div style="--c:' + cat.color + '">' + C.masterCard(master, cat) + '</div>' +
-      '<div><span class="t-lab" style="display:block;margin-bottom:9px">Identifiers</span>' +
-      C.idGrid(g) +
-      '<div class="row wrap" style="gap:8px;margin-top:10px">' +
-      copyBtn('Part code', g.partCode) + copyBtn('Serial', g.serialNumber) +
-      copyBtn('Group', g.groupNumber) +
-      (g.oemPartNo ? copyBtn('Mfr part no', g.oemPartNo) : '') +
-      '</div></div>' +
-      '<div id="devSection"></div>';
-
-    paintSheet(host, title, body,
-      '<button class="btn btn--outline" data-act="close-sheet">Close</button>' +
-      '<button class="btn btn--primary grow" data-act="find-parts" data-id="' + master.id + '">' + icon('search') + 'Find parts for master model</button>',
-      true);
-
-    state.devView = { shown: 60, q: '' };
-    paintDevSection(row);
-
-    /* The member list is not in the public bundle any more — it is the paid
-       answer. Fetch it, and the server decides how much of it comes back:
-       everything for a subscriber, the first 5 or 10 for a free account, all
-       of a group of five or fewer for anyone.
-
-       The withheld names are never sent, so there is nothing here to unhide.
-       `lockedCount` is a number, which is all the lock card needs. */
-    if (SM.access) {
-      SM.access.groupMembers(g.groupId).then(function (paid) {
-        if (!paid) return;
-        /* The sheet may have been closed, or another group opened, while this
-           was in flight. Painting into it then would put one group's devices
-           under another group's heading. */
-        if (!state.sheet || state.sheet.id !== g.groupId) return;
-
-        row.devices = paid.members.map(function (m) {
-          return db.modelById[m.id] || { id: m.id, fullName: m.name, brandId: null };
-        });
-        row.locked = paid.locked;
-        row.lockedCount = paid.lockedCount;
-        paintDevSection(row);
-      });
-    }
-  }
-
-  /* A copy button with nothing to copy is a button that lies. Part code used to
-     be null for every group, so this rendered "Part code: " and put an empty
-     string on the clipboard. */
-  function copyBtn(label, value) {
-    if (value == null || String(value).trim() === '') return '';
-    return '<button class="copybtn" data-act="copy" data-copy="' + esc(value) + '">' +
-      icon('copy') + esc(label) + ': ' + esc(value) + '</button>';
-  }
-
-  function paintDevSection(row) {
-    var host = document.getElementById('devSection');
-    if (!host) return;
-    var g = row.group, master = row.master;
-    var v = state.devView;
-    var q = v.q.toLowerCase();
-
-    /* null means the list was withheld; [] means the group genuinely has no
-       members. They are different states and used to render the same, so a
-       withheld list produced "Nothing in this group matches ''" — an empty
-       search result for a search nobody had typed. */
-    var withheld = row.devices == null;
-    var all = row.devices || [];
-    var list = q ? all.filter(function (d) { return d.fullName.toLowerCase().indexOf(q) > -1; }) : all;
-    var shown = list.slice(0, v.shown);
-    var remaining = list.length - shown.length;
-
-    var body;
-    if (withheld) {
-      /* The list has not arrived. Three different reasons, three different
-         sentences — "Sign in to see which" was shown for all of them, which is
-         wrong advice for a subscriber whose fetch simply had not landed yet
-         and worse advice for one whose request failed. */
-      var signedIn = S.get().signedIn;
-      var paid = SM.access && SM.access.isPaid();
-
-      body = paid
-        ? C.state({
-            icon: 'refresh',
-            title: 'Loading the ' + g.compatibleCount + ' devices in this group',
-            text: 'If this stays here, reload the page.'
-          })
-        : C.paywall({
-            title: g.compatibleCount + ' compatible devices',
-            text: signedIn
-              ? 'This group covers ' + g.compatibleCount + ' devices. A plan shows every one of them.'
-              : 'This group covers ' + g.compatibleCount + ' devices. Sign in to see which.'
-          });
-    } else if (list.length) {
-      body = '<div class="devlist">' + C.deviceRows(shown, { masterId: master.id }) + '</div>';
-    } else if (q) {
-      body = C.state({
-        icon: 'search',
-        title: 'Nothing in this group matches “' + v.q + '”',
-        text: 'Clear the search to see all ' + g.compatibleCount + ' devices.'
-      });
-    } else {
-      body = C.state({
-        icon: 'inbox',
-        title: 'No devices recorded in this group',
-        text: 'The catalogue has the group but not its member list yet.'
-      });
-    }
-
-    /* Devices the server did not send, because this account may not see them.
-       A count, never a list — see api/_services/entitlement-service.js. */
-    var lockedCount = Number(row.lockedCount) || 0;
-
-    host.innerHTML =
-      '<div class="complist__head">' +
-      '<span class="t-lab">Compatible devices</span>' +
-      '<span class="pill pill--brand">' + g.compatibleCount + ' in this group</span>' +
-      /* No in-group search while part of the group is withheld: a box that
-         searches five of thirty devices looks broken rather than limited. */
-      (!withheld && !lockedCount && g.compatibleCount > 24
-        ? '<label class="field grow" style="min-width:180px">' + icon('search') +
-          '<input class="input" id="devq" placeholder="Find inside this group…" value="' + esc(v.q) + '" aria-label="Search compatible devices" /></label>'
-        : '') +
-      '</div>' +
-      body +
-      /* Paging, not a paywall. Everything the server sent is here — this only
-         keeps a 268-device group from laying out all at once on a phone. */
-      (remaining > 0
-        ? '<button class="expandbtn" style="margin-top:10px" data-act="more-devs">' + icon('chevronDown') +
-          'Show ' + Math.min(60, remaining) + ' more <span class="muted">(' + remaining + ' left)</span></button>'
-        : (list.length > 12 && !lockedCount ? '<p class="t-xs muted" style="margin-top:10px">End of list — ' + list.length + ' devices shown.</p>' : '')) +
-      /* The locked remainder. Rendered from a NUMBER: the names behind it were
-         never sent to this browser, so there is nothing to reveal by editing
-         the DOM, reading a variable or opening the network tab. */
-      (lockedCount > 0
-        ? C.paywall({
-            title: lockedCount + ' more ' + (lockedCount === 1 ? 'device' : 'devices') + ' in this group',
-            text: 'You are seeing ' + shown.length + ' of ' + g.compatibleCount + '. ' +
-                  'A plan shows every device that takes this part, in every group.'
-          })
-        : '');
-  }
 
   /* ==========================================================================
      SUGGESTIONS
@@ -4088,8 +4169,25 @@
         break;
       case 'more-groups': state.finder.page++; loadGroups(false); break;
 
-      /* overlays */
+      /* A group opens in the centre column. go() still writes /group/<id> —
+         that URL is the share link and the back button — but route() resolves
+         it to the finder with the group selected rather than to a sheet. */
       case 'open-group': go('/group/' + id); break;
+
+      /* Picking a device inside an open group changes the right panel and
+         nothing else. No navigation, no overlay. */
+      case 'pick-device':
+        state.finder.detailModelId = id;
+        repaintGroupDetail();
+        break;
+
+      /* The red X. Back to the group list, in place. */
+      case 'close-group': go('/finder'); break;
+
+      case 'more-devices':
+        state.finder.groupShown = (state.finder.groupShown || 60) + 60;
+        repaintGroupList();
+        break;
 
       /* device page */
       case 'dev-back':
@@ -4157,10 +4255,6 @@
         pickModel(mid, { catId: id });
         break;
       }
-      case 'more-devs':
-        state.devView.shown += 60;
-        api.getGroup(state.sheet.id).then(paintDevSection);
-        break;
       case 'copy':
         (function (val) {
           if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -4505,11 +4599,10 @@
       renderWorkspace();
     } else if (state.route.name === 'account') renderAccount(document.getElementById('page'));
     else if (state.route.name === 'plans') renderPlans(document.getElementById('page'));
-    if (state.sheet && state.sheet.type === 'group') api.getGroup(state.sheet.id).then(function (r) { paintGroupSheet(document.getElementById('overlay'), r); });
   }
 
   /* --------------------------------------------------------------- inputs */
-  var gqTimer = null, mqTimer = null, bqTimer = null;
+  var gqTimer = null, mqTimer = null, bqTimer = null, gdqTimer = null;
   document.addEventListener('input', function (e) {
     var el = e.target;
     if (el.id === 'q' || el.id === 'qh') {
@@ -4541,6 +4634,19 @@
         if (state.finder.modelId) { state.finder.matchShown = 6; loadMatches(); }
         else loadGroups(true);
       }, 220);
+    }
+    /* Narrowing the devices ALREADY on screen inside an open group. Not the
+       same thing as the paid group search above: this filters a list the
+       reader has already been shown, and asks the server nothing. */
+    if (el.id === 'gdq' || el.id === 'gdqm') {
+      clearTimeout(gdqTimer);
+      gdqTimer = setTimeout(function () {
+        state.finder.groupQ = el.value;
+        state.finder.groupShown = 60;
+        var gtwin = document.getElementById(el.id === 'gdq' ? 'gdqm' : 'gdq');
+        if (gtwin && gtwin.value !== el.value) gtwin.value = el.value;
+        repaintGroupList();
+      }, 180);
     }
     if (el.id === 'mq') {
       clearTimeout(mqTimer);
@@ -4585,14 +4691,6 @@
         c.setAttribute('aria-label', 'Clear brand search'); c.innerHTML = icon('close');
         el.parentNode.appendChild(c);
       } else if (!el.value && clr) clr.remove();
-    }
-    if (el.id === 'devq') {
-      state.devView.q = el.value; state.devView.shown = 60;
-      api.getGroup(state.sheet.id).then(function (r) {
-        paintDevSection(r);
-        var again = document.getElementById('devq');
-        if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
-      });
     }
   });
 
@@ -4683,6 +4781,10 @@
     }
     if (e.key === 'Escape') {
       if (state.suggest.open) { closeSuggest(); return; }
+      /* Escape closes an open group, the same as the red X. It is not a modal,
+         but it is a view someone can be inside, and Escape is what a keyboard
+         reaches for to get out of one. */
+      if (state.finder.groupId) { go('/finder'); return; }
       if (state.sheet) {
         if (LOCAL_SHEETS.indexOf(state.sheet.type) > -1) { state.sheet = null; renderSheet(); }
         else closeSheet();

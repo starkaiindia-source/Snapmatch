@@ -1976,3 +1976,162 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .dgal__main .dphoto__art{ height:200px; }
   .dthumb{ width:54px; height:54px; }
 }
+
+/* ==========================================================================
+   COMPATIBILITY GROUPS — card previews and the inline group view
+
+   A group used to open in a sheet over the page. It opens in the centre column
+   now, so the categories on the left and the selected device on the right stay
+   put. Nothing here is an overlay.
+   ========================================================================== */
+
+/* ------------------------------------------------------- card device strip
+   Replaces the five-bar sparkline (a picture of one number) and the line
+   "N more devices — not listed" (which said the catalogue lacks devices it
+   has). Five real handsets, from the group's own membership. */
+.gprev{
+  display:flex; gap:8px; align-items:flex-start;
+  margin-top:10px; overflow:hidden;
+}
+.gprev__i{
+  flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; gap:5px;
+  padding:8px 4px 7px; border:1px solid var(--line); border-radius:var(--r-sm);
+  background:var(--surface); text-align:center;
+}
+.gprev__i.is-master{ border-color:var(--c, var(--teal-500)); }
+.gprev .dphoto{ height:44px; display:flex; align-items:center; justify-content:center; }
+.gprev__ph .dphoto__img,
+.gprev__i .dphoto__img{ height:44px; width:auto; max-width:100%; object-fit:contain; }
+.gprev__i .dphoto__art{ height:44px; width:auto; }
+.gprev__n{
+  font-size:10.5px; line-height:1.25; color:var(--ink-3);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; word-break:break-word;
+}
+/* Four on a narrow card, five when there is room; the fifth is simply hidden
+   rather than squeezed to an unreadable width. */
+@media (max-width:420px){ .gprev__i:nth-child(n+4){ display:none; } }
+
+/* --------------------------------------------------------- the red close X
+   Solid red circle, white glyph, 36px. This is the only way back out of the
+   group view, so it is not a grey outline in a corner. */
+.gclose{
+  flex:none; width:36px; height:36px; padding:0; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  border-radius:50%; border:0;
+  background:#DC2626; color:#fff;
+  box-shadow:0 2px 8px rgba(220,38,38,.35);
+  transition:background .15s, transform .12s, box-shadow .15s;
+}
+.gclose:hover{ background:#B91C1C; transform:scale(1.06); }
+.gclose:active{ transform:scale(.96); }
+.gclose:focus-visible{ outline:2px solid #DC2626; outline-offset:3px; }
+.gclose svg{ width:19px; height:19px; stroke-width:2.6; color:#fff; }
+
+/* -------------------------------------------------------- group head (centre) */
+.ghead{ padding:14px 0 16px; margin-bottom:4px; border-bottom:1px solid var(--line); }
+/* Sticky, because the centre column is its own scroller and a group can run
+   to 325 devices. A close button that scrolls off the top of a list that long
+   is a close button the reader cannot find. */
+/* top is the header's own height, not 0: on a desktop the centre column is its
+   own scroller and the two never meet, but on a phone the WINDOW scrolls and
+   the sticky topbar is already sitting at 0 — a bar stuck to the viewport top
+   slides straight under it. */
+.gbar{
+  position:sticky; top:var(--topbar-h); z-index:4;
+  display:flex; align-items:center; gap:12px;
+  padding:10px 0 9px;
+  /* --paper is the page's own background; --bg does not exist, so the bar
+     was transparent and the device list scrolled through it. */
+  background:var(--paper);
+  border-bottom:1px solid var(--line);
+}
+.ghead__ids{ display:flex; flex-wrap:wrap; gap:7px; flex:1 1 auto; min-width:0; }
+.ghead__h{
+  font-family:var(--f-display); font-weight:800;
+  font-size:clamp(19px,2.2vw,25px); line-height:1.15; letter-spacing:-.02em;
+  margin:0 0 6px; color:var(--ink);
+}
+.ghead__sub{ margin:0 0 12px; font-size:13.5px; color:var(--ink-2); }
+.ghead__sub strong{ color:var(--ink); }
+
+/* ---------------------------------------------------------- device rows */
+.grows{ display:flex; flex-direction:column; gap:7px; padding:4px 0 10px; }
+.grow-row{
+  display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+  padding:9px 12px; cursor:pointer;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  transition:border-color .14s, background .14s;
+}
+.grow-row:hover{ border-color:var(--teal-500); background:var(--surface-2); }
+.grow-row.is-on{ border-color:var(--teal-600); box-shadow:inset 0 0 0 1px var(--teal-600); }
+.grow-row:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+.grow-row__shot{ flex:none; width:38px; height:48px; display:flex; align-items:center; justify-content:center; }
+.grow-row__shot .dphoto__img,
+.grow-row__shot .dphoto__art{ max-height:48px; max-width:38px; width:auto; height:auto; object-fit:contain; }
+.grow-row__main{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1 1 auto; }
+.grow-row__n{ font-size:14px; font-weight:700; color:var(--ink); overflow-wrap:anywhere; }
+.grow-row__m{ font-size:12px; color:var(--ink-3); }
+.grow-row__m i{ display:inline-block; width:3px; height:3px; border-radius:50%; background:currentColor; vertical-align:middle; margin:0 5px 2px; }
+.grow-row__flag{
+  flex:none; display:inline-flex; align-items:center; gap:4px;
+  font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--teal-700);
+}
+.grow-row__flag svg{ width:13px; height:13px; }
+
+/* ------------------------------------------------ right panel: the device */
+.ws__right--detail{ padding-top:0; }
+.gdet{ display:flex; flex-direction:column; gap:10px; }
+.gdet__top{ display:flex; align-items:center; gap:10px; }
+.gdet__top .t-lab{ flex:1 1 auto; }
+.gdet__shot{
+  display:flex; align-items:center; justify-content:center;
+  padding:16px; min-height:170px;
+  background:
+    radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%),
+    var(--surface-2);
+  border:1px solid var(--line); border-radius:var(--r);
+}
+/* Bounded so the specifications under it are not pushed off the panel. */
+.gdet__shot .dphoto{ width:100%; }
+.gdet__shot .dphoto__img{ width:min(100%,150px); height:auto; object-fit:contain; }
+.gdet__shot .dphoto__art{ height:170px; width:auto; }
+.gdet__brand{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink-2); }
+.gdet__n{
+  font-family:var(--f-display); font-weight:800; font-size:19px;
+  line-height:1.15; letter-spacing:-.02em; margin:0; color:var(--ink);
+  overflow-wrap:anywhere;
+}
+.gdet__price{
+  font-family:var(--f-display); font-weight:800; font-size:20px;
+  color:var(--ink); font-variant-numeric:tabular-nums;
+}
+.gdet__price--none{ font-family:var(--f-ui); font-size:13px; font-weight:600; color:var(--ink-3); }
+.gdet__specs{ margin:2px 0 0; padding:0; }
+.gdet__specs > div{
+  display:flex; justify-content:space-between; gap:12px;
+  padding:7px 0; border-bottom:1px solid var(--line-soft);
+}
+.gdet__specs > div:last-child{ border-bottom:0; }
+.gdet__specs dt{ font-size:12.5px; color:var(--ink-3); }
+.gdet__specs dd{ margin:0; font-size:12.5px; font-weight:600; color:var(--ink); text-align:right; overflow-wrap:anywhere; }
+.gdet__cta{ display:flex; flex-direction:column; gap:7px; margin-top:4px; }
+.gdet__cta .btn{ width:100%; justify-content:center; }
+
+/* -------------------------------------------------------------- narrow
+   Below the workspace breakpoint the three panels already stack; the group
+   view rides that same layout, so it stays a page state rather than becoming
+   a popup on a phone. The close button grows a little for the thumb. */
+@media (min-width:1180px){
+  /* The centre column scrolls independently here, so the bar sticks to the top
+     of that column rather than to the page. */
+  .gbar{ top:0; }
+}
+
+@media (max-width:1179px){
+  .ws__right--detail{ display:block; }
+  .gclose{ width:40px; height:40px; }
+  .gclose svg{ width:21px; height:21px; }
+  .gdet__shot{ min-height:150px; }
+}

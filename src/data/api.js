@@ -628,6 +628,103 @@
     }
   };
 
+  /* ------------------------------------------------- group card previews
+
+     A group card used to end with a sentence: "324 more devices — not listed".
+     It read as a claim that the catalogue does not have them, which is the
+     opposite of true — the whole point of the group is that it does.
+
+     So the card shows the handsets instead. The membership comes from
+     db.membersByGroup, which is the bundle's own edge list inverted, so this
+     costs no request.
+
+     HOW MANY may be named is the free-tier allowance from
+     api/_schema/entitlement.js, and this function will not exceed it: the
+     whole group up to five members, then five, then ten. A card asks for five,
+     which is inside the allowance at every group size. The server remains the
+     enforcement point for the full list — this only decides what a card is
+     allowed to show without asking for it. */
+  var FREE_SMALL_MAX = 5;
+  var FREE_MEDIUM_MAX = 50;
+  var FREE_MEMBERS_MEDIUM = 5;
+  var FREE_MEMBERS_LARGE = 10;
+
+  function freeMemberLimit(total) {
+    var n = Number(total);
+    if (!isFinite(n) || n <= 0) return 0;
+    if (n <= FREE_SMALL_MAX) return n;
+    if (n <= FREE_MEDIUM_MAX) return FREE_MEMBERS_MEDIUM;
+    return FREE_MEMBERS_LARGE;
+  }
+
+  /**
+   * A representative handful of the devices in a group.
+   *
+   * Representative, not simply the first five: a Guard group of 325 phones is
+   * mostly one brand's back catalogue, and five rows of the same brand tell a
+   * reader nothing about the group's reach. The master leads, then one device
+   * per brand newest-first, then the rest if that has not filled the row.
+   *
+   * @param {object} g    the group row (needs groupId, masterModelId)
+   * @param {number} max  how many to return; clamped to the free allowance
+   * @returns {Array} model objects, resolved from the catalogue
+   */
+  api.groupPreview = function (g, max) {
+    if (!g) return [];
+    var ids = (db.membersByGroup && db.membersByGroup[g.groupId]) || [];
+    var total = g.compatibleCount || ids.length;
+    var cap = Math.min(Number(max) || 5, freeMemberLimit(total));
+    if (cap <= 0) return [];
+
+    var picked = [];
+    var seen = Object.create(null);
+    function take(m) {
+      if (!m || seen[m.id] || picked.length >= cap) return;
+      seen[m.id] = 1; picked.push(m);
+    }
+
+    take(db.modelById[g.masterModelId]);
+
+    var rest = [];
+    for (var i = 0; i < ids.length; i++) {
+      var m = db.modelById[ids[i]];
+      if (m && !seen[m.id]) rest.push(m);
+    }
+    rest.sort(function (a, b) {
+      return (b.releaseYear || 0) - (a.releaseYear || 0);
+    });
+
+    /* One per brand first, so the row shows the spread. */
+    var brandSeen = Object.create(null);
+    for (var j = 0; j < rest.length && picked.length < cap; j++) {
+      var bid = rest[j].brandId || '?';
+      if (brandSeen[bid]) continue;
+      brandSeen[bid] = 1;
+      take(rest[j]);
+    }
+    /* Then fill any remaining slots in date order. */
+    for (var k = 0; k < rest.length && picked.length < cap; k++) take(rest[k]);
+
+    return picked;
+  };
+
+  /** Every device in a group, for the inline group view's centre column. */
+  api.groupMembers = function (g) {
+    if (!g) return [];
+    var ids = (db.membersByGroup && db.membersByGroup[g.groupId]) || [];
+    var out = [];
+    var seen = Object.create(null);
+    var master = db.modelById[g.masterModelId];
+    if (master) { seen[master.id] = 1; out.push(master); }
+    for (var i = 0; i < ids.length; i++) {
+      var m = db.modelById[ids[i]];
+      if (m && !seen[m.id]) { seen[m.id] = 1; out.push(m); }
+    }
+    return out;
+  };
+
+  api.freeMemberLimit = freeMemberLimit;
+
   SM.api = api;
 
   /* ==========================================================================
