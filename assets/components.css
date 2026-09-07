@@ -93,21 +93,10 @@
 .panel__clear svg{ width:12px; height:12px; }
 .panel + .panel{ margin-top:16px; padding-top:16px; border-top:1px solid var(--line-soft); }
 
-/* --------- the selected model, as the head of the CENTRE column ----------
-   It is a heading for the matches underneath it, not a page of its own: the
-   category panel and the brand panel stay mounted either side of it and keep
-   narrowing the same result. */
-.selmodel{
-  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
-  padding:14px 16px; margin-bottom:14px;
-  background:var(--surface-2); border:1px solid var(--line);
-  border-radius:var(--r-lg);
-}
-.selmodel .t-h3{ font-size:clamp(16px,2.4vw,20px); line-height:1.22; }
-@media (max-width:520px){
-  .selmodel{ padding:12px; gap:10px; }
-  .selmodel .blogo--lg{ width:50px; height:44px; }
-}
+/* The selected model's own header is .gbar now — the same sticky component the
+   opened group uses, so a search result and a group are one result page in two
+   states rather than two headers that drift apart. The card that used to live
+   here scrolled away with the results it was heading. */
 
 /* a category this model has no group in: still in its place, plainly off */
 .ctile.is-empty{ opacity:.4; pointer-events:none; }
@@ -2012,24 +2001,36 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    rather than squeezed to an unreadable width. */
 @media (max-width:420px){ .gprev__i:nth-child(n+4){ display:none; } }
 
-/* ------------------------------------------------------- the sticky bar
-   Back, the master handset, its name, the part codes, the category's own
-   picture and the filter — one row, and the only thing that stays put while
-   the device list scrolls under it.
+/* ------------------------------------------------- the sticky result header
+   Back, the master handset, its name, how many devices the group links, the
+   part codes, the category's own picture and the filter — and the same element
+   heads a selected model's matches, because a search result and an opened
+   group are one result page in two states.
 
    top is the header's own height, not 0: on a desktop the centre column is its
    own scroller and the two never meet, but on a phone the WINDOW scrolls and
    the sticky topbar already sits at 0, so a bar stuck to the viewport top
-   slides straight under it. */
+   slides straight under it. Inside the mobile sheet, where the sheet itself is
+   the scroller, it goes back to 0 — see the sheet block at the end. */
 .gbar{
   position:sticky; top:var(--topbar-h); z-index:6;
-  display:flex; align-items:center; gap:12px;
-  padding:10px 0 10px;
   /* --paper is the page's own background. Anything transparent here lets the
      device list scroll through the bar. */
   background:var(--paper);
   border-bottom:1px solid var(--line);
+  /* The line alone puts the header in the same plane as the list; the short
+     shadow under it puts the list underneath. Three hundred devices sliding
+     past need the header to read as a layer, not as the first row. It is the
+     same shadow the library's own section head uses. */
+  box-shadow:0 10px 12px -12px rgba(10,21,18,.35);
 }
+.gbar__row{
+  display:flex; align-items:center; gap:12px;
+  padding:10px 0 10px;
+}
+/* The sheet's grab handle. It exists in every copy of the header and is drawn
+   only where the header is the top of a panel — a phone. */
+.gbar__grab{ display:none; }
 
 .gback{
   flex:none; display:inline-flex; align-items:center; gap:5px;
@@ -2043,16 +2044,28 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .gback:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
 .gback svg{ width:17px; height:17px; }
 
+/* The master handset itself, at the size a favicon is — no frame, no tint, no
+   card. It is an identifier inside a row of text, and a box drawn around a
+   cut-out photograph reads as grime on the part. */
 .gbar__shot{ flex:none; width:34px; height:44px; display:flex; align-items:center; justify-content:center; }
 .gbar__shot .dphoto{ width:100%; height:100%; }
 .gbar__shot .dphoto__img,
 .gbar__shot .dphoto__art{ max-height:44px; max-width:34px; width:auto; height:auto; object-fit:contain; }
 
-.gbar__id{ display:flex; flex-direction:column; gap:1px; min-width:0; flex:1 1 auto; }
+.gbar__id{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1 1 auto; }
 .gbar__n{
   font-family:var(--f-display); font-weight:800; font-size:17px;
   letter-spacing:-.02em; color:var(--ink);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.gbar__meta{ display:flex; align-items:center; gap:8px; min-width:0; }
+/* The answer to the question the page was opened to ask, so it is the one
+   thing in the second line that is not grey. */
+.gbar__count{
+  flex:none; font-size:11.5px; font-weight:800; letter-spacing:.01em;
+  color:var(--teal-700); background:var(--teal-050);
+  border:1px solid var(--teal-100); border-radius:999px;
+  padding:2px 9px; white-space:nowrap;
 }
 /* Secondary on purpose: the codes matter at the counter, but they are not the
    name of the thing on the screen. */
@@ -2076,70 +2089,140 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .catvis .pthumb,
 .catvis img{ max-width:100%; max-height:100%; }
 
-/* -------------------------------------------------- devices in this group */
-.gsec{ display:flex; align-items:baseline; gap:9px; padding:16px 0 8px; }
-.gsec__h{
-  font-family:var(--f-display); font-weight:800; font-size:17px;
-  letter-spacing:-.02em; margin:0; color:var(--ink);
+/* ==========================================================================
+   DEVICES IN THIS GROUP — compact chips, organised by brand
+
+   The list used to be one full-width row per device with a radio circle on the
+   left: 325 rows, each 39px tall and 900px wide, to carry one line of text.
+   That is twelve screens of scrolling to read a list that fits on two, and a
+   radio drawn beside a row whose own background already says it is selected is
+   a second control for one piece of state.
+
+   What replaced it is a chip — the device's own photograph at favicon size and
+   its full name — in a grid that takes as many columns as the column it is in
+   can hold. The brand headings are what make it navigable: nobody reads 325
+   names in sequence, but "Vivo, 109" is a place you can scroll to.
+   ========================================================================== */
+.glist{ padding-bottom:10px; }
+
+/* The brand blocks carried content-visibility:auto for a while, and it is
+   worth writing down why they no longer do.
+
+   It did what it promised — about 40ms off the first paint of the largest
+   group in the catalogue, 325 devices across thirteen brands. What it also did
+   was change the page's height AFTER the paint, as blocks came in and out of
+   the skipped state and swapped their real heights for the estimate in
+   contain-intrinsic-size. A list whose total height moves by a hundred pixels a
+   third of a second late is a list you cannot scroll to a position in: the
+   phone's jump to a picked device's specifications landed correctly and then
+   slid a header's worth off it.
+
+   40ms on the biggest group in the database — the median group holds three
+   devices — is not worth a scroll that cannot be relied on. The saving that
+   actually mattered was never the layout anyway: it is loading="lazy" on 325
+   photographs, and that is still there. */
+.gbrand + .gbrand{ margin-top:14px; }
+
+/* Sticky UNDER the master header. --gbar-h is measured from the header itself
+   after every paint, because the header's height depends on its own contents:
+   a group with three part codes is taller than one with none, and a guessed
+   offset here leaves either a gap or an overlap. */
+.gbrand__h{
+  position:sticky; top:var(--gbar-h,64px); z-index:4;
+  display:flex; align-items:center; gap:8px;
+  margin:0 0 7px; padding:7px 0 6px;
+  background:var(--paper);
+  font-family:var(--f-ui); font-size:11.5px; font-weight:800;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3);
 }
-.gsec__n{
-  font-size:11.5px; font-weight:700; color:var(--ink-3);
-  background:var(--surface-2); border:1px solid var(--line);
-  border-radius:999px; padding:2px 9px;
+.gbrand__n{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gbrand__c{
+  flex:none; font-size:11px; font-weight:700; letter-spacing:0;
+  color:var(--ink-3); background:var(--surface-2);
+  border:1px solid var(--line); border-radius:999px; padding:1px 8px;
+}
+/* The brand mark, at the size of the heading it sits in. */
+.blogo--chip{ width:22px; height:22px; border-radius:6px; font-size:9px; flex:none; }
+.blogo--chip.blogo--img,
+.blogo--chip.blogo--mark,
+.blogo--chip.blogo--word{ padding:2px; }
+
+/* auto-fill, not auto-fit: an eight-device brand in a wide column should be
+   eight chips across the top of its block, not eight chips stretched to fill
+   the row. minmax's floor is the width a full model name needs before it has
+   to be truncated. */
+.gchips{
+  display:grid; gap:5px;
+  grid-template-columns:repeat(auto-fill,minmax(196px,1fr));
 }
 
-/* The compact selector. One line each, name only — the photograph, the screen
-   size and the year are on the right the moment a row is picked, and repeating
-   them down a list of 325 turns a selector into a spec sheet nobody reads. */
-.gpicks{ display:flex; flex-direction:column; gap:3px; padding-bottom:10px; }
-.gpick{
-  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
-  padding:9px 12px; cursor:pointer;
-  background:transparent; border:1px solid transparent; border-radius:var(--r-sm);
+.gchip{
+  display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+  min-width:0; padding:5px 10px 5px 5px; cursor:pointer;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm);
   font:inherit; color:var(--ink);
-  transition:background .12s, border-color .12s;
+  transition:background .12s, border-color .12s, box-shadow .12s;
 }
-.gpick:hover{ background:var(--surface-2); border-color:var(--line); }
-.gpick:focus-visible{ outline:2px solid var(--teal-500); outline-offset:-1px; }
-.gpick.is-on{ background:var(--teal-100); border-color:var(--teal-500); }
+.gchip:hover{ border-color:var(--teal-500); background:var(--surface-2); }
+.gchip:focus-visible{ outline:2px solid var(--teal-500); outline-offset:1px; }
+/* The whole chip is the selected state. No dot, no circle, no radio. */
+.gchip.is-on{
+  background:var(--teal-050); border-color:var(--teal-500);
+  box-shadow:inset 0 0 0 1px var(--teal-500);
+}
+.gchip.is-master{ border-color:var(--amber-400); background:var(--amber-050); }
+.gchip.is-master.is-on{ border-color:var(--teal-500); background:var(--teal-050); }
+/* The device that was searched for, where a match card previews the group it
+   was found in. Marked, but quietly: the card is already about that model. */
+.gchip.is-hit{ border-color:var(--teal-500); }
 
-.gpick__dot{
-  flex:none; width:14px; height:14px; border-radius:50%;
-  border:1.5px solid var(--line-strong, var(--ink-3)); background:var(--surface);
-  transition:border-color .12s, box-shadow .12s;
+/* The handset, at favicon size, on the white ground these cut-outs are shot
+   against. One border, on the chip, not a second one around the picture. */
+.gchip__ph{
+  position:relative; flex:none; width:30px; height:30px;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--ctile-paper, #FFF); border-radius:6px; overflow:hidden;
 }
-.gpick.is-on .gpick__dot{
-  border-color:var(--teal-600);
-  box-shadow:inset 0 0 0 3px var(--teal-600);
-}
-.gpick__n{
-  flex:1 1 auto; min-width:0; font-size:14px; font-weight:600;
+.gchip__img{ max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; display:block; }
+/* The stand-in for the 60 devices with no photograph, and for a URL that
+   fails: a handset outline drawn in CSS, not a 40-node SVG per chip. */
+.gchip__fb{ display:none; width:13px; height:20px; border:1.5px solid var(--ink-3); border-radius:3px; opacity:.5; }
+.gchip__ph.is-failed .gchip__img{ display:none; }
+.gchip__ph.is-failed .gchip__fb{ display:block; }
+
+.gchip__n{
+  flex:1 1 auto; min-width:0; font-size:13px; font-weight:600; line-height:1.25;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-.gpick.is-on .gpick__n{ font-weight:700; color:var(--teal-800, var(--ink)); }
-.gpick__flag{
-  flex:none; display:inline-flex; align-items:center; gap:4px;
-  font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
-  color:var(--teal-700);
-}
-.gpick__flag svg{ width:12px; height:12px; }
+.gchip.is-on .gchip__n{ font-weight:700; color:var(--teal-700); }
+
+.gchip__flag{ flex:none; display:inline-flex; color:var(--amber-700); }
+.gchip__flag svg{ width:13px; height:13px; }
+.gchip__flag--hit{ color:var(--teal-600); }
 
 /* ------------------------------------------------ right panel: the device */
 .ws__right--detail{ padding-top:0; }
 .gdet{ display:flex; flex-direction:column; gap:10px; }
 .gdet__top{ display:flex; align-items:center; gap:10px; }
+/* Beside the list on a desktop there is nothing to go back to, so the button
+   is not drawn at all; the mobile sheet turns it on. */
+.gdet__back{ display:none; }
+
+/* THE PHOTOGRAPH, AND NOTHING AROUND IT.
+
+   This was a bordered, tinted, radiused box with 14px of padding, and .dphoto
+   draws its own box inside that — so every handset arrived wearing two frames.
+   Both are gone. The image sits on the panel, sized to the width it has rather
+   than to what is left after a frame, and object-fit keeps the file's own
+   ratio: nothing here crops, stretches or replaces the picture. */
 .gdet__shot{
   display:flex; align-items:center; justify-content:center;
-  padding:14px; min-height:180px;
-  background:
-    radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%),
-    var(--surface-2);
-  border:1px solid var(--line); border-radius:var(--r);
+  padding:6px 0 2px; min-height:150px;
 }
-/* Bounded, so the name and the specifications under it are not pushed off. */
 .gdet__shot .dphoto{ width:100%; }
-.gdet__shot .dphoto__img{ width:min(100%,150px); height:auto; object-fit:contain; }
-.gdet__shot .dphoto__art{ height:170px; width:auto; }
+/* Bounded, so the name and the specifications under it are not pushed off. */
+.gdet__shot .dphoto__img{ width:auto; max-width:100%; max-height:230px; height:auto; object-fit:contain; }
+.gdet__shot .dphoto__art{ height:190px; width:auto; }
 
 .gdet__brand{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink-2); }
 .gdet__n{
@@ -2169,26 +2252,128 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* The centre column scrolls independently here, so the bar sticks to the top
      of that column rather than to the page. */
   .gbar{ top:0; }
+  /* A selected model's own header is the sticky thing in this column; the
+     section head under it must not claim top:0 as well. */
+  .ws__center .sec--flow .sec__head{
+    position:static; box-shadow:none; padding-top:16px;
+  }
 }
 
-/* -------------------------------------------------------------- narrow
-   Below the workspace breakpoint the three panels already stack, so the group
-   view rides that layout: it stays a page state rather than becoming a popup
-   on a phone. The bar keeps back, name and codes; the filter drops to the
-   full-width bar that already exists under it, and the category picture stays
-   because it is the smallest thing in the row and the one that says which part
-   this group is about. */
+/* ==========================================================================
+   NARROW — the result as a bottom sheet
+
+   A phone has no columns for a result to live in. The same markup that is
+   three columns on a desktop stacks here, and a result that begins below a
+   hero band, a search box and a category rail is a result you have to go
+   looking for.
+
+   So .ws__body itself becomes the sheet. Nothing is re-rendered to do it: on a
+   phone that element already holds exactly the right things in exactly the
+   right order — the categories column is display:none, the centre column has
+   the sticky master header and the brand-wise device list, and the right
+   column, which is display:block down here, has the selected device. Making
+   that one box fixed, rounded and scrollable turns the page into a sheet
+   without moving a node, so every id, handler and repaint keeps working.
+   ========================================================================== */
 @media (max-width:1179px){
   .ws__right--detail{ display:block; }
-  .gdet__shot{ min-height:160px; }
+
+  .gscrim{
+    position:fixed; inset:0; z-index:90; background:rgba(6,20,18,.5);
+    backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+    animation:fade .2s ease;
+  }
+
+  .ws__body--sheet{
+    position:fixed; z-index:100; left:0; right:0; bottom:0;
+    max-height:94dvh; height:94dvh;
+    display:flex; flex-direction:column;
+    background:var(--surface);
+    border-radius:var(--r-xl) var(--r-xl) 0 0;
+    box-shadow:var(--sh-3);
+    overflow-y:auto; overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+    /* The columns' own padding is gone with the columns (below), so the sheet
+       carries it. padding-inline on the scroller, not on the flattened
+       children, is what lets the sticky header bleed to both edges. */
+    padding:0 14px calc(22px + env(safe-area-inset-bottom));
+    animation:gsheetup .32s cubic-bezier(.2,.9,.25,1);
+  }
+  @keyframes gsheetup{ from{ transform:translateY(14%); opacity:.4; } }
+  @media (prefers-reduced-motion:reduce){
+    .ws__body--sheet{ animation:none; }
+  }
+
+  /* The page behind the sheet must not scroll with it. */
+  body.has-gsheet{ overflow:hidden; }
+
+  /* The columns are flattened away inside the sheet.
+
+     position:sticky cannot leave its own containing block, and .gbar lives two
+     boxes deep — inside #centerHead, inside .ws__center. Those two boxes end
+     where the device list ends, so the master header would unstick the moment
+     the reader reached the selected device's specifications underneath it. On a
+     desktop the same flattening is already applied to #centerHead for exactly
+     this reason; here both go and the header spans the whole scroll — which is
+     what "sticky inside the sheet" has to mean when the sheet holds the details
+     as well as the list. */
+  .ws__body--sheet .ws__center,
+  .ws__body--sheet .ws__center > .ws__head{ display:contents; }
+  .ws__body--sheet .ws__right{
+    display:block; padding:0; background:transparent; border:0;
+    /* so a picked device lands below the sticky header rather than under it */
+    scroll-margin-top:calc(var(--gbar-h,64px) + 8px);
+  }
+
+  /* Inside the sheet the SHEET is the scroller, so the header sticks to its
+     top rather than to the window's — the app's own topbar is behind the
+     scrim and no longer in the way. */
+  .ws__body--sheet .gbar{
+    top:0; margin-inline:-14px; padding-inline:14px;
+    background:var(--surface); border-radius:var(--r-xl) var(--r-xl) 0 0;
+  }
+  .ws__body--sheet .gbrand__h{ background:var(--surface); }
+  .ws__body--sheet .gbar__grab{
+    display:block; width:38px; height:4px; border-radius:99px;
+    background:var(--line); margin:9px auto 2px;
+  }
+  /* Back is the sheet's own dismiss, and the grab handle plus the scrim
+     already say so; the word is what makes the row too tight to hold the
+     handset's name. */
+  .ws__body--sheet .gback{ padding:0 9px; }
+  .ws__body--sheet .gback__t{ display:none; }
+
+  /* The way back to the list, at the top of the specifications the list led
+     to. It is the sheet's only up-navigation, so it is drawn as a control
+     rather than left as a label. */
+  .ws__body--sheet .gdet__top{ padding-top:14px; }
+  .ws__body--sheet .gdet__back{
+    display:inline-flex; align-items:center; gap:3px;
+    height:30px; padding:0 12px 0 7px; cursor:pointer;
+    background:var(--surface-2); color:var(--ink-2);
+    border:1px solid var(--line); border-radius:999px;
+    font:inherit; font-size:12px; font-weight:700;
+  }
+  .ws__body--sheet .gdet__back svg{ width:15px; height:15px; }
 }
+
 @media (max-width:900px){
   .gbar__filter{ display:none; }
+  .gbar__specst{ display:none; }
 }
 @media (max-width:560px){
-  .gbar{ gap:9px; padding:9px 0; }
+  .gbar__row{ gap:9px; padding:9px 0; }
   .gback{ padding:0 9px; }
   .gback__t{ display:none; }
   .gbar__n{ font-size:15.5px; }
   .catvis--bar{ width:38px; height:38px; }
+  /* The count and the group's codes do not fit on one 375px line beside a
+     34px handset, so they wrap onto two rather than one of them being
+     dropped: the count is what the reader came for and the codes are what
+     they quote at the counter. */
+  .gbar__meta{ flex-wrap:wrap; gap:5px 8px; }
+  .gchips{ grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); }
+  .gchip{ padding:4px 8px 4px 4px; gap:8px; }
+  .gchip__ph{ width:26px; height:26px; }
+  .gchip__n{ font-size:12.5px; }
 }

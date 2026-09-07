@@ -7,6 +7,15 @@
   (SM.__rebind = SM.__rebind || []).push(function () { db = SM.db; });
   var esc = C.esc, nf = C.nf;
 
+  /* An id, safe to put inside a CSS selector. Model ids are slugs today, so
+     nothing needs escaping — but a selector built by concatenation is a
+     selector that breaks the first time the catalogue ships an id with a dot
+     in it, and that failure looks like a UI bug rather than a data one. */
+  function cssEsc(v) {
+    var s = String(v == null ? '' : v);
+    return (global.CSS && CSS.escape) ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&');
+  }
+
   /* ------------------------------------------------------------------ state */
   var state = {
     theme: store('mpf.theme') || 'system',
@@ -25,7 +34,7 @@
       trending: [], suggest: [], newModels: [], restTotal: 0,
       /* An open compatibility group, and which of its devices the right panel
          is describing. Both null means the finder is in its default state. */
-      groupId: null, detailModelId: null, groupQ: '', groupShown: 60
+      groupId: null, detailModelId: null, groupQ: '', groupShown: 400
     },
     models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
       /* View state, not query state: the same records are already in memory,
@@ -255,7 +264,7 @@
       state.finder.groupId = r.params[0] || null;
       state.finder.detailModelId = null;
       state.finder.groupQ = '';
-      state.finder.groupShown = 80;
+      state.finder.groupShown = 400;
       /* The variant helpers are shared with the model page and hold one
          device's selection at a time; a group opens on its master. */
       state.deviceColour = 0;
@@ -275,6 +284,11 @@
     state.base = toPath(r);
     renderShellBits();
     renderPage(r);
+    /* renderPage may have replaced the whole workspace, taking the mobile
+       sheet's scrim with it. Asking again here is what stops a body left
+       locked by a sheet that no longer exists — navigating away from a group
+       is the one path that does not go through renderWorkspace. */
+    syncSheet();
     window.scrollTo({ top: 0, behavior: 'instant' in document.documentElement.style ? 'instant' : 'auto' });
   }
   /* Navigation writes a clean path through the History API. Nothing sets
@@ -673,8 +687,33 @@
       icon('copy') + esc(label) + ': ' + esc(value) + '</button>';
   }
 
-  /* The sticky bar: back, the master handset, its name, the part codes, the
-     category's own picture, and the filter.
+  /* ------------------------------------------------------------ the count
+
+     How many devices this group actually links, read from the compatibility
+     edges themselves rather than from any stored figure. api.groupMembers
+     resolves db.membersByGroup — the inverse of the model -> groups map the
+     bundle ships — so the number here and the list under it are always the
+     same set counted twice. Nothing about it is written down in this file.
+
+     compatibleCount is the group row's own tally and is used only when the
+     member list has not been hydrated yet, so a group that is still loading
+     says how big it is instead of saying nothing. */
+  function groupMemberCount(g) {
+    var members = api.groupMembers(g);
+    if (members.length) return members.length;
+    return g && g.compatibleCount ? g.compatibleCount : 0;
+  }
+
+  /* "325 devices linked" — the phrase, not the number. One place decides the
+     wording so the group header, the mobile sheet and the selected-model
+     header cannot drift into three ways of saying the same thing. */
+  function deviceCountLabel(n, verb) {
+    return nf(n) + ' device' + (n === 1 ? '' : 's') + (verb ? ' ' + verb : '');
+  }
+
+  /* The sticky master header: back, the master handset, its name, the part
+     codes, how many devices the group links, the category's own picture, and
+     the filter.
 
      It is a SIBLING of everything below it, not a wrapper around the head.
      position:sticky is bounded by its own parent's box, so nested inside a
@@ -690,64 +729,166 @@
   function groupBarHTML(row) {
     var g = row.group, cat = row.category, master = row.master;
     var codes = [g.groupNumber, g.partCode, g.oemPartNo].filter(Boolean).join(' · ');
+    var total = groupMemberCount(g);
 
     return '<div class="gbar">' +
-      '<button type="button" class="gback" data-act="close-group" ' +
-        'aria-label="Back to compatibility groups" title="Back to compatibility groups">' +
-        icon('chevronLeft') + '<span class="gback__t">Back</span></button>' +
+      /* The phone's own grab handle. Drawn only inside the mobile sheet, where
+         the header is the top of a panel rather than a column heading. */
+      '<span class="gbar__grab" aria-hidden="true"></span>' +
 
-      '<span class="gbar__shot">' +
-        SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'gbar__ph' }) +
-      '</span>' +
+      '<div class="gbar__row">' +
+        '<button type="button" class="gback" data-act="close-group" ' +
+          'aria-label="Back to compatibility groups" title="Back to compatibility groups">' +
+          icon('chevronLeft') + '<span class="gback__t">Back</span></button>' +
 
-      '<span class="gbar__id">' +
-        '<span class="gbar__n">' + esc(deviceTitle(master)) + '</span>' +
-        (codes ? '<span class="gbar__codes">' + esc(codes) + '</span>' : '') +
-      '</span>' +
+        '<span class="gbar__shot">' +
+          SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'gbar__ph' }) +
+        '</span>' +
 
-      '<span class="gbar__right">' +
-        categoryVisual(cat, { cls: 'catvis--bar' }) +
-        '<label class="field gbar__filter">' + icon('search') +
-          '<input class="input" id="gdq" placeholder="Filter these devices…" ' +
-          'value="' + esc(state.finder.groupQ || '') + '" ' +
-          'aria-label="Filter devices in this group" /></label>' +
-      '</span>' +
+        '<span class="gbar__id">' +
+          '<span class="gbar__n">' + esc(deviceTitle(master)) + '</span>' +
+          '<span class="gbar__meta">' +
+            '<span class="gbar__count" id="gdCount">' +
+              esc(deviceCountLabel(total, 'linked')) + '</span>' +
+            (codes ? '<span class="gbar__codes">' + esc(codes) + '</span>' : '') +
+          '</span>' +
+        '</span>' +
+
+        '<span class="gbar__right">' +
+          categoryVisual(cat, { cls: 'catvis--bar' }) +
+          '<label class="field gbar__filter">' + icon('search') +
+            '<input class="input" id="gdq" placeholder="Filter these devices…" ' +
+            'value="' + esc(state.finder.groupQ || '') + '" ' +
+            'aria-label="Filter devices in this group" /></label>' +
+        '</span>' +
+      '</div>' +
       '</div>';
   }
 
-  /* One device, as a row you pick. Name only.
+  /* One device, as a chip you pick.
 
-     Everything else that used to be here — the photograph, the screen size,
-     the screen type, the year — is on the right the moment the row is picked,
-     and repeating it down a list of 325 turns a selector into a spec sheet
-     nobody reads. This list has one job: switch the panel. */
-  function groupDeviceHTML(m, row, sel) {
-    var isMaster = m.id === row.master.id;
-    return '<button type="button" class="gpick' + (sel ? ' is-on' : '') + '" ' +
-      'data-act="pick-device" data-id="' + esc(m.id) + '" ' +
+     A small photograph of the handset and its full name, side by side, at the
+     height of one line of text. The photograph is the device's own image from
+     the catalogue — 4,873 of the 4,933 have one — drawn at favicon size and
+     lazily, so a group of 325 costs 325 <img> elements the browser is free to
+     leave unfetched until they are scrolled to.
+
+     The drawn fallback that SM.art.photo ships alongside every photograph is
+     deliberately NOT used here. It is a full gradient-and-camera SVG carrying
+     its own gradient id, and 325 of those in the DOM at 26px is a great deal
+     of paint for something the size of a favicon. A device with no image gets
+     one flat glyph instead, and its name — which is what the chip is for — is
+     unaffected.
+
+     There is no radio and no circle. The chip's own ground says which one is
+     selected; a control that repeats that is a control that can disagree with
+     it. */
+  function deviceChipHTML(m, opts) {
+    opts = opts || {};
+    var isMaster = m.id === opts.masterId;
+    var isHit = !isMaster && !!opts.hitId && m.id === opts.hitId;
+    var sel = !!opts.sel && opts.sel.id === m.id;
+    var img = m.image
+      ? '<img class="gchip__img" src="' + esc(m.image) + '" alt="" loading="lazy" ' +
+        'decoding="async" referrerpolicy="no-referrer" ' +
+        'onerror="this.parentNode.classList.add(&quot;is-failed&quot;)" />'
+      : '';
+    return '<button type="button" class="gchip' + (sel ? ' is-on' : '') +
+      (isMaster ? ' is-master' : '') + (isHit ? ' is-hit' : '') + '" ' +
+      'data-act="' + esc(opts.act || 'pick-device') + '" data-id="' + esc(m.id) + '" ' +
+      'title="' + esc(m.fullName) + '" ' +
       'aria-pressed="' + (sel ? 'true' : 'false') + '">' +
-      '<span class="gpick__dot" aria-hidden="true"></span>' +
-      '<span class="gpick__n">' + esc(m.fullName) + '</span>' +
-      (isMaster ? '<span class="gpick__flag">' + icon('crown') + 'Master</span>' : '') +
+      '<span class="gchip__ph' + (m.image ? '' : ' is-failed') + '" aria-hidden="true">' +
+        img + '<span class="gchip__fb"></span>' +
+      '</span>' +
+      '<span class="gchip__n">' + esc(m.fullName) + '</span>' +
+      /* The crown and the tick are the whole of what marks the master and the
+         searched-for device apart, so each carries the words as well. A title
+         attribute is a hover tooltip, not an accessible name — without the .sr
+         span these two chips read to a screen reader exactly like the other
+         323. */
+      (isMaster
+        ? '<span class="gchip__flag">' + icon('crown') +
+          '<span class="sr">Master model</span></span>'
+        : isHit
+          ? '<span class="gchip__flag gchip__flag--hit">' + icon('check') +
+            '<span class="sr">Your model</span></span>'
+          : '') +
       '</button>';
   }
 
-  function groupCenterHTML(row) {
-    var all = api.groupMembers(row.group);
-    var q = String(state.finder.groupQ || '').trim().toLowerCase();
-    var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
+  /* A run of chips, in the responsive grid they share. Used on its own for a
+     short list — a match card's preview of eight — and once per brand by the
+     block builder below.
 
+     Nothing at all for an empty list: a group whose members the server has not
+     released yet would otherwise get an empty grid with a heading over it,
+     which reads as a list that failed rather than as one not asked for. */
+  function chipGridHTML(list, opts) {
+    if (!list || !list.length) return '';
+    return '<div class="gchips">' + list.map(function (m) {
+      return deviceChipHTML(m, opts);
+    }).join('') + '</div>';
+  }
+
+  /* --------------------------------------------------------- brand blocks
+
+     325 devices in one uninterrupted sequence is a list you scroll rather than
+     read. Split by the brand each device already carries, it becomes thirteen
+     short lists you can skip between — and the brand is the first thing a
+     repairer knows about the handset in their hand.
+
+     The order is the master's own brand first, because that is the device the
+     group is named after, then the rest by how many devices each contributes.
+     Both come out of the data; nothing here names a brand.
+
+     @param {Array}  list  the devices to show, already filtered
+     @param {object} opts  as deviceChipHTML, plus masterId deciding the order */
+  function brandBlocksHTML(list, opts) {
+    opts = opts || {};
+    var master = db.modelById[opts.masterId];
+    var masterBrand = master ? master.brandId : null;
+
+    var order = [];
+    var byBrand = Object.create(null);
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i];
+      var bid = m.brandId || '?';
+      if (!byBrand[bid]) { byBrand[bid] = []; order.push(bid); }
+      byBrand[bid].push(m);
+    }
+
+    order.sort(function (a, b) {
+      if (a === masterBrand) return -1;
+      if (b === masterBrand) return 1;
+      var d = byBrand[b].length - byBrand[a].length;
+      if (d) return d;
+      var an = (db.brandById[a] || {}).name || a;
+      var bn = (db.brandById[b] || {}).name || b;
+      return an.localeCompare(bn);
+    });
+
+    return order.map(function (bid) {
+      var mine = byBrand[bid];
+      var b = db.brandById[bid] || { id: bid, name: mine[0].brand || bid };
+      return '<section class="gbrand">' +
+        '<h3 class="gbrand__h">' +
+          SM.brandLogo(b, 'blogo--chip') +
+          '<span class="gbrand__n">' + esc(b.name) + '</span>' +
+          '<span class="gbrand__c">' + nf(mine.length) + '</span>' +
+        '</h3>' +
+        chipGridHTML(mine, opts) +
+        '</section>';
+    }).join('');
+  }
+
+  function groupCenterHTML(row) {
     return groupBarHTML(row) +
-      '<div class="gsec">' +
-        '<h2 class="gsec__h">Devices in this group</h2>' +
-        '<span class="gsec__n" id="gdCount">' + nf(list.length) +
-          (q ? ' of ' + nf(all.length) : '') + '</span>' +
-      '</div>' +
       '<div class="fbar"><div class="field grow">' + icon('search') +
         '<input class="input" id="gdqm" placeholder="Filter these devices…" ' +
         'value="' + esc(state.finder.groupQ || '') + '" ' +
         'aria-label="Filter devices in this group" /></div></div>' +
-      '<div id="groupList">' + groupListHTML(row) + '</div>';
+      '<div id="groupList" class="glist">' + groupListHTML(row) + '</div>';
   }
 
   /* Just the list. Repainted on its own when the filter changes, so the input
@@ -756,18 +897,21 @@
     var all = api.groupMembers(row.group);
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
-    var shown = list.slice(0, state.finder.groupShown || 80);
+    /* The cap is a guard rail, not a page size: the largest group in the
+       catalogue is 325 and the median is 3, so today it never fires. It is
+       here so that a group ten times that size degrades into a button rather
+       than into a second of blocked scripting. */
+    var shown = list.slice(0, state.finder.groupShown || 400);
     var sel = detailModel();
-    return (shown.length
-      ? '<div class="gpicks">' + shown.map(function (m) {
-          return groupDeviceHTML(m, row, !!sel && sel.id === m.id);
-        }).join('') + '</div>' +
-        (list.length > shown.length
-          ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
-            'Show ' + nf(list.length - shown.length) + ' more</button></div>'
-          : '')
-      : '<div class="notice">' + icon('alert') +
-        '<span>No device in this group matches that filter.</span></div>');
+    if (!shown.length) {
+      return '<div class="notice">' + icon('alert') +
+        '<span>No device in this group matches that filter.</span></div>';
+    }
+    return brandBlocksHTML(shown, { masterId: row.master.id, sel: sel }) +
+      (list.length > shown.length
+        ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
+          'Show ' + nf(list.length - shown.length) + ' more</button></div>'
+        : '');
   }
 
   /* The right panel: the selected device, in the space a sidebar has.
@@ -794,9 +938,23 @@
 
     return '<div class="gdet">' +
       '<div class="gdet__top">' +
+        /* Drawn only inside the mobile sheet, where the list this device was
+           picked from is thousands of pixels above. Beside the list on a
+           desktop it would be a button that scrolls nothing. */
+        '<button type="button" class="gdet__back" data-act="back-to-list">' +
+          icon('chevronLeft') + 'Device list</button>' +
         '<span class="t-lab">' + (isMaster ? 'Master model' : 'Selected device') + '</span>' +
       '</div>' +
 
+      /* The photograph, and nothing around it.
+
+         This used to sit in a bordered, tinted, radiused box — inside which
+         .dphoto draws its own box — so every handset in the panel arrived
+         wearing two frames it did not need. The picture is a cut-out on a
+         white ground already; a second outline around it reads as a smudge on
+         the part rather than as a card. The box is gone, the image is bigger
+         for the space it frees, and object-fit still keeps whatever ratio the
+         file actually has. */
       '<div class="gdet__shot">' +
         SM.art.photo(m, { src: deviceImageUrl(m), colourIdx: state.deviceColour || 0,
                           alt: m.fullName, eager: true, cls: 'gdet__ph' }) +
@@ -877,6 +1035,119 @@
       '</div>' +
       '</div>';
   }
+
+  /* ======================================================================
+     THE MOBILE SHEET
+
+     On a desktop the workspace is three columns and the group lives in the
+     middle one. On a phone there are no columns to live in: the same markup
+     stacks, and a result that begins below a hero band, a search box and a
+     category rail is a result you have to go looking for.
+
+     So below the workspace breakpoint the RESULT — an open group, or a
+     selected model's matches — rises as a bottom sheet over the finder that
+     produced it. Nothing is re-rendered into a second DOM to do this: the sheet
+     IS .ws__body, which on a phone already contains exactly the right things in
+     exactly the right order (the categories column is display:none, the centre
+     column holds the sticky master header and the device list, the right column
+     holds the selected device's details). Making that one element a fixed,
+     rounded, scrollable panel turns the page into a sheet without moving a
+     single node, so every handler, every id and every repaint keeps working.
+
+     The scrim and the body scroll lock are the only additions, and both are
+     driven from here so that they can never outlive the state that opened them.
+     ====================================================================== */
+  var SHEET_MQ = '(max-width:1179px)';
+  function sheetIsNarrow() {
+    return !!(global.matchMedia && global.matchMedia(SHEET_MQ).matches);
+  }
+
+  /* ------------------------------------------------- where the header ends
+
+     The brand headings stick UNDER the master header, which means they need
+     its height. That height is not a constant: it grows with a long device
+     name that wraps, with a third part code, and with the grab handle the
+     mobile sheet adds. A number written into the stylesheet would be wrong for
+     most groups — either a gap under the header or a heading sliding beneath
+     it — so it is measured from the element itself and published as --gbar-h.
+
+     ResizeObserver where it exists, which is every browser this app supports
+     bar none; the initial write covers the rest, and a wrong value there costs
+     a few pixels of overlap on one heading, not a broken list. */
+  var gbarRO = null;
+  function measureGbar() {
+    var bar = document.querySelector('.gbar');
+    var host = document.documentElement;
+    if (!bar) { host.style.removeProperty('--gbar-h'); return; }
+    var h = Math.round(bar.getBoundingClientRect().height);
+    if (h > 0) host.style.setProperty('--gbar-h', h + 'px');
+
+    if (global.ResizeObserver) {
+      if (gbarRO) gbarRO.disconnect();
+      gbarRO = new ResizeObserver(function () {
+        var b = document.querySelector('.gbar');
+        if (!b) return;
+        var n = Math.round(b.getBoundingClientRect().height);
+        if (n > 0) host.style.setProperty('--gbar-h', n + 'px');
+      });
+      gbarRO.observe(bar);
+    }
+  }
+
+  /* True when the finder is showing a RESULT rather than the library: a group
+     is open, or a model has been selected and its matches are on screen. */
+  function sheetWanted() {
+    return !!(state.route && state.route.name === 'finder' &&
+      (state.finder.groupId || state.finder.modelId));
+  }
+
+  function syncSheet() {
+    var body = document.querySelector('.ws__body');
+    if (!body) {
+      document.body.classList.remove('has-gsheet');
+      return;
+    }
+    var on = sheetWanted() && sheetIsNarrow();
+    /* Toggling the class on a body that is already in that state would restart
+       the slide-up animation — which is what a resize, a filter keystroke or a
+       device pick would otherwise do. */
+    if (body.classList.contains('ws__body--sheet') !== on) {
+      body.classList.toggle('ws__body--sheet', on);
+    }
+    document.body.classList.toggle('has-gsheet', on);
+    /* After the class, not before: the sheet adds a grab handle to the header,
+       so its height is not the height it had a moment ago. */
+    measureGbar();
+
+    var scrim = document.getElementById('gscrim');
+    if (on && !scrim) {
+      scrim = document.createElement('div');
+      scrim.id = 'gscrim';
+      scrim.className = 'gscrim';
+      /* Tapping the page behind a sheet closes it — the same gesture every
+         other sheet in this app answers to. data-act routes it through the one
+         click handler rather than adding a listener that has to be removed. */
+      scrim.setAttribute('data-act', state.finder.groupId ? 'close-group' : 'clear-model');
+      scrim.setAttribute('aria-hidden', 'true');
+      body.parentNode.insertBefore(scrim, body);
+    } else if (on && scrim) {
+      scrim.setAttribute('data-act', state.finder.groupId ? 'close-group' : 'clear-model');
+    } else if (scrim) {
+      scrim.parentNode.removeChild(scrim);
+    }
+  }
+
+  /* A phone rotated into landscape, or a window dragged past 1180px, changes
+     whether the result should be a sheet at all. Listening to the query itself
+     rather than to resize means one callback at the boundary instead of one per
+     frame of a drag. */
+  if (global.matchMedia) {
+    var sheetMql = global.matchMedia(SHEET_MQ);
+    var onSheetMq = function () { syncSheet(); };
+    if (sheetMql.addEventListener) sheetMql.addEventListener('change', onSheetMq);
+    else if (sheetMql.addListener) sheetMql.addListener(onSheetMq);
+  }
+
   function renderWorkspace() {
     if (!document.getElementById('catPanel')) { renderFinder(document.getElementById('page')); return; }
     document.getElementById('catPanel').innerHTML = categoryPanelHTML();
@@ -898,10 +1169,12 @@
       if (lm0) lm0.innerHTML = '';
       var rail0 = document.getElementById('catRail');
       if (rail0) rail0.innerHTML = railHTML();
+      syncSheet();
       return;
     }
 
     document.getElementById('centerHead').innerHTML = centerHeadHTML();
+    syncSheet();
 
     var rail = document.getElementById('catRail');
     if (rail) {
@@ -925,11 +1198,53 @@
     var panel = document.getElementById('brandPanel');
     if (panel) panel.innerHTML = groupDetailHTML();
     var sel = detailModel();
-    Array.prototype.forEach.call(document.querySelectorAll('.gpick'), function (el) {
-      var on = !!sel && el.getAttribute('data-id') === sel.id;
-      el.classList.toggle('is-on', on);
-      el.setAttribute('aria-pressed', on ? 'true' : 'false');
-    });
+    /* Only the chip that WAS on and the chip that is on now are touched. The
+       old pass wrote two attributes on all 325 chips for every pick, which is
+       325 style invalidations to move one highlight. */
+    var want = sel ? sel.id : null;
+    var prev = document.querySelector('.gchip.is-on');
+    if (prev && prev.getAttribute('data-id') !== want) {
+      prev.classList.remove('is-on');
+      prev.setAttribute('aria-pressed', 'false');
+    }
+    if (want) {
+      var next = document.querySelector('.gchip[data-id="' + cssEsc(want) + '"]');
+      if (next) { next.classList.add('is-on'); next.setAttribute('aria-pressed', 'true'); }
+    }
+  }
+
+  /* In the mobile sheet the details are BELOW the list — which is the right
+     order to read them in, and the wrong place to leave them after a tap three
+     hundred devices down: the panel updates somewhere off screen and the tap
+     looks like it did nothing. So the sheet carries the reader to the answer,
+     and the answer carries a way back to the exact chip they came from.
+
+     Not smoothly. The gap can be eight thousand pixels, and a smooth scroll
+     across that either takes seconds or gives up part way. A jump that the
+     sticky master header stays put across reads as a panel changing rather
+     than as the page running away.
+
+     scroll-margin-top on the panel is what keeps its own heading — and the way
+     back — clear of that sticky header.
+
+     Only in the sheet. On a desktop the panel is already beside the list and
+     nothing needs to move; scrolling the column there would take the list out
+     from under the hand that is picking from it. */
+  function revealDetailOnPhone() {
+    var body = document.querySelector('.ws__body--sheet');
+    var panel = document.getElementById('brandPanel');
+    if (!body || !panel || !panel.scrollIntoView) return;
+    panel.scrollIntoView({ behavior: 'auto', block: 'start' });
+  }
+
+  /* The way back: the chip that is selected, which is the one that was tapped
+     to get here. Scrolling to the top of the list instead would be a different
+     journey home from the one taken out. */
+  function backToDeviceList() {
+    var body = document.querySelector('.ws__body--sheet');
+    if (!body) return;
+    var chip = document.querySelector('.gchip.is-on') || document.querySelector('.gchip');
+    if (chip && chip.scrollIntoView) chip.scrollIntoView({ behavior: 'auto', block: 'center' });
   }
 
   function repaintGroupList() {
@@ -941,47 +1256,94 @@
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var n = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }).length : all.length;
     var c = document.getElementById('gdCount');
-    if (c) c.textContent = nf(n) + (q ? ' of ' + nf(all.length) : '');
+    /* Filtering narrows what is on screen; it does not change how many devices
+       the group links. "12 of 325 devices" says both, and the group's own
+       total never silently becomes the size of a search. */
+    if (c) {
+      c.textContent = q
+        ? nf(n) + ' of ' + deviceCountLabel(all.length)
+        : deviceCountLabel(all.length, 'linked');
+    }
   }
 
   /* Kept as the old name so nothing else had to change; the two are the same
      operation now that there is only one layout. */
   function renderBrowse() { renderWorkspace(); }
 
-  /* The selected model, as a card at the top of the CENTRE column.
+  /* ------------------------------------------------- devices linked to ONE
 
-     It used to be the whole page. It is a heading for the results below it,
-     which is what it always was — so it lives in the column those results are
-     in, and the panels either side stay where they are. */
+     Every distinct device that shares at least one compatibility group with
+     this model. Read from the same two maps the group view reads — the model's
+     groups, and each of those groups' members — so "88 devices linked" and the
+     lists underneath it are the same edges counted two ways.
+
+     The model itself is seeded into `seen`, because a phone is not compatible
+     with itself; a device that appears in six of its groups is counted once,
+     because it is one phone you could take the part off. */
+  function linkedDeviceCount(modelId) {
+    var gids = (db.groupsByModel && db.groupsByModel[modelId]) || [];
+    var seen = Object.create(null);
+    seen[modelId] = 1;
+    var n = 0;
+    for (var i = 0; i < gids.length; i++) {
+      var ids = (db.membersByGroup && db.membersByGroup[gids[i]]) || [];
+      for (var j = 0; j < ids.length; j++) {
+        if (!seen[ids[j]]) { seen[ids[j]] = 1; n++; }
+      }
+    }
+    return n;
+  }
+
+  /* The selected model, as the head of the CENTRE column.
+
+     It used to be the whole page, then a card that scrolled away with the
+     results it was heading. It is now the SAME sticky header the group view
+     uses — the same element, the same classes, the same behaviour — because a
+     search result and an opened group are one result page in two states, and
+     shipping two headers is how they drift apart.
+
+     What it says is what the reader arrived to find out: which handset this is
+     about, how many devices are linked to it, and across how many groups. All
+     three are counted from the compatibility edges at the moment of render. */
   function selectedModelHTML() {
     var f = state.finder;
     var m = db.modelById[f.modelId];
     if (!m) return '';
-    var b = db.brandById[m.brandId];
-    /* the double-prime for inches as the character, not the entity: these chips
-       go through esc() and an entity would arrive on screen as its own source */
-    var chips = [
-      m.displaySize ? m.displaySize + '″' : null,
-      m.screenType || null,
-      m.releaseDate || null
-    ].filter(Boolean);
+    var gids = (db.groupsByModel && db.groupsByModel[m.id]) || [];
+    var cats = (db.partCountsByCategory && db.partCountsByCategory[m.id]) || {};
+    var nCats = Object.keys(cats).length;
+    var linked = linkedDeviceCount(m.id);
 
-    return '<div class="selmodel">' +
-      SM.brandLogo(b, 'blogo--lg') +
-      '<div class="grow" style="min-width:150px">' +
-      '<span class="t-lab">Selected model</span>' +
-      '<h2 class="t-h3" style="margin-top:2px">' + esc(m.fullName) + '</h2>' +
-      (chips.length
-        ? '<div class="row wrap" style="gap:6px;margin-top:7px">' +
-          chips.map(function (c) { return '<span class="pill">' + esc(c) + '</span>'; }).join('') +
-          '</div>'
-        : '') +
+    var meta = [
+      gids.length ? nf(gids.length) + ' group' + (gids.length === 1 ? '' : 's') : null,
+      nCats ? nf(nCats) + ' part ' + (nCats === 1 ? 'category' : 'categories') : null
+    ].filter(Boolean).join(' · ');
+
+    return '<div class="gbar">' +
+      '<span class="gbar__grab" aria-hidden="true"></span>' +
+      '<div class="gbar__row">' +
+        '<button type="button" class="gback" data-act="clear-model" ' +
+          'aria-label="Clear the selected model" title="Clear the selected model">' +
+          icon('chevronLeft') + '<span class="gback__t">Back</span></button>' +
+
+        '<span class="gbar__shot">' +
+          SM.art.photo(m, { alt: m.fullName, eager: true, cls: 'gbar__ph' }) +
+        '</span>' +
+
+        '<span class="gbar__id">' +
+          '<span class="gbar__n">' + esc(deviceTitle(m)) + '</span>' +
+          '<span class="gbar__meta">' +
+            '<span class="gbar__count">' + esc(deviceCountLabel(linked, 'linked')) + '</span>' +
+            (meta ? '<span class="gbar__codes">' + esc(meta) + '</span>' : '') +
+          '</span>' +
+        '</span>' +
+
+        '<span class="gbar__right">' +
+          '<a class="btn btn--outline btn--sm gbar__specs" href="/model/' + esc(m.id) + '">' +
+            icon('info') + '<span class="gbar__specst">Specs</span></a>' +
+        '</span>' +
       '</div>' +
-      '<div class="row wrap" style="gap:8px">' +
-      '<a class="btn btn--outline btn--sm" href="/model/' + esc(m.id) + '">' +
-      icon('info') + 'Specs</a>' +
-      '<button class="btn btn--ghost btn--sm" data-act="clear-model">' + icon('close') + 'Clear</button>' +
-      '</div></div>';
+      '</div>';
   }
 
   function centerHeadHTML() {
@@ -995,12 +1357,18 @@
        "Compatibility groups" title and the sort control belong to the library
        view and would be describing something else here. */
     if (f.modelId) {
-      /* Same section shell as the library view — sticky heading, the desktop
-         filter field in the head, the compact filter bar below it on narrow
-         screens. Only the words change, so the column behaves identically
-         whether it is holding matches or the whole library. */
+      /* Same section shell as the library view — the desktop filter field in
+         the head, the compact filter bar below it on narrow screens. Only the
+         words change, so the column behaves identically whether it is holding
+         matches or the whole library.
+
+         sec--flow, though: the library's section head sticks to the top of the
+         column, and here the SELECTED MODEL is what has to stay put. Two
+         elements stuck to top:0 in one scroller do not queue — they stack on
+         top of each other, and the one that loses is the one the reader
+         needs. */
       return selectedModelHTML() +
-        '<div class="sec"><div class="sec__head"><div class="sec__title">' +
+        '<div class="sec sec--flow"><div class="sec__head"><div class="sec__title">' +
         '<h2>Compatible parts</h2><span class="sec__count" id="gcount">…</span></div>' +
         '<div class="row wrap ws-tools" style="gap:8px">' +
         '<span class="ws-only">' + searchField('gqd') + '</span></div></div>' +
@@ -1680,7 +2048,11 @@
       '<span class="pill pill--brand">' + g.compatibleCount + ' total</span>' +
       (master.id !== hitModel.id ? '<span class="pill pill--ok">' + icon('check') + esc(hitModel.modelName) + ' included</span>' : '') +
       '</div>' +
-      '<div class="devlist">' + C.deviceRows(preview, { masterId: master.id, hitId: hitModel.id }) + '</div>' +
+      /* The same chip the group view is built from, so a device reads
+         identically whether it is previewed in a match card or listed in the
+         group that card opens. Eight of them: too few to be worth splitting by
+         brand, which is why this is the plain grid rather than the blocks. */
+      chipGridHTML(preview, { masterId: master.id, hitId: hitModel.id, act: 'open-model' }) +
       (g.compatibleCount > preview.length
         ? '<button class="expandbtn" data-act="open-group" data-id="' + g.groupId + '">' +
           icon('layers') + 'View all ' + g.compatibleCount + ' compatible models</button>'
@@ -4248,13 +4620,18 @@
       case 'pick-device':
         state.finder.detailModelId = id;
         repaintGroupDetail();
+        revealDetailOnPhone();
         break;
+
+      /* The mobile sheet's way back from a device's specifications to the list
+         it was picked from. */
+      case 'back-to-list': backToDeviceList(); break;
 
       /* The red X. Back to the group list, in place. */
       case 'close-group': go('/finder'); break;
 
       case 'more-devices':
-        state.finder.groupShown = (state.finder.groupShown || 60) + 60;
+        state.finder.groupShown = (state.finder.groupShown || 400) + 400;
         repaintGroupList();
         break;
 
@@ -4717,7 +5094,7 @@
       clearTimeout(gdqTimer);
       gdqTimer = setTimeout(function () {
         state.finder.groupQ = el.value;
-        state.finder.groupShown = 60;
+        state.finder.groupShown = 400;
         var gtwin = document.getElementById(el.id === 'gdq' ? 'gdqm' : 'gdq');
         if (gtwin && gtwin.value !== el.value) gtwin.value = el.value;
         repaintGroupList();
