@@ -49,6 +49,16 @@
 .seo__main a{ color:var(--teal-600); }
 .seo__also{ margin-top:26px; font-size:14px; }
 
+/* The finder is what this page exists to send people to, so it gets a real
+   button rather than a link buried in a sentence. The buttons themselves are
+   the site's own .btn from styles.css — nothing new is invented here. These
+   two rules exist only because `.seo__main a` sets a colour and would
+   otherwise repaint the primary button's white text teal. */
+.seo__cta{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:22px 0 6px; }
+.seo__cta a{ text-decoration:none; }
+.seo__cta .btn--primary{ color:#fff; }
+.seo__cta .btn--outline{ color:var(--ink); }
+
 /* Headline numbers. Real counts from the catalogue, not decoration. */
 .seo__stats{
   display:flex; flex-wrap:wrap; gap:10px; list-style:none; padding:0; margin:20px 0 8px;

@@ -216,11 +216,27 @@
      said another, which is the exact problem clean URLs were added to fix. */
   var ROUTES = { finder: 1, models: 1, model: 1, plans: 1, account: 1, group: 1 };
 
-  /** True when this URL is a page the app renders. */
+  /** True when this URL is a page the app renders.
+
+     The bare "/" is deliberately NOT one of them, and that is a correction.
+     `!first` used to make it one, and the cost was the whole homepage:
+     normaliseUrl rewrote / to /finder, applySeo then overwrote the canonical,
+     title and description with the finder's, and the observer in index.html
+     deleted the pre-rendered content. Google indexes the RENDERED page, so its
+     stored copy of the front page carried
+     `<link rel="canonical" href=".../finder">` and the title "Mobile
+     Compatibility Finder" — the site's own name was no longer the first thing
+     on its own homepage, and the one URL a brand search ranks was telling
+     Google it was a duplicate of something else. Search Console confirmed it:
+     an inspection of / reported a user-declared canonical of /finder.
+
+     So / is now treated exactly like /categories/cc-board and
+     /universal-tempered-glass: a pre-rendered page the app leaves alone. The
+     finder keeps its own URL at /finder. */
   function ownsPath(url) {
     var raw = String(url || '').replace(/^#\/?/, '').replace(/^\/+/, '').split(/[?#]/)[0];
     var first = raw.split('/').filter(Boolean)[0];
-    return !first || !!ROUTES[first];
+    return !!first && !!ROUTES[first];
   }
 
   function toPath(route) {
