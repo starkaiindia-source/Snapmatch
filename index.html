@@ -38,14 +38,32 @@
   {
     "@context": "https://schema.org",
     "@type": "Organization",
+    "@id": "https://www.mobilepartsfinder.com/#organization",
     "name": "Mobile Parts Finder",
     "url": "https://www.mobilepartsfinder.com/",
     "logo": "https://www.mobilepartsfinder.com/assets/brand/icon-512.png",
-    "description": "Spare-part compatibility database for mobile phone shops, accessory dealers and repair technicians."
+    "email": "Stark.ai.India@gmail.com",
+    "description": "Spare-part compatibility database for mobile phone shops, accessory dealers and repair technicians.",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": "Coimbatore",
+      "addressRegion": "Tamil Nadu",
+      "addressCountry": "IN"
+    },
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "contactType": "customer support",
+      "email": "Stark.ai.India@gmail.com",
+      "areaServed": "IN",
+      "availableLanguage": "English"
+    }
   },
   {
     "@context": "https://schema.org",
     "@type": "WebSite",
+    "publisher": {
+      "@id": "https://www.mobilepartsfinder.com/#organization"
+    },
     "name": "Mobile Parts Finder",
     "url": "https://www.mobilepartsfinder.com/",
     "potentialAction": {
@@ -225,6 +243,15 @@ try{var t=localStorage.getItem('mpf.theme');if(t==='dark'||t==='light')document.
       <a href="/models/tecno">Tecno</a>
       <a href="/models">All brands</a>
     </nav>
+    <nav aria-label="About and legal">
+      <a href="/mobile-parts-finder">About</a>
+      <a href="/contact">Contact</a>
+      <a href="/privacy">Privacy Policy</a>
+      <a href="/terms">Terms &amp; Conditions</a>
+      <a href="/refund">Refund Policy</a>
+    </nav>
+    <p class="seo__legal">Mobile Parts Finder &middot; Coimbatore, Tamil Nadu, India &middot;
+    <a href="mailto:Stark.ai.India@gmail.com">Stark.ai.India@gmail.com</a></p>
   </footer>
 </div>
 

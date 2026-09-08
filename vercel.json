@@ -74,6 +74,22 @@
       "use": "@vercel/static"
     },
     {
+      "src": "contact/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "privacy/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "terms/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "refund/**",
+      "use": "@vercel/static"
+    },
+    {
       "src": "universal-tempered-glass/**",
       "use": "@vercel/static"
     },
@@ -100,6 +116,13 @@
       "status": 308,
       "headers": {
         "Location": "/$1"
+      }
+    },
+    {
+      "src": "/about",
+      "status": 308,
+      "headers": {
+        "Location": "/mobile-parts-finder"
       }
     },
     {

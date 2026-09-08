@@ -43,6 +43,20 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const ORIGIN = 'https://www.mobilepartsfinder.com';
 const BRAND = 'Mobile Parts Finder';
+
+/* The business facts that are confirmed, and deliberately only those.
+
+   There is no phone number, no GSTIN, no registration number, no street
+   address, no founding date and no social profile here, because none of those
+   has been confirmed. A legal page is the one place on a site where a plausible
+   guess is worse than a gap: it is the page a customer, a payment provider or a
+   regulator reads when something has gone wrong. */
+const SUPPORT_EMAIL = 'Stark.ai.India@gmail.com';
+const LOCALITY = 'Coimbatore';
+const REGION = 'Tamil Nadu';
+const COUNTRY = 'India';
+const PLACE = LOCALITY + ', ' + REGION + ', ' + COUNTRY;
+
 const OG_IMAGE = ORIGIN + '/assets/brand/og-image.png';
 
 const dataset = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'dataset.json'), 'utf8'));
@@ -439,6 +453,15 @@ ${p.body}
       ${BRANDS.slice(0, 12).map(b => `<a href="/models/${b.id}">${esc(b.name)}</a>`).join('\n      ')}
       <a href="/models">All brands</a>
     </nav>
+    <nav aria-label="About and legal">
+      <a href="/mobile-parts-finder">About</a>
+      <a href="/contact">Contact</a>
+      <a href="/privacy">Privacy Policy</a>
+      <a href="/terms">Terms &amp; Conditions</a>
+      <a href="/refund">Refund Policy</a>
+    </nav>
+    <p class="seo__legal">${esc(BRAND)} &middot; ${esc(PLACE)} &middot;
+    <a href="mailto:${esc(SUPPORT_EMAIL)}">${esc(SUPPORT_EMAIL)}</a></p>
   </footer>
 </div>
 
@@ -467,14 +490,38 @@ function breadcrumbLd(trail) {
   };
 }
 
+/* One organisation node, given a stable @id so every page that emits it is
+   talking about the same entity rather than declaring a new one. Google has to
+   decide that "Mobile Parts Finder" names a thing before it can rank the site
+   for its own name, and a consistent identifier is most of that work.
+
+   No telephone: none is published anywhere on this site, and schema that
+   contradicts the pages it describes is worse than schema that is quieter.
+   No sameAs, because no social profile has been verified as belonging to this
+   business; an unverified one would point the entity at somebody else. */
 const ORG_LD = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
+  '@id': ORIGIN + '/#organization',
   name: BRAND,
   url: ORIGIN + '/',
   logo: ORIGIN + '/assets/brand/icon-512.png',
+  email: SUPPORT_EMAIL,
   description: 'Spare-part compatibility database for mobile phone shops, accessory ' +
-               'dealers and repair technicians.'
+               'dealers and repair technicians.',
+  address: {
+    '@type': 'PostalAddress',
+    addressLocality: LOCALITY,
+    addressRegion: REGION,
+    addressCountry: 'IN'
+  },
+  contactPoint: {
+    '@type': 'ContactPoint',
+    contactType: 'customer support',
+    email: SUPPORT_EMAIL,
+    areaServed: 'IN',
+    availableLanguage: 'English'
+  }
 };
 
 /* ------------------------------------------------------------------ builders */
@@ -552,6 +599,7 @@ function homepage() {
     jsonld: [ORG_LD, {
       '@context': 'https://schema.org',
       '@type': 'WebSite',
+      publisher: { '@id': ORIGIN + '/#organization' },
       name: BRAND,
       url: ORIGIN + '/',
       /* Declared because /models really does accept ?q= and return matching
@@ -854,6 +902,9 @@ function brandLandingPage() {
     <h1>Mobile Parts Finder</h1>
     <p class="seo__lede">A spare-part compatibility database for mobile phone shops, accessory
     dealers, wholesalers, distributors and repair technicians.</p>
+
+    <p>${esc(BRAND)} is run from ${esc(PLACE)}. Support is by email at
+    <a href="mailto:${esc(SUPPORT_EMAIL)}">${esc(SUPPORT_EMAIL)}</a>.</p>
 
     <h2>The problem it solves</h2>
     <p>A back cover cut for one handset fits every phone built on the same body. A tempered
@@ -1166,6 +1217,248 @@ function notFoundPage() {
   };
 }
 
+
+/* ------------------------------------------------------- identity and legal
+
+   Five pages that exist because a business that takes payments needs them, and
+   because a search engine deciding whether a six-day-old domain is a real
+   organisation looks for exactly these. Everything factual in them comes from
+   the confirmed list at the top of this file or from what the code actually
+   does; nothing is filled in to make a section look complete. */
+
+function contactPage() {
+  const url = '/contact';
+  const trail = [{ name: 'Home', url: '/' }, { name: 'Contact', url }];
+  return {
+    url,
+    title: `Contact ${BRAND}`,
+    description: `Get in touch with ${BRAND} about compatibility data, a subscription ` +
+      `or an account. Support is handled by email.`,
+    breadcrumbHTML: breadcrumb(trail),
+    jsonld: [ORG_LD, breadcrumbLd(trail), {
+      '@context': 'https://schema.org',
+      '@type': 'ContactPage',
+      name: `Contact ${BRAND}`,
+      url: ORIGIN + url,
+      about: { '@id': ORIGIN + '/#organization' }
+    }],
+    body: `
+    <h1>Contact ${esc(BRAND)}</h1>
+    <p class="seo__lede">Support runs by email. Write with the handset, the part and what
+    you expected to see, and there is enough to answer with.</p>
+
+    <h2>Email</h2>
+    <p><a href="mailto:${esc(SUPPORT_EMAIL)}">${esc(SUPPORT_EMAIL)}</a></p>
+
+    <h2>Where we are</h2>
+    <p>${esc(PLACE)}</p>
+
+    <h2>What to write about</h2>
+    <ul>
+      <li><b>A wrong or missing fitment.</b> Name the two handsets and the part. A
+      correction that can be checked is worth more than a general report.</li>
+      <li><b>A handset that is not in the catalogue.</b> Brand and full model name.</li>
+      <li><b>Billing, a subscription or an invoice.</b> Use the same email address the
+      account was created with, so it can be matched.</li>
+      <li><b>Access to an account you can no longer sign in to.</b></li>
+    </ul>
+
+    <h2>Before you write about a fitment</h2>
+    <p>Compatibility groups are compiled from recorded fitments, and a catalogue this
+    size will contain mistakes. Checking the part against the handset before ordering in
+    quantity is worth the minute it costs. See the
+    <a href="/terms">terms</a> for what that means in practice.</p>`
+  };
+}
+
+function privacyPage() {
+  const url = '/privacy';
+  const trail = [{ name: 'Home', url: '/' }, { name: 'Privacy Policy', url }];
+  return {
+    url,
+    title: `Privacy Policy | ${BRAND}`,
+    description: `What ${BRAND} collects, why, who processes it and how to have it ` +
+      `removed. No cookies, no advertising trackers, no device fingerprinting.`,
+    breadcrumbHTML: breadcrumb(trail),
+    jsonld: [ORG_LD, breadcrumbLd(trail)],
+    body: `
+    <h1>Privacy Policy</h1>
+    <p class="seo__lede">This describes what ${esc(BRAND)} actually collects and what it
+    does with it. Where a section would be filler, it is not here.</p>
+
+    <h2>Who this is</h2>
+    <p>${esc(BRAND)}, ${esc(PLACE)}. Contact:
+    <a href="mailto:${esc(SUPPORT_EMAIL)}">${esc(SUPPORT_EMAIL)}</a>.</p>
+
+    <h2>Browsing without an account</h2>
+    <p>The catalogue is public. You can search it, open compatibility groups and read
+    every device page without signing in, and nothing identifying you is collected when
+    you do.</p>
+
+    <h2>Cookies</h2>
+    <p>This site sets no cookies. There is no advertising network on it, no cross-site
+    tracker and no device fingerprinting: the visit identifier is a random value the
+    browser generates for itself, not something derived from your screen size, fonts,
+    canvas or user agent.</p>
+
+    <h2>What is measured</h2>
+    <p>Usage is counted so the catalogue can be improved. Each visit gets a random
+    identifier stored in the tab's own session storage: it identifies a visit, not a
+    person, and it is gone when the tab closes.</p>
+    <ul>
+      <li><b>Collected:</b> which pages were opened, which search terms were typed, and
+      the <em>host</em> of the site you arrived from — never the full referring URL.</li>
+      <li><b>Not collected:</b> page content, form values, keystrokes, scroll depth or
+      mouse movement.</li>
+      <li>Search terms are redacted on the server for anything that looks like a phone
+      number or an email address before they are stored.</li>
+    </ul>
+
+    <h2>If you create an account</h2>
+    <p>Sign-in is handled by Google. When you use it, Google passes on the email address
+    and the basic profile of the account you chose. Passwords are never seen by this
+    site.</p>
+    <p>If you fill in a shop profile, what you enter is stored: shop name, proprietor
+    name, mobile number and country. That is the profile the app shows back to you, and
+    you can change or clear it whenever you like.</p>
+
+    <h2>If you pay</h2>
+    <p>Payments are processed by Razorpay. Card and bank details are entered with them and
+    never reach this site. What comes back is the state of the payment and the
+    subscription it belongs to.</p>
+
+    <h2>Who else processes it</h2>
+    <ul>
+      <li><b>Google Firebase</b> — sign-in and the database the catalogue and profiles
+      are stored in.</li>
+      <li><b>Razorpay</b> — payments and subscriptions.</li>
+      <li><b>Vercel</b> — hosting, which means ordinary server request logs.</li>
+    </ul>
+    <p>Nothing is sold, and nothing is shared with anyone else for advertising.</p>
+
+    <h2>Your data</h2>
+    <p>Write to <a href="mailto:${esc(SUPPORT_EMAIL)}">${esc(SUPPORT_EMAIL)}</a> from the
+    address the account uses to ask for a copy of what is held, a correction, or deletion
+    of the account and its profile. Records tied to a completed payment may have to be
+    kept where law or the payment provider requires it.</p>
+
+    <h2>Changes</h2>
+    <p>If this policy changes, the version on this page is the one that applies.</p>`
+  };
+}
+
+function termsPage() {
+  const url = '/terms';
+  const trail = [{ name: 'Home', url: '/' }, { name: 'Terms & Conditions', url }];
+  return {
+    url,
+    title: `Terms & Conditions | ${BRAND}`,
+    description: `The terms for using ${BRAND}: what the compatibility data is, what a ` +
+      `subscription covers, and the limits on both.`,
+    breadcrumbHTML: breadcrumb(trail),
+    jsonld: [ORG_LD, breadcrumbLd(trail)],
+    body: `
+    <h1>Terms &amp; Conditions</h1>
+    <p class="seo__lede">Using ${esc(BRAND)} means accepting what follows. It is written
+    to be read rather than to be long.</p>
+
+    <h2>Who you are agreeing with</h2>
+    <p>${esc(BRAND)}, operating from ${esc(PLACE)}. Contact:
+    <a href="mailto:${esc(SUPPORT_EMAIL)}">${esc(SUPPORT_EMAIL)}</a>.</p>
+
+    <h2>What the service is</h2>
+    <p>${esc(BRAND)} is a reference tool. It records which phone models have been observed
+    to take the same spare part — tempered glass, back cover, combo display, middle frame,
+    CC board, battery — and groups them so a shop can order by group rather than by
+    handset. It does not sell parts, hold stock, or arrange shipping.</p>
+
+    <h2>The data is guidance, not a guarantee</h2>
+    <p>Compatibility groups are compiled from recorded fitments across thousands of
+    models. A catalogue that size contains mistakes, manufacturers change parts within a
+    model run without renaming it, and a group that was right last year can stop being
+    right. <strong>Check the part against the handset before you order in quantity.</strong>
+    ${esc(BRAND)} is not liable for stock bought, orders placed or work done on the basis
+    of an entry that turns out to be wrong.</p>
+
+    <h2>Accounts</h2>
+    <p>An account is for you or your business, and you are responsible for what happens
+    under it. Keep the sign-in credentials to yourself. Tell us if you think an account
+    has been used by someone else.</p>
+
+    <h2>Subscriptions</h2>
+    <p>Paid plans are billed through Razorpay for the period shown at the time of purchase.
+    A subscription can be cancelled from the account at any time; cancelling stops the next
+    renewal and leaves the current period running to its end.
+    <strong>Payments are not refundable</strong> — see the
+    <a href="/refund">refund policy</a>.</p>
+
+    <h2>What you may not do</h2>
+    <ul>
+      <li>Scrape, bulk-download or systematically copy the catalogue.</li>
+      <li>Republish or resell the compatibility data as your own product.</li>
+      <li>Share one account across businesses that are not yours.</li>
+      <li>Try to get at accounts, data or parts of the service that are not yours.</li>
+    </ul>
+    <p>The catalogue, its structure and the site itself remain the property of
+    ${esc(BRAND)}.</p>
+
+    <h2>Availability</h2>
+    <p>The service is provided as it stands. There is no uptime guarantee, and features
+    may change as the catalogue grows. An account that breaks these terms can be
+    suspended.</p>
+
+    <h2>Governing law</h2>
+    <p>These terms are governed by the laws of ${esc(COUNTRY)}, and disputes fall to the
+    courts at ${esc(LOCALITY)}, ${esc(REGION)}.</p>
+
+    <h2>Changes</h2>
+    <p>If these terms change, the version on this page is the one that applies.</p>`
+  };
+}
+
+function refundPage() {
+  const url = '/refund';
+  const trail = [{ name: 'Home', url: '/' }, { name: 'Refund Policy', url }];
+  return {
+    url,
+    title: `Refund & Cancellation Policy | ${BRAND}`,
+    description: `${BRAND} subscription payments are non-refundable. How cancellation ` +
+      `works and how to reach support.`,
+    breadcrumbHTML: breadcrumb(trail),
+    jsonld: [ORG_LD, breadcrumbLd(trail)],
+    body: `
+    <h1>Refund &amp; Cancellation Policy</h1>
+    <p class="seo__lede">Payments for ${esc(BRAND)} subscriptions are non-refundable. This
+    page says so plainly so that nobody finds out afterwards.</p>
+
+    <h2>Refunds</h2>
+    <p><strong>Subscription payments are not refunded</strong>, in whole or in part, once
+    they have been made. This applies to a period already started and to a renewal that has
+    gone through. This is subject to applicable law and to the requirements of the payment
+    provider, which take precedence where they conflict with this page.</p>
+
+    <h2>Cancellation</h2>
+    <p>A subscription can be cancelled at any time from the account. Cancelling stops the
+    next renewal. The plan stays active until the end of the period already paid for, and
+    that period is not refunded on a pro-rata basis.</p>
+
+    <h2>Before you subscribe</h2>
+    <p>The catalogue can be searched without paying, so what a plan adds can be seen before
+    it is bought. Look first if you are unsure it fits how you work.</p>
+
+    <h2>Something went wrong with a payment</h2>
+    <p>If you were charged twice, charged after cancelling, or charged for something you did
+    not buy, write to
+    <a href="mailto:${esc(SUPPORT_EMAIL)}">${esc(SUPPORT_EMAIL)}</a> from the address on the
+    account, with the payment reference. A billing error is not a refund request and is
+    dealt with on its own terms.</p>
+
+    <h2>Contact</h2>
+    <p>${esc(BRAND)}, ${esc(PLACE)} —
+    <a href="mailto:${esc(SUPPORT_EMAIL)}">${esc(SUPPORT_EMAIL)}</a></p>`
+  };
+}
+
 /* --------------------------------------------------------------------- run */
 
 function main() {
@@ -1176,6 +1469,10 @@ function main() {
     categoriesIndex(),
     brandLandingPage(),
     plansPage(),
+    contactPage(),
+    privacyPage(),
+    termsPage(),
+    refundPage(),
     ...CATS.map(categoryPage),
     aliasPage(CATS.find(c => c.id === 'screen-guards'), 'universal-tempered-glass',
       `Universal Tempered Glass Compatible Mobile Models | ${BRAND}`,
@@ -1215,6 +1512,7 @@ function main() {
   const today = new Date().toISOString().slice(0, 10);
   const priority = u => u === '/' ? '1.0'
     : /^\/(universal-|categories\/|finder|models$|mobile-parts-finder)/.test(u) ? '0.9'
+    : /^\/(contact|privacy|terms|refund)$/.test(u) ? '0.3'
     : u.startsWith('/models/') ? '0.7' : '0.6';
 
   const urls = pages
