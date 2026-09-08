@@ -55,6 +55,12 @@
   }
 ]
 </script>
+<script>
+/* Theme before the first paint. The app writes mpf.theme when a visitor picks
+   one; this page has no app to read it back, so it reads the same key itself.
+   Inline and synchronous on purpose: anything deferred repaints. */
+try{var t=localStorage.getItem('mpf.theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}
+</script>
 </head>
 <body>
 <div class="seo" id="seoContent">
@@ -124,41 +130,6 @@
 </div>
 
 <div id="app" class="app" hidden></div>
-<script src="/src/data/debug.js" defer></script>
-<script src="/src/data/dataset.js" defer></script>
-<script src="/src/data/brand-marks.js" defer></script>
-<script src="/src/data/countries.js" defer></script>
-<script src="/src/data/firebase.js" defer></script>
-<script src="/src/data/firestore.js" defer></script>
-<script src="/src/data/billing.js" defer></script>
-<script src="/src/data/auth.js" defer></script>
-<script src="/src/data/api.js" defer></script>
-<script src="/src/data/access.js" defer></script>
-<script src="/src/data/analytics.js" defer></script>
-<script src="/src/ui/icons.js" defer></script>
-<script src="/src/ui/product-art.js" defer></script>
-<script src="/src/data/category-assets.js" defer></script>
-<script src="/src/data/brand-assets.js" defer></script>
-<script src="/src/data/pwa.js" defer></script>
-<script src="/src/ui/components.js" defer></script>
-<script src="/src/app.js" defer></script>
-<script>
-/* The static content above is what a crawler reads and what a visitor sees
-   first. Once the app has mounted it takes over the page; if the app never
-   loads — a script blocked, a slow connection — this stays, which is a better
-   failure than a blank screen. */
-(function () {
-  var seo = document.getElementById('seoContent');
-  var app = document.getElementById('app');
-  var seen = new MutationObserver(function () {
-    if (app.childNodes.length) {
-      app.hidden = false;
-      if (seo) seo.remove();
-      seen.disconnect();
-    }
-  });
-  seen.observe(app, { childList: true });
-})();
-</script>
+
 </body>
 </html>

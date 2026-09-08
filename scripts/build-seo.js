@@ -335,6 +335,7 @@ ${p.noindex ? '' : `<link rel="canonical" href="${esc(canonical)}" />
 <script type="application/ld+json">
 ${jsonld}
 </script>
+${appOwns(p.url) ? '' : THEME_BOOT}
 </head>
 <body>`;
 }
@@ -364,6 +365,46 @@ const APP_BOOT = [
   'src/data/pwa.js',
   'src/ui/components.js', 'src/app.js'
 ].map(s => `<script src="/${s}" defer></script>`).join('\n');
+
+
+/* Which URLs the app actually renders. The same table app.js keeps in ROUTES,
+   and deliberately the same answer for the bare "/": it does not own it.
+
+   A page the app never mounts on has no use for the application bundle --
+   175 KB gzipped, 537 KB parsed, only to stand down on arrival. So it does not
+   get it. What such a page does need is the theme the visitor chose, and that
+   is three lines. */
+const APP_ROUTES = { finder: 1, models: 1, model: 1, plans: 1, account: 1, group: 1 };
+const appOwns = (url) => {
+  const first = String(url || '').split('/').filter(Boolean)[0];
+  return !!first && !!APP_ROUTES[first];
+};
+
+const MOUNT_SWAP = `<script>
+/* The static content above is what a crawler reads and what a visitor sees
+   first. Once the app has mounted it takes over the page; if the app never
+   loads — a script blocked, a slow connection — this stays, which is a better
+   failure than a blank screen. */
+(function () {
+  var seo = document.getElementById('seoContent');
+  var app = document.getElementById('app');
+  var seen = new MutationObserver(function () {
+    if (app.childNodes.length) {
+      app.hidden = false;
+      if (seo) seo.remove();
+      seen.disconnect();
+    }
+  });
+  seen.observe(app, { childList: true });
+})();
+</script>`;
+
+const THEME_BOOT = `<script>
+/* Theme before the first paint. The app writes mpf.theme when a visitor picks
+   one; this page has no app to read it back, so it reads the same key itself.
+   Inline and synchronous on purpose: anything deferred repaints. */
+try{var t=localStorage.getItem('mpf.theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t);}catch(e){}
+</script>`;
 
 function shell(p) {
   return head(p) +
@@ -402,25 +443,7 @@ ${p.body}
 </div>
 
 <div id="app" class="app" hidden></div>
-${APP_BOOT}
-<script>
-/* The static content above is what a crawler reads and what a visitor sees
-   first. Once the app has mounted it takes over the page; if the app never
-   loads — a script blocked, a slow connection — this stays, which is a better
-   failure than a blank screen. */
-(function () {
-  var seo = document.getElementById('seoContent');
-  var app = document.getElementById('app');
-  var seen = new MutationObserver(function () {
-    if (app.childNodes.length) {
-      app.hidden = false;
-      if (seo) seo.remove();
-      seen.disconnect();
-    }
-  });
-  seen.observe(app, { childList: true });
-})();
-</script>
+${appOwns(p.url) ? APP_BOOT + '\n' + MOUNT_SWAP : ''}
 </body>
 </html>
 `;
@@ -463,6 +486,11 @@ function homepage() {
     combo display, middle frame, CC board or battery. Built for mobile shop owners,
     accessory dealers, wholesalers, distributors and repair technicians who need to know
     what fits before they order.</p>
+
+    <div class="seo__cta">
+      <a class="btn btn--primary" href="/finder">Open the Device Finder</a>
+      <a class="btn btn--outline" href="/models">Browse all ${nf(STATS.models)} models</a>
+    </div>
 
     <ul class="seo__stats">
       <li><b>${nf(STATS.models)}</b><span>phone models</span></li>
