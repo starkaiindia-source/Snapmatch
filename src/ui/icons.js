@@ -57,6 +57,11 @@
     display: '<rect x="4" y="3" width="16" height="18" rx="2.5"/><path d="M4 7.5h16"/><path d="M8 17.5h8"/>',
     calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 2.8v4M16 2.8v4"/>',
     signal: '<path d="M4 20v-4M9 20v-8M14 20v-12M19 20V4"/>',
+    /* Added for the model detail spec sheet. Additive only - no existing
+       glyph is altered, and all three follow the same 24x24 stroke grid. */
+    simcard: '<path d="M6 3h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><rect x="8.5" y="11" width="7" height="6" rx="1"/><path d="M8.5 14h7"/>',
+    speaker: '<rect x="3" y="9" width="4" height="6" rx="1"/><path d="M7 9l5-4v14l-5-4"/><path d="M16 9.5a3.5 3.5 0 0 1 0 5"/><path d="M18.5 7a7 7 0 0 1 0 10"/>',
+    software: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/>',
     cpu: '<rect x="5.5" y="5.5" width="13" height="13" rx="2.5"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2.5v3M15 2.5v3M9 18.5v3M15 18.5v3M2.5 9h3M2.5 15h3M18.5 9h3M18.5 15h3"/>',
     camera: '<path d="M3.5 8.5a2 2 0 0 1 2-2h1.7l1.3-2h7l1.3 2h1.7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.6"/>',
     ruler: '<rect x="2.5" y="7.5" width="19" height="9" rx="2"/><path d="M7 7.5v3M11 7.5v4.5M15 7.5v3M19 7.5v4.5"/>',

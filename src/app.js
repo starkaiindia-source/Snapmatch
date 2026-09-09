@@ -228,7 +228,7 @@
      Compatibility Finder" — the site's own name was no longer the first thing
      on its own homepage, and the one URL a brand search ranks was telling
      Google it was a duplicate of something else. Search Console confirmed it:
-     an inspection of / reported a user-declared canonical of /finder.
+     user-declared canonical /finder on an inspection of /.
 
      So / is now treated exactly like /categories/cc-board and
      /universal-tempered-glass: a pre-rendered page the app leaves alone. The
@@ -1157,12 +1157,31 @@
      whether the result should be a sheet at all. Listening to the query itself
      rather than to resize means one callback at the boundary instead of one per
      frame of a drag. */
+  var sheetMql = null;
   if (global.matchMedia) {
-    var sheetMql = global.matchMedia(SHEET_MQ);
+    /* Kept in a module-scope variable on purpose: a MediaQueryList with no
+       strong reference left to it can be collected, and its listener with it. */
+    sheetMql = global.matchMedia(SHEET_MQ);
     var onSheetMq = function () { syncSheet(); };
     if (sheetMql.addEventListener) sheetMql.addEventListener('change', onSheetMq);
     else if (sheetMql.addListener) sheetMql.addListener(onSheetMq);
   }
+
+  /* A second way to hear the same news.
+
+     The query listener is the right instrument and it is what fires in a real
+     browser. resize is the belt: an embedded webview or a devtools device
+     override can change the viewport without emitting a query change, and the
+     failure that leaves behind is a locked body under a sheet the stylesheet
+     has already stopped drawing. Coalesced to one call a frame, and syncSheet
+     is a no-op when nothing has actually changed. */
+  var sheetResizeRaf = 0;
+  global.addEventListener('resize', function () {
+    if (sheetResizeRaf) return;
+    sheetResizeRaf = global.requestAnimationFrame
+      ? requestAnimationFrame(function () { sheetResizeRaf = 0; syncSheet(); })
+      : setTimeout(function () { sheetResizeRaf = 0; syncSheet(); }, 60);
+  });
 
   function renderWorkspace() {
     if (!document.getElementById('catPanel')) { renderFinder(document.getElementById('page')); return; }
@@ -1359,6 +1378,26 @@
             icon('info') + '<span class="gbar__specst">Specs</span></a>' +
         '</span>' +
       '</div>' +
+
+      /* THE CATEGORY SWITCHER, inside the sticky header.
+
+         It is resultRailHTML() — the same rail, the same cards, the same
+         pick-cat-rail action and the same per-category counts the finder has
+         always used. Nothing new is being invented here; it is being put
+         somewhere the reader can reach.
+
+         On a phone the rail lives in the hero band, and the hero band is behind
+         the sheet's scrim the moment a model is picked. So the one control that
+         decides WHICH group is on screen was the one control the sheet had
+         covered up. Rendering it here puts it back, inside the part of the
+         sheet that stays put while the groups scroll.
+
+         Rendered always, shown only in the sheet — the same trick the search
+         box already uses to exist once in the header and once in the hero. A
+         desktop keeps its left-hand category panel and its own rail, and this
+         copy is display:none there, so the desktop layout is untouched and a
+         window dragged across the breakpoint needs no re-render. */
+      '<div class="gbar__cats">' + resultRailHTML() + '</div>' +
       '</div>';
   }
 
@@ -1445,6 +1484,22 @@
     return out;
   }
 
+  /* A category the catalogue carries but has no groups for yet.
+
+     It is asked of the CATALOGUE, not of a list kept here, so a category
+     stops being "coming soon" the moment its data lands in the bundle and no
+     code changes. Every control below reads this to decide two things: show
+     "Soon" instead of a count, and send the click somewhere that does not
+     filter — see the 'cat-soon' action. */
+  function catSoon(id) {
+    var c = id && id !== 'all' && db.categoryById[id];
+    return !!(c && c.comingSoon);
+  }
+  /* Where a category card's click goes. A category with data filters; one
+     without says so. Deciding it in one place is what keeps the home rail,
+     the result rail and the sidebar tiles from drifting apart. */
+  function catAct(id, act) { return catSoon(id) ? 'cat-soon' : act; }
+
   /* ONE rail card, for both rails below.
 
      The phone version of the desktop tile, and the same idea: the picture is
@@ -1460,14 +1515,23 @@
      Nothing is hidden from anyone who cannot see the reveal — the button's
      aria-label always carries the name and the count in full. */
   function railItem(o) {
-    var pending = o.count == null;
-    var aria = o.name + ' — ' + (pending ? 'counting' : nf(o.count) + ' ' + (o.count === 1 ? 'group' : 'groups'));
-    return '<button type="button" class="crail__item' + (o.on ? ' is-on' : '') +
-      (o.empty ? ' is-empty' : '') + '" ' +
+    /* A category with no data yet is never counted, never disabled and never
+       selected: it carries "Soon" where the number goes and its press opens
+       the coming-soon note instead of filtering. aria-pressed is dropped with
+       it — the card is not a toggle when there is nothing to toggle. */
+    var soon = !!o.soon;
+    var pending = !soon && o.count == null;
+    var empty = !soon && !!o.empty;
+    var aria = soon
+      ? o.name + ' — coming soon'
+      : o.name + ' — ' + (pending ? 'counting' : nf(o.count) + ' ' + (o.count === 1 ? 'group' : 'groups'));
+    return '<button type="button" class="crail__item' + (o.on && !soon ? ' is-on' : '') +
+      (empty ? ' is-empty' : '') + '" ' +
       'data-act="' + o.act + '" data-id="' + esc(o.id) + '"' +
       (o.color ? ' style="--c:' + o.color + '"' : '') +
-      (o.empty ? ' disabled' : '') +
-      ' aria-pressed="' + (o.on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
+      (empty ? ' disabled' : '') +
+      (soon ? '' : ' aria-pressed="' + (o.on ? 'true' : 'false') + '"') +
+      ' aria-label="' + esc(aria) + '">' +
       '<span class="crail__art">' +
       /* The white master, on a white card. These are product photographs shot
          on white and the card is the surface they were lit for — the
@@ -1478,7 +1542,8 @@
       '<span class="crail__veil" aria-hidden="true"></span>' +
       '<span class="crail__name" aria-hidden="true">' + esc(o.name) + '</span>' +
       '</span>' +
-      '<span class="crail__n" aria-hidden="true">' + (pending ? '…' : nf(o.count)) + '</span>' +
+      '<span class="crail__n' + (soon ? ' crail__n--soon' : '') + '" aria-hidden="true">' +
+      (soon ? 'Soon' : pending ? '…' : nf(o.count)) + '</span>' +
       '</button>';
   }
 
@@ -1493,8 +1558,8 @@
       resultCategories().map(function (c) {
         var n = avail ? (avail[c.id] || 0) : null;
         return railItem({
-          id: c.id, name: c.name, count: n, color: c.color,
-          on: f.catId === c.id, empty: n === 0, act: 'pick-cat-rail'
+          id: c.id, name: c.name, count: n, color: c.color, soon: c.comingSoon,
+          on: f.catId === c.id, empty: n === 0, act: catAct(c.id, 'pick-cat-rail')
         });
       }).join('') +
       '</div>';
@@ -1507,8 +1572,8 @@
       railItem({ id: 'all', name: 'All Parts', count: db.stats.groups, on: sel === 'all', act: 'filter-cat' }) +
       db.categories.map(function (c) {
         return railItem({
-          id: c.id, name: c.name, count: c.groupCount, color: c.color,
-          on: sel === c.id, act: 'filter-cat'
+          id: c.id, name: c.name, count: c.groupCount, color: c.color, soon: c.comingSoon,
+          on: sel === c.id, act: catAct(c.id, 'filter-cat')
         });
       }).join('') +
       '</div>';
@@ -1547,16 +1612,26 @@
        repetitions of a word the panel heading has already said; the number is
        the only part that differs, so the number is the only part drawn. */
     var tile = function (id, name, color, ic, count) {
-      var on = f.catId === id;
+      /* Same card, same size, same picture treatment — a category with no
+         data yet differs in three details and nothing else: "Soon" where the
+         number goes, no selected state, and a press that explains rather than
+         filters. It is deliberately NOT the disabled state a model's missing
+         category gets: that one is off because this handset has none, this one
+         is on because the part exists and the data is still being collected. */
+      var soon = catSoon(id);
+      var on = !soon && f.catId === id;
       var n = avail ? (id === 'all' ? availTotal : (avail[id] || 0)) : count;
-      var empty = !!avail && n === 0;
-      var badge = pending ? '…' : nf(n);
-      var aria = name + ' — ' + (pending ? 'counting' : nf(n) + ' ' + (n === 1 ? 'group' : 'groups'));
+      var empty = !soon && !!avail && n === 0;
+      var badge = soon ? 'Soon' : pending ? '…' : nf(n);
+      var aria = soon
+        ? name + ' — coming soon'
+        : name + ' — ' + (pending ? 'counting' : nf(n) + ' ' + (n === 1 ? 'group' : 'groups'));
       return '<button type="button" class="ctile' + (on ? ' is-on' : '') +
         (empty ? ' is-empty' : '') + '" ' +
-        'data-act="filter-cat" data-id="' + id + '" style="--c:' + color + '"' +
+        'data-act="' + catAct(id, 'filter-cat') + '" data-id="' + id + '" style="--c:' + color + '"' +
         (empty ? ' disabled' : '') +
-        ' aria-pressed="' + (on ? 'true' : 'false') + '" aria-label="' + esc(aria) + '">' +
+        (soon ? '' : ' aria-pressed="' + (on ? 'true' : 'false') + '"') +
+        ' aria-label="' + esc(aria) + '">' +
         '<span class="ctile__art">' +
         /* Eager: a focus-fitted picture is 0px tall until it loads, and a
            zero-area image never intersects the viewport, so a lazy one waits
@@ -1567,7 +1642,8 @@
         '<span class="ctile__veil" aria-hidden="true"></span>' +
         '<span class="ctile__name" aria-hidden="true">' + esc(name) + '</span>' +
         '</span>' +
-        '<span class="ctile__n" aria-hidden="true">' + badge + '</span>' +
+        '<span class="ctile__n' + (soon ? ' ctile__n--soon' : '') + '" aria-hidden="true">' +
+        badge + '</span>' +
         /* No tick. aria-pressed above already states the selection, and on
            screen the card's coloured edge says it without covering the part. */
         '</button>';
@@ -1896,10 +1972,28 @@
   }
 
   /* the centre column scrolls on its own above 1180px and with the page below */
+  /* Whichever element is actually scrolling the result right now.
+
+     On a desktop that is the centre column. In the mobile sheet the centre
+     column has been flattened away with display:contents and the SHEET is the
+     scroller, so asking for #wsCenter there returns an element that has never
+     scrolled and never will — which is why changing model or category on a
+     phone used to leave the reader wherever they had scrolled to, looking at
+     the middle of a group they had just replaced. */
   function wsScroller() {
+    var sheet = document.querySelector('.ws__body--sheet');
+    if (sheet) return sheet;
     var el = document.getElementById('wsCenter');
     if (!el) return null;
     return getComputedStyle(el).overflowY === 'auto' ? el : null;
+  }
+
+  /* Back to the top of whatever is scrolling the result — the centre column
+     on a desktop, the sheet on a phone. Used wherever the result becomes a
+     different result: a new category, a new model. */
+  function resetResultScroll() {
+    var sc = wsScroller();
+    if (sc) sc.scrollTop = 0;
   }
 
   var io = null;
@@ -1916,13 +2010,39 @@
     io.observe(lm);
   }
 
-  /* ------------------------------------------------ selected-model workflow */
+  /* ------------------------------------------------ selected-model workflow
+
+     WHICH ANSWER IS ALLOWED TO LAND.
+
+     A result is only wanted while the question that asked for it is still the
+     question on screen, and this one has two halves: the model AND the
+     category. The guard used to check the model alone, so tapping through the
+     category rail quickly — six taps in under a second, which is what a rail
+     of six categories invites — let a slower earlier lookup resolve last and
+     paint a Back Cover group under a Middle Frame heading.
+
+     matchSeq is bumped by every call. A resolved promise compares its own
+     ticket to the counter and drops itself if anything has been asked since;
+     the model and category are re-checked as well, so a request that is
+     somehow still current but no longer describes the state cannot land
+     either. There is no cancellation to arrange and no request to abort — a
+     stale answer simply has nowhere to go. */
+  var matchSeq = 0;
   function loadMatches() {
     var f = state.finder;
     var modelAtCall = f.modelId;
+    var catAtCall = f.catId || 'all';
+    var ticket = ++matchSeq;
+    var current = function () {
+      return ticket === matchSeq &&
+        state.finder.modelId === modelAtCall &&
+        (state.finder.catId || 'all') === catAtCall;
+    };
 
     /* The category availability drives the rail and the left-hand counts, so
-       it is fetched once per model and reused. */
+       it is fetched once per model and reused. It does not depend on the
+       category, so it is guarded on the model alone — switching category must
+       not throw away counts that are still correct. */
     if (!f.avail) {
       api.categoryAvailability(f.modelId).then(function (rows) {
         if (state.finder.modelId !== modelAtCall) return;
@@ -1933,13 +2053,19 @@
         if (rail) rail.innerHTML = railHTML();
         var panel = document.getElementById('catPanel');
         if (panel) panel.innerHTML = categoryPanelHTML();
+        /* The switcher inside the mobile sheet is a second copy of the same
+           rail, and it is the one the reader is looking at. */
+        var cats = document.querySelector('.gbar__cats');
+        if (cats) cats.innerHTML = resultRailHTML();
       });
     }
 
     api.findMatches({ modelId: f.modelId, categoryId: f.catId || 'all' }).then(function (rows) {
       /* The centre column, the same element the group library renders into. */
       var host = document.getElementById('results');
-      if (!host || state.finder.modelId !== modelAtCall) return;
+      /* Model, category and sequence all still current, or this answer is to
+         a question nobody is asking any more. */
+      if (!host || !current()) return;
       /* The browse view's infinite scroll must not keep firing underneath a
          result — it would append library groups below the matches. */
       if (io) io.disconnect();
@@ -2039,11 +2165,43 @@
     });
   }
 
+  /* Every device in a group, from the best source that has them.
+
+     api.groupMembers reads db.membersByGroup — the bundle's own model-to-groups
+     map inverted — which is present for every group in the catalogue and costs
+     no request. It is what the opened group page has always listed from, so a
+     match card and the group it opens now name the same devices from the same
+     place rather than from two.
+
+     row.devices is the server's list, filled for a group fetched from Firestore
+     that the local bundle has never seen. It is the fallback, not the lead. */
+  function groupDevices(row) {
+    var members = api.groupMembers(row.group);
+    return members.length ? members : (row.devices || []);
+  }
+
   function matchCard(row, hitModel) {
     var g = row.group, cat = row.category, master = row.master;
-    /* Null means the member list is not in the catalogue at all — a different
-       thing from a group that genuinely has one member. */
-    var preview = row.devices ? row.devices.slice(0, 8) : [];
+    /* THE WHOLE LIST, not a preview.
+
+       This card used to name eight devices and end with "View all 47
+       compatible models", which is a button between the reader and the answer
+       they came for — and the destination was the same list on another screen.
+       The devices are here now, all of them, directly under the group's own
+       details. The card grew; the journey did not. */
+    var devices = groupDevices(row);
+    var total = devices.length || g.compatibleCount || 0;
+    var included = devices.some(function (d) { return d.id === hitModel.id; });
+
+    /* Brand blocks earn their headings on a long list and are noise on a short
+       one: five devices under one heading is a heading saying what the five
+       already say. The cut is where a list stops being readable in one glance. */
+    var list = devices.length
+      ? (devices.length > 12
+          ? brandBlocksHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' })
+          : chipGridHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' }))
+      : '<p class="t-xs muted" style="margin:0">The devices in this group are not ' +
+        'in the local catalogue. Open the group to load them.</p>';
 
     return '<div class="match" style="margin-bottom:14px">' +
       '<div class="match__head">' +
@@ -2061,18 +2219,15 @@
       '<div class="stack" style="gap:12px">' +
       '<div class="complist__head">' +
       '<span class="t-lab">Compatible devices</span>' +
-      '<span class="pill pill--brand">' + g.compatibleCount + ' total</span>' +
-      (master.id !== hitModel.id ? '<span class="pill pill--ok">' + icon('check') + esc(hitModel.modelName) + ' included</span>' : '') +
-      '</div>' +
-      /* The same chip the group view is built from, so a device reads
-         identically whether it is previewed in a match card or listed in the
-         group that card opens. Eight of them: too few to be worth splitting by
-         brand, which is why this is the plain grid rather than the blocks. */
-      chipGridHTML(preview, { masterId: master.id, hitId: hitModel.id, act: 'open-model' }) +
-      (g.compatibleCount > preview.length
-        ? '<button class="expandbtn" data-act="open-group" data-id="' + g.groupId + '">' +
-          icon('layers') + 'View all ' + g.compatibleCount + ' compatible models</button>'
+      '<span class="pill pill--brand">' + nf(total) + ' total</span>' +
+      /* Read off the list actually rendered rather than assumed from "the hit
+         is not the master": a group can hold the searched-for device without
+         it being either. */
+      (included && master.id !== hitModel.id
+        ? '<span class="pill pill--ok">' + icon('check') + esc(hitModel.modelName) + ' included</span>'
         : '') +
+      '</div>' +
+      list +
       '</div>' +
       '</div></div>';
   }
@@ -2620,17 +2775,126 @@
       '</div></div></div></div>';
   }
 
+  /* ====================================================================== ROLE
+
+     WHY THE ADMIN PANEL LINK KEPT VANISHING
+
+     renderAccount used to wait for identity only when the LOCAL session said
+     'guest'. For the owner it never does: mpf.session.v2 is in localStorage
+     and says 'free' or 'pro' the instant the page parses. So the gate was
+     skipped, the profile painted immediately from cache, and adminLinkHTML()
+     asked SM.fb.isOwner() — which reads SM.fb.user(), which is null until
+     Firebase has restored the session from IndexedDB. False. No link.
+
+     Nothing repainted afterwards, because nothing in the app was subscribed to
+     SM.fb.onChange at all. The Admin Panel link therefore appeared only when
+     Firebase happened to win the race, which is why it came and went with no
+     pattern the owner could describe.
+
+     Two fixes, and they are both about ORDER rather than about the check
+     itself. The gate below now waits for Firebase whatever the cached session
+     says. And the role is resolved to a settled value before anything decides
+     what to draw with it.
+
+     WHERE THE ROLE COMES FROM
+
+     The server, for anyone it might grant something to. api/_schema/roles.js
+     owns the role table and /api/admin/session answers with the caller's role
+     and permissions after verifying the Firebase ID token — that is the
+     application's real role architecture and it stays the authority.
+
+     The email compare in SM.fb.isOwner() is kept as a FILTER, not as the
+     answer: it decides whether asking the server is worth a round trip. A
+     visitor whose address is not the owner's cannot be granted admin by any
+     reply, so they are 'user' immediately and no request is made. Only a
+     candidate pays for the confirmation, and the confirmation is what actually
+     decides. That preserves the property the original design cared about —
+     ordinary visitors never wait on an admin lookup — while making the drawn
+     UI reflect a server decision rather than a client guess. */
+  var roleState = { uid: null, role: null, pending: null };
+
+  function roleFor(uid) {
+    if (!uid) return Promise.resolve('guest');
+    if (roleState.uid === uid && roleState.role) return Promise.resolve(roleState.role);
+    if (roleState.uid === uid && roleState.pending) return roleState.pending;
+
+    /* A different account than the one we last resolved: drop everything about
+       the old one before asking about this one. This is the line that stops a
+       normal user inheriting the owner's Admin UI on a shared machine. */
+    roleState = { uid: uid, role: null, pending: null };
+
+    if (!SM.fb || !SM.fb.isOwner || !SM.fb.isOwner()) {
+      roleState.role = 'user';
+      return Promise.resolve('user');
+    }
+
+    roleState.pending = SM.billing && SM.billing.adminSession
+      ? SM.billing.adminSession().then(function (res) {
+          var role = (res && res.admin && res.admin.role) || 'user';
+          if (roleState.uid === uid) { roleState.role = role; roleState.pending = null; }
+          SM.debug.log('identity', 'role resolved from server', { uid: uid, role: role });
+          return role;
+        }, function (err) {
+          /* The server said no, or could not be reached. Either way this
+             browser does not get to promote itself — 'user' is the safe answer
+             and the only honest one. /admin re-checks regardless, so a wrong
+             guess here costs a link, never access. */
+          if (roleState.uid === uid) { roleState.role = 'user'; roleState.pending = null; }
+          SM.debug.warn('identity', 'role lookup failed, treating as user', {
+            uid: uid, status: err && err.status, message: err && err.message
+          });
+          return 'user';
+        })
+      : Promise.resolve('user').then(function (r) {
+          if (roleState.uid === uid) { roleState.role = r; roleState.pending = null; }
+          return r;
+        });
+
+    return roleState.pending;
+  }
+
+  /** The settled role, or null while it is still being decided. */
+  function currentRole() {
+    var u = SM.fb && SM.fb.user && SM.fb.user();
+    if (!u) return SM.fb && SM.fb.phase && SM.fb.phase() === 'loading' ? null : 'guest';
+    return roleState.uid === u.uid ? roleState.role : null;
+  }
+
+  function isAdminRole(role) {
+    return role === 'owner' || role === 'super_admin' || role === 'admin';
+  }
+
+  /* Signing out, or signing in as somebody else, must leave nothing of the
+     previous account behind. */
+  function clearRoleState() { roleState = { uid: null, role: null, pending: null }; }
+
   function renderAccount(page) {
     var s = S.get();
 
     /* Nothing decides anything while identity is unresolved. resolveIdentity()
        covers both halves — Firebase answering, and the profile being read —
        because a user who is authenticated but whose profile has not loaded yet
-       is still not a user the account screen can draw. */
-    if (s.status === 'guest' && identityPending()) {
+       is still not a user the account screen can draw.
+
+       The cached-session check is gone from this condition on purpose. It was
+       the bug: a warm localStorage session made the page skip the wait and
+       draw a signed-in screen before Firebase had said who was signed in. */
+    if (identityPending()) {
       page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
       resolveIdentity().then(function () {
         /* Only if the user is still looking at this screen. */
+        if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+      });
+      return;
+    }
+
+    /* Authenticated, profile in hand, role not yet settled. Keep waiting
+       rather than painting a normal-user screen that has to become an admin
+       one a moment later — that flash is the thing section 9 forbids. */
+    var fbUser = SM.fb && SM.fb.user && SM.fb.user();
+    if (fbUser && currentRole() === null) {
+      page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
+      roleFor(fbUser.uid).then(function () {
         if (state.route.name === 'account') renderAccount(document.getElementById('page'));
       });
       return;
@@ -3194,7 +3458,11 @@
      click interceptor leaves it alone and the browser navigates to the
      separate admin shell. */
   function adminLinkHTML() {
-    if (!SM.fb || !SM.fb.isOwner || !SM.fb.isOwner()) return '';
+    /* The resolved role, never the raw email compare. currentRole() returns
+       null while the answer is still outstanding, and renderAccount does not
+       call this until it is settled — so a null here means "not admin" only
+       because it can no longer mean "not decided yet". */
+    if (!isAdminRole(currentRole())) return '';
     /* No data-act: there is no handler and there should not be one. The
        browser navigates to /admin on its own, which is the whole point of it
        being a link. */
@@ -3466,6 +3734,512 @@
       '<h3 class="dsec__h">' + icon(iconName) + esc(title) +
         (aside ? '<span class="dsec__art">' + aside + '</span>' : '') + '</h3>' +
       '<dl class="dsec__b">' + body + '</dl></section>';
+  }
+
+  /* ------------------------------------------------- enriched model record
+
+     Models migrated to the TechSpecs pipeline carry the real variant matrix:
+     one hardware SKU per market, each with its own model number, its own valid
+     colour/RAM/storage combinations and its own verified price.
+
+     The record is fetched per model from assets/models-active/ rather than
+     folded into dataset.json, so enriching the whole catalogue later costs the
+     bundle nothing. It is fetched ALONGSIDE the model, never after painting:
+     painting once and swapping afterwards moved the scroll position under the
+     reader, which is most of what "the page does not scroll smoothly" was. */
+  var activeCache = {};
+
+  function loadActive(id) {
+    if (Object.prototype.hasOwnProperty.call(activeCache, id)) {
+      return Promise.resolve(activeCache[id]);
+    }
+    /* No cache:'force-cache' here. A model that has not been migrated yet 404s,
+       and force-cache replays that 404 from the HTTP cache long after the
+       record exists. Normal caching lets the response's headers decide. */
+    return fetch('/assets/models-active/' + encodeURIComponent(id) + '.json')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (v) { activeCache[id] = v; return v; });
+  }
+
+  /* ------------------------------------------------------ variant selection
+
+     MARKET IS THE PRIMARY AXIS. A market is a distinct hardware SKU, so it
+     decides the model number and constrains every other choice. The model
+     number is never picked by hand — it is read off the selected market, which
+     is the only relationship that is actually true of the hardware.
+
+     Colour / RAM / storage options are derived from the variants belonging to
+     the selected market, so a market that never sold Yellow simply does not
+     offer it. Today every iPhone 14 market sells the same set; that is a fact
+     about the data, not an assumption in the UI. */
+  function inMarket(a, region) {
+    return (a.variants || []).filter(function (v) { return v.region === region; });
+  }
+  function optionsFor(a, region, key) {
+    var seen = Object.create(null), out = [];
+    inMarket(a, region).forEach(function (v) {
+      if (v[key] && !seen[v[key]]) { seen[v[key]] = 1; out.push(v[key]); }
+    });
+    return out;
+  }
+  function matchVariant(a, sel) {
+    return inMarket(a, sel.region).filter(function (v) {
+      return v.color === sel.color && v.ram === sel.ram && v.storage === sel.storage;
+    })[0] || null;
+  }
+  /* Would this value still resolve to a real variant, holding the rest? */
+  function canPick(a, sel, axis, value) {
+    var probe = { region: sel.region, color: sel.color, ram: sel.ram, storage: sel.storage };
+    probe[axis] = value;
+    if (axis === 'region') return inMarket(a, value).length > 0;
+    return !!matchVariant(a, probe);
+  }
+
+  /* Snap a selection back onto a combination the market actually sold. Called
+     after any change, so switching market can never strand the page on a
+     variant that does not exist. */
+  function reconcile(a, sel) {
+    var regions = (a.axes && a.axes.region ? a.axes.region : []).map(function (r) { return r.value; });
+    if (regions.indexOf(sel.region) < 0) sel.region = regions[0];
+    ['color', 'ram', 'storage'].forEach(function (k) {
+      var opts = optionsFor(a, sel.region, k);
+      if (opts.indexOf(sel[k]) < 0) sel[k] = opts[0] || null;
+    });
+    if (!matchVariant(a, sel)) {
+      var v = inMarket(a, sel.region)[0];
+      if (v) { sel.color = v.color; sel.ram = v.ram; sel.storage = v.storage; }
+    }
+    return sel;
+  }
+
+  /* India / Global first: it is the primary market for this catalogue, and a
+     page that opens on a market the reader does not sell into is noise. */
+  function defaultSelection(a) {
+    var regions = (a.axes && a.axes.region ? a.axes.region : []);
+    var pref = regions.filter(function (r) { return r.value === 'GLOBAL'; })[0] || regions[0] || {};
+    return reconcile(a, { region: pref.value || null, color: null, ram: null, storage: null });
+  }
+
+  function money(p) {
+    if (!p || !p.amount) return null;
+    var n = Number(p.amount);
+    return p.currency === 'INR'
+      ? RUPEE + n.toLocaleString('en-IN')
+      : (p.currency ? p.currency + ' ' : '') + n.toLocaleString('en-US');
+  }
+
+  /* A colour only changes the photograph when a real photograph of that colour
+     exists. No CSS tint is applied over the default shot: a recoloured picture
+     of a Midnight handset is a fabricated product image. */
+  function imageFor(a, color) {
+    var by = (a.image && a.image.byColor) || {};
+    return (color && by[color]) || (a.image && a.image.primary) || null;
+  }
+
+  function chipsHTML(a, sel, axis, opts, labels) {
+    return opts.map(function (o) {
+      var on = sel[axis] === o, ok = canPick(a, sel, axis, o);
+      return '<button type="button" class="vopt' + (on ? ' is-on' : '') + (ok ? '' : ' is-off') + '"' +
+        (ok ? '' : ' disabled aria-disabled="true"') +
+        ' data-act="vpick" data-axis="' + esc(axis) + '" data-value="' + esc(o) + '"' +
+        ' aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        esc(labels && labels[o] ? labels[o] : o) + '</button>';
+    }).join('');
+  }
+
+  /* ------------------------------------------------------------ spec sheet
+
+     CLASS NAMES ARE NAMESPACED (mdsp-*). Three shorter names were tried first
+     and every one already existed in components.css: `.spec` (display:flex,
+     with its own dt/dd type scale) put each section header beside its rows,
+     and `.mspecs` (display:flex) stopped the column packing working at all.
+     Check a class name is free before reaching for it here.
+
+     PACKING. Cards flow in CSS columns rather than a grid: a grid row stretches
+     every card to the tallest in it, which is what left the big holes next to
+     Camera. Columns let each card take exactly its content height and pull the
+     next one up into the gap. Camera is lifted out as a full-width block
+     because it carries far more rows than anything beside it.
+
+     No provenance on the rows. Where a value came from is real, but it is our
+     bookkeeping, not the reader's - it stays in the record and in the one
+     source block at the foot of the page. */
+  var SPEC_ICON = {
+    general: 'info', body: 'ruler', display: 'display', performance: 'cpu',
+    memory: 'layers', camera: 'camera', battery: 'battery',
+    connectivity: 'signal', sim: 'simcard', audio: 'speaker',
+    software: 'software', other: 'sliders'
+  };
+  var SPEC_ORDER = ['general', 'body', 'display', 'performance', 'memory', 'camera',
+                    'battery', 'connectivity', 'sim', 'audio', 'software', 'other'];
+  /* Camera gets the full width; everything else packs into the columns. */
+  var WIDE_SECTIONS = { camera: 1 };
+
+  function mrowsHTML(rows) {
+    return rows.map(function (r) {
+      return '<div class="mdsp-row">' +
+        '<dt class="mdsp-row__l">' + esc(r.label) + '</dt>' +
+        '<dd class="mdsp-row__v">' + esc(String(r.value)) + '</dd>' +
+        '</div>';
+    }).join('');
+  }
+
+  function mdspCardHTML(s, rows, wide) {
+    return '<section class="mdsp-sec' + (wide ? ' mdsp-sec--wide' : '') + '" id="spec-' + esc(s.id) + '">' +
+      '<h2 class="mdsp-sec__h">' + icon(SPEC_ICON[s.id] || 'info') +
+        '<span>' + esc(s.title) + '</span></h2>' +
+      '<dl class="mdsp-sec__b">' + mrowsHTML(rows) + '</dl>' +
+      '</section>';
+  }
+
+  /* Rows that depend on the current selection resolve here, so the sheet always
+     agrees with the picker above it. */
+  function rowsForSection(a, s, sel) {
+    var v = matchVariant(a, sel);
+    var rows = s.rows.slice();
+    if (s.id === 'general' && v) {
+      rows = rows.filter(function (r) { return r.label !== 'Model numbers'; });
+      rows.splice(2, 0,
+        { label: 'Market', value: v.regionLabel },
+        { label: 'Regional model number', value: v.modelNumber });
+    }
+    if (s.id === 'body' && sel.region) {
+      /* Colours belong to the selected market, never to the union of all of
+         them - a market that never sold Yellow must not list it. */
+      var cols = optionsFor(a, sel.region, 'color');
+      if (cols.length) {
+        rows = rows.map(function (r) {
+          return r.label === 'Colours' ? { label: 'Colours', value: cols.join(', ') } : r;
+        });
+      }
+    }
+    return rows;
+  }
+
+  function specSheetHTML(a, sel) {
+    var byId = {};
+    (a.specs || []).forEach(function (s) { if (s.rows && s.rows.length) byId[s.id] = s; });
+    var ordered = SPEC_ORDER.filter(function (id) { return byId[id]; });
+    /* A section the record adds that this order does not name still renders. */
+    Object.keys(byId).forEach(function (id) { if (ordered.indexOf(id) < 0) ordered.push(id); });
+
+    var out = '', pack = [];
+    var flush = function () {
+      if (!pack.length) return;
+      out += '<div class="mdsp-grid">' + pack.join('') + '</div>';
+      pack = [];
+    };
+    ordered.forEach(function (id) {
+      var s = byId[id], card = mdspCardHTML(s, rowsForSection(a, s, sel), WIDE_SECTIONS[id]);
+      if (WIDE_SECTIONS[id]) { flush(); out += card; } else pack.push(card);
+    });
+    flush();
+    return out;
+  }
+
+  /* --------------------------------------------------------- related models
+
+     Same brand, sharing the leading words of this model's name once the brand
+     is stripped: "iPhone 14" also matches "iPhone 14 Plus" and "iPhone 14 Pro"
+     but not "iPhone 15". Nothing is hard-coded per brand — the rule reads the
+     catalogue, so Galaxy S24 or Redmi Note 13 behave the same way. */
+  function relatedModels(m, limit) {
+    var all = (db && db.models) || [];
+    /* The catalogue keys a display name as fullName; read both so this does
+       not depend on which one a given record carries. */
+    var nameOf = function (o) { return o.fullName || o.modelName || o.name || ''; };
+    var strip = function (o) {
+      var n = String(nameOf(o)).trim();
+      var br = String(o.brand || '').trim();
+      /* Plain prefix strip rather than a built RegExp: brand names contain
+         characters that are regex metacharacters ("Nothing Phone (2)"). */
+      if (br && n.toLowerCase().indexOf(br.toLowerCase() + ' ') === 0) n = n.slice(br.length + 1);
+      return n.trim();
+    };
+    var base = strip(m).toLowerCase().split(/\s+/).filter(Boolean);
+    if (base.length < 2) return [];
+    var out = [];
+    all.forEach(function (o) {
+      if (o.id === m.id || o.brandId !== m.brandId) return;
+      var t = strip(o).toLowerCase().split(/\s+/).filter(Boolean);
+      var n = 0;
+      while (n < base.length && n < t.length && base[n] === t[n]) n++;
+      if (n >= 2) out.push({ m: o, score: n });
+    });
+    out.sort(function (x, y) {
+      return y.score - x.score ||
+        String(nameOf(x.m)).length - String(nameOf(y.m)).length ||
+        String(nameOf(x.m)).localeCompare(String(nameOf(y.m)));
+    });
+    return out.slice(0, limit || 6).map(function (r) { return r.m; });
+  }
+
+  function relatedHTML(m) {
+    var list = relatedModels(m, 6);
+    if (!list.length) return '';
+    var nameOf = function (o) { return o.fullName || o.modelName || o.name || ''; };
+    var series = String(nameOf(m)).split(/\s+/).slice(0, 3).join(' ');
+    return '<section class="rel">' +
+      '<h2 class="rel__h">Explore the ' + esc(series) + ' series</h2>' +
+      '<div class="rel__g">' + list.map(function (o) {
+        return '<a class="rel__c" href="/model/' + esc(o.id) + '" data-act="nav" ' +
+          'data-href="/model/' + esc(o.id) + '">' +
+          '<span class="rel__s">' + (o.image
+            ? '<img src="' + esc(o.image) + '" alt="" width="72" height="96" loading="lazy" ' +
+              'decoding="async" referrerpolicy="no-referrer" />'
+            : '') + '</span>' +
+          '<b class="rel__n">' + esc(nameOf(o)) + '</b>' +
+          (o.displaySize ? '<i class="rel__d">' + esc(String(o.displaySize)) + '"</i>' : '') +
+          '<span class="rel__v">View model ' + icon('arrowRight') + '</span>' +
+          '</a>';
+      }).join('') + '</div></section>';
+  }
+
+  /* ------------------------------------------------------------- provenance
+     Plain sentences, not a batch record. Where the numbers came from and when
+     they were last checked is what a reader needs; the audit trail stays
+     behind a disclosure. */
+  function sourceHTML(a) {
+    var meta = a.sourceMeta || {};
+    var conf = meta.conflicts || [];
+    return '<section class="prov">' +
+      '<dl class="prov__b">' +
+        '<div><dt>Source</dt><dd>' + esc(meta.primarySource || '-') + '</dd></div>' +
+        '<div><dt>Verification</dt><dd>' + esc(meta.verificationStatus || '-') + '</dd></div>' +
+        '<div><dt>Image source</dt><dd>' + esc((a.image && a.image.primarySource) || '-') + '</dd></div>' +
+        '<div><dt>Last verified</dt><dd>' + esc(meta.lastVerified || '-') + '</dd></div>' +
+      '</dl>' +
+      (meta.source1Url
+        ? '<p class="prov__l">Manufacturer page: <a href="' + esc(meta.source1Url) +
+          '" rel="nofollow noopener" target="_blank">' + esc(meta.source1Title || meta.source1Url) +
+          '</a></p>' : '') +
+      (conf.length
+        ? '<details class="prov__d"><summary>Values where sources disagree (' + conf.length + ')</summary><ul>' +
+          conf.map(function (c) {
+            return '<li><b>' + esc(c.field) + '</b> — shown: ' + esc(c.value) +
+              '<br>Other source: ' + esc(c.techspecs) + '</li>';
+          }).join('') + '</ul></details>' : '') +
+      ((meta.notes || []).length
+        ? '<details class="prov__d"><summary>Data notes (' + meta.notes.length + ')</summary><ul>' +
+          meta.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') +
+          '</ul></details>' : '') +
+      '</section>';
+  }
+
+  function variantPanelHTML(a, sel) {
+    var regions = (a.axes && a.axes.region ? a.axes.region : []);
+    var rLabels = {}; regions.forEach(function (r) { rLabels[r.value] = r.label; });
+    var v = matchVariant(a, sel);
+    var price = money(v && v.price);
+
+    function row(label, axis, opts, labels) {
+      if (!opts.length) return '';
+      return '<div class="vrow"><span class="vrow__l">' + esc(label) + '</span>' +
+        '<div class="vrow__o">' + chipsHTML(a, sel, axis, opts, labels) + '</div></div>';
+    }
+
+    /* The preview sits beside the controls so the choice and its consequence
+       are one object rather than two panels that happen to be near each other. */
+    return '<section class="vsel" id="variants">' +
+      '<div class="vsel__h"><h2>Choose a variant</h2>' +
+        '<span class="vsel__n">' + esc(String(inMarket(a, sel.region).length)) +
+        ' combinations in this market</span></div>' +
+
+      '<div class="vsel__body">' +
+        '<div class="vsel__prev">' +
+          '<img id="vshot" src="' + esc(imageFor(a, sel.color) || '') + '" alt="" ' +
+            'width="150" height="200" loading="lazy" decoding="async" referrerpolicy="no-referrer" />' +
+          '<span class="vsel__prevl">' + esc(sel.color || '') + '</span>' +
+        '</div>' +
+        '<div class="vsel__ctl">' +
+          row('Market', 'region', regions.map(function (r) { return r.value; }), rLabels) +
+          row('Colour', 'color', optionsFor(a, sel.region, 'color')) +
+          row('RAM', 'ram', optionsFor(a, sel.region, 'ram')) +
+          row('Storage', 'storage', optionsFor(a, sel.region, 'storage')) +
+        '</div>' +
+      '</div>' +
+
+      '<div class="vout">' +
+        '<div class="vout__cell">' +
+          '<span class="vout__l">Model number</span>' +
+          '<b class="vout__mn">' + esc(v ? v.modelNumber : '-') + '</b>' +
+          '<i class="vout__hint">Set by the market</i>' +
+        '</div>' +
+        '<div class="vout__cell">' +
+          '<span class="vout__l">Market</span>' +
+          '<b>' + esc(v ? v.regionLabel : '-') + '</b>' +
+        '</div>' +
+        '<div class="vout__cell">' +
+          '<span class="vout__l">Launch price' +
+            (v && v.price && v.price.market ? ' · ' + esc(v.price.market) : '') + '</span>' +
+          (price ? '<b class="vout__p">' + esc(price) + '</b>'
+                 : '<b class="vout__na">Price not available</b>') +
+        '</div>' +
+      '</div>' +
+      (v && v.countries ? '<p class="vsel__note"><b>Sold in</b> ' + esc(v.countries) + '</p>' : '') +
+      (v && v.regionNote ? '<p class="vsel__note">' + esc(v.regionNote) + '</p>' : '') +
+      (v && v.colorNote ? '<p class="vsel__note"><b>' + esc(v.color) + '</b> ' + esc(v.colorNote) + '</p>' : '') +
+      (v && v.price && !price && v.price.note
+        ? '<p class="vsel__note">' + esc(v.price.note) + '</p>' : '') +
+      '</section>';
+  }
+
+  /* ------------------------------------------------------------------- hero
+
+     Product shot on a clean light panel, identity on a gradient panel beside
+     it. The two stay separate surfaces: a gradient running under a product
+     photograph tints the product, and this catalogue's value is that the
+     picture is of the actual handset.
+
+     The banner carries only what identifies a device — name, four highlights,
+     release date, five headline specs — and the actions. Market, model number,
+     device type and form factor moved to the variant picker and the spec
+     tables, where they belong: model number in particular is a consequence of
+     the selected market, so showing it above the market control stated a fact
+     the reader could not yet have chosen. */
+  function heroTitle(a, m, b) {
+    var brand = a.brand || m.brand || (b && b.name) || '';
+    var model = a.commercialName || a.officialModelName || m.fullName || '';
+    if (!brand) return model;
+    /* "Apple iPhone 14", never "Apple Apple iPhone 14". */
+    return model.toLowerCase().indexOf(brand.toLowerCase() + ' ') === 0
+      ? model : (brand + ' ' + model).trim();
+  }
+
+  /* Five headline specs plus one dynamic extra, as a 3 x 2 grid. Icon first
+     and left, then title, value, qualifier — the same shape in every cell, so
+     the eye lands in the same place in all six. No per-cell border: this reads
+     as one information block, not six cards. */
+  function heroSpecsHTML(a) {
+    var list = (a.primarySpecs || []).slice(0, 5);
+    if (!list.length) return '';
+    /* The sixth slot completes the grid. Left out entirely when the model has
+       nothing worth putting there, rather than filled with padding. */
+    if (a.additionalSpec) list = list.concat([a.additionalSpec]);
+    return '<div class="hspecs">' + list.map(function (q) {
+      return '<div class="hspec">' +
+        '<span class="hspec__i">' + icon(q.icon || 'info') + '</span>' +
+        '<span class="hspec__b">' +
+          '<span class="hspec__l">' + esc(q.label) + '</span>' +
+          '<b class="hspec__v">' + esc(q.value) + '</b>' +
+          (q.sub ? '<i class="hspec__s">' + esc(q.sub) + '</i>' : '') +
+        '</span>' +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  /* Only the categories this model actually has parts in. Availability and the
+     badge both come from api.getModel, which derives them from the existing
+     compatibility index — nothing is recomputed or hard-coded here.
+
+     The badge is the number of DISTINCT handsets the matching group covers, so
+     "6" on Back Cover means that cover fits six phones. It is not a product
+     count and it is never the trivial "1". Uses the Finder's own category
+     artwork so an icon means the same thing on both pages. */
+  function heroCatsHTML(m, r) {
+    var cats = (r.categories || []).filter(function (c) { return c.count; });
+    if (!cats.length) return '';
+    return '<div class="hcats">' + cats.map(function (c) {
+      var n = c.modelCount || 0;
+      return '<button type="button" class="hcat" data-act="find-parts" ' +
+        'data-id="' + esc(m.id) + '" data-cat="' + esc(c.category.id) + '" ' +
+        'aria-label="' + esc(c.category.name) + (n ? ', fits ' + n + ' models' : '') + '" ' +
+        'title="' + esc(c.category.name) + (n ? ' — this group covers ' + n + ' models' : '') + '">' +
+        SM.art.category(c.category.id, 'hcat__art', c.category.name) +
+        (n ? '<span class="hcat__n">' + nf(n) + '</span>' : '') +
+        '</button>';
+    }).join('') + '</div>';
+  }
+
+  function heroHTML(m, r, a, sel, b) {
+    return '<section class="hero">' +
+      '<div class="hero__media">' +
+        '<img id="shot" src="' + esc(imageFor(a, sel.color) || '') + '" ' +
+          'alt="' + esc(heroTitle(a, m, b)) + '" ' +
+          'width="260" height="340" loading="eager" decoding="async" ' +
+          'fetchpriority="high" referrerpolicy="no-referrer" />' +
+      '</div>' +
+      '<div class="hero__panel">' +
+        '<div class="hero__brand">' +
+          (brandHasMark(b) ? SM.brandLogo(b, 'blogo--lg') : '') +
+          '<span>' + esc(a.brand || m.brand) + '</span>' +
+        '</div>' +
+        '<h1 class="hero__name">' + esc(heroTitle(a, m, b)) + '</h1>' +
+
+        (a.releaseDateLabel || a.releaseDate
+          ? '<p class="hero__rel"><span>Released</span> ' +
+            esc(a.releaseDateLabel || a.releaseDate) + '</p>'
+          : '') +
+
+        heroSpecsHTML(a) +
+
+        '<div class="hero__cta">' +
+          '<button class="btn btn--primary" data-act="find-parts" data-id="' + esc(m.id) + '">' +
+            icon('search') + 'Find parts for this model</button>' +
+          heroCatsHTML(m, r) +
+        '</div>' +
+      '</div>' +
+    '</section>';
+  }
+
+  /* ------------------------------------------------------------ whole page */
+  function enrichedDeviceHTML(m, r, a, sel, b, compat) {
+    return '<div class="dev-page dev-page--rich">' +
+      '<div class="dhead"><div class="dhead__in">' +
+        '<button class="btn btn--icon" data-act="dev-back" aria-label="Back">' + icon('chevronLeft') + '</button>' +
+        (brandHasMark(b) ? SM.brandLogo(b, 'blogo--sm') : '') +
+        '<span class="dhead__t">' + esc(a.officialModelName || m.fullName || '') + '</span>' +
+        '<button class="btn btn--primary dhead__cta" data-act="find-parts" data-id="' + esc(m.id) + '">' +
+          icon('search') + '<span>Find parts</span></button>' +
+      '</div></div>' +
+
+      '<div class="wrap rich">' +
+        '<div class="adslot adslot--top" data-slot="top" aria-hidden="true"></div>' +
+
+        heroHTML(m, r, a, sel, b) +
+
+        '<div class="adslot" data-slot="after-hero" aria-hidden="true"></div>' +
+
+        '<div id="vmount">' + variantPanelHTML(a, sel) + '</div>' +
+
+        '<div id="smount" class="sheet-specs">' + specSheetHTML(a, sel) + '</div>' +
+
+        sourceHTML(a) +
+
+        '<div class="adslot" data-slot="before-related" aria-hidden="true"></div>' +
+
+        relatedHTML(m) +
+
+        '<section class="dcompat">' +
+          '<h2 class="t-h3">Parts that fit this model</h2>' +
+          '<p class="muted dcompat__p">Each group is one part that fits this device and every ' +
+            'other device in the group.</p>' +
+          compat +
+        '</section>' +
+
+        coverageNoteHTML() +
+      '</div></div>';
+  }
+
+  /* Repaint only what the selection actually changes: the picker, the two
+     header facts, the General rows and the photograph. Re-rendering the page
+     would throw the reader back to the top mid-comparison. */
+  function repaintVariant(a, sel) {
+    var mount = document.getElementById('vmount');
+    if (mount) mount.innerHTML = variantPanelHTML(a, sel);
+    var sm = document.getElementById('smount');
+    if (sm) sm.innerHTML = specSheetHTML(a, sel);
+    var v = matchVariant(a, sel);
+    var mh = document.getElementById('mhModel');
+    if (mh) mh.textContent = v ? v.modelNumber : '-';
+    var mk = document.getElementById('mhMarket');
+    if (mk) mk.textContent = v ? v.regionLabel : '-';
+    var src = imageFor(a, sel.color);
+    ['#shot', '#vshot'].forEach(function (q) {
+      var img = document.querySelector(q);
+      if (img && src && img.getAttribute('src') !== src) img.setAttribute('src', src);
+    });
   }
 
   /* The rupee sign as a named constant so the glyph appears once rather than
@@ -3790,7 +4564,15 @@
       state.deviceShot = 0;
     }
 
-    api.getModel(id).then(function (r) {
+    /* Both requests go out together. Fetching the enriched record after the
+       first paint meant the page rebuilt itself under the reader a moment
+       after it appeared, which moved the scroll position and read as jank. */
+    Promise.all([api.getModel(id), loadActive(id)]).catch(function () {
+      /* A failure here is a dead page, so it falls back to the model list
+         rather than leaving the skeleton on screen for ever. */
+      return [null, null];
+    }).then(function (res) {
+      var r = res[0], active = res[1];
       if (!r) { go('/models'); return; }
       var m = previewVariants(r.model);
       var b = db.brandById[m.brandId] || { id: m.brandId, name: m.brand };
@@ -3815,6 +4597,17 @@
           }).join('') + '</div>'
         : '<div class="notice">' + icon('alert') +
           '<span>No compatibility group covers this model yet.</span></div>';
+
+      /* A migrated model gets the full spec-database layout. The compatibility
+         block is passed straight through unchanged — the Device Finder's data
+         is not touched by any of this. */
+      if (active) {
+        state.active = active;
+        state.vsel = defaultSelection(active);
+        page.innerHTML = enrichedDeviceHTML(m, r, active, state.vsel, b, compat);
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        return;
+      }
 
       page.innerHTML =
         '<div class="dev-page">' +
@@ -4000,11 +4793,120 @@
     });
   }
 
+  /* ------------------------------------------------------------- the sheet
+
+     Every overlay in the app is this shape, and until now the function that
+     drew it did not exist. renderSheet called paintSheet in seven places and
+     nothing declared it, so opening the filters, the installer, the share
+     card, the country picker, a model card — or Edit shop profile, which is on
+     the account page this work is about — threw
+     "ReferenceError: paintSheet is not defined" and left the overlay empty.
+     The button appeared to do nothing at all.
+
+     The markup is the one assets/components.css was already written for
+     (.scrim / .sheet / .sheet__grab / .sheet__head / .sheet__body /
+     .sheet__foot), which is also the skeleton renderSheet paints while a model
+     loads — so this restores the intended structure rather than inventing a
+     second one.
+
+     @param {Element} host       the #overlay element
+     @param {string}  title      heading; plain text unless richTitle is set
+     @param {string}  body       inner HTML for the scrolling middle
+     @param {string} [foot]      footer buttons; the footer is omitted without it
+     @param {boolean}[richTitle] the title is already HTML and must not be
+                                 escaped — used by the model sheet, which puts a
+                                 brand logo and two lines in the heading */
+  function paintSheet(host, title, body, foot, richTitle) {
+    if (!host) return;
+    host.innerHTML =
+      '<div class="scrim" data-act="close-sheet"></div>' +
+      '<div class="sheet" role="dialog" aria-modal="true">' +
+        '<div class="sheet__grab" aria-hidden="true"></div>' +
+        '<div class="sheet__head">' +
+          '<div class="grow" style="min-width:0">' +
+            (richTitle ? title : '<h2 class="t-h3" style="margin:0">' + esc(title) + '</h2>') +
+          '</div>' +
+          '<button class="btn btn--ghost btn--icon" data-act="close-sheet" ' +
+            'aria-label="Close">' + icon('close') + '</button>' +
+        '</div>' +
+        '<div class="sheet__body">' + body + '</div>' +
+        (foot ? '<div class="sheet__foot">' + foot + '</div>' : '') +
+      '</div>';
+  }
+
   function renderSheet() {
     var host = document.getElementById('overlay');
     var s = state.sheet;
     if (!s) { host.innerHTML = ''; document.body.style.overflow = ''; return; }
     document.body.style.overflow = 'hidden';
+
+    /* ------------------------------------------------- the in-app browser
+
+       Shown when the visitor arrived from Instagram, Facebook, Messenger or
+       anything else hosting a WebView, and only when they reach for Google
+       sign-in. It is not shown on arrival: most of the site works perfectly
+       well in an embedded browser, and interrupting someone who came to look
+       up a part in order to talk about browsers would be worse than the
+       problem.
+
+       It is the app's own sheet, in the app's own components — no new design
+       language, no full-screen takeover. */
+    if (s.type === 'inapp') {
+      var appName = (SM.env && SM.env.inAppName()) || 'this app';
+      var onIOS = !!(SM.env && SM.env.isIOS());
+      return paintSheet(host, 'Open in your browser',
+        '<div class="stack" style="gap:14px">' +
+          '<div class="row" style="gap:12px;align-items:flex-start">' +
+            '<span style="color:var(--teal-700);flex:none;margin-top:2px">' + icon('shield') + '</span>' +
+            '<p class="t-sub" style="margin:0">For secure Google sign-in, please open ' +
+            'Mobile Parts Finder in ' + (onIOS ? 'Safari or Google Chrome' : 'Google Chrome') +
+            '. Google does not allow sign-in inside ' + esc(appName) + '&rsquo;s built-in browser.</p>' +
+          '</div>' +
+          '<div class="notice">' + icon('info') +
+          '<span>Everything else — search, compatibility groups and part codes — ' +
+          'works here. Only sign-in needs the full browser.</span></div>' +
+        '</div>',
+        '<button class="btn btn--outline" data-act="inapp-stay">Continue here</button>' +
+        '<button class="btn btn--primary grow" data-act="inapp-open">' +
+          icon('linkOut') + (onIOS ? 'Open in browser' : 'Open in Google Chrome') + '</button>');
+    }
+
+    /* A category that is in the catalogue but has no compatibility groups yet.
+
+       It is the app's own sheet, built from the app's own components — the
+       same scrim, the same card, the same pill and notice the install and
+       in-app sheets use. Nothing new is designed for it.
+
+       It shows the part's own photograph and says plainly that the matching
+       data is not there. It does NOT show an empty group list, a zero count,
+       or a row of placeholder products: a category that offers nothing and
+       admits it is honest, and one that offers nothing while looking like it
+       offers something is not. */
+    if (s.type === 'comingsoon') {
+      var sc = db.categoryById[s.catId];
+      if (!sc) { state.sheet = null; return renderSheet(); }
+      return paintSheet(host,
+        '<div class="row" style="gap:9px;flex-wrap:wrap">' +
+        '<span class="pill pill--brand">' + icon('sparkle') + 'Coming Soon</span></div>',
+        '<div class="stack" style="gap:14px">' +
+        '<div class="row" style="gap:12px;align-items:center">' +
+        /* The same call every other surface makes, at the plate size the group
+           cards already use — so the reader is shown the actual part, not a
+           44px identifier chip, and no new picture component is introduced. */
+        SM.art.category(sc.id, 'pthumb--plate', sc.name, { eager: true }) +
+        '<div style="min-width:0">' +
+        '<h3 class="t-h3" style="margin:0">' + esc(sc.name) + '</h3>' +
+        '<p class="t-sub" style="margin-top:4px">This part category is in the ' +
+        'catalogue, and its compatibility groups are still being collected.</p>' +
+        '</div></div>' +
+        '<div class="notice">' + icon('info') +
+        '<span>Nothing is shown here yet rather than a list that would be ' +
+        'wrong at the counter. Every other category is unaffected — close ' +
+        'this and carry on.</span></div>' +
+        '</div>',
+        '<button class="btn btn--primary btn--block" data-act="close-sheet">Got it</button>',
+        true);
+    }
 
     if (s.type === 'filters') return paintSheet(host, 'Filter groups', categoryPanelHTML() + brandPanelHTML(),
       '<button class="btn btn--outline grow" data-act="reset-filters">Reset</button>' +
@@ -4372,10 +5274,22 @@
     var m = db.modelById[id];
     if (!m) return;
     state.finder.modelId = id;
-    /* A category carried in from "find with category" on the device page;
-       null for an ordinary search, which is the old behaviour. Set AFTER the
-       reset below it used to sit above, or the reset wiped it. */
-    state.finder.catId = opts.catId || null;
+    /* THE CATEGORY SURVIVES THE MODEL.
+
+       Explicit wins: opts.catId is "find with category" from the device page.
+       Otherwise the category already on screen is kept, because the question
+       being asked does not change when the phone does. Someone comparing the
+       back cover of a Realme 5i with the back cover of a Realme 5 is asking one
+       question about two handsets; dropping them back to All Parts on the
+       second one makes them re-pick the category they never left.
+
+       Nothing needs to check whether the new model HAS a group in that
+       category. findMatches resolves the pairing honestly, and a model with
+       none of that part already has an empty state that says so and offers a
+       way out. Guessing a different category on the reader's behalf would show
+       them a part they did not ask for. */
+    state.finder.catId = opts.catId || state.finder.catId || null;
+    state.finder.filters.catId = state.finder.catId || 'all';
     state.finder.matchShown = 6;
     state.finder.avail = null;
     state.finder.query = m.fullName;
@@ -4389,8 +5303,7 @@
     if (state.route.name !== 'finder') go('/finder');
     else if (document.getElementById('catPanel')) { renderBench(); renderWorkspace(); }
     else renderFinder(document.getElementById('page'));
-    var sc = wsScroller();
-    if (sc) sc.scrollTop = 0;
+    resetResultScroll();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -4443,8 +5356,12 @@
   }
 
   var authMode = 'signin';
-  /* sheets that live in memory rather than in the URL */
-  var LOCAL_SHEETS = ['filters', 'country', 'editprofile', 'install', 'share'];
+  /* Sheets that live in memory rather than in the URL. Closing one of these
+     puts it away and leaves the page exactly as it was; closing a URL-backed
+     sheet navigates. The coming-soon note is firmly the first kind — it is an
+     answer to a tap, not a place, and dismissing it must not take the reader
+     off whatever they were already looking at. */
+  var LOCAL_SHEETS = ['filters', 'country', 'editprofile', 'install', 'share', 'comingsoon'];
 
   /* leave the result view and restore the normal Finder home page */
   function exitResult() {
@@ -4506,7 +5423,14 @@
          search box makes, so this counts against a free account's daily
          searches exactly as typing the name would — a second route to the
          answer must not be a way around the meter. */
-      case 'find-parts': pickModel(id); break;
+      /* One handler for the button and the category chips beside it. Without
+         data-cat this is exactly the old behaviour; with it, the Finder opens
+         already filtered to that category for this model. */
+      case 'find-parts': {
+        var fcat = t.getAttribute('data-cat');
+        pickModel(id, fcat ? { catId: fcat } : undefined);
+        break;
+      }
       case 'clear-model':
       case 'exit-result':
         exitResult();
@@ -4521,11 +5445,33 @@
         setCategory(id);
         if (state.sheet) { state.sheet = null; renderSheet(); }
         renderWorkspace();
+        /* A new category is a new group. Leaving the scroll where it was drops
+           the reader into the middle of a device list belonging to a part they
+           did not ask about — and with every device now rendered in the card,
+           "the middle" can be four thousand pixels from the group's own
+           details. */
+        resetResultScroll();
         break;
       case 'clear-cat':
         setCategory('all');
         renderWorkspace();
+        resetResultScroll();
         break;
+      /* A category that exists but has no groups yet.
+
+         It stops here, and stopping here is the point: setCategory() is never
+         called, so the filter does not move, the centre column is not
+         repainted, and neither api.listGroups nor api.newModels nor
+         api.findMatches is asked a question whose only honest answer is
+         nothing. The reader is told, and whatever they were looking at is
+         still on screen behind the sheet when they close it. */
+      case 'cat-soon': {
+        var soonCat = db.categoryById[id];
+        if (!soonCat) break;
+        state.sheet = { type: 'comingsoon', catId: soonCat.id };
+        renderSheet();
+        break;
+      }
       /* The "+" slot in the category grid. A placeholder on purpose: it says
          where category management will live without pretending to be it, and
          it deliberately does NOT touch the category filter — pressing it must
@@ -4655,10 +5601,24 @@
       case 'dev-back':
         if (history.length > 1) history.back(); else go('/models');
         break;
-      /* One path for all three selectors. Picking a colour, a RAM, a storage
-         or a thumbnail changes the same handful of things — which photograph
-         is shown, what the price says, which chips are lit — so they share a
-         repaint instead of each re-rendering the page underneath the reader. */
+
+      /* Variant picker on a migrated model. Market is the primary axis, so
+         changing it re-derives the valid colours, RAM and storage and pulls the
+         model number with it. reconcile() guarantees the selection always lands
+         on a combination the market actually sold. */
+      case 'vpick': {
+        var av = state.active;
+        if (!av) break;
+        var next = {
+          region: state.vsel.region, color: state.vsel.color,
+          ram: state.vsel.ram, storage: state.vsel.storage
+        };
+        next[t.getAttribute('data-axis')] = t.getAttribute('data-value');
+        state.vsel = reconcile(av, next);
+        repaintVariant(av, state.vsel);
+        break;
+      }
+
       case 'dev-colour':
       case 'dev-shot':
       case 'pick-variant': {
@@ -5045,6 +6005,44 @@
         break;
 
       case 'google-signin': startGoogle(false); break;
+
+      /* The way out of an embedded browser. SM.env owns the platform detail —
+         an Android intent that names Chrome and falls back to the default
+         browser, Chrome's own URL scheme on iOS — and it carries the CURRENT
+         url, so campaign and referral parameters survive the trip. */
+      case 'inapp-open': {
+        var res = SM.env.openExternal();
+        SM.debug.log('auth', 'external browser requested', {
+          method: res.method, app: SM.env.inAppName()
+        });
+        if (!res.attempted) {
+          /* Nothing could be launched — an iPhone with no Chrome, or a host
+             that blocks both. Copying the address is the one thing that always
+             works, and the visitor pastes it themselves. */
+          SM.env.copyUrl().then(function (copied) {
+            toast(copied ? 'Link copied — paste it into your browser'
+                         : 'Open ' + SM.env.currentUrl() + ' in your browser');
+          });
+          return;
+        }
+        /* The sheet stays up. If the launch worked this document is being
+           replaced anyway; if it silently did not — an iPhone without Chrome
+           is the realistic case — the instructions are still on screen, which
+           is better than an empty page and no explanation. */
+        break;
+      }
+
+      /* "Continue here". Remembered for the session so the sheet does not
+         reappear at every attempt, and the sign-in is then allowed to proceed
+         and fail on its own terms if Google refuses it. */
+      case 'inapp-stay': {
+        var wasSignup = !!(state.sheet && state.sheet.signup);
+        dismissInApp();
+        state.sheet = null;
+        renderSheet();
+        startGoogle(wasSignup);
+        break;
+      }
       /* Already through Google; this only saves the profile. */
       /* Already through Google; this only saves the profile. */
       case 'finish-signup':
@@ -5276,8 +6274,44 @@
     if (host) host.innerHTML = html ? '<div class="notice notice--amber" style="margin-top:12px">' + icon('alert') + '<span>' + html + '</span></div>' : '';
   }
 
+  /* Where the visitor is standing decides whether "Continue with Google" can
+     work at all. Google refuses OAuth from embedded WebViews as a matter of
+     policy, so inside Instagram or Facebook the button cannot succeed however
+     carefully it is wired — the only useful thing to do is say so and offer
+     the way out. Dismissed once, it stays dismissed for the session. */
+  var INAPP_DISMISS_KEY = 'mpf.inapp.dismissed.v1';
+
+  function inAppDismissed() {
+    try { return sessionStorage.getItem(INAPP_DISMISS_KEY) === '1'; }
+    catch (e) { return false; }
+  }
+  function dismissInApp() {
+    try { sessionStorage.setItem(INAPP_DISMISS_KEY, '1'); } catch (e) { /* private mode */ }
+  }
+
   function startGoogle(isSignup) {
     authMsg('');
+
+    /* Ask before starting anything. Letting the popup open first and reporting
+       Google's own refusal afterwards would show the visitor an OAuth error
+       they cannot act on, when the actionable answer is known in advance. */
+    if (SM.env && SM.env.googleAuthLikelyBlocked() && !inAppDismissed()) {
+      SM.debug.log('auth', 'in-app browser — offering the external browser first', {
+        app: SM.env.inAppName()
+      });
+      state.sheet = { type: 'inapp', signup: !!isSignup };
+      renderSheet();
+      return;
+    }
+
+    /* The button is markup and markup gets re-rendered; the guard that matters
+       is in SM.fb.signIn, which is module state and survives. This one is
+       cosmetic — it stops the button looking pressable while a popup is open. */
+    if (SM.fb && SM.fb.signInPending && SM.fb.signInPending()) {
+      SM.debug.log('auth', 'sign-in already running — ignoring the extra press');
+      return;
+    }
+
     var btn = document.querySelector('.gbtn');
     if (btn) { btn.classList.add('is-busy'); btn.disabled = true; }
     SM.debug.log('auth', 'Continue with Google pressed', { signup: !!isSignup });
@@ -5300,6 +6334,9 @@
         return;
       }
       if (err && err.code === 'cancelled') { toast('Sign-in cancelled'); return; }
+      /* A second press that the in-flight guard turned away. The first attempt
+         is still on screen; saying anything here would talk over it. */
+      if (err && err.code === 'superseded') return;
       SM.debug.warn('auth', 'sign-in rejected', { code: err && err.code, message: err && err.message });
       authMsg(esc(err && err.message ? err.message : 'Google sign-in failed. Try again.'));
     });
@@ -5585,6 +6622,46 @@
      sign-in. It is started here so it runs alongside the download, and whoever
      needs it (resolveIdentity) awaits it themselves. */
   SM.fb.loadConfig().catch(function () { return null; });
+
+  /* ------------------------------------------------- the account, whoever it is
+
+     THE SUBSCRIPTION NOBODY HAD MADE.
+
+     SM.fb.onChange existed and had no subscribers. Firebase would restore a
+     session, or finish a redirect, or switch to a different Google account,
+     and announce it to an empty room — so whatever was already on screen
+     stayed on screen. That is the second half of the vanishing Admin Panel
+     link, and all of the risk of one account showing another's UI.
+
+     A uid that differs from the one the role state was resolved for throws
+     that state away before anything is drawn with it. That is what makes a
+     normal user signing in after the owner a normal user, on the first paint,
+     with no admin markup to inherit. */
+  var lastAuthUid = null;
+  SM.fb.onChange(function (user) {
+    var uid = user ? user.uid : null;
+    if (uid === lastAuthUid) return;
+    SM.debug.log('auth', 'account changed', { from: lastAuthUid, to: uid });
+    lastAuthUid = uid;
+
+    /* Role, cached profile keys and the identity latch all belong to the
+       account that has just been replaced. */
+    clearRoleState();
+    identityReady = null;
+    identitySettled = false;
+
+    if (!uid) {
+      /* Signed out. The local session cache is the one thing that would
+         otherwise survive and keep the previous shop on screen. */
+      S.signOut();
+    }
+
+    renderShellBits();
+    if (state.route.name === 'account') {
+      var host = document.getElementById('page');
+      if (host) renderAccount(host);
+    }
+  });
 
   SM.dataset.load().then(function () {
     SM.__rebind.forEach(function (fn) { fn(); });

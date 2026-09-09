@@ -50,11 +50,15 @@
   };
   var CAT_ICON = {
     'screen-guards': 'glass', 'back-cover': 'cover', 'combo-display': 'display',
-    'middle-frame': 'frame', 'cc-board': 'board', 'battery': 'battery'
+    'middle-frame': 'frame', 'cc-board': 'board', 'battery': 'battery',
+    'button-flex': 'board', 'sim-tray': 'frame'
   };
+  /* The accent a selected category is outlined in. White badge text sits on
+     it, so every value here clears 4.5:1 against white. */
   var CAT_COLOR = {
     'screen-guards': '#0E7490', 'back-cover': '#7C3AED', 'combo-display': '#2563EB',
-    'middle-frame': '#B45309', 'cc-board': '#E11D48', 'battery': '#047857'
+    'middle-frame': '#B45309', 'cc-board': '#E11D48', 'battery': '#047857',
+    'button-flex': '#C2410C', 'sim-tray': '#4F46E5'
   };
 
   var MONTHS = ['January','February','March','April','May','June',
@@ -189,6 +193,12 @@
       return {
         id: c.id, name: c.name, short: c.short, code: c.code, order: c.order,
         groupCount: c.groupCount,
+        /* A category the register carries but whose groups have not been
+           collected yet. It is a real category — id, order, picture, a place
+           in the grid — with nothing behind it, and the UI offers it as such
+           rather than opening an empty result. Never guessed: only the
+           bundle says so. */
+        comingSoon: c.comingSoon === true,
         icon: CAT_ICON[c.id] || 'parts',
         color: CAT_COLOR[c.id] || '#0E7A6C'
       };

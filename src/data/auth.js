@@ -190,8 +190,13 @@
           });
 
           var e = new Error(message);
-          e.code = (code === 'auth/popup-closed-by-user' || code === 'auth/user-cancelled')
-            ? 'cancelled' : 'failed';
+          e.code =
+            /* Another attempt superseded this one and is still running. The
+               caller must say nothing at all: an error message here would
+               appear over a Google popup that is open and working. */
+            code === 'auth/cancelled-popup-request' ? 'superseded'
+          : (code === 'auth/popup-closed-by-user' || code === 'auth/user-cancelled') ? 'cancelled'
+          : 'failed';
           e.authCode = code || null;
           throw e;
         });

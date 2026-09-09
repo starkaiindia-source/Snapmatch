@@ -61,7 +61,34 @@ const OG_IMAGE = ORIGIN + '/assets/brand/og-image.png';
 
 const dataset = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets', 'dataset.json'), 'utf8'));
 
-const CATS = dataset.categories.map(c => ({ id: c.id, name: c.name, groups: c.groupCount }));
+/* Enriched All-Mobile-Models records (Apple official + TechSpecs migration).
+   A model with a file here renders the full device detail view; every other
+   model keeps the original thin spec table byte for byte. Nothing in this map
+   is read by the Compatibility Device Finder, which runs off groups.ndjson. */
+const ACTIVE = (() => {
+  const dir = path.join(ROOT, 'data', 'models-active');
+  const map = new Map();
+  if (!fs.existsSync(dir)) return map;
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.json') || f.startsWith('_')) continue;
+    const rec = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+    map.set(rec.modelId, rec);
+  }
+  return map;
+})();
+
+/* Only the categories that HAVE data get a public page.
+
+   A category the register carries but whose groups have not been collected
+   yet (comingSoon) is a real category in the app, where the reader is told so
+   to their face. Out here it would be a /categories/<id> page listing nothing,
+   a link to it from every other category page, and a sitemap entry inviting a
+   crawler to index the emptiness — a thin page for a part we cannot yet answer
+   questions about. It joins this list the moment its export lands and its
+   groupCount stops being zero; nothing here needs editing for that. */
+const CATS = dataset.categories
+  .filter(c => !c.comingSoon)
+  .map(c => ({ id: c.id, name: c.name, groups: c.groupCount }));
 const BRANDS = dataset.brands.map(r => ({ id: r[0], name: r[1], models: r[2], groups: r[3] }))
   .filter(b => b.models > 0)
   .sort((a, b) => b.models - a.models);
@@ -1014,6 +1041,78 @@ function specRow(label, value) {
   return `<tr><th scope="row">${esc(label)}</th><td${has ? '' : ' class="c-none"'}>${has ? esc(value) : '-'}</td></tr>`;
 }
 
+/* ------------------------------------------------- enriched detail view
+   The pre-rendered half of a migrated model: what a crawler indexes, and what
+   a visitor reads if scripts never run. Same information as the app view, laid
+   out as plain tables — no selector, because there is no script to drive one,
+   so every variant is listed instead. */
+const SRC_LABEL = {
+  both: 'Verified', manufacturer: 'Manufacturer', techspecs: 'TechSpecs',
+  crosschecked: 'Cross-checked', gsmarena: 'Archive'
+};
+
+function dvRows(sec) {
+  return sec.rows.map(r =>
+    /* No provenance chip: where a value came from is our bookkeeping, not the
+       reader's. It stays in the record and in the source block at the foot. */
+    `<tr><th scope="row">${esc(r.label)}</th><td>${esc(String(r.value))}</td></tr>`).join('');
+}
+
+function detailView(a) {
+  const meta = a.sourceMeta || {};
+  const axes = a.axes || {};
+  const regions = axes.region || [];
+
+  /* One row per region rather than per variant: 90 rows of the same handset in
+     six colours is noise, and the region is what carries the model number. */
+  const regionRows = regions.map(rg => {
+    const priced = (a.variants || []).filter(v => v.region === rg.value && v.price && v.price.amount);
+    const prices = [...new Set(priced.map(v =>
+      `${v.storage}: ${v.price.currency === 'INR' ? '₹' : v.price.currency + ' '}${Number(v.price.amount).toLocaleString('en-IN')}`))];
+    return `<tr><th scope="row">${esc(rg.label)}</th>` +
+      `<td><b class="dv__mono">${esc(rg.modelNumber)}</b>` +
+      `<span class="dv__alt">${esc(rg.countries || '')}</span>` +
+      (prices.length ? `<span class="dv__alt">Launch price — ${esc(prices.join(' · '))}</span>` : '') +
+      `</td></tr>`;
+  }).join('');
+
+  const list = (arr, key) => (arr || []).map(x => `<b class="dv__chip">${esc(x[key] || x.value)}</b>`).join('');
+
+  return `
+    <div class="dv">
+      ${a.image && a.image.primary
+        ? `<p class="dv__shot"><img src="${esc(a.image.primary)}" alt="${esc(a.name)}" width="200" height="266"
+             loading="lazy" decoding="async" referrerpolicy="no-referrer" /></p>` : ''}
+      ${a.summary ? `<p class="dv__sum">${esc(a.summary)}</p>` : ''}
+
+      <h3>Variants</h3>
+      <p class="dv__chips"><span>Colour</span>${list(axes.color, 'value')}</p>
+      <p class="dv__chips"><span>RAM</span>${list(axes.ram, 'value')}</p>
+      <p class="dv__chips"><span>Storage</span>${list(axes.storage, 'value')}</p>
+      <p class="dv__note">${esc(String(a.variantCount || 0))} sold combinations across
+        ${regions.length} markets.</p>
+      <table class="seo__spec dv__table"><tbody>${regionRows}</tbody></table>
+
+${(a.specs || []).filter(s => s.rows && s.rows.length).map(s => `
+      <h3>${esc(s.title)}</h3>
+      <table class="seo__spec dv__table"><tbody>${dvRows(s)}</tbody></table>`).join('')}
+
+      <h3>Source &amp; verification</h3>
+      <table class="seo__spec dv__table"><tbody>
+        <tr><th scope="row">Data source</th><td>${esc(meta.primarySource || '-')}</td></tr>
+        <tr><th scope="row">Manufacturer page</th><td>${meta.source1Url
+          ? `<a href="${esc(meta.source1Url)}" rel="nofollow noopener">${esc(meta.source1Title || meta.source1Url)}</a>`
+          : '-'}</td></tr>
+        <tr><th scope="row">Image source</th><td>${esc((a.image && a.image.primarySource) || '-')}</td></tr>
+        <tr><th scope="row">Verification status</th><td>${esc(meta.verificationStatus || '-')}</td></tr>
+        <tr><th scope="row">Last verified</th><td>${esc(meta.lastVerified || '-')}</td></tr>
+      </tbody></table>
+      ${(meta.notes || []).length
+        ? `<details class="dv__notes"><summary>Data notes (${meta.notes.length})</summary>
+            <ul>${meta.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></details>` : ''}
+    </div>`;
+}
+
 function modelPage(m) {
   const url = '/model/' + m.id;
   const brandName = BRAND_BY_ID[m.brandId] || m.brandId;
@@ -1114,7 +1213,7 @@ function modelPage(m) {
     ${summary}
 ${compatHTML}
     <h2>${esc(m.name)} specifications</h2>
-    <p>What the catalogue records. Fields the source does not carry are shown as “-”
+${ACTIVE.has(m.id) ? detailView(ACTIVE.get(m.id)) : `    <p>What the catalogue records. Fields the source does not carry are shown as “-”
     rather than estimated.</p>
     <table class="seo__spec"><tbody>
       ${specRow('Brand', brandName)}
@@ -1129,7 +1228,7 @@ ${compatHTML}
       ${specRow('Battery', m.mah ? nf(m.mah) + ' mAh' : null)}
       ${specRow('Battery part number', m.batteryPart
           ? m.batteryPart + (m.batteryVerified ? ' (verified)' : ' (unverified)') : null)}
-    </tbody></table>
+    </tbody></table>`}
 ${siblingHTML}
     <p class="seo__also"><a href="/models/${esc(m.brandId)}">All ${esc(brandName)} models</a> ·
     <a href="/finder">Match another handset</a></p>`;

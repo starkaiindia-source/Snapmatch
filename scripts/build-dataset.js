@@ -41,13 +41,27 @@ const SRC = (() => {
 })();
 const OUT = path.join(__dirname, '..', 'data', 'build');
 
+/* THE CATEGORY REGISTER. Every category the site knows about is declared here
+   and nowhere else; meta.json and the runtime bundle carry this list through to
+   SM.db.categories, which is what the finder renders.
+
+   `file` is the vendor export the groups come from. A category whose data has
+   not been collected yet declares `file: null` and `comingSoon: true`: it is a
+   real category with a real id, an order and a picture, it simply has no groups
+   yet. The loop below skips it rather than reading a file that is not there, so
+   it lands in the bundle with groupCount 0 and no fabricated members.
+
+   Adding its data later is dropping the export in and filling in `file` — the
+   category itself does not have to be created a second time. */
 const CATEGORIES = [
   { file: 'screen_guards_export.json', id: 'screen-guards', name: 'Screen Guards', short: 'Guard', code: 'SG', order: 1 },
   { file: 'back_cover_export.json', id: 'back-cover', name: 'Back Cover', short: 'Cover', code: 'BC', order: 2 },
   { file: 'combo_display_export.json', id: 'combo-display', name: 'Combo/Display', short: 'Display', code: 'CD', order: 3 },
   { file: 'middle_frame_export.json', id: 'middle-frame', name: 'Middle Frame', short: 'Frame', code: 'MF', order: 4 },
   { file: 'cc_board_export.json', id: 'cc-board', name: 'CC Board', short: 'CC Board', code: 'CC', order: 5 },
-  { file: 'battery_export.json', id: 'battery', name: 'Battery', short: 'Battery', code: 'BT', order: 6 }
+  { file: 'battery_export.json', id: 'battery', name: 'Battery', short: 'Battery', code: 'BT', order: 6 },
+  { file: null, id: 'button-flex', name: 'Button Flex', short: 'Flex', code: 'BF', order: 7, comingSoon: true },
+  { file: null, id: 'sim-tray', name: 'SIM Tray', short: 'Tray', code: 'ST', order: 8, comingSoon: true }
 ];
 
 /* --------------------------------------------------------------- helpers */
@@ -237,6 +251,10 @@ function build() {
   }
 
   CATEGORIES.forEach(cat => {
+    /* A category whose export has not arrived. It stays in the register — it
+       is a category, it has an id and a picture — and contributes no groups,
+       no fitments and no invented members. */
+    if (!cat.file) return;
     const file = path.join(SRC, cat.file);
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     let catSeq = 0;
@@ -369,10 +387,17 @@ function build() {
   const searchIndex = {
     version: Date.now(),
     generatedAt: new Date().toISOString(),
-    categories: CATEGORIES.map(c => ({
-      id: c.id, name: c.name, short: c.short, code: c.code, order: c.order,
-      groupCount: groups.filter(g => g.categoryId === c.id).length
-    })),
+    categories: CATEGORIES.map(c => {
+      const row = {
+        id: c.id, name: c.name, short: c.short, code: c.code, order: c.order,
+        groupCount: groups.filter(g => g.categoryId === c.id).length
+      };
+      /* Carried through to the UI, which uses it to offer the category
+         without pretending it has parts in it. Written only when true, so
+         the six categories that do have data are byte-identical to before. */
+      if (c.comingSoon) row.comingSoon = true;
+      return row;
+    }),
     brands: [...brands.values()].sort((a, b) => a.name.localeCompare(b.name)),
     /* compact tuples keep the payload small: [id, name, brandId, year, size, mah, catMask] */
     models: [...models.values()].map(m => {

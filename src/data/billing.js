@@ -95,6 +95,23 @@
     },
 
     /**
+     * Who the SERVER thinks the caller is, and what it will let them do.
+     *
+     * Resolves { admin: { uid, email, name, role, permissions, claimStale } }
+     * and rejects with status 401/403 for everyone else — api/_lib/admin-auth
+     * verifies the Firebase ID token and consults api/_schema/roles.js, which
+     * is where the role actually lives. The account screen uses it to decide
+     * whether to draw the Admin Panel link, so that link reflects a server
+     * decision instead of a comparison the browser made about itself.
+     *
+     * It grants nothing. /admin and every /api/admin/* route re-check the same
+     * token on every request; this only stops the UI guessing.
+     */
+    adminSession: function () {
+      return apiFetch('/api/admin/session');
+    },
+
+    /**
      * Makes users/{uid} exist and stamps lastLoginAt. Called after every
      * sign-in and every restored session.
      *

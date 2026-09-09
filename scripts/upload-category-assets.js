@@ -242,7 +242,11 @@ ${body}
     'middle-frame':  ['middle frame', 'middleframe', 'frame', 'mid frame', 'mf'],
     'cc-board':      ['cc board', 'ccboard', 'charging board', 'charging connector board',
                       'connector board', 'cc'],
-    'battery':       ['battery', 'batteries', 'bt']
+    'battery':       ['battery', 'batteries', 'bt'],
+    'button-flex':   ['button flex', 'buttonflex', 'power flex', 'volume flex',
+                      'power volume flex', 'on off flex', 'switch flex', 'bf'],
+    'sim-tray':      ['sim tray', 'simtray', 'sim holder', 'sim slot', 'sim card tray',
+                      'tray', 'st']
   };
 
   function norm(s) {
@@ -278,7 +282,13 @@ ${body}
     install: function () {
       if (!SM.art || !SM.art.registerCategory) return false;
       Object.keys(ASSETS).forEach(function (id) {
-        SM.art.registerCategory(id, ASSETS[id].storage, ASSETS[id].bundled);
+        var e = ASSETS[id];
+        /* A category with no copy in the bucket serves the file deployed with
+           the site as its primary. Same official picture either way — this
+           only decides which of the two is asked for first, so a category
+           whose logo has not been uploaded shows the part rather than a
+           request that 404s on the way to it. */
+        SM.art.registerCategory(id, e.storage || e.bundled, e.bundled);
       });
       return true;
     }

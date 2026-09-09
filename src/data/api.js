@@ -476,14 +476,24 @@
         model: m,
         groupCount: gids.length,
         categories: db.categories.map(function (c) {
+          /* Groups this model sits in for this category. Derived from the same
+             membership index the rest of the app uses - there is no second
+             compatibility engine here. */
+          var mine = gids.filter(function (gid) {
+            var g = db.groupById[gid];
+            return g && g.categoryId === c.id;
+          });
           return {
             category: c,
-            count: counts
-              ? (counts[c.id] || 0)
-              : gids.filter(function (gid) {
-                  var g = db.groupById[gid];
-                  return g && g.categoryId === c.id;
-                }).length
+            count: counts ? (counts[c.id] || 0) : mine.length,
+            /* How many DISTINCT handsets those groups cover, this model
+               included - the number a counter wants ("this cover fits 6
+               phones"), not a count of product records. Zero when the public
+               catalogue withholds membership, so the caller can hide it. */
+            modelCount: mine.reduce(function (n, gid) {
+              var g = db.groupById[gid];
+              return n + ((g && g.compatibleCount) || 0);
+            }, 0)
           };
         })
       }, LAT.fast);

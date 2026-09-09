@@ -142,6 +142,12 @@
      read "Sign in to Mobile Parts Finder". */
   var initSettled = false;
 
+  /* The Google sign-in currently open, if any. Module scope on purpose: it has
+     to outlive every re-render of every button that can start one. See
+     SM.fb.signIn for why a second concurrent attempt is what Google answers
+     with a 401. */
+  var signInFlight = null;
+
   /* Result of the redirect sign-in that brought this page load into existence,
      if there was one. Kept so the app can tell "came back from Google with a
      user" apart from "was already signed in" — and so a redirect that failed
@@ -317,8 +323,46 @@
      * getRedirectResult after the page reloads.
      */
     signIn: function () {
-      return ready().then(function (fb) {
+      /* ------------------------------------------------ ONE ATTEMPT AT A TIME
+
+         This is the fix for the intermittent 401 from
+         accounts.google.com/signin/oauth/v3/consent — "the server cannot
+         process the request because it is malformed".
+
+         Nothing here used to stop a second sign-in starting while the first
+         was still open. The button's own disabled flag was the only guard, and
+         it lives in markup that this screen re-renders: a re-render, a tab
+         switch between Sign in and Create account, or simply a double tap on a
+         slow phone put a fresh enabled button on screen with a popup already
+         waiting behind it.
+
+         What happened next is the bug. The second signInWithPopup made the
+         SDK abort the first, and the first rejected with
+         auth/cancelled-popup-request — which the old code treated as
+         "popups do not work here" and answered by calling signInWithRedirect.
+         So the browser navigated the whole page to Google's consent screen
+         while a popup was ALREADY there negotiating the same flow, with the
+         same client id, from the same session. Two OAuth handshakes, two sets
+         of state and nonce, one of them stale by the time Google read it.
+         Google rejects that as malformed: 401. It is intermittent because it
+         needs the two requests to overlap, which is exactly why it hit the
+         owner account hardest — the one that signs in most often, most
+         impatiently, and usually already has a Google session to skip through.
+
+         So: one in-flight attempt, shared by every caller. A second press gets
+         the SAME promise and starts nothing. The guard is here rather than in
+         the UI because it has to survive re-renders, and because there is more
+         than one button that reaches it. */
+      if (signInFlight) {
+        SM.debug.log('auth', 'sign-in already in flight — joining the existing attempt');
+        return signInFlight;
+      }
+
+      signInFlight = ready().then(function (fb) {
         var provider = new fb.auth.GoogleAuthProvider();
+        /* select_account, not consent: the account chooser is what a shared
+           counter machine needs, and it is what lets Google show every account
+           already signed in to this browser. */
         provider.setCustomParameters({ prompt: 'select_account' });
 
         SM.debug.log('auth', 'sign-in requested', {
@@ -339,12 +383,29 @@
           if (code === 'auth/popup-closed-by-user' ||
               code === 'auth/user-cancelled') throw err;
 
-          /* Popup-shaped failures only. Anything else — an unauthorised
+          /* auth/cancelled-popup-request is NOT in the list below any more,
+             and that omission is deliberate.
+
+             It does not mean "popups do not work here". It means another
+             sign-in request superseded this one — so another attempt is still
+             running, and the correct response is to let it finish and say
+             nothing. Answering it with a redirect is what put a page-level
+             OAuth handshake on top of a live popup one and produced the 401.
+             The in-flight guard above should make it unreachable; it is
+             handled explicitly anyway, because "should be unreachable" is not
+             a reason to leave a trapdoor open. */
+          if (code === 'auth/cancelled-popup-request') {
+            SM.debug.log('auth', 'popup superseded by another request — deferring to it');
+            var superseded = new Error('sign-in already in progress');
+            superseded.code = 'auth/cancelled-popup-request';
+            throw superseded;
+          }
+
+          /* Genuinely popup-shaped failures. Anything else — an unauthorised
              domain, a disabled provider, no network — would fail identically
              after a redirect, and retrying via redirect would replace a clear
              error with a mysterious round trip. */
           if (code === 'auth/popup-blocked' ||
-              code === 'auth/cancelled-popup-request' ||
               code === 'auth/operation-not-supported-in-this-environment' ||
               code === 'auth/web-storage-unsupported') {
             SM.debug.warn('auth', 'popup unavailable, falling back to redirect', { code: code });
@@ -354,7 +415,19 @@
           throw err;
         });
       });
+
+      /* Released on both paths, so a failed attempt does not lock the button
+         out for the life of the page. A redirect resolves to null and the page
+         is on its way to Google; releasing there costs nothing because the
+         document is about to be replaced. */
+      var release = function () { signInFlight = null; };
+      signInFlight.then(release, release);
+      return signInFlight;
     },
+
+    /** True while a Google sign-in is open. The UI reads it to stay disabled
+        across a re-render instead of trusting a DOM flag it just threw away. */
+    signInPending: function () { return !!signInFlight; },
 
     signOut: function () {
       return ready().then(function (fb) { return fb.auth().signOut(); });

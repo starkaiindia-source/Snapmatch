@@ -5,7 +5,7 @@
     "models": 4933,
     "groups": 3340,
     "brands": 22,
-    "categories": 6,
+    "categories": 8,
     "fitments": 12239
   },
   "categories": [
@@ -56,6 +56,24 @@
       "code": "BT",
       "order": 6,
       "groupCount": 287
+    },
+    {
+      "id": "button-flex",
+      "name": "Button Flex",
+      "short": "Flex",
+      "code": "BF",
+      "order": 7,
+      "groupCount": 0,
+      "comingSoon": true
+    },
+    {
+      "id": "sim-tray",
+      "name": "SIM Tray",
+      "short": "Tray",
+      "code": "ST",
+      "order": 8,
+      "groupCount": 0,
+      "comingSoon": true
     }
   ]
 }

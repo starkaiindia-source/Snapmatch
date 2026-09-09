@@ -44,11 +44,16 @@
       bundled: "/assets/categories/screen-guards.png",
       focus: { iw: 1.2516, il: -0.1258, it: 0.0417 }
     },
+    /* storage is null while the bucket still holds the OLD photograph. The
+       master was re-shot (black cover -> pink cover) and the bundled copy is
+       the new one; pointing at Storage would serve the retired picture as the
+       primary and the new one only if Storage failed, which is backwards.
+       Re-run the uploader and this row gets its URL back. */
     'back-cover': {
       label: "Back Cover",
-      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fback-cover%2Flogo-256.png?alt=media",
+      storage: null,
       bundled: "/assets/categories/back-cover.png",
-      focus: { iw: 1.3174, il: -0.1484, it: 0.0214 }
+      focus: { iw: 1.221, il: -0.1105, it: 0.0421 }
     },
     'combo-display': {
       label: "Combo/Display",
@@ -73,6 +78,21 @@
       storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fbattery%2Flogo-256.png?alt=media",
       bundled: "/assets/categories/battery.png",
       focus: { iw: 1.2947, il: -0.1448, it: 0.0183 }
+    },
+    /* Not uploaded yet, so storage is null and the bundled copy IS the
+       primary. A URL for an object that does not exist would cost every
+       visitor a 404 before falling back to the file sitting beside it. */
+    'button-flex': {
+      label: "Button Flex",
+      storage: null,
+      bundled: "/assets/categories/button-flex.png",
+      focus: { iw: 1.2836, il: -0.207, it: 0.0186 }
+    },
+    'sim-tray': {
+      label: "SIM Tray",
+      storage: null,
+      bundled: "/assets/categories/sim-tray.png",
+      focus: { iw: 1.2361, il: -0.1181, it: 0.0383 }
     }
   };
 
@@ -90,7 +110,11 @@
     'middle-frame':  ['middle frame', 'middleframe', 'frame', 'mid frame', 'mf'],
     'cc-board':      ['cc board', 'ccboard', 'charging board', 'charging connector board',
                       'connector board', 'cc'],
-    'battery':       ['battery', 'batteries', 'bt']
+    'battery':       ['battery', 'batteries', 'bt'],
+    'button-flex':   ['button flex', 'buttonflex', 'power flex', 'volume flex',
+                      'power volume flex', 'on off flex', 'switch flex', 'bf'],
+    'sim-tray':      ['sim tray', 'simtray', 'sim holder', 'sim slot', 'sim card tray',
+                      'tray', 'st']
   };
 
   /* Categories with a transparent-background copy of their master, for the
@@ -103,7 +127,7 @@
      cutout would have clipped the part is not listed here and keeps the
      original — the desktop tiles use the originals regardless, where a white
      card is deliberate. */
-  var CUTOUTS = ["back-cover","battery","cc-board","combo-display","middle-frame","screen-guards"];
+  var CUTOUTS = ["back-cover", "battery", "button-flex", "cc-board", "combo-display", "middle-frame", "screen-guards", "sim-tray"];
 
   function norm(s) {
     return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -166,7 +190,14 @@
     install: function () {
       if (!SM.art || !SM.art.registerCategory) return false;
       Object.keys(ASSETS).forEach(function (id) {
-        SM.art.registerCategory(id, ASSETS[id].storage, ASSETS[id].bundled);
+        var e = ASSETS[id];
+        /* Two copies where there are two: Storage first, the deployed file as
+           the second chance. One copy where there is only one — a category
+           whose logo has not been uploaded serves the file deployed beside it
+           and has no second chance to offer, so none is registered. Naming the
+           same URL twice would only buy a pointless retry of a request that
+           has already failed. */
+        SM.art.registerCategory(id, e.storage || e.bundled, e.storage ? e.bundled : null);
       });
       return true;
     }

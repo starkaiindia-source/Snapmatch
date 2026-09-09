@@ -48,7 +48,9 @@ SRC = args[0] if args else r"C:\Users\stark\Downloads"
 
 WEB_PX = 256          # every on-site use is <= 58 px; 256 covers 4x DPR
 
-# The six part categories, in the order the app lists them.
+# The part categories, in the order the app lists them. The last two carry no
+# compatibility data yet - the picture is prepared here so the category can be
+# shown while its groups are still being collected.
 CATEGORIES = [
     ("screen-guards",  "Screen Guards"),
     ("back-cover",     "Back Cover"),
@@ -56,17 +58,25 @@ CATEGORIES = [
     ("middle-frame",   "Middle Frame"),
     ("cc-board",       "CC Board"),
     ("battery",        "Battery"),
+    ("button-flex",    "Button Flex"),
+    ("sim-tray",       "SIM Tray"),
 ]
 
 # The names the masters were delivered under. Used only when <id>.png is absent,
 # so the first run needs no manual renaming; identified by opening each one.
+#
+# back-cover was re-shot: 5743.png was the black cover, 63986.png is the pink
+# one that replaced it. The old file is left in the source folder and is simply
+# no longer read - nothing points at it.
 DELIVERED_AS = {
     "screen-guards": "57615.png",
-    "back-cover":    "5743.png",
+    "back-cover":    "63986.png",
     "combo-display": "57592.png",
     "middle-frame":  "5791.png",
     "cc-board":      "5850.png",
     "battery":       "5742.png",
+    "button-flex":   "62582.png",
+    "sim-tray":      "62577.png",
 }
 
 
