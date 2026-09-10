@@ -60,7 +60,11 @@ const CATEGORIES = [
   { file: 'middle_frame_export.json', id: 'middle-frame', name: 'Middle Frame', short: 'Frame', code: 'MF', order: 4 },
   { file: 'cc_board_export.json', id: 'cc-board', name: 'CC Board', short: 'CC Board', code: 'CC', order: 5 },
   { file: 'battery_export.json', id: 'battery', name: 'Battery', short: 'Battery', code: 'BT', order: 6 },
-  { file: null, id: 'button-flex', name: 'Button Flex', short: 'Flex', code: 'BF', order: 7, comingSoon: true },
+  /* Not a vendor export: compiled from the supplier's three power+volume switch
+     PDFs. Every device is referenced by its catalogue id — no model name is
+     typed into it — and each group carries its evidence: source file, source
+     line, and the rule or source that tied each reference to its record. */
+  { file: 'button_flex_export.json', id: 'button-flex', name: 'Button Flex', short: 'Flex', code: 'BF', order: 7 },
   { file: null, id: 'sim-tray', name: 'SIM Tray', short: 'Tray', code: 'ST', order: 8, comingSoon: true }
 ];
 
@@ -263,10 +267,13 @@ function build() {
       const memberIds = [];
       const memberNames = [];
       (g.compatibleModels || []).forEach(cm => {
-        const nm = String(cm.mobileModelName || cm.name || '').trim();
+        const nm = String(cm.mobileModelId || cm.mobileModelName || cm.name || '').trim();
         if (!nm) return;
-        const id = resolve(nm);
-        if (!id) { unresolved.push({ category: cat.id, group: g.name, model: nm }); return; }
+        /* NAMED (the vendor exports: slug, then loose name) or REFERENCED:
+           'mobileModelId' is the catalogue record's own id, taken as-is and never
+           re-read from a typed name. An id the catalogue lacks is reported. */
+        const id = cm.mobileModelId ? (models.has(nm) ? nm : null) : resolve(nm);
+        if (!id) { unresolved.push({ category: cat.id, group: g.masterModelId || g.name, model: nm }); return; }
         noteModelFacts(id, cm);
         if (memberIds.indexOf(id) === -1) { memberIds.push(id); memberNames.push(models.get(id).name); }
       });
@@ -274,14 +281,16 @@ function build() {
       /* a group with no resolvable members carries no information — record it */
       if (!memberIds.length) {
         report.anomalies.emptyGroups = report.anomalies.emptyGroups || [];
-        report.anomalies.emptyGroups.push({ category: cat.id, name: g.name, partNo: g.modelNo || null });
+        report.anomalies.emptyGroups.push({ category: cat.id, name: g.name || g.masterModelId, partNo: g.modelNo || null });
         return;
       }
 
-      const masterId = resolve(g.name);
+      const masterId = g.masterModelId
+        ? (models.has(g.masterModelId) ? g.masterModelId : null)
+        : resolve(g.name);
       if (!masterId) {
         report.anomalies.unresolvedMasters = report.anomalies.unresolvedMasters || [];
-        report.anomalies.unresolvedMasters.push({ category: cat.id, name: g.name });
+        report.anomalies.unresolvedMasters.push({ category: cat.id, name: g.name || g.masterModelId });
       }
       /* master must be part of its own group */
       if (masterId && memberIds.indexOf(masterId) === -1) {
@@ -309,9 +318,11 @@ function build() {
         /* Kept verbatim for the audit trail — what the export actually said,
            whatever it was. Never rendered. */
         sourcePartNo: (g.modelNo || '').trim() || null,
-        drawingName: g.originalDrawingName || null,
+        /* a referenced master names its own drawing, as every vendor group does:
+           the catalogue record's name, never retyped */
+        drawingName: g.originalDrawingName || (g.masterModelId && masterModel ? masterModel.name : null),
         masterModelId: masterId,
-        masterModelName: masterModel ? masterModel.name : String(g.name).trim(),
+        masterModelName: masterModel ? masterModel.name : String(g.name || g.masterModelId || '').trim(),
         masterBrandId: masterModel ? masterModel.brandId : null,
         memberIds,
         memberNames,
@@ -320,7 +331,7 @@ function build() {
            The raw source cell is deliberately NOT indexed: nobody searches for
            "asdf", and 567 groups sharing the token "1" is not an index. */
         searchTokens: [...new Set([
-          ...(masterModel ? masterModel.tokens : loose(g.name).split(' ')),
+          ...(masterModel ? masterModel.tokens : loose(g.name || '').split(' ')),
           ...loose(`MPF-${cat.code}-${String(catSeq).padStart(4, '0')}`).split(' '),
           ...loose(oemPartNo(g.modelNo, deviceNames) || '').split(' ')
         ])].filter(Boolean).slice(0, 60)

@@ -22,6 +22,8 @@
      --project <id>   Firebase project id                 (required)
      --dry            parse and report, write nothing
      --only <a,b>     subset: models,groups,modelGroups,brands,meta
+     --category <id>  one part category: its groups + groupDetails, only its own
+                      key on each device's modelGroups doc, and catalog/meta
      --concurrency N  parallel batches, default 4
 
    Writes (see firestore.rules for who may read what)
@@ -52,6 +54,7 @@ const DRY = has('dry');
 const PRUNE = has('prune');
 const CONCURRENCY = Math.max(1, Number(flag('concurrency', 4)) || 4);
 const ONLY = (flag('only', '') || '').split(',').map(s => s.trim()).filter(Boolean);
+const CATEGORY = flag('category', '') || null;
 const BUILD = path.join(__dirname, '..', 'data', 'build');
 const BATCH = 450;                       /* Firestore hard limit is 500 */
 
@@ -59,7 +62,10 @@ if (!PROJECT && !DRY) {
   console.error('\n  --project <firebase-project-id> is required (or use --dry).\n');
   process.exit(1);
 }
-const want = name => !ONLY.length || ONLY.indexOf(name) > -1;
+/* --category narrows a run to the three places a category lives. Models and
+   brands are skipped: adding a category's groups changes neither. */
+const want = name => (!CATEGORY || ['groups', 'modelGroups', 'meta'].indexOf(name) > -1) &&
+  (!ONLY.length || ONLY.indexOf(name) > -1);
 
 /* ------------------------------------------------------------- read input */
 function readNdjson(file) {
@@ -143,7 +149,7 @@ async function main() {
   }
 
   if (want('groups')) {
-    const groups = readNdjson('groups.ndjson');
+    const groups = readNdjson('groups.ndjson').filter(g => !CATEGORY || g.categoryId === CATEGORY);
     /* The whole record, readable by anyone — the owner's decision, matching
        what assets/dataset.json now ships. Keeping /groups thinner than the
        bundle would only mean the Firestore path showed less than the file
@@ -180,7 +186,14 @@ async function main() {
     }));
   }
 
-  if (want('modelGroups')) total += await writeAll('modelGroups', readNdjson('modelGroups.ndjson'));
+  if (want('modelGroups')) {
+    let rows = readNdjson('modelGroups.ndjson');
+    /* One key per device, merged in. The device's other categories are not in
+       the payload, so the merge cannot overwrite them. */
+    if (CATEGORY) rows = rows.filter(r => r.byCategory && r.byCategory[CATEGORY])
+      .map(r => ({ id: r.id, byCategory: { [CATEGORY]: r.byCategory[CATEGORY] } }));
+    total += await writeAll('modelGroups', rows);
+  }
 
   if (want('meta') && !DRY) {
     await db.collection('catalog').doc('meta').set({

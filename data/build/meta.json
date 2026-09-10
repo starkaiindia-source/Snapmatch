@@ -1,12 +1,12 @@
 {
-  "version": 1788536095871,
-  "generatedAt": "2026-09-04T15:34:55.871Z",
+  "version": 1789052260911,
+  "generatedAt": "2026-09-10T14:57:40.911Z",
   "counts": {
     "models": 4933,
-    "groups": 3340,
+    "groups": 3384,
     "brands": 22,
     "categories": 8,
-    "fitments": 12239
+    "fitments": 12345
   },
   "categories": [
     {
@@ -63,8 +63,7 @@
       "short": "Flex",
       "code": "BF",
       "order": 7,
-      "groupCount": 0,
-      "comingSoon": true
+      "groupCount": 44
     },
     {
       "id": "sim-tray",

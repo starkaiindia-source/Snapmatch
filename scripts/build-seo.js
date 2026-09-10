@@ -89,6 +89,8 @@ const ACTIVE = (() => {
 const CATS = dataset.categories
   .filter(c => !c.comingSoon)
   .map(c => ({ id: c.id, name: c.name, groups: c.groupCount }));
+/* The category count in prose, so it cannot go stale when one is added. */
+const countWord = n => ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'][n] || String(n);
 const BRANDS = dataset.brands.map(r => ({ id: r[0], name: r[1], models: r[2], groups: r[3] }))
   .filter(b => b.models > 0)
   .sort((a, b) => b.models - a.models);
@@ -287,6 +289,13 @@ const esc = s => String(s == null ? '' : s)
    worth reading on its own. */
 
 const CATEGORY_COPY = {
+  'button-flex': {
+    h1: 'Button flex compatibility — models that share one power and volume flex',
+    lede: 'A power and volume button flex fits every phone built around the same side-button ' +
+          'layout. Each group below is one flex and every model it fits, from a parts supplier ' +
+          'compatibility list matched to this catalogue model by model.',
+    intent: 'button flex compatible models, power volume flex compatible models, mobile button flex finder'
+  },
   'screen-guards': {
     slug: 'universal-tempered-glass',
     h1: 'Universal tempered glass — which models share one size',
@@ -859,7 +868,7 @@ function categoriesIndex() {
     jsonld: [breadcrumbLd(trail)],
     body: `
     <h1>Mobile spare parts categories</h1>
-    <p class="seo__lede">Six part categories, ${nf(STATS.groups)} compatibility groups. Each
+    <p class="seo__lede">${countWord(CATS.length)} part categories, ${nf(STATS.groups)} compatibility groups. Each
     group is one part and every device it fits.</p>
     <ul class="seo__grid">
       ${CATS.map(c => `<li><a href="/categories/${c.id}"><b>${esc(c.name)}</b>

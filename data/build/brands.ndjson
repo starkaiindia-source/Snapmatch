@@ -13,10 +13,10 @@
 {"id":"nokia","name":"Nokia","modelCount":200,"groupCount":50}
 {"id":"nothing","name":"Nothing","modelCount":15,"groupCount":16}
 {"id":"oneplus","name":"OnePlus","modelCount":107,"groupCount":101}
-{"id":"oppo","name":"Oppo","modelCount":420,"groupCount":294}
-{"id":"realme","name":"Realme","modelCount":294,"groupCount":285}
+{"id":"oppo","name":"Oppo","modelCount":420,"groupCount":306}
+{"id":"realme","name":"Realme","modelCount":294,"groupCount":300}
 {"id":"samsung","name":"Samsung","modelCount":368,"groupCount":335}
 {"id":"tecno","name":"Tecno","modelCount":193,"groupCount":110}
 {"id":"vivo","name":"Vivo","modelCount":607,"groupCount":546}
-{"id":"xiaomi","name":"Xiaomi","modelCount":515,"groupCount":394}
+{"id":"xiaomi","name":"Xiaomi","modelCount":515,"groupCount":411}
 {"id":"zte","name":"ZTE","modelCount":252,"groupCount":139}
