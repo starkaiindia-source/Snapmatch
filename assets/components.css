@@ -2096,6 +2096,31 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .gbar__right{ flex:none; display:flex; align-items:center; gap:10px; }
 .gbar__filter{ width:210px; height:36px; }
 
+/* ------------------------------------------------ the toolbar, docking
+   On the open group the bar is the toolbar half of a two-part header; the
+   banner under it (.ghero) carries the identity at full size. The compact copy
+   in here is always IN the layout — the bar is the same height docked or not,
+   which is the entire reason nothing under it jumps — and only its opacity,
+   a small rise, and the bar's shadow change when the banner goes under it.
+
+   The selected-model header is a .gbar without --hero and is untouched. */
+.gbar__dock{ flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:12px; }
+.gbar__dockpart{ display:inline-flex; }
+.gbar--hero{ transition:box-shadow .2s ease, border-color .2s ease; }
+.gbar--hero:not(.is-docked){ box-shadow:none; border-bottom-color:transparent; }
+.gbar--hero .gbar__dock,
+.gbar--hero .gbar__dockpart{
+  opacity:0; transform:translateY(6px);
+  transition:opacity .2s ease, transform .2s ease;
+}
+.gbar--hero.is-docked .gbar__dock,
+.gbar--hero.is-docked .gbar__dockpart{ opacity:1; transform:none; }
+@media (prefers-reduced-motion:reduce){
+  .gbar--hero,
+  .gbar--hero .gbar__dock,
+  .gbar--hero .gbar__dockpart{ transition:none; }
+}
+
 /* The category switcher rides inside the sticky header, but ONLY in the mobile
    sheet. A desktop already has two of them — the left-hand category panel and
    the rail under the hero — and adding a third would be a change to a layout
@@ -2114,6 +2139,82 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .catvis__art{ max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; }
 .catvis .pthumb,
 .catvis img{ max-width:100%; max-height:100%; }
+
+/* ==========================================================================
+   THE MASTER BANNER — the open group's identity, at the size of a heading
+
+   Built from the tokens the app already uses for "the master": --grad-bench,
+   white type, the amber glow in the top-right corner, --r-lg and --sh-2 — the
+   .mastercard treatment. The photographs sit on --ctile-paper, the white they
+   were shot against, in both themes, as they do everywhere else in the app.
+
+   Not sticky. It scrolls away under a toolbar that never changes height; see
+   .gbar--hero above for the half that stays.
+   ========================================================================== */
+.ghero{
+  position:relative; overflow:hidden; isolation:isolate;
+  /* flex:none matters only in the phone sheet. There the centre column is
+     flattened with display:contents, which makes this banner a flex item of
+     the sheet's fixed-height column, and overflow:hidden gives a flex item an
+     automatic minimum height of zero. The sheet shrank the banner to a 28px
+     strip to make room for a list that was always going to scroll anyway. */
+  flex:none;
+  display:flex; align-items:center; gap:18px;
+  margin:14px 0 22px; padding:20px 22px;
+  border-radius:var(--r-lg);
+  background:var(--grad-bench); color:#fff;
+  box-shadow:var(--sh-2);
+}
+.ghero::after{
+  content:""; position:absolute; z-index:-1; right:-80px; top:-96px;
+  width:270px; height:270px; border-radius:99px; pointer-events:none;
+  background:radial-gradient(circle,rgba(255,138,61,.26),transparent 65%);
+}
+.ghero__shot{
+  flex:none; width:80px; height:100px; padding:7px;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--ctile-paper); border-radius:var(--r-sm);
+  box-shadow:0 8px 20px -10px rgba(0,0,0,.55);
+}
+.ghero__shot .dphoto{ width:100%; height:100%; }
+.ghero__shot .dphoto__img,
+.ghero__shot .dphoto__art{ max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; }
+
+.ghero__id{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:6px; }
+.ghero__eyebrow{
+  display:flex; flex-wrap:wrap; align-items:center; gap:3px 9px; min-width:0;
+  font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  color:rgba(214,255,244,.78);
+}
+/* Each phrase keeps its words together; the pair wraps as two phrases. */
+.ghero__tag{ display:inline-flex; align-items:center; gap:7px; white-space:nowrap; }
+.ghero__eyebrow svg{ flex:none; width:14px; height:14px; color:var(--amber-400); }
+.ghero__eyebrow i{ flex:none; width:3px; height:3px; border-radius:99px; background:currentColor; opacity:.7; }
+.ghero__n{
+  margin:0; font-family:var(--f-display); font-weight:800;
+  font-size:28px; line-height:1.08; letter-spacing:-.03em; color:#fff;
+  overflow-wrap:anywhere;
+}
+.ghero__meta{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-top:2px; }
+/* The answer the page was opened for: bright, but a pill beside the name
+   rather than a second headline. */
+.ghero__count{
+  display:inline-flex; align-items:center; height:26px; padding:0 11px;
+  font-size:12.5px; font-weight:800; letter-spacing:.01em; color:#fff;
+  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.24);
+  border-radius:999px; white-space:nowrap;
+}
+.ghero__fact{ font-size:12.5px; font-weight:700; color:rgba(220,250,242,.86); white-space:nowrap; }
+.ghero__codes{
+  min-width:0; font-family:var(--f-mono, ui-monospace, monospace); font-size:11.5px;
+  color:rgba(220,250,242,.7); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* The part itself, on the same white tile as the handset. */
+.catvis--hero{
+  flex:none; width:76px; height:76px; padding:9px;
+  background:var(--ctile-paper); border:0; border-radius:var(--r-sm);
+  box-shadow:0 8px 20px -10px rgba(0,0,0,.55);
+}
 
 /* ==========================================================================
    DEVICES IN THIS GROUP — compact chips, organised by brand
@@ -2230,6 +2331,85 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .gchip__flag{ flex:none; display:inline-flex; color:var(--amber-700); }
 .gchip__flag svg{ width:13px; height:13px; }
 .gchip__flag--hit{ color:var(--teal-600); }
+
+/* ==========================================================================
+   IMAGE-FIRST CARDS — the open group's device grid
+
+   The horizontal chip put a 30px photograph beside a name in a cell 190px
+   wide, so most of every cell was the empty right-hand side of a short name.
+   The card turns that around: the photograph fills the top of the card and
+   the name sits centred under it, so the width a card has is spent on the
+   thing a repairer recognises first.
+
+   Same element as the chip (.gchip), reshaped by --card. Every existing rule
+   about selection, the master and the searched-for device still applies.
+   Selectors are doubled (.gchip.gchip--card) so the chip's narrow-screen
+   overrides further down, which are single-class, cannot win over them.
+   ========================================================================== */
+.glist .gbrand + .gbrand{ margin-top:24px; }
+.glist .gbrand__h{ margin-bottom:10px; }
+
+/* THE COLUMN COUNT, IN ONE LINE.
+
+   The narrowest a column may be is the LARGER of two floors:
+     --gc-min            the width a card needs for its photo and a name, and
+     (100% - gaps) / N   the width that would put exactly N across.
+   While the column is wide the second floor is the larger, so there are never
+   more than --gc-cols across; as it narrows, --gc-min takes over and
+   auto-fill drops a column each time one more no longer fits — 6, 5, 4, 3, 2,
+   and 1 only when two genuinely cannot stand side by side.
+
+   Every percentage here is of the GRID's own width, which is the centre column
+   minus its padding — never the viewport. The panels either side are already
+   subtracted by the time this is measured, so a wider left panel or a closed
+   right one changes the count on its own.
+
+   auto-fill rather than auto-fit keeps the empty tracks, so a brand with one
+   or two models gets one or two card-sized cards, not two cards stretched
+   across the row. */
+.gchips.gchips--cards{
+  --gc-min:156px;
+  --gc-cols:6;
+  --gc-gap:12px;
+  gap:var(--gc-gap);
+  grid-template-columns:repeat(auto-fill,
+    minmax(max(var(--gc-min), calc((100% - (var(--gc-cols) - 1) * var(--gc-gap)) / var(--gc-cols))), 1fr));
+}
+
+.gchip.gchip--card{
+  position:relative;
+  flex-direction:column; align-items:stretch; justify-content:flex-start; gap:9px;
+  height:100%; padding:8px 8px 11px;
+  text-align:center; border-radius:var(--r);
+}
+.gchip.gchip--card:hover{ box-shadow:var(--sh-1); }
+
+/* The photograph gets the top of the card and a fixed height, so a lazy image
+   arriving late fills space that was already reserved and nothing reflows —
+   the same reason every card in a row is exactly the same height. */
+.gchip--card .gchip__ph{ width:100%; height:104px; padding:8px; border-radius:var(--r-xs); }
+.gchip--card .gchip__fb{ width:30px; height:48px; border-radius:6px; }
+
+/* Centred, two lines at most, and two lines of room ALWAYS: a card whose name
+   fits on one line keeps the same height as its neighbour whose name needs
+   two, so rows stay level and the name sits the same distance under every
+   photograph. The full name is in the card's title for the few that clamp. */
+.gchip--card .gchip__n{
+  flex:none; display:-webkit-box; -webkit-box-orient:vertical;
+  -webkit-line-clamp:2; line-clamp:2;
+  white-space:normal; text-overflow:clip; overflow:hidden; overflow-wrap:break-word;
+  min-height:2.6em; padding:0 4px;
+  font-size:13px; font-weight:600; line-height:1.3;
+}
+
+/* The crown and the tick move onto the photograph's corner, where they mark
+   the card without taking a line from the name. */
+.gchip--card .gchip__flag{
+  position:absolute; top:13px; right:13px;
+  width:24px; height:24px; border-radius:999px;
+  display:grid; place-items:center;
+  background:var(--surface); border:1px solid var(--line); box-shadow:var(--sh-1);
+}
 
 /* ------------------------------------------------ right panel: the device */
 .ws__right--detail{ padding-top:0; }
@@ -2434,6 +2614,20 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .gchip{ padding:4px 8px 4px 4px; gap:8px; }
   .gchip__ph{ width:26px; height:26px; }
   .gchip__n{ font-size:12.5px; }
+
+  /* The banner, at a phone's size: the same parts, closer together. */
+  .gbar__dock{ gap:9px; }
+  .ghero{ gap:12px; margin:10px 0 16px; padding:14px; border-radius:var(--r); }
+  .ghero__shot{ width:58px; height:74px; padding:5px; }
+  .ghero__n{ font-size:21px; }
+  .ghero__eyebrow{ font-size:10px; letter-spacing:.07em; }
+  .catvis--hero{ width:50px; height:50px; padding:6px; }
+
+  /* Two across on any phone: a 132px floor fits two cards in the 292px a
+     320px screen leaves inside the sheet. */
+  .gchips.gchips--cards{ --gc-min:132px; --gc-gap:10px; }
+  .gchip--card .gchip__ph{ height:92px; }
+  .gchip.gchip--card{ padding:7px 7px 10px; gap:8px; }
 }
 
 /* ============================================================================

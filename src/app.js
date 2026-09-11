@@ -727,9 +727,11 @@
     return nf(n) + ' device' + (n === 1 ? '' : 's') + (verb ? ' ' + verb : '');
   }
 
-  /* The sticky master header: back, the master handset, its name, the part
-     codes, how many devices the group links, the category's own picture, and
-     the filter.
+  /* The sticky toolbar: back, the filter, and — once the banner under it has
+     scrolled away — a compact copy of the master's identity: the handset, its
+     name, how many devices the group links, the part codes and the category's
+     own picture. groupHeroHTML is the banner; observeHeroDock decides the
+     moment one hands over to the other.
 
      It is a SIBLING of everything below it, not a wrapper around the head.
      position:sticky is bounded by its own parent's box, so nested inside a
@@ -747,7 +749,16 @@
     var codes = [g.groupNumber, g.partCode, g.oemPartNo].filter(Boolean).join(' · ');
     var total = groupMemberCount(g);
 
-    return '<div class="gbar">' +
+    /* gbar--hero marks this as the toolbar half of a two-part header. Its
+       compact identity (.gbar__dock) and part picture (.gbar__dockpart) are in
+       the layout from the first frame — the bar never changes height, which is
+       what keeps the list underneath from jumping — but they stay transparent
+       until the banner's own name has scrolled under the bar.
+
+       aria-hidden on both: the banner's heading is the group's accessible
+       title, and a second copy read out beside it would be the same sentence
+       twice. */
+    return '<div class="gbar gbar--hero">' +
       /* The phone's own grab handle. Drawn only inside the mobile sheet, where
          the header is the top of a panel rather than a column heading. */
       '<span class="gbar__grab" aria-hidden="true"></span>' +
@@ -757,21 +768,23 @@
           'aria-label="Back to compatibility groups" title="Back to compatibility groups">' +
           icon('chevronLeft') + '<span class="gback__t">Back</span></button>' +
 
-        '<span class="gbar__shot">' +
-          SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'gbar__ph' }) +
-        '</span>' +
-
-        '<span class="gbar__id">' +
-          '<span class="gbar__n">' + esc(deviceTitle(master)) + '</span>' +
-          '<span class="gbar__meta">' +
-            '<span class="gbar__count" id="gdCount">' +
-              esc(deviceCountLabel(total, 'linked')) + '</span>' +
-            (codes ? '<span class="gbar__codes">' + esc(codes) + '</span>' : '') +
+        '<span class="gbar__dock" aria-hidden="true">' +
+          '<span class="gbar__shot">' +
+            SM.art.photo(master, { alt: '', eager: true, cls: 'gbar__ph' }) +
+          '</span>' +
+          '<span class="gbar__id">' +
+            '<span class="gbar__n">' + esc(deviceTitle(master)) + '</span>' +
+            '<span class="gbar__meta">' +
+              '<span class="gbar__count" data-gcount>' +
+                esc(deviceCountLabel(total, 'linked')) + '</span>' +
+              (codes ? '<span class="gbar__codes">' + esc(codes) + '</span>' : '') +
+            '</span>' +
           '</span>' +
         '</span>' +
 
         '<span class="gbar__right">' +
-          categoryVisual(cat, { cls: 'catvis--bar' }) +
+          '<span class="gbar__dockpart" aria-hidden="true">' +
+            categoryVisual(cat, { cls: 'catvis--bar' }) + '</span>' +
           '<label class="field gbar__filter">' + icon('search') +
             '<input class="input" id="gdq" placeholder="Filter these devices…" ' +
             'value="' + esc(state.finder.groupQ || '') + '" ' +
@@ -809,7 +822,13 @@
         'decoding="async" referrerpolicy="no-referrer" ' +
         'onerror="this.parentNode.classList.add(&quot;is-failed&quot;)" />'
       : '';
-    return '<button type="button" class="gchip' + (sel ? ' is-on' : '') +
+    /* opts.card: the open group's image-first card — photograph on top, name
+       centred under it. The markup is the same chip, reordered by CSS alone,
+       so every selector that finds a chip (.gchip.is-on, .gchip[data-id])
+       finds a card, and the match cards that preview a group keep their
+       compact horizontal row. */
+    return '<button type="button" class="gchip' + (opts.card ? ' gchip--card' : '') +
+      (sel ? ' is-on' : '') +
       (isMaster ? ' is-master' : '') + (isHit ? ' is-hit' : '') + '" ' +
       'data-act="' + esc(opts.act || 'pick-device') + '" data-id="' + esc(m.id) + '" ' +
       'title="' + esc(m.fullName) + '" ' +
@@ -842,7 +861,8 @@
      which reads as a list that failed rather than as one not asked for. */
   function chipGridHTML(list, opts) {
     if (!list || !list.length) return '';
-    return '<div class="gchips">' + list.map(function (m) {
+    return '<div class="gchips' + (opts && opts.card ? ' gchips--cards' : '') + '">' +
+      list.map(function (m) {
       return deviceChipHTML(m, opts);
     }).join('') + '</div>';
   }
@@ -898,8 +918,67 @@
     }).join('');
   }
 
+  /* ---------------------------------------------------- the master banner
+
+     What the group is, said at the size of a heading: the master handset on
+     the white tile its photograph was shot for, its name, how many devices the
+     group links, how many brands those come from, the part codes, and the
+     part itself on the right.
+
+     It is drawn in the app's own Master Model language — --grad-bench, white
+     type, the amber glow — the same treatment .mastercard gives the master of
+     every match card, so "the master" looks like one thing wherever it
+     appears.
+
+     It is NOT sticky, on purpose. Shrinking a stuck header is a layout change:
+     every device under it moves up by the difference, which is a visible jump,
+     and in Safari — which has no scroll anchoring to hide it — a real one. So
+     the banner simply scrolls, like the content it is, underneath a toolbar
+     that never changes height, and the toolbar shows its compact copy of the
+     same identity once this one is out of sight. One header, two states, and
+     nothing below it ever moves. */
+  function groupHeroHTML(row) {
+    var g = row.group, cat = row.category, master = row.master;
+    var codes = [g.groupNumber, g.partCode, g.oemPartNo].filter(Boolean).join(' · ');
+    var total = groupMemberCount(g);
+
+    /* Brands, counted from the same member list the grid is built from, so
+       the number and the headings below it cannot disagree. */
+    var seen = Object.create(null), brands = 0;
+    api.groupMembers(g).forEach(function (m) {
+      var b = m.brandId || '?';
+      if (!seen[b]) { seen[b] = 1; brands++; }
+    });
+
+    return '<section class="ghero" aria-labelledby="gheroName">' +
+      '<span class="ghero__shot">' +
+        SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'ghero__ph' }) +
+      '</span>' +
+      '<div class="ghero__id">' +
+        /* Two phrases, each in its own span, so a narrow banner wraps BETWEEN
+           them rather than inside them. As bare text in a flex row each phrase
+           was its own shrinking column, and a phone read "MASTER / MODEL" and
+           "SCREEN / GUARDS" side by side. */
+        '<span class="ghero__eyebrow">' +
+          '<span class="ghero__tag">' + icon('crown') + 'Master model</span>' +
+          (cat ? '<span class="ghero__tag"><i aria-hidden="true"></i>' + esc(cat.name) + '</span>' : '') +
+        '</span>' +
+        '<h2 class="ghero__n" id="gheroName">' + esc(deviceTitle(master)) + '</h2>' +
+        '<div class="ghero__meta">' +
+          '<span class="ghero__count" data-gcount>' +
+            esc(deviceCountLabel(total, 'linked')) + '</span>' +
+          (brands ? '<span class="ghero__fact">' + nf(brands) +
+            (brands === 1 ? ' brand' : ' brands') + '</span>' : '') +
+          (codes ? '<span class="ghero__codes">' + esc(codes) + '</span>' : '') +
+        '</div>' +
+      '</div>' +
+      categoryVisual(cat, { cls: 'catvis--hero' }) +
+      '</section>';
+  }
+
   function groupCenterHTML(row) {
     return groupBarHTML(row) +
+      groupHeroHTML(row) +
       '<div class="fbar"><div class="field grow">' + icon('search') +
         '<input class="input" id="gdqm" placeholder="Filter these devices…" ' +
         'value="' + esc(state.finder.groupQ || '') + '" ' +
@@ -923,7 +1002,7 @@
       return '<div class="notice">' + icon('alert') +
         '<span>No device in this group matches that filter.</span></div>';
     }
-    return brandBlocksHTML(shown, { masterId: row.master.id, sel: sel }) +
+    return brandBlocksHTML(shown, { masterId: row.master.id, sel: sel, card: true }) +
       (list.length > shown.length
         ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
           'Show ' + nf(list.length - shown.length) + ' more</button></div>'
@@ -1091,12 +1170,15 @@
      bar none; the initial write covers the rest, and a wrong value there costs
      a few pixels of overlap on one heading, not a broken list. */
   var gbarRO = null;
+  var gbarLastH = 0;
   function measureGbar() {
     var bar = document.querySelector('.gbar');
     var host = document.documentElement;
-    if (!bar) { host.style.removeProperty('--gbar-h'); return; }
+    if (!bar) { host.style.removeProperty('--gbar-h'); observeHeroDock(); return; }
     var h = Math.round(bar.getBoundingClientRect().height);
     if (h > 0) host.style.setProperty('--gbar-h', h + 'px');
+    gbarLastH = h;
+    observeHeroDock();
 
     if (global.ResizeObserver) {
       if (gbarRO) gbarRO.disconnect();
@@ -1105,9 +1187,64 @@
         if (!b) return;
         var n = Math.round(b.getBoundingClientRect().height);
         if (n > 0) host.style.setProperty('--gbar-h', n + 'px');
+        /* The dock line IS the bottom of this bar. When the bar changes height
+           the line moves, and the observer watching for it has to be told. */
+        if (n !== gbarLastH) { gbarLastH = n; observeHeroDock(); }
       });
       gbarRO.observe(bar);
     }
+  }
+
+  /* ------------------------------------------------------- the dock line
+
+     When the banner's name has scrolled fully under the toolbar, the toolbar
+     takes over saying who the group belongs to: its compact identity fades in
+     and its shadow appears. Scrolling back reverses it.
+
+     An IntersectionObserver rather than a scroll handler: the browser works
+     out the crossing off the main thread and calls back twice per journey,
+     where a scroll listener would run a layout read on every frame of a
+     325-device fling. The root is whatever is actually scrolling the group —
+     the centre column on a desktop, the sheet on a phone — and its top edge is
+     pulled down by the toolbar's own height, so "out of view" means "under the
+     bar", not "off the screen".
+
+     The class changes opacity, transform and a shadow and nothing else. The
+     bar's height does not change in either state, so nothing below it moves. */
+  var heroIO = null;
+  function observeHeroDock() {
+    if (heroIO) { heroIO.disconnect(); heroIO = null; }
+    var bar = document.querySelector('.gbar--hero');
+    if (!bar) return;
+    var name = document.querySelector('.ghero__n');
+
+    /* Nothing to watch, or nothing to watch it with. A sticky header that is
+       blank for ever is worse than one that was never large, so the compact
+       identity is simply shown. */
+    if (!name || !global.IntersectionObserver) {
+      bar.classList.add('is-docked');
+      return;
+    }
+
+    /* Decided once now, synchronously, so a group re-rendered while already
+       scrolled — a category tapped halfway down the list — does not show an
+       empty toolbar for the frame before the observer's first report. */
+    var barRect = bar.getBoundingClientRect();
+    bar.classList.toggle('is-docked', name.getBoundingClientRect().bottom <= barRect.bottom + 1);
+
+    heroIO = new IntersectionObserver(function (entries) {
+      var e = entries[entries.length - 1];
+      var b = document.querySelector('.gbar--hero');
+      if (!b || !e) return;
+      var top = e.rootBounds ? e.rootBounds.top : 0;
+      /* Below the viewport is not "docked" — only above it, under the bar. */
+      b.classList.toggle('is-docked', !e.isIntersecting && e.boundingClientRect.bottom <= top + 1);
+    }, {
+      root: wsScroller(),
+      rootMargin: '-' + Math.round(barRect.height) + 'px 0px 0px 0px',
+      threshold: 0
+    });
+    heroIO.observe(name);
   }
 
   /* True when the finder is showing a RESULT rather than the library: a group
@@ -1290,15 +1427,19 @@
     var all = api.groupMembers(row.group);
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var n = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }).length : all.length;
-    var c = document.getElementById('gdCount');
     /* Filtering narrows what is on screen; it does not change how many devices
        the group links. "12 of 325 devices" says both, and the group's own
-       total never silently becomes the size of a search. */
-    if (c) {
-      c.textContent = q
-        ? nf(n) + ' of ' + deviceCountLabel(all.length)
-        : deviceCountLabel(all.length, 'linked');
-    }
+       total never silently becomes the size of a search.
+
+       Every [data-gcount], not one id: the banner and the toolbar's compact
+       copy both carry the count, and a filter that updated only one of them
+       would leave the header disagreeing with itself the moment it docked. */
+    var label = q
+      ? nf(n) + ' of ' + deviceCountLabel(all.length)
+      : deviceCountLabel(all.length, 'linked');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-gcount]'), function (c) {
+      c.textContent = label;
+    });
   }
 
   /* Kept as the old name so nothing else had to change; the two are the same
