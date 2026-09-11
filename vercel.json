@@ -164,7 +164,7 @@
     },
     {
       "src": "/(account|group)(?:/.*)?$",
-      "dest": "/index.html"
+      "dest": "/finder/index.html"
     },
     {
       "src": "/$",

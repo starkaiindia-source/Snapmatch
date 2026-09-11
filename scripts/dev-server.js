@@ -169,9 +169,16 @@ http.createServer((req, res) => {
       /* /admin, and the two app screens with no pre-rendered file, get a shell —
          which is what vercel.json now routes in production. Everything else is a
          real 404. Answering an unknown URL with index.html at status 200 is a
-         soft 404, and it used to happen here and in production alike. */
+         soft 404, and it used to happen here and in production alike.
+
+         The app screens get the FINDER's page, not the homepage's. Since
+         649ef377d the generated index.html no longer carries the application
+         bundle — the homepage stands down — so handing it to /group/<id> or
+         /account served a page with nothing on it that could draw a group or a
+         sign-in. finder/index.html is a page the app mounts on. vercel.json
+         routes the same two paths to the same file. */
       const shellFor = /^\/admin(\/|$)/.test(p) ? 'admin/index.html'
-        : /^\/(account|group)(\/|$)/.test(p) ? 'index.html' : null;
+        : /^\/(account|group)(\/|$)/.test(p) ? 'finder/index.html' : null;
       if (shellFor && !path.extname(p)) {
         const shell = fs.readFileSync(path.join(ROOT, shellFor));
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
