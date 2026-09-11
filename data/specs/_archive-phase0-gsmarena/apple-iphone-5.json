@@ -1,0 +1,193 @@
+{
+ "modelId": "apple-iphone-5",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone 5",
+  "commercialName": "iPhone 5",
+  "modelNumbers": [
+   "A1428",
+   "A1429",
+   "A1442",
+   "iPhone5,1",
+   "iPhone5,2"
+  ],
+  "internalIdentifier": "iPhone5,1 / iPhone5,2",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "Not Found",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 6",
+  "osCurrentSupported": "iOS 10.3.4 (final)",
+  "announced": "2012-09-12",
+  "released": "2012-09-21",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Glass (Corning-made), oleophobic coating",
+  "backMaterial": "Aluminium with glass inlays",
+  "frameMaterial": "Aluminium",
+  "heightMm": 123.8,
+  "widthMm": 58.6,
+  "thicknessMm": 7.6,
+  "weightG": 112,
+  "ipRating": "None",
+  "screenShape": "Flat",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 4.0,
+  "panelType": "IPS LCD (Retina)",
+  "curvature": "Flat",
+  "resolutionW": 640,
+  "resolutionH": 1136,
+  "aspectRatio": "16:9",
+  "ppi": 326,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "Not Found",
+  "typicalBrightnessNits": "Not Found",
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Corning Gorilla Glass, oleophobic coating",
+  "alwaysOn": "No",
+  "screenToBodyPct": 60.8
+ },
+ "platform": {
+  "chipset": "Apple A6 (32 nm)",
+  "fabricationNm": 32,
+  "cpu": "Dual-core 1.3 GHz Swift (ARM v7-based)",
+  "cpuCores": "Dual-core",
+  "gpu": "PowerVR SGX 543MP3 (triple-core graphics)",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "1 GB",
+   "storage": "16 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "1 GB",
+   "storage": "32 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "1 GB",
+   "storage": "64 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "Not Found"
+ },
+ "colors": [
+  "Black / Slate",
+  "White / Silver"
+ ],
+ "battery": {
+  "capacityMah": 1440,
+  "type": "Li-Po",
+  "removable": "No",
+  "wattage": "Not Found",
+  "fastCharging": "Not Found",
+  "wirelessCharging": "No",
+  "reverseCharging": "Not Found",
+  "ratedWh": "5.45 Wh"
+ },
+ "camera": {
+  "rear": "8 MP, f/2.4, 33mm (standard), 1/3.2 inch, 1.4 um, AF (single)",
+  "rearFeatures": "LED flash, panorama, HDR",
+  "front": "1.2 MP, f/2.4, 35mm (standard)",
+  "video": "1080p@30fps",
+  "frontVideo": "720p@30fps"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 a/b/g/n, dual-band, hotspot",
+  "bluetooth": "4.0, A2DP, LE",
+  "nfc": "No",
+  "positioning": "GPS, A-GPS, GLONASS",
+  "usb": "Lightning, USB 2.0",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Nano-SIM, single SIM",
+  "esim": "No"
+ },
+ "audio": {
+  "loudspeaker": "Yes",
+  "stereo": "No",
+  "jack35mm": "Yes",
+  "extras": "16-bit/44.1 kHz audio"
+ },
+ "sensors": [
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Ambient light"
+ ],
+ "security": {
+  "fingerprintType": "None",
+  "fingerprintLocation": "Not Found",
+  "faceUnlock": "No",
+  "secureHardware": "Not Found"
+ },
+ "software": {
+  "osAtLaunch": "iOS 6",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 10.3.4 (final)",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 340 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_5-4910.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "First iPhone with the Lightning connector and a nano-SIM tray - both repair-relevant changes."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

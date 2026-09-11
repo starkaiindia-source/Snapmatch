@@ -1,0 +1,181 @@
+{
+ "modelId": "apple-iphone-3g",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone 3G",
+  "commercialName": "iPhone 3G",
+  "modelNumbers": [
+   "iPhone1,2"
+  ],
+  "internalIdentifier": "iPhone1,2",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "Not Found",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iPhone OS 2.0",
+  "osCurrentSupported": "iOS 4.2.1 (final)",
+  "announced": "2008-06",
+  "released": "2008-07",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Corning Gorilla Glass, oleophobic coating",
+  "backMaterial": "Plastic (polycarbonate)",
+  "frameMaterial": "Not Found",
+  "heightMm": 115.5,
+  "widthMm": 62.1,
+  "thicknessMm": 12.3,
+  "weightG": 133,
+  "ipRating": "None",
+  "screenShape": "Flat",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 3.5,
+  "panelType": "TFT LCD",
+  "curvature": "Flat",
+  "resolutionW": 320,
+  "resolutionH": 480,
+  "aspectRatio": "3:2",
+  "ppi": 165,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "Not Found",
+  "typicalBrightnessNits": "Not Found",
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Corning Gorilla Glass, oleophobic coating",
+  "alwaysOn": "No",
+  "screenToBodyPct": 50.9
+ },
+ "platform": {
+  "chipset": "Not Found",
+  "fabricationNm": "Not Found",
+  "cpu": "412 MHz ARM 11",
+  "cpuCores": "Single-core",
+  "gpu": "PowerVR MBX",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "128 MB",
+   "storage": "8 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "128 MB",
+   "storage": "16 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "Not Found"
+ },
+ "colors": [
+  "Black (8 GB and 16 GB)",
+  "White (16 GB only)"
+ ],
+ "battery": {
+  "capacityMah": 1220,
+  "type": "Li-Ion",
+  "removable": "No",
+  "wattage": "Not Found",
+  "fastCharging": "Not Found",
+  "wirelessCharging": "No",
+  "reverseCharging": "Not Found",
+  "ratedWh": "Not Found"
+ },
+ "camera": {
+  "rear": "2 MP (single)",
+  "rearFeatures": "Not Found",
+  "front": "None",
+  "video": "No",
+  "frontVideo": "Not Found"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 b/g",
+  "bluetooth": "2.0, A2DP (headset support only)",
+  "nfc": "No",
+  "positioning": "GPS, A-GPS",
+  "usb": "USB 2.0 (30-pin dock connector)",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Mini-SIM, single SIM",
+  "esim": "No"
+ },
+ "audio": {
+  "loudspeaker": "Yes",
+  "stereo": "No",
+  "jack35mm": "Yes",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Accelerometer",
+  "Proximity",
+  "Ambient light"
+ ],
+ "security": {
+  "fingerprintType": "None",
+  "fingerprintLocation": "Not Found",
+  "faceUnlock": "No",
+  "secureHardware": "Not Found"
+ },
+ "software": {
+  "osAtLaunch": "iPhone OS 2.0",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 4.2.1 (final)",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 90 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_3g-2424.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "A1241 / A1324 A-numbers are commonly published for this model but GSMArena lists only iPhone1,2; A-numbers omitted until a second source confirms."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

@@ -1,0 +1,203 @@
+{
+ "modelId": "apple-iphone-7",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone 7",
+  "commercialName": "iPhone 7",
+  "modelNumbers": [
+   "A1660",
+   "A1778",
+   "A1779",
+   "A1780",
+   "A1853",
+   "A1866",
+   "iPhone9,1",
+   "iPhone9,3"
+  ],
+  "internalIdentifier": "iPhone9,1 / iPhone9,3",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "Not Found",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 10.0.1",
+  "osCurrentSupported": "iOS 15.8.5 (final)",
+  "announced": "2016-09-07",
+  "released": "2016-09-16",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Ion-strengthened glass",
+  "backMaterial": "Aluminium",
+  "frameMaterial": "Aluminium",
+  "heightMm": 138.3,
+  "widthMm": 67.1,
+  "thicknessMm": 7.1,
+  "weightG": 138,
+  "ipRating": "IP67 (dust tight, water resistant up to 1 m for 30 min)",
+  "screenShape": "Flat (2.5D edges)",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 4.7,
+  "panelType": "Retina IPS LCD, 3D Touch",
+  "curvature": "Flat (2.5D edges)",
+  "resolutionW": 750,
+  "resolutionH": 1334,
+  "aspectRatio": "16:9",
+  "ppi": 326,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "Not Found",
+  "typicalBrightnessNits": 625,
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Ion-strengthened glass; 3D Touch display and home button",
+  "alwaysOn": "No",
+  "screenToBodyPct": 65.6
+ },
+ "platform": {
+  "chipset": "Apple A10 Fusion (16 nm)",
+  "fabricationNm": 16,
+  "cpu": "Quad-core 2.34 GHz (2x Hurricane + 2x Zephyr)",
+  "cpuCores": "Quad-core",
+  "gpu": "PowerVR Series7XT Plus (six-core graphics)",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "2 GB",
+   "storage": "32 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "2 GB",
+   "storage": "128 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "2 GB",
+   "storage": "256 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "Not Found"
+ },
+ "colors": [
+  "Jet Black",
+  "Black",
+  "Silver",
+  "Gold",
+  "Rose Gold",
+  "(PRODUCT)RED"
+ ],
+ "battery": {
+  "capacityMah": 1960,
+  "type": "Li-Ion",
+  "removable": "No",
+  "wattage": "Not Found",
+  "fastCharging": "Not Found",
+  "wirelessCharging": "No",
+  "reverseCharging": "Not Found",
+  "ratedWh": "7.45 Wh"
+ },
+ "camera": {
+  "rear": "12 MP, f/1.8, 28mm (wide), 1/3.0 inch, PDAF, OIS (single)",
+  "rearFeatures": "Quad-LED dual-tone flash, HDR",
+  "front": "7 MP, f/2.2, 32mm (standard)",
+  "video": "4K@30fps, 1080p@30/60/120fps, 720p@240fps",
+  "frontVideo": "1080p@30fps"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 a/b/g/n/ac, dual-band, hotspot",
+  "bluetooth": "4.2, A2DP, LE",
+  "nfc": "Yes",
+  "positioning": "GPS, GLONASS, GALILEO, QZSS",
+  "usb": "Lightning, USB 2.0",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Nano-SIM, single SIM",
+  "esim": "No"
+ },
+ "audio": {
+  "loudspeaker": "Yes, stereo speakers",
+  "stereo": "Yes",
+  "jack35mm": "No",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Fingerprint (front-mounted, Touch ID 2nd gen)",
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Barometer",
+  "Ambient light",
+  "3D Touch"
+ ],
+ "security": {
+  "fingerprintType": "Capacitive (Touch ID, 2nd generation, solid-state home button)",
+  "fingerprintLocation": "Front, in the home button (Taptic Engine, non-mechanical)",
+  "faceUnlock": "No",
+  "secureHardware": "Secure Enclave"
+ },
+ "software": {
+  "osAtLaunch": "iOS 10.0.1",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 15.8.5 (final)",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 180 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_7-8064.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "First iPhone with an IP rating, stereo speakers and no 3.5 mm jack, and the first with a solid-state home button that is board-paired - a repair-critical detail."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

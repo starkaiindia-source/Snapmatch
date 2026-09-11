@@ -1,0 +1,129 @@
+{
+ "status": "success",
+ "total_results": 206,
+ "total_results_per_page": 10,
+ "total_pages": 21,
+ "page": 0,
+ "data": [
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c5e",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14",
+    "Version": "A2884",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-09-01",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c5d",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14",
+    "Version": "A2881",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-09-01",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c76",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14",
+    "Version": "A2882",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-09-16",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c78",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14",
+    "Version": "A2649",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-09-01",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a304747",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14",
+    "Version": "A2883",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-09-16",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c62",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14 Pro",
+    "Version": "A2891",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-09-01",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c68",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14 Plus",
+    "Version": "A2886",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-10-07",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c72",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14 Plus",
+    "Version": "A2888",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-10-01",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c63",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14 Pro",
+    "Version": "A2892",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-09-16",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "63e96260ff7af4b68a303c69",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 14 Plus",
+    "Version": "A2632",
+    "Thumbnail": ""
+   },
+   "Release Date": "2022-10-01",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  }
+ ]
+}

@@ -1,0 +1,129 @@
+{
+ "status": "success",
+ "total_results": 206,
+ "total_results_per_page": 10,
+ "total_pages": 21,
+ "page": 0,
+ "data": [
+  {
+   "Product": {
+    "id": "6501f0e090eebf41772e0972",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15",
+    "Version": "A3090",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "65783da13a6b19332c44c066",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15",
+    "Version": "A2846",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "65783da13a6b19332c44c069",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15",
+    "Version": "A3089",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "65783da13a6b19332c44c06a",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15",
+    "Version": "A3092",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "6501f82a90eebf41772e0976",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15 Pro",
+    "Version": "A3102",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "6501f4f790eebf41772e0974",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15 Plus",
+    "Version": "A3094",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "65783da13a6b19332c44c02b",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15 Pro",
+    "Version": "A2848",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "65783da13a6b19332c44c04e",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15 Pro",
+    "Version": "A3108",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "65783da13a6b19332c44c04d",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15 Pro",
+    "Version": "A3101",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  },
+  {
+   "Product": {
+    "id": "65783da13a6b19332c44c061",
+    "Brand": "Apple",
+    "Category": "Smartphones",
+    "Model": "Apple iPhone 15 Plus",
+    "Version": "A3096",
+    "Thumbnail": ""
+   },
+   "Release Date": "2023-09-22",
+   "Image": "Product images available via Image API. Contact support@techspecs.io for access."
+  }
+ ]
+}

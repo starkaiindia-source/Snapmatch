@@ -1,0 +1,303 @@
+{
+ "modelId": "apple-iphone-6-plus",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialModelName": "iPhone 6 Plus",
+  "commercialModelName": "iPhone 6 Plus",
+  "modelNumbers": [
+   "A1522",
+   "A1524",
+   "A1593"
+  ],
+  "officialModelNumbers": [
+   "A1522",
+   "A1524",
+   "A1593"
+  ],
+  "regionalModelNumbers": [
+   "Not Found in Source 1/Source 2"
+  ],
+  "series": "iPhone",
+  "subSeries": "Plus",
+  "deviceType": "Smartphone",
+  "formFactor": "Bar",
+  "codename": "Not Found in Source 1/Source 2",
+  "announcementDate": "Not Found in Source 1/Source 2",
+  "releaseDate": "2014",
+  "officialLaunchDate": "Not Found in Source 1/Source 2",
+  "availabilityDate": "Not Found in Source 1/Source 2",
+  "discontinuedDate": "Not Found in Source 1/Source 2",
+  "launchCountry": "Not Found in Source 1/Source 2",
+  "regionalAvailability": "Not Found in Source 1/Source 2"
+ },
+ "variants": [
+  {
+   "ram": "Not Found in Source 1/Source 2",
+   "storage": "16 GB",
+   "launchPrice": "Not Published by Manufacturer"
+  },
+  {
+   "ram": "Not Found in Source 1/Source 2",
+   "storage": "64 GB",
+   "launchPrice": "Not Published by Manufacturer"
+  },
+  {
+   "ram": "Not Found in Source 1/Source 2",
+   "storage": "128 GB",
+   "launchPrice": "Not Published by Manufacturer"
+  }
+ ],
+ "officialColors": [
+  "Silver",
+  "Gold",
+  "Space Gray"
+ ],
+ "launchPrices": [],
+ "display": {
+  "size": "5.5-inch (diagonal) Retina HD display",
+  "type": "Retina HD display",
+  "technology": "Not Found in Source 1/Source 2",
+  "panelType": "LED-backlit Multi-Touch display with IPS technology",
+  "screenShape": "Flat",
+  "foldType": "Not Found in Source 1/Source 2",
+  "resolution": "1920-by-1080-pixel resolution at 401 ppi",
+  "resolutionWidth": 1080,
+  "resolutionHeight": 1920,
+  "aspectRatio": "Not Found in Source 1/Source 2",
+  "pixelDensity": "401 ppi",
+  "refreshRate": "Not Found in Source 1/Source 2",
+  "peakBrightness": "Not Found in Source 1/Source 2",
+  "typicalBrightness": "500 cd/m2 max brightness (typical)",
+  "hdrSupport": "Not Found in Source 1/Source 2",
+  "hdrStandard": "Not Found in Source 1/Source 2",
+  "touchSamplingRate": "Not Found in Source 1/Source 2",
+  "screenProtection": "Not Found in Source 1/Source 2",
+  "glassType": "Not Found in Source 1/Source 2",
+  "alwaysOnDisplay": "Not Found in Source 1/Source 2",
+  "screenToBodyRatio": "Not Found in Source 1/Source 2",
+  "colorDepth": "Not Found in Source 1/Source 2",
+  "contrastRatio": "1300:1 contrast ratio (typical)",
+  "otherDisplayAttributes": "Not Found in Source 1/Source 2",
+  "displayModelIdentifier": "Not Found in Source 1/Source 2"
+ },
+ "platform": {
+  "officialProcessor": "A8 chip with 64-bit architecture",
+  "chipset": "A8 chip with 64-bit architecture",
+  "soc": "Not Found in Source 1/Source 2",
+  "cpu": "Not Found in Source 1/Source 2",
+  "cpuArchitecture": "64-bit",
+  "cpuCoreCount": "Not Found in Source 1/Source 2",
+  "cpuCoreConfiguration": "Not Found in Source 1/Source 2",
+  "cpuClockSpeed": "Not Found in Source 1/Source 2",
+  "fabricationProcess": "Not Found in Source 1/Source 2",
+  "gpu": "Not Found in Source 1/Source 2",
+  "npu": "M8 motion coprocessor",
+  "chipsetVariant": "Not Found in Source 1/Source 2",
+  "regionSpecificProcessor": "Not Found in Source 1/Source 2"
+ },
+ "memory": {
+  "ramTechnology": "Not Found in Source 1/Source 2",
+  "ramType": "Not Found in Source 1/Source 2",
+  "virtualRam": "Not Found in Source 1/Source 2",
+  "storageTechnology": "Not Found in Source 1/Source 2",
+  "ufsVersion": "Not Found in Source 1/Source 2",
+  "expandableStorage": "Not Found in Source 1/Source 2",
+  "microSdSupport": "Not Found in Source 1/Source 2",
+  "maxExpandableCapacity": "Not Found in Source 1/Source 2"
+ },
+ "camera": {
+  "rearCameraCount": "Not Found in Source 1/Source 2",
+  "mainCamera": "8-megapixel iSight camera, f/2.2 aperture",
+  "mainCameraMp": "8 MP",
+  "mainSensorModel": "Not Found in Source 1/Source 2",
+  "sensorManufacturer": "Not Found in Source 1/Source 2",
+  "sensorSize": "Not Found in Source 1/Source 2",
+  "pixelSize": "Not Found in Source 1/Source 2",
+  "mainAperture": "f/2.2",
+  "ois": "Yes (optical image stabilization, iPhone 6 Plus only)",
+  "eis": "Not Found in Source 1/Source 2",
+  "pdaf": "Not Found in Source 1/Source 2",
+  "laserAf": "Not Found in Source 1/Source 2",
+  "ultrawide": "Not Found in Source 1/Source 2",
+  "telephoto": "Not Found in Source 1/Source 2",
+  "periscope": "Not Found in Source 1/Source 2",
+  "macro": "Not Found in Source 1/Source 2",
+  "depth": "Not Found in Source 1/Source 2",
+  "monochrome": "Not Found in Source 1/Source 2",
+  "otherRearSensors": "Not Found in Source 1/Source 2",
+  "frontCamera": "1.2-megapixel photos, 720p HD video recording",
+  "frontCameraMp": "1.2 MP",
+  "frontSensorModel": "Not Found in Source 1/Source 2",
+  "frontAperture": "Not Found in Source 1/Source 2",
+  "frontStabilisation": "Not Found in Source 1/Source 2",
+  "frontAutofocus": "Not Found in Source 1/Source 2",
+  "videoRecording": "1080p HD video recording",
+  "videoFps": "Not Found in Source 1/Source 2",
+  "slowMotion": "Not Found in Source 1/Source 2",
+  "hdrVideo": "Not Found in Source 1/Source 2",
+  "stabilisation": "Not Found in Source 1/Source 2",
+  "cameraFeatures": "Not Found in Source 1/Source 2"
+ },
+ "battery": {
+  "capacity": "Not Found in Source 1/Source 2",
+  "type": "Not Found in Source 1/Source 2",
+  "chemistry": "Not Found in Source 1/Source 2",
+  "removable": "Not Found in Source 1/Source 2",
+  "chargingTechnology": "Not Found in Source 1/Source 2",
+  "wiredChargingWattage": "Not Found in Source 1/Source 2",
+  "fastCharging": "Not Found in Source 1/Source 2",
+  "wirelessCharging": "Not Found in Source 1/Source 2",
+  "wirelessChargingWattage": "Not Found in Source 1/Source 2",
+  "reverseWiredCharging": "Not Found in Source 1/Source 2",
+  "reverseWirelessCharging": "Not Found in Source 1/Source 2",
+  "batteryLife": "Talk time: Up to 24 hours on 3G; Audio playback: Up to 80 hours"
+ },
+ "connectivity": {
+  "wifiStandard": "802.11a/b/g/n/ac Wi-Fi",
+  "wifiVersion": "Not Found in Source 1/Source 2",
+  "bluetoothVersion": "Bluetooth 4.2 wireless technology",
+  "nfc": "Yes",
+  "usbType": "Lightning",
+  "usbVersion": "Not Found in Source 1/Source 2",
+  "usbOtg": "Not Found in Source 1/Source 2",
+  "infrared": "Not Found in Source 1/Source 2",
+  "uwb": "Not Found in Source 1/Source 2",
+  "gps": "Assisted GPS and GLONASS",
+  "aGps": "Not Found in Source 1/Source 2",
+  "glonass": "Yes",
+  "galileo": "Not Found in Source 1/Source 2",
+  "beidou": "Not Found in Source 1/Source 2",
+  "qzss": "Not Found in Source 1/Source 2",
+  "navic": "Not Found in Source 1/Source 2",
+  "otherPositioning": "Digital compass, Wi-Fi, Cellular, iBeacon microlocation",
+  "satelliteConnectivity": "Not Found in Source 1/Source 2",
+  "otherConnectivity": "Not Found in Source 1/Source 2"
+ },
+ "network": {
+  "net2g": "Not Found in Source 1/Source 2",
+  "net3g": "Not Found in Source 1/Source 2",
+  "net4g": "Not Found in Source 1/Source 2",
+  "lte": "LTE bands 1-29",
+  "net5g": "Not Found in Source 1/Source 2",
+  "bands5g": "Not Found in Source 1/Source 2",
+  "bands4gLte": "Not Found in Source 1/Source 2",
+  "bands3g": "Not Found in Source 1/Source 2",
+  "bands2g": "Not Found in Source 1/Source 2",
+  "networkTechnology": "Not Found in Source 1/Source 2",
+  "volte": "Not Found in Source 1/Source 2",
+  "vowifi": "Not Found in Source 1/Source 2",
+  "sa5g": "Not Found in Source 1/Source 2",
+  "nsa5g": "Not Found in Source 1/Source 2",
+  "regionSpecificBands": "Not Found in Source 1/Source 2",
+  "otherNetworkFeatures": "Not Found in Source 1/Source 2"
+ },
+ "sim": {
+  "simType": "Nano-SIM",
+  "nanoSim": "Yes",
+  "esim": "Not Found in Source 1/Source 2",
+  "dualSim": "Not Found in Source 1/Source 2",
+  "hybridSim": "Not Found in Source 1/Source 2",
+  "dualEsim": "Not Found in Source 1/Source 2",
+  "regionSpecificSim": "Not Found in Source 1/Source 2",
+  "otherSimInfo": "Not Found in Source 1/Source 2"
+ },
+ "body": {
+  "height": "6.22 inches (158.1 mm)",
+  "width": "3.06 inches (77.8 mm)",
+  "thickness": "0.28 inch (7.1 mm)",
+  "heightMm": 158.1,
+  "widthMm": 77.8,
+  "thicknessMm": 7.1,
+  "weight": "6.07 ounces (172 grams)",
+  "weightG": 172,
+  "buildMaterial": "Not Found in Source 1/Source 2",
+  "frontMaterial": "Not Found in Source 1/Source 2",
+  "backMaterial": "Not Found in Source 1/Source 2",
+  "frameMaterial": "Not Found in Source 1/Source 2",
+  "waterResistance": "Not Found in Source 1/Source 2",
+  "dustResistance": "Not Found in Source 1/Source 2",
+  "ipRating": "Not Found in Source 1/Source 2",
+  "hinge": "Not Found in Source 1/Source 2",
+  "otherDesign": "Not Found in Source 1/Source 2"
+ },
+ "audio": {
+  "speakerType": "Not Found in Source 1/Source 2",
+  "speakerCount": "Not Found in Source 1/Source 2",
+  "stereoSpeakers": "Not Found in Source 1/Source 2",
+  "headphoneJack": "Not Found in Source 1/Source 2",
+  "audioCodec": "Not Found in Source 1/Source 2",
+  "hiResAudio": "Not Found in Source 1/Source 2",
+  "dolbyAtmos": "Not Found in Source 1/Source 2",
+  "microphoneCount": "Not Found in Source 1/Source 2",
+  "otherAudio": "Not Found in Source 1/Source 2"
+ },
+ "sensors": [
+  "Touch ID fingerprint sensor",
+  "Barometer",
+  "Three-axis gyro",
+  "Accelerometer",
+  "Proximity sensor",
+  "Ambient light sensor"
+ ],
+ "security": {
+  "fingerprint": "Touch ID",
+  "fingerprintTechnology": "Fingerprint identity sensor built into the Home button",
+  "fingerprintLocation": "Home button (front)",
+  "faceUnlock": "Not Found in Source 1/Source 2",
+  "secureHardware": "Not Found in Source 1/Source 2",
+  "otherSecurity": "Not Found in Source 1/Source 2"
+ },
+ "software": {
+  "osAtLaunch": "Not Found in Source 1/Source 2",
+  "androidVersion": "Not Found in Source 1/Source 2",
+  "iosVersion": "Not Found in Source 1/Source 2",
+  "manufacturerUi": "Not Found in Source 1/Source 2",
+  "uiVersion": "Not Found in Source 1/Source 2",
+  "updatePolicy": "Not Found in Source 1/Source 2",
+  "majorOsUpdates": "Not Found in Source 1/Source 2",
+  "securityUpdatePolicy": "Not Found in Source 1/Source 2",
+  "currentOs": "iOS 9 (as stated on the Apple spec page)"
+ },
+ "regionalVariants": [],
+ "extraAttributes": {},
+ "serviceParts": {
+  "displayModelNo": "Not Found in Source 1/Source 2",
+  "displayAssemblyPartNo": "Not Found in Source 1/Source 2",
+  "batteryModelNo": "Not Found in Source 1/Source 2",
+  "batteryPartNo": "Not Found in Source 1/Source 2",
+  "backGlassPartNo": "Not Found in Source 1/Source 2",
+  "chargingBoardPartNo": "Not Found in Source 1/Source 2",
+  "mainboardId": "Not Found in Source 1/Source 2",
+  "cameraModuleId": "Not Found in Source 1/Source 2",
+  "otherParts": "Not Found in Source 1/Source 2"
+ },
+ "sources": {
+  "source1Url": "https://support.apple.com/en-us/111940",
+  "source1PageTitle": "iPhone 6 Plus - Technical Specifications - Apple Support",
+  "source1Extra": [
+   "https://support.apple.com/en-us/108044 (Identify your iPhone model)"
+  ],
+  "source2TechSpecsId": "Not Found in Source 1/Source 2",
+  "source2Endpoint": "Not Found in Source 1/Source 2",
+  "dataCheckedDate": "2026-09-07",
+  "lastVerifiedDate": "2026-09-07"
+ },
+ "verification": {
+  "status": "CONFLICT",
+  "completionStatus": "PARTIAL",
+  "conflicts": [
+   {
+    "field": "identity.officialModelNumbers",
+    "source1aValue": "A1522, A1524, A1593",
+    "source1aRef": "https://support.apple.com/en-us/108044 (Identify your iPhone model)",
+    "source1bValue": "A1549, A1522, A1586, A1524",
+    "source1bRef": "https://support.apple.com/en-us/111940 (iPhone 6 Plus tech specs)",
+    "note": "Two Apple pages disagree. The tech specs page lists A1549 and A1586, which the model-identification page assigns to iPhone 6, not iPhone 6 Plus. The identification page is the more specific authority for model-number-to-model mapping, so its values are recorded in officialModelNumbers; the tech-specs list is preserved here and not discarded."
+   }
+  ],
+  "notes": [
+   "Apple does not publish RAM or battery capacity (mAh)."
+  ]
+ }
+}

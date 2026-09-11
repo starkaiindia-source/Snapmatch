@@ -1,0 +1,44 @@
+{
+ "archive": {
+  "archivedAt": "2026-09-07T16:43:52.636Z",
+  "migrationBatch": "batch-002",
+  "source": "gsmarena_archive",
+  "reason": "Superseded by TechSpecs API data on the All Mobile Models page",
+  "archiveVersion": 1
+ },
+ "recordId": "apple-iphone-14",
+ "brand": "Apple",
+ "brandId": "apple",
+ "modelName": "Apple iPhone 14",
+ "modelNumber": null,
+ "gsmarena": {
+  "url": "https://www.gsmarena.com/apple_iphone_14-11861.php",
+  "imageUrl": "https://fdn2.gsmarena.com/vv/bigpic/apple-iphone-14.jpg",
+  "sourceSheet": "Apple"
+ },
+ "originalState": {
+  "id": "apple-iphone-14",
+  "brand": "Apple",
+  "brandId": "apple",
+  "sourceSheet": "Apple",
+  "name": "Apple iPhone 14",
+  "nameLower": "apple iphone 14",
+  "tokens": [
+   "apple",
+   "iphone",
+   "14",
+   "appleappleiphone14"
+  ],
+  "releaseDate": "2022-09-16",
+  "releaseYear": 2022,
+  "sizeInch": 6.1,
+  "heightMm": 146.7,
+  "widthMm": 71.5,
+  "screenCm2": 90.2,
+  "bodyRatio": 86,
+  "batteryMah": 3279,
+  "gsmarenaUrl": "https://www.gsmarena.com/apple_iphone_14-11861.php",
+  "image": "https://fdn2.gsmarena.com/vv/bigpic/apple-iphone-14.jpg",
+  "releaseStatus": "available"
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "archive": {
+  "archivedAt": "2026-09-07T16:18:30.111Z",
+  "migrationBatch": "batch-001",
+  "source": "gsmarena_archive",
+  "reason": "Superseded by TechSpecs API data on the All Mobile Models page",
+  "archiveVersion": 1
+ },
+ "recordId": "apple-iphone-15",
+ "brand": "Apple",
+ "brandId": "apple",
+ "modelName": "Apple iPhone 15",
+ "modelNumber": null,
+ "gsmarena": {
+  "url": "https://www.gsmarena.com/apple_iphone_15-12559.php",
+  "imageUrl": "https://fdn2.gsmarena.com/vv/bigpic/apple-iphone-15.jpg",
+  "sourceSheet": "Apple"
+ },
+ "originalState": {
+  "id": "apple-iphone-15",
+  "brand": "Apple",
+  "brandId": "apple",
+  "sourceSheet": "Apple",
+  "name": "Apple iPhone 15",
+  "nameLower": "apple iphone 15",
+  "tokens": [
+   "apple",
+   "iphone",
+   "15",
+   "appleappleiphone15"
+  ],
+  "releaseDate": "2023-09-22",
+  "releaseYear": 2023,
+  "sizeInch": 6.1,
+  "heightMm": 147.6,
+  "widthMm": 71.6,
+  "screenCm2": 91.3,
+  "bodyRatio": 86.4,
+  "batteryMah": 3349,
+  "gsmarenaUrl": "https://www.gsmarena.com/apple_iphone_15-12559.php",
+  "image": "https://fdn2.gsmarena.com/vv/bigpic/apple-iphone-15.jpg",
+  "releaseStatus": "available"
+ }
+}

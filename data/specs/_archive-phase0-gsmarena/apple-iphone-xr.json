@@ -1,0 +1,200 @@
+{
+ "modelId": "apple-iphone-xr",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone XR",
+  "commercialName": "iPhone XR",
+  "modelNumbers": [
+   "A2105",
+   "A1984",
+   "A2107",
+   "A2108",
+   "A2106",
+   "iPhone11,8"
+  ],
+  "internalIdentifier": "iPhone11,8",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "XR",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 12",
+  "osCurrentSupported": "iOS 18.7",
+  "announced": "2018-09-12",
+  "released": "2018-10-26",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Scratch-resistant glass (Corning-made)",
+  "backMaterial": "Glass (Corning-made)",
+  "frameMaterial": "Aluminium (7000 series)",
+  "heightMm": 150.9,
+  "widthMm": 75.7,
+  "thicknessMm": 8.3,
+  "weightG": 194,
+  "ipRating": "IP67 (dust tight, water resistant up to 1 m for 30 min)",
+  "screenShape": "Flat with notch",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 6.1,
+  "panelType": "Liquid Retina IPS LCD",
+  "curvature": "Flat with notch",
+  "resolutionW": 828,
+  "resolutionH": 1792,
+  "aspectRatio": "19.5:9",
+  "ppi": 326,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "625 nits (HBM)",
+  "typicalBrightnessNits": "Not Found",
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Scratch-resistant glass",
+  "alwaysOn": "No",
+  "screenToBodyPct": 79.0
+ },
+ "platform": {
+  "chipset": "Apple A12 Bionic (7 nm)",
+  "fabricationNm": 7,
+  "cpu": "Hexa-core (2x2.5 GHz Vortex + 4x1.6 GHz Tempest)",
+  "cpuCores": "Hexa-core",
+  "gpu": "Apple GPU (4-core graphics)",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "3 GB",
+   "storage": "64 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "3 GB",
+   "storage": "128 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "3 GB",
+   "storage": "256 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "NVMe"
+ },
+ "colors": [
+  "Black",
+  "(PRODUCT)RED",
+  "Yellow",
+  "Blue",
+  "Coral",
+  "White"
+ ],
+ "battery": {
+  "capacityMah": 2942,
+  "type": "Li-Ion",
+  "removable": "No",
+  "wattage": "15 W wired",
+  "fastCharging": "PD 2.0, 50% in 30 min",
+  "wirelessCharging": "Yes (Qi)",
+  "reverseCharging": "No",
+  "ratedWh": "11.16 Wh"
+ },
+ "camera": {
+  "rear": "12 MP, f/1.8, 26mm (wide), 1/2.55 inch, 1.4 um, PDAF, OIS (single)",
+  "rearFeatures": "Quad-LED dual-tone flash, HDR (photo/panorama)",
+  "front": "7 MP, f/2.2, 32mm + SL 3D depth/biometrics sensor (TrueDepth)",
+  "video": "4K@24/30/60fps, 1080p@30/60/120/240fps, HDR, stereo sound recording",
+  "frontVideo": "1080p@60fps"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 a/b/g/n/ac, dual-band, hotspot",
+  "bluetooth": "5.0, A2DP, LE",
+  "nfc": "Yes",
+  "positioning": "GPS, GLONASS, GALILEO, QZSS",
+  "usb": "Lightning, USB 2.0",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Nano-SIM + eSIM; Nano-SIM + Nano-SIM (China)",
+  "esim": "Yes (except China dual-tray units)"
+ },
+ "audio": {
+  "loudspeaker": "Yes, stereo speakers",
+  "stereo": "Yes",
+  "jack35mm": "No",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Face ID",
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Barometer",
+  "Ambient light"
+ ],
+ "security": {
+  "fingerprintType": "None",
+  "fingerprintLocation": "Not Found",
+  "faceUnlock": "Yes (Face ID, TrueDepth 3D)",
+  "secureHardware": "Secure Enclave"
+ },
+ "software": {
+  "osAtLaunch": "iOS 12",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 18.7",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "USD 139.00 / GBP 130.45 / EUR 121.61 (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_xr-9320.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "No 3D Touch layer, unlike the XS - the XR display assembly is a different part."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

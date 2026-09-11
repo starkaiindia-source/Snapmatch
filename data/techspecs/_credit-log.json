@@ -1,0 +1,60 @@
+{
+ "requests": [
+  {
+   "at": "2026-09-07T16:21:29.624Z",
+   "endpoint": "search \"iPhone 15\"",
+   "cached": false,
+   "ok": true,
+   "status": 200
+  },
+  {
+   "at": "2026-09-07T16:21:41.872Z",
+   "endpoint": "detail 65783da13a6b19332c44c066",
+   "cached": false,
+   "ok": true,
+   "status": 200
+  },
+  {
+   "at": "2026-09-07T16:44:07.791Z",
+   "endpoint": "search \"iPhone 14\"",
+   "cached": false,
+   "ok": true,
+   "status": 200
+  },
+  {
+   "at": "2026-09-07T16:44:23.860Z",
+   "endpoint": "detail 63e96260ff7af4b68a303c78",
+   "cached": false,
+   "ok": true,
+   "status": 200
+  },
+  {
+   "at": "2026-09-07T16:44:26.199Z",
+   "endpoint": "detail 63e96260ff7af4b68a303c5d",
+   "cached": false,
+   "ok": true,
+   "status": 200
+  },
+  {
+   "at": "2026-09-07T16:44:28.231Z",
+   "endpoint": "detail 63e96260ff7af4b68a303c76",
+   "cached": false,
+   "ok": true,
+   "status": 200
+  },
+  {
+   "at": "2026-09-07T16:44:29.921Z",
+   "endpoint": "detail 63e96260ff7af4b68a304747",
+   "cached": false,
+   "ok": true,
+   "status": 200
+  },
+  {
+   "at": "2026-09-07T16:44:32.027Z",
+   "endpoint": "detail 63e96260ff7af4b68a303c5e",
+   "cached": false,
+   "ok": true,
+   "status": 200
+  }
+ ]
+}

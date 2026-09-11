@@ -1,0 +1,190 @@
+{
+ "modelId": "apple-iphone-x",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone X",
+  "commercialName": "iPhone X",
+  "modelNumbers": [
+   "A1865",
+   "A1901",
+   "A1902",
+   "A1903"
+  ],
+  "internalIdentifier": "Not Found",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "X",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 11.1.1",
+  "osCurrentSupported": "iOS 16.7.12 (final)",
+  "announced": "2017-09-12",
+  "released": "2017-11-03",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Scratch-resistant glass (Corning-made)",
+  "backMaterial": "Glass (Corning-made)",
+  "frameMaterial": "Stainless steel",
+  "heightMm": 143.6,
+  "widthMm": 70.9,
+  "thicknessMm": 7.7,
+  "weightG": 174,
+  "ipRating": "IP67 (dust tight, water resistant up to 1 m for 30 min)",
+  "screenShape": "Flat with notch",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 5.8,
+  "panelType": "Super Retina OLED, 3D Touch",
+  "curvature": "Flat with notch",
+  "resolutionW": 1125,
+  "resolutionH": 2436,
+  "aspectRatio": "19.5:9",
+  "ppi": 458,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "625 nits (HBM)",
+  "typicalBrightnessNits": "Not Found",
+  "hdr": "HDR10, Dolby Vision",
+  "touchSamplingHz": "Not Found",
+  "protection": "Scratch-resistant glass",
+  "alwaysOn": "No",
+  "screenToBodyPct": 82.9
+ },
+ "platform": {
+  "chipset": "Apple A11 Bionic (10 nm)",
+  "fabricationNm": 10,
+  "cpu": "Hexa-core 2.39 GHz (2x Monsoon + 4x Mistral)",
+  "cpuCores": "Hexa-core",
+  "gpu": "Apple GPU (three-core graphics)",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "3 GB",
+   "storage": "64 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "3 GB",
+   "storage": "256 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "NVMe"
+ },
+ "colors": [
+  "Space Gray",
+  "Silver"
+ ],
+ "battery": {
+  "capacityMah": 2716,
+  "type": "Li-Ion",
+  "removable": "No",
+  "wattage": "15 W wired",
+  "fastCharging": "PD 2.0, 50% in 30 min",
+  "wirelessCharging": "Yes (Qi)",
+  "reverseCharging": "No",
+  "ratedWh": "10.35 Wh"
+ },
+ "camera": {
+  "rear": "Dual: 12 MP, f/1.8, 28mm (wide) + 12 MP, f/2.4, 52mm (telephoto), 2x optical zoom",
+  "rearFeatures": "Quad-LED dual-tone flash, HDR, panorama",
+  "front": "7 MP, f/2.2, 32mm + SL 3D sensor (TrueDepth)",
+  "video": "4K@24/30/60fps, 1080p@30/60/120/240fps",
+  "frontVideo": "1080p@30fps"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 a/b/g/n/ac, dual-band",
+  "bluetooth": "5.0, A2DP, LE",
+  "nfc": "Yes",
+  "positioning": "GPS, GLONASS, GALILEO, QZSS",
+  "usb": "Lightning, USB 2.0",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Nano-SIM, single SIM",
+  "esim": "No"
+ },
+ "audio": {
+  "loudspeaker": "Yes, stereo speakers",
+  "stereo": "Yes",
+  "jack35mm": "No",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Face ID",
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Barometer",
+  "Ambient light",
+  "3D Touch"
+ ],
+ "security": {
+  "fingerprintType": "None (Touch ID removed)",
+  "fingerprintLocation": "Not Found",
+  "faceUnlock": "Yes (Face ID, TrueDepth 3D)",
+  "secureHardware": "Secure Enclave"
+ },
+ "software": {
+  "osAtLaunch": "iOS 11.1.1",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 16.7.12 (final)",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 100 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_x-8858.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "GSMArena lists no iPhoneN,N internal identifier on this page, so internalIdentifier is left Not Found rather than filled from memory.",
+   "First OLED iPhone and first with Face ID; the TrueDepth module is serialised to the board, which is repair-critical."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

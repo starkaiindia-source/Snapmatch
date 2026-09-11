@@ -1,0 +1,171 @@
+{
+ "modelId": "apple-iphone-14",
+ "brandId": "apple",
+ "officialModelName": "Apple iPhone 14",
+ "commercialName": "iPhone 14",
+ "series": "iPhone",
+ "subSeries": "Base",
+ "deviceType": "Smartphone",
+ "formFactor": "Bar (flat, non-folding)",
+ "announcementDate": "2022-09-07",
+ "releaseDate": "2022-09-16",
+ "launchCountry": "Worldwide",
+ "summary": "6.1-inch Super Retina XDR OLED, A15 Bionic, 12MP dual camera, Lightning, IP68.",
+ "_comment": "fields[] are values quoted from Apple's own tech-specs page (support.apple.com/en-us/111850). The builder gives these precedence over TechSpecs and flags any row where the two genuinely disagree.",
+ "fields": {
+  "displaySize": "6.1 inches",
+  "displayType": "Super Retina XDR OLED",
+  "panelTechnology": "OLED",
+  "screenShape": "Flat",
+  "resolution": "1170 x 2532 pixels",
+  "pixelDensity": "460 ppi",
+  "brightness": "800 nits max (typical); 1200 nits peak (HDR)",
+  "contrastRatio": "2,000,000:1",
+  "protection": "Ceramic Shield front",
+  "chipset": "Apple A15 Bionic",
+  "cpuConfig": "6-core CPU (2 performance + 4 efficiency)",
+  "gpu": "5-core GPU",
+  "npu": "16-core Neural Engine",
+  "rearMain": "12 MP Main, 26 mm, f/1.5, sensor-shift OIS",
+  "rearUltrawide": "12 MP Ultra Wide, 13 mm, f/2.4, 120 degree field of view",
+  "rearZoom": "2x optical zoom out; digital zoom up to 5x",
+  "cameraFeatures": "Night mode, Portrait mode, Deep Fusion, Smart HDR 4, Photonic Engine",
+  "frontCamera": "12 MP, f/1.9, autofocus, Night mode",
+  "videoRecording": "4K Dolby Vision at 24, 25, 30 or 60 fps",
+  "batteryLife": "Video playback up to 20 hours; audio playback up to 80 hours",
+  "wirelessCharging": "MagSafe up to 15W; Qi up to 7.5W",
+  "fastCharging": "Up to 50% charge in around 30 minutes with a 20W adapter or higher",
+  "network5g": "5G NR (sub-6 GHz and mmWave, market dependent)",
+  "wifi": "Wi-Fi 6 (802.11ax) with 2x2 MIMO",
+  "bluetooth": "5.3",
+  "nfc": "Yes, with reader mode",
+  "uwb": "Ultra Wideband chip (2nd generation)",
+  "usbPort": "Lightning connector",
+  "simConfig": "Dual eSIM (two active eSIMs); nano-SIM tray outside the US",
+  "faceUnlock": "Face ID",
+  "fingerprint": "None",
+  "headphoneJack": "None",
+  "stereoSpeakers": "Yes",
+  "os": "iOS",
+  "osVersionAtLaunch": "iOS 16",
+  "uiSkin": "iOS (Apple)",
+  "heightMm": "146.7 mm",
+  "widthMm": "71.5 mm",
+  "thicknessMm": "7.80 mm",
+  "weightG": "172 g",
+  "frontMaterial": "Ceramic Shield front",
+  "backMaterial": "Glass back",
+  "frameMaterial": "Aluminium",
+  "ipRating": "IP68 (maximum depth 6 metres up to 30 minutes)",
+  "expandable": "Not expandable"
+ },
+ "colors": [
+  {
+   "name": "Midnight"
+  },
+  {
+   "name": "Purple"
+  },
+  {
+   "name": "Starlight"
+  },
+  {
+   "name": "Blue"
+  },
+  {
+   "name": "(PRODUCT)RED"
+  },
+  {
+   "name": "Yellow",
+   "note": "Added March 2023, after the original launch"
+  }
+ ],
+ "_regionComment": "Each A-number is a distinct hardware SKU with its own market. Mapping taken from the five TechSpecs product records, cross-checked against Apple's model-identification page.",
+ "regions": [
+  {
+   "code": "US",
+   "label": "United States",
+   "modelNumber": "A2649",
+   "countries": "USA, Puerto Rico",
+   "note": "eSIM only - no physical SIM tray"
+  },
+  {
+   "code": "CA-JP",
+   "label": "Canada / Japan / Mexico",
+   "modelNumber": "A2881",
+   "countries": "Canada, Japan, Mexico, Saudi Arabia"
+  },
+  {
+   "code": "GLOBAL",
+   "label": "India / Global",
+   "modelNumber": "A2882",
+   "countries": "India, UK, Europe, Australia, Middle East, Africa, South America and most other markets",
+   "primary": true
+  },
+  {
+   "code": "RU",
+   "label": "Russia / CIS",
+   "modelNumber": "A2883",
+   "countries": "Russia, Armenia, Belarus, Kazakhstan, Kyrgyzstan"
+  },
+  {
+   "code": "CN",
+   "label": "China / Hong Kong",
+   "modelNumber": "A2884",
+   "countries": "China, Hong Kong",
+   "note": "Dual physical nano-SIM, no eSIM"
+  }
+ ],
+ "_priceComment": "India launch prices. 128 GB and 256 GB agree across sources. The 512 GB figure does NOT agree and is recorded as a conflict with both values rather than picking one.",
+ "prices": [
+  {
+   "region": "GLOBAL",
+   "market": "India",
+   "storage": "128 GB",
+   "amount": 79900,
+   "currency": "INR",
+   "status": "cross-checked",
+   "sources": [
+    "91mobiles",
+    "Croma Unboxed"
+   ]
+  },
+  {
+   "region": "GLOBAL",
+   "market": "India",
+   "storage": "256 GB",
+   "amount": 89900,
+   "currency": "INR",
+   "status": "cross-checked",
+   "sources": [
+    "91mobiles",
+    "Croma Unboxed"
+   ]
+  },
+  {
+   "region": "GLOBAL",
+   "market": "India",
+   "storage": "512 GB",
+   "amount": null,
+   "currency": "INR",
+   "status": "conflict",
+   "conflict": {
+    "91mobiles": 109900,
+    "other": 99900
+   },
+   "note": "Sources disagree: 91mobiles states Rs 1,09,900 while another source states Rs 99,900. Neither is shown as the price until Apple's own India store archive confirms it."
+  }
+ ],
+ "notes": [
+  "Apple's tech-specs page for iPhone 14 also prints model numbers A2649 and A2632; A2632 belongs to the iPhone 14 Plus because Apple shares a single page across both. Apple's model-identification page (support.apple.com/en-us/108044) is the authority used for the five A-numbers here.",
+  "Colours: Apple lists six finishes including Yellow, which was added in March 2023. The five TechSpecs records predate that and list five. Apple's list is used; the TechSpecs gap is recorded rather than treated as a contradiction.",
+  "RAM: TechSpecs reports 6 GB LPDDR4X. 91mobiles states 4 GB. The structured API value is used and the discrepancy is noted; Apple does not publish RAM at all.",
+  "TechSpecs lists FM Radio under both its absent-features block and its wireless block for this device. The iPhone has no FM radio, so neither value is surfaced.",
+  "TechSpecs reports the USB port as 'Proprietary, USB 3.1 (3.2 Gen 2)'. Apple states a Lightning connector, and the iPhone 14 Lightning port runs at USB 2.0 speeds. Apple's value is shown; the TechSpecs string is kept in the conflict record."
+ ],
+ "primarySource": "TechSpecs API + Apple Official",
+ "source1Url": "https://support.apple.com/en-us/111850",
+ "source1Title": "iPhone 14 - Technical Specifications - Apple Support",
+ "modelNumberSource": "https://support.apple.com/en-us/108044",
+ "releaseDateLabel": "16 September 2022"
+}

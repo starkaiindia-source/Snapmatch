@@ -1,0 +1,197 @@
+{
+ "modelId": "apple-iphone-xs",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone XS",
+  "commercialName": "iPhone XS",
+  "modelNumbers": [
+   "A2097",
+   "A1920",
+   "A2100",
+   "A2098",
+   "iPhone11,2"
+  ],
+  "internalIdentifier": "iPhone11,2",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "XS",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 12",
+  "osCurrentSupported": "iOS 18.7",
+  "announced": "2018-09-12",
+  "released": "2018-09-21",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Scratch-resistant glass (Corning-made)",
+  "backMaterial": "Glass (Corning-made)",
+  "frameMaterial": "Stainless steel",
+  "heightMm": 143.6,
+  "widthMm": 70.9,
+  "thicknessMm": 7.7,
+  "weightG": 177,
+  "ipRating": "IP68 (dust tight, immersible up to 2 m for 30 min)",
+  "screenShape": "Flat with notch",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 5.8,
+  "panelType": "Super Retina OLED, 3D Touch",
+  "curvature": "Flat with notch",
+  "resolutionW": 1125,
+  "resolutionH": 2436,
+  "aspectRatio": "19.5:9",
+  "ppi": 458,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "625 nits (HBM)",
+  "typicalBrightnessNits": "Not Found",
+  "hdr": "HDR10, Dolby Vision",
+  "touchSamplingHz": "Not Found",
+  "protection": "Scratch-resistant glass",
+  "alwaysOn": "No",
+  "screenToBodyPct": 82.9
+ },
+ "platform": {
+  "chipset": "Apple A12 Bionic (7 nm)",
+  "fabricationNm": 7,
+  "cpu": "Hexa-core (2x2.5 GHz Vortex + 4x1.6 GHz Tempest)",
+  "cpuCores": "Hexa-core",
+  "gpu": "Apple GPU (4-core graphics)",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "4 GB",
+   "storage": "64 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "4 GB",
+   "storage": "256 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "4 GB",
+   "storage": "512 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "NVMe"
+ },
+ "colors": [
+  "Space Gray",
+  "Silver",
+  "Gold"
+ ],
+ "battery": {
+  "capacityMah": 2658,
+  "type": "Li-Ion",
+  "removable": "No",
+  "wattage": "15 W wired",
+  "fastCharging": "PD 2.0, 50% in 30 min",
+  "wirelessCharging": "Yes (Qi)",
+  "reverseCharging": "No",
+  "ratedWh": "10.13 Wh"
+ },
+ "camera": {
+  "rear": "Dual: 12 MP, f/1.8, 26mm (wide) + 12 MP, f/2.4, 52mm (telephoto), 2x optical zoom",
+  "rearFeatures": "Quad-LED dual-tone flash, HDR (photo/panorama)",
+  "front": "7 MP, f/2.2, 32mm + SL 3D depth/biometrics sensor (TrueDepth)",
+  "video": "4K@24/30/60fps, 1080p@30/60/120/240fps, HDR, stereo sound recording",
+  "frontVideo": "1080p@30/60fps, gyro-EIS"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 a/b/g/n/ac, dual-band, hotspot",
+  "bluetooth": "5.0, A2DP, LE",
+  "nfc": "Yes",
+  "positioning": "GPS, GLONASS, GALILEO, QZSS",
+  "usb": "Lightning, USB 2.0",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Nano-SIM + eSIM (dual SIM)",
+  "esim": "Yes"
+ },
+ "audio": {
+  "loudspeaker": "Yes, stereo speakers",
+  "stereo": "Yes",
+  "jack35mm": "No",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Face ID",
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Barometer",
+  "Ambient light",
+  "3D Touch"
+ ],
+ "security": {
+  "fingerprintType": "None",
+  "fingerprintLocation": "Not Found",
+  "faceUnlock": "Yes (Face ID, TrueDepth 3D)",
+  "secureHardware": "Secure Enclave"
+ },
+ "software": {
+  "osAtLaunch": "iOS 12",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 18.7",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 190 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_xs-9318.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "First iPhone with eSIM support alongside the nano-SIM tray."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

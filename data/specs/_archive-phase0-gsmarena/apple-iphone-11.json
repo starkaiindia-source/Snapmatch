@@ -1,0 +1,198 @@
+{
+ "modelId": "apple-iphone-11",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone 11",
+  "commercialName": "iPhone 11",
+  "modelNumbers": [
+   "A2221",
+   "A2111",
+   "A2223"
+  ],
+  "internalIdentifier": "Not Found",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "Not Found",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 13",
+  "osCurrentSupported": "iOS 26.6",
+  "announced": "2019-09-10",
+  "released": "2019-09-20",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Available"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Scratch-resistant glass (Corning-made)",
+  "backMaterial": "Glass (Corning-made)",
+  "frameMaterial": "Aluminium (7000 series)",
+  "heightMm": 150.9,
+  "widthMm": 75.7,
+  "thicknessMm": 8.3,
+  "weightG": 194,
+  "ipRating": "IP68 (dust tight, immersible up to 2 m for 30 min)",
+  "screenShape": "Flat with notch",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 6.1,
+  "panelType": "Liquid Retina IPS LCD",
+  "curvature": "Flat with notch",
+  "resolutionW": 828,
+  "resolutionH": 1792,
+  "aspectRatio": "19.5:9",
+  "ppi": 326,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "Not Found",
+  "typicalBrightnessNits": 625,
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Scratch-resistant glass",
+  "alwaysOn": "No",
+  "screenToBodyPct": 79.0
+ },
+ "platform": {
+  "chipset": "Apple A13 Bionic (7 nm+)",
+  "fabricationNm": 7,
+  "cpu": "Hexa-core (2x2.65 GHz Lightning + 4x1.8 GHz Thunder)",
+  "cpuCores": "Hexa-core",
+  "gpu": "Apple GPU (4-core graphics)",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "4 GB",
+   "storage": "64 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "4 GB",
+   "storage": "128 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "4 GB",
+   "storage": "256 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "Not Found"
+ },
+ "colors": [
+  "Black",
+  "Green",
+  "Yellow",
+  "Purple",
+  "(PRODUCT)RED",
+  "White"
+ ],
+ "battery": {
+  "capacityMah": 3110,
+  "type": "Li-Ion",
+  "removable": "No",
+  "wattage": "Not Found",
+  "fastCharging": "PD 2.0, 50% in 30 min",
+  "wirelessCharging": "Yes (Qi)",
+  "reverseCharging": "No",
+  "ratedWh": "11.91 Wh"
+ },
+ "camera": {
+  "rear": "Dual: 12 MP, f/1.8, 26mm (wide) + 12 MP, f/2.4, 120 degrees, 13mm (ultrawide)",
+  "rearFeatures": "Not Found",
+  "front": "12 MP, f/2.2, 23mm (TrueDepth)",
+  "video": "4K@24/25/30/60fps, 1080p@25/30/60/120/240fps",
+  "frontVideo": "4K@24/25/30/60fps, 1080p@25/30/60/120fps"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 a/b/g/n/ac/6",
+  "bluetooth": "5.0",
+  "nfc": "Yes",
+  "positioning": "GPS, GLONASS, GALILEO, QZSS",
+  "usb": "Lightning, USB 2.0",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Yes (U1 chip)",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Nano-SIM + eSIM; Nano-SIM + Nano-SIM (China)",
+  "esim": "Yes (except China dual-tray units)"
+ },
+ "audio": {
+  "loudspeaker": "Yes, stereo speakers",
+  "stereo": "Yes",
+  "jack35mm": "No",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Face ID",
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Barometer",
+  "Ambient light",
+  "Ultra Wideband (U1)"
+ ],
+ "security": {
+  "fingerprintType": "None",
+  "fingerprintLocation": "Not Found",
+  "faceUnlock": "Yes (Face ID, TrueDepth 3D)",
+  "secureHardware": "Secure Enclave"
+ },
+ "software": {
+  "osAtLaunch": "iOS 13",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 26.6",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "USD 168.00 (64 GB) / EUR 179.34 (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_11-9848.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "GSMArena lists no iPhoneN,N identifier on this page; internalIdentifier left Not Found."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

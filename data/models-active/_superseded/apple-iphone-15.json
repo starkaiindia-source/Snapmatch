@@ -1,0 +1,688 @@
+{
+ "modelId": "apple-iphone-15",
+ "brandId": "apple",
+ "brand": "Apple",
+ "name": "Apple iPhone 15",
+ "officialModelName": "iPhone 15",
+ "modelNumbers": [
+  "A2846",
+  "A3089",
+  "A3090",
+  "A3092"
+ ],
+ "techspecsVersion": "A2846",
+ "series": "iPhone",
+ "deviceType": "Smartphone",
+ "formFactor": "Bar",
+ "releaseDate": "2023-09-22",
+ "releaseDateLabel": "22 September 2023",
+ "summary": "6.1-inch Super Retina XDR OLED, A16 Bionic, 48MP dual camera, USB-C, IP68.",
+ "image": {
+  "primary": "https://fdn2.gsmarena.com/vv/bigpic/apple-iphone-15.jpg",
+  "primarySource": "GSMArena Archive",
+  "techspecs": null,
+  "techspecsNote": "TechSpecs serves images only through a separately paid Image API. Not purchased, so the archived GSMArena image remains primary.",
+  "gsmarenaFallback": "https://fdn2.gsmarena.com/vv/bigpic/apple-iphone-15.jpg"
+ },
+ "variants": {
+  "ram": [
+   "6 GB"
+  ],
+  "storage": [
+   "128 GB",
+   "256 GB",
+   "512 GB"
+  ],
+  "colors": [
+   "Black",
+   "Blue",
+   "Green",
+   "Yellow",
+   "Pink"
+  ],
+  "regions": [
+   "North America (NA) · USA"
+  ],
+  "rows": [
+   {
+    "storage": "128 GB",
+    "ram": "6 GB",
+    "launchPrice": "See price note",
+    "modelNumber": "A2846 / A3089 / A3090 / A3092"
+   },
+   {
+    "storage": "256 GB",
+    "ram": "6 GB",
+    "launchPrice": "See price note",
+    "modelNumber": "A2846 / A3089 / A3090 / A3092"
+   },
+   {
+    "storage": "512 GB",
+    "ram": "6 GB",
+    "launchPrice": "See price note",
+    "modelNumber": "A2846 / A3089 / A3090 / A3092"
+   }
+  ]
+ },
+ "sections": [
+  {
+   "id": "display",
+   "title": "Display",
+   "rows": [
+    {
+     "label": "Size",
+     "value": "6.1-inch (diagonal) all-screen OLED display",
+     "src": "both"
+    },
+    {
+     "label": "Type",
+     "value": "Super Retina XDR display",
+     "src": "both"
+    },
+    {
+     "label": "Panel",
+     "value": "OLED",
+     "src": "both"
+    },
+    {
+     "label": "Screen shape",
+     "value": "Flat",
+     "src": "manufacturer"
+    },
+    {
+     "label": "Resolution",
+     "value": "2556 x 1179 pixels at 460 ppi",
+     "src": "both"
+    },
+    {
+     "label": "Pixel density",
+     "value": "460 ppi",
+     "src": "both"
+    },
+    {
+     "label": "Refresh rate",
+     "value": "60 Hz",
+     "src": "techspecs"
+    },
+    {
+     "label": "Brightness",
+     "value": "1000 nits max (typical); 1600 nits peak (HDR); 2000 nits peak (outdoor)",
+     "src": "manufacturer"
+    },
+    {
+     "label": "Colour depth",
+     "value": "30 bit",
+     "src": "techspecs"
+    },
+    {
+     "label": "Number of colours",
+     "value": "1073.7M",
+     "src": "techspecs"
+    },
+    {
+     "label": "Dynamic range",
+     "value": "HDR display, True Tone, Wide colour (P3)",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "10 bit"
+     }
+    },
+    {
+     "label": "Pixel size",
+     "value": "0.05521 mm/pixel",
+     "src": "techspecs"
+    },
+    {
+     "label": "Protection glass",
+     "value": "Ceramic Shield front",
+     "src": "both"
+    },
+    {
+     "label": "Screen-to-body ratio",
+     "value": "86.9%",
+     "src": "techspecs"
+    },
+    {
+     "label": "Touch screen",
+     "value": "Capacitive, 10 touch points",
+     "src": "techspecs"
+    },
+    {
+     "label": "Cutout",
+     "value": "Dynamic Island",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "1 punch hole"
+     }
+    },
+    {
+     "label": "Panel dimensions",
+     "value": "65.09 mm, 2.56 inch x 141.11 mm, 5.56 inch",
+     "src": "techspecs"
+    },
+    {
+     "label": "Bezel width",
+     "value": "6.51 mm, 0.26 inch(es)",
+     "src": "techspecs"
+    }
+   ]
+  },
+  {
+   "id": "performance",
+   "title": "Performance",
+   "rows": [
+    {
+     "label": "Chip",
+     "value": "A16 Bionic chip",
+     "src": "both"
+    },
+    {
+     "label": "CPU",
+     "value": "6-core CPU with 2 performance and 4 efficiency cores",
+     "src": "manufacturer"
+    },
+    {
+     "label": "CPU clock speed",
+     "value": "3460 MHz",
+     "src": "techspecs"
+    },
+    {
+     "label": "GPU",
+     "value": "5-core GPU",
+     "src": "both"
+    },
+    {
+     "label": "Neural Engine",
+     "value": "16-core Neural Engine",
+     "src": "manufacturer"
+    },
+    {
+     "label": "RAM",
+     "value": "6 GB",
+     "src": "techspecs"
+    },
+    {
+     "label": "RAM type",
+     "value": "LPDDR5 SDRAM",
+     "src": "techspecs"
+    },
+    {
+     "label": "RAM clock speed",
+     "value": "3200 MHz",
+     "src": "techspecs"
+    },
+    {
+     "label": "Storage",
+     "value": "128 GB, 256 GB, 512 GB",
+     "src": "both"
+    },
+    {
+     "label": "Storage type",
+     "value": "Flash EEPROM",
+     "src": "techspecs"
+    },
+    {
+     "label": "Expandable storage",
+     "value": "No",
+     "src": "techspecs"
+    }
+   ]
+  },
+  {
+   "id": "camera",
+   "title": "Camera",
+   "rows": [
+    {
+     "label": "Main camera",
+     "value": "48MP Main: 26 mm, f/1.6 aperture",
+     "src": "both"
+    },
+    {
+     "label": "Main sensor",
+     "value": "BSI CMOS, format 1/1.56",
+     "src": "techspecs"
+    },
+    {
+     "label": "Main pixel size",
+     "value": "1.00 micrometer",
+     "src": "techspecs"
+    },
+    {
+     "label": "Ultra Wide",
+     "value": "12MP Ultra Wide: 13 mm, f/2.4 aperture",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "12.2 MP, f/2.40, 13 mm"
+     }
+    },
+    {
+     "label": "Telephoto",
+     "value": "12MP 2x Telephoto (sensor crop)",
+     "src": "manufacturer"
+    },
+    {
+     "label": "Zoom",
+     "value": "2.0 x optical zoom, 10.0 x digital zoom",
+     "src": "techspecs"
+    },
+    {
+     "label": "Stabilisation",
+     "value": "OIS and EIS",
+     "src": "techspecs"
+    },
+    {
+     "label": "Front camera",
+     "value": "12MP camera, f/1.9 aperture",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "12.2 MP, f/1.90"
+     }
+    },
+    {
+     "label": "Front sensor module",
+     "value": "Sony IMX714",
+     "src": "techspecs"
+    },
+    {
+     "label": "Video recording",
+     "value": "4K Dolby Vision at 24, 25, 30 or 60 fps",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "3840x2160 pixel, 60 fps"
+     }
+    },
+    {
+     "label": "Image formats",
+     "value": "JPG, RAW, HEIF",
+     "src": "techspecs"
+    },
+    {
+     "label": "Video formats",
+     "value": "3G2, HEVC",
+     "src": "techspecs"
+    }
+   ]
+  },
+  {
+   "id": "battery",
+   "title": "Battery & charging",
+   "rows": [
+    {
+     "label": "Capacity",
+     "value": "3349 mAh",
+     "src": "techspecs"
+    },
+    {
+     "label": "Energy",
+     "value": "12.99 Wh",
+     "src": "techspecs"
+    },
+    {
+     "label": "Voltage",
+     "value": "3.88 Volts",
+     "src": "techspecs"
+    },
+    {
+     "label": "Type",
+     "value": "Built-in rechargeable lithium-ion battery",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "Lithium-ion — 1 cell"
+     }
+    },
+    {
+     "label": "Removable",
+     "value": "Non-removable",
+     "src": "techspecs"
+    },
+    {
+     "label": "Wired charging",
+     "value": "20.0 W",
+     "src": "techspecs"
+    },
+    {
+     "label": "Wireless charging",
+     "value": "MagSafe wireless charging up to 15W",
+     "src": "both"
+    },
+    {
+     "label": "Battery life",
+     "value": "Video playback up to 20 hours",
+     "src": "manufacturer"
+    }
+   ]
+  },
+  {
+   "id": "network",
+   "title": "Network & connectivity",
+   "rows": [
+    {
+     "label": "Cellular",
+     "value": "5G NR",
+     "src": "both"
+    },
+    {
+     "label": "Modem chip",
+     "value": "Qualcomm Snapdragon X70",
+     "src": "techspecs"
+    },
+    {
+     "label": "Wi-Fi",
+     "value": "Wi-Fi 6 (802.11ax) with 2x2 MIMO",
+     "src": "both"
+    },
+    {
+     "label": "Wi-Fi features",
+     "value": "Wi-Fi Calling (UMA), Wi-Fi Calling (VoWiFi)",
+     "src": "techspecs"
+    },
+    {
+     "label": "Bluetooth",
+     "value": "5.3",
+     "src": "both"
+    },
+    {
+     "label": "Bluetooth profiles",
+     "value": "A2DP, A2DP with aptX codec, A2DP with aptX HD codec, AVRCP, HFP, HID, MAP, PAN, PBA",
+     "src": "techspecs"
+    },
+    {
+     "label": "NFC",
+     "value": "NFC with reader mode",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "Yes"
+     }
+    },
+    {
+     "label": "USB",
+     "value": "USB-C connector",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "Type C, 2.0, Hi-Speed (480 Mbps)"
+     }
+    },
+    {
+     "label": "USB features",
+     "value": "charging, fast charging, Host, On-The-Go 1.3, Power Delivery, Power Delivery 2.0",
+     "src": "techspecs"
+    },
+    {
+     "label": "Positioning",
+     "value": "GPS, Galileo, BeiDou, GLONASS",
+     "src": "techspecs"
+    },
+    {
+     "label": "UWB",
+     "value": "Second-generation Ultra Wideband chip",
+     "src": "manufacturer"
+    },
+    {
+     "label": "Bands",
+     "value": "GSM 850MHz (B5), GSM 900MHz (B8), GSM 1800MHz (B3), GSM 1900MHz (PCS, B2), UMTS 2100MHz (Band I, IMT), UMTS 1900MHz (Band II, PCS), UMTS 1700/2100MHz (Band IV, AWS), UMTS 850MHz (Band V, CLR), UMTS 900MHz (Band VIII), LTE 2100 MHz (Band 1), LTE 1900 MHz (Band 2, PCS), LTE 1800 MHz (Band 3), LTE 1700/2100 MHz (Band 4, AWS), LTE 850 MHz (Band 5), LTE 2600 MHz (Band 7), LTE 900 MHz (Band 8), LTE 700 MHz (Band 12), LTE 700 MHz (Band 13), LTE 700 MHz (Band XIV), LTE 700 MHz (Band 17), LTE 800 MHz (Band 18), LTE 800 MHz (Band 19), LTE 800 MHz (Band 20), LTE 1900 MHz (Band 25), LTE 850 MHz (Band 26), LTE 700 MHz (Band 28), LTE 700 MHz (Band 29), LTE 2300 MHz (Band 30), LTE 1500 MHz (Band 32), TD-LTE 2000 MHz (Band XXXIV), TD-LTE 2600 MHz (Band 38), TD-LTE 1900 MHz (Band 39), TD-LTE 2300 MHz (Band XL), TD-LTE 2500 MHz (Band XLI), TD-LTE 3500 MHz (Band XLII), TD-LTE 5900 MHz (Band XLVI), TD-LTE 3600 MHz (Band 48), TD-LTE 2400 MHz (Band LIII), LTE 1700/2100 MHz (Band 66), LTE 600 MHz (Band 71), NR 2100 MHz (N1), NR 1900 MHz (N2, PCS), NR 1800 MHz (N3), NR 850 MHz (N5), NR 2600 MHz (N7), NR 900 MHz (N8), NR 700 MHz (N12), NR 700 MHz (N14), NR 800 MHz (N20), NR 850 MHz (N26), NR 1900 MHz (N25), NR 700 MHz (N28), NR 700 MHz (N29), NR 2300 MHz (N30), TD-NR 2600 MHz (N38), TD-NR 2300 MHz (N40), TD-NR 2500 MHz (N41), TD-NR 3600 MHz (N48), NR 2400 MHz (N53), NR 1700/2100 MHz (N66), NR 1700/2000 MHz (N70), NR 600 MHz (N71), NR 1500 MHz (N75), NR 1500 MHz (N76), TD-NR 3700 MHz (N77), TD-NR 3500 MHz (N78), TD-NR 4700 MHz (N79), TD-NR 26 GHz (N258), TD-NR 39 GHz (N260), TD-NR 28 GHz (N261) bands",
+     "src": "techspecs"
+    }
+   ]
+  },
+  {
+   "id": "body",
+   "title": "Body & design",
+   "rows": [
+    {
+     "label": "Height",
+     "value": "147.6 mm, 5.81 inch",
+     "src": "both"
+    },
+    {
+     "label": "Width",
+     "value": "71.6 mm, 2.82 inch",
+     "src": "both"
+    },
+    {
+     "label": "Thickness",
+     "value": "7.80 mm, 0.31 inch",
+     "src": "both"
+    },
+    {
+     "label": "Weight",
+     "value": "171 g, 6.02 ounces",
+     "src": "manufacturer",
+     "conflict": {
+      "techspecs": "171 g, 6.03 ounces"
+     }
+    },
+    {
+     "label": "Frame",
+     "value": "Aluminium design",
+     "src": "manufacturer"
+    },
+    {
+     "label": "Front",
+     "value": "Ceramic Shield front",
+     "src": "manufacturer"
+    },
+    {
+     "label": "Back",
+     "value": "Colour-infused glass back",
+     "src": "manufacturer"
+    },
+    {
+     "label": "IP rating",
+     "value": "IP68 (maximum depth 6 metres up to 30 minutes)",
+     "src": "both"
+    },
+    {
+     "label": "Manufacturer",
+     "value": "Foxconn",
+     "src": "techspecs"
+    },
+    {
+     "label": "OEM ID",
+     "value": "D37AP",
+     "src": "techspecs"
+    }
+   ]
+  },
+  {
+   "id": "sim",
+   "title": "SIM",
+   "rows": [
+    {
+     "label": "SIM type",
+     "value": "Dual eSIM (two active eSIMs; stores eight or more eSIMs)",
+     "src": "both"
+    },
+    {
+     "label": "SIM slot",
+     "value": "e-SIM (embedded)",
+     "src": "techspecs"
+    },
+    {
+     "label": "Region",
+     "value": "North America (NA) · USA",
+     "src": "techspecs"
+    }
+   ]
+  },
+  {
+   "id": "sensors",
+   "title": "Sensors & security",
+   "rows": [
+    {
+     "label": "Sensors",
+     "value": "Barometer, Light intensity sensor, Proximity sensor, Step counter, IR face sensor, LiDAR, Accelerometer, Compass, Gyroscope",
+     "src": "techspecs"
+    },
+    {
+     "label": "Face unlock",
+     "value": "Face ID",
+     "src": "manufacturer"
+    },
+    {
+     "label": "Fingerprint",
+     "value": "None",
+     "src": "manufacturer"
+    }
+   ]
+  },
+  {
+   "id": "audio",
+   "title": "Audio",
+   "rows": [
+    {
+     "label": "Channels",
+     "value": "stereo",
+     "src": "techspecs"
+    },
+    {
+     "label": "Microphones",
+     "value": "3",
+     "src": "techspecs"
+    },
+    {
+     "label": "Audio out",
+     "value": "USB Type-C",
+     "src": "techspecs"
+    },
+    {
+     "label": "Headphone jack",
+     "value": "None",
+     "src": "manufacturer"
+    },
+    {
+     "label": "Hearing aid compatibility",
+     "value": "M3, T4",
+     "src": "techspecs"
+    }
+   ]
+  },
+  {
+   "id": "software",
+   "title": "Software",
+   "rows": [
+    {
+     "label": "OS at launch",
+     "value": "iOS 17",
+     "src": "both"
+    },
+    {
+     "label": "OS family",
+     "value": "Apple iOS / iPadOS",
+     "src": "techspecs"
+    },
+    {
+     "label": "Platform features",
+     "value": "Augmented Reality (AR), Face Recognition, Intelligent personal assistant, Navigation software, Voice Command, Voice Recognition",
+     "src": "techspecs"
+    }
+   ]
+  },
+  {
+   "id": "regulatory",
+   "title": "Regulatory",
+   "rows": [
+    {
+     "label": "SAR head (USA)",
+     "value": "1.120 W/kg",
+     "src": "techspecs"
+    },
+    {
+     "label": "SAR body (USA)",
+     "value": "1.140 W/kg",
+     "src": "techspecs"
+    },
+    {
+     "label": "SAR head (EU)",
+     "value": "0.980 W/kg",
+     "src": "techspecs"
+    },
+    {
+     "label": "SAR body (EU)",
+     "value": "0.980 W/kg",
+     "src": "techspecs"
+    }
+   ]
+  }
+ ],
+ "priceNote": {
+  "techspecsRawPrice": "1099, US Dollar",
+  "techspecsMsrp": null,
+  "flagged": "TechSpecs returns a raw price of 1099 USD for this record. Apple's tech-specs page publishes no price, so there is no Source 1 value to confirm it against, and 1099 USD does not match the iPhone 15 base tier. The figure is stored but deliberately NOT shown as the launch price, and is not written into any variant row."
+ },
+ "sourceMeta": {
+  "primarySource": "Apple Official + TechSpecs API",
+  "source1Url": "https://support.apple.com/en-us/111831",
+  "source1Title": "iPhone 15 - Tech Specs - Apple Support",
+  "techspecsStatus": "Connected",
+  "techspecsProductId": "65783da13a6b19332c44c066",
+  "techspecsCategory": "Smartphones",
+  "techspecsUpdatedAt": "2025-11-06T12:02:11.474Z",
+  "gsmarenaArchive": "data/archive/gsmarena/batch-001/apple-iphone-15.json",
+  "dataStatus": "Verified with conflicts",
+  "lastVerified": "2026-09-07",
+  "conflicts": [
+   {
+    "section": "display",
+    "field": "Dynamic range",
+    "manufacturer": "HDR display, True Tone, Wide colour (P3)",
+    "techspecs": "10 bit"
+   },
+   {
+    "section": "display",
+    "field": "Cutout",
+    "manufacturer": "Dynamic Island",
+    "techspecs": "1 punch hole"
+   },
+   {
+    "section": "camera",
+    "field": "Ultra Wide",
+    "manufacturer": "12MP Ultra Wide: 13 mm, f/2.4 aperture",
+    "techspecs": "12.2 MP, f/2.40, 13 mm"
+   },
+   {
+    "section": "camera",
+    "field": "Front camera",
+    "manufacturer": "12MP camera, f/1.9 aperture",
+    "techspecs": "12.2 MP, f/1.90"
+   },
+   {
+    "section": "camera",
+    "field": "Video recording",
+    "manufacturer": "4K Dolby Vision at 24, 25, 30 or 60 fps",
+    "techspecs": "3840x2160 pixel, 60 fps"
+   },
+   {
+    "section": "battery",
+    "field": "Type",
+    "manufacturer": "Built-in rechargeable lithium-ion battery",
+    "techspecs": "Lithium-ion — 1 cell"
+   },
+   {
+    "section": "network",
+    "field": "NFC",
+    "manufacturer": "NFC with reader mode",
+    "techspecs": "Yes"
+   },
+   {
+    "section": "network",
+    "field": "USB",
+    "manufacturer": "USB-C connector",
+    "techspecs": "Type C, 2.0, Hi-Speed (480 Mbps)"
+   },
+   {
+    "section": "body",
+    "field": "Weight",
+    "manufacturer": "171 g, 6.02 ounces",
+    "techspecs": "171 g, 6.03 ounces"
+   }
+  ],
+  "notes": [
+   "Apple's tech-specs page lists model numbers A2846 and A2847; A2847 belongs to iPhone 15 Plus because Apple shares one page across both models. Apple's model-identification page (support.apple.com/en-us/108044) is the authority used here.",
+   "TechSpecs models the iPhone 15 as four separate products, one per A-number (A2846, A3089, A3090, A3092). This record is built from A2846; the other three are the same handset for parts purposes.",
+   "TechSpecs lists FM Radio under both its 'No' (absent features) block and its wireless 'Experiences' block. The iPhone has no FM radio, so neither value is surfaced in the UI.",
+   "TechSpecs records the rear flash as 'nine LED flash', which does not match Apple's description. Not surfaced; flagged for review.",
+   "Screen-to-body ratio differs between sources: TechSpecs 86.9%, archived GSMArena record 86.4%. TechSpecs is shown, the archive value is preserved.",
+   "TechSpecs serves product images only through a separately paid Image API. It was NOT purchased; the archived GSMArena image stays primary."
+  ]
+ }
+}

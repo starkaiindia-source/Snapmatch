@@ -1,0 +1,33 @@
+{
+ "generatedAt": "2026-09-07T17:45:38",
+ "totals": {
+  "total": 146,
+  "collected": 5,
+  "verified": 4,
+  "crossChecked": 0,
+  "partial": 0,
+  "withRepairParts": 0,
+  "withPrices": 0
+ },
+ "brands": {
+  "apple": {
+   "brand": "Apple",
+   "total": 146,
+   "collected": 5,
+   "OFFICIAL SOURCE VERIFIED": 4,
+   "CROSS-CHECKED": 0,
+   "TECHSPECS VERIFIED": 0,
+   "PARTIAL": 0,
+   "CONFLICT": 1,
+   "withRepairParts": 0,
+   "withPrices": 0,
+   "coreFieldAvg": 18.2,
+   "remaining": 141
+  }
+ },
+ "nextModel": {
+  "id": "apple-iphone",
+  "brand": "Apple",
+  "url": "https://www.gsmarena.com/apple_iphone-1827.php"
+ }
+}

@@ -1,0 +1,197 @@
+{
+ "modelId": "apple-iphone-8-plus",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone 8 Plus",
+  "commercialName": "iPhone 8 Plus",
+  "modelNumbers": [
+   "A1864",
+   "A1897",
+   "A1898",
+   "A1899",
+   "iPhone10,2",
+   "iPhone10,5"
+  ],
+  "internalIdentifier": "iPhone10,2 / iPhone10,5",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "Plus",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 11",
+  "osCurrentSupported": "iOS 16.7.12 (final)",
+  "announced": "2017-09-12",
+  "released": "2017-09-22",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Ion-strengthened glass (Corning-made)",
+  "backMaterial": "Glass (Corning-made)",
+  "frameMaterial": "Aluminium",
+  "heightMm": 158.4,
+  "widthMm": 78.1,
+  "thicknessMm": 7.5,
+  "weightG": 202,
+  "ipRating": "IP67 (dust tight, water resistant up to 1 m for 30 min)",
+  "screenShape": "Flat (2.5D edges)",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 5.5,
+  "panelType": "Retina IPS LCD, 3D Touch",
+  "curvature": "Flat (2.5D edges)",
+  "resolutionW": 1080,
+  "resolutionH": 1920,
+  "aspectRatio": "16:9",
+  "ppi": 401,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "Not Found",
+  "typicalBrightnessNits": 625,
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Ion-strengthened glass; 3D Touch display and home button",
+  "alwaysOn": "No",
+  "screenToBodyPct": 67.4
+ },
+ "platform": {
+  "chipset": "Apple A11 Bionic (10 nm)",
+  "fabricationNm": 10,
+  "cpu": "Hexa-core (2x Monsoon + 4x Mistral)",
+  "cpuCores": "Hexa-core",
+  "gpu": "Apple GPU (three-core graphics)",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "3 GB",
+   "storage": "64 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "3 GB",
+   "storage": "128 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "3 GB",
+   "storage": "256 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "NVMe"
+ },
+ "colors": [
+  "Gold",
+  "Space Gray",
+  "Silver",
+  "(PRODUCT)RED"
+ ],
+ "battery": {
+  "capacityMah": 2691,
+  "type": "Li-Ion",
+  "removable": "No",
+  "wattage": "15 W wired",
+  "fastCharging": "PD 2.0, 50% in 30 min",
+  "wirelessCharging": "Yes (Qi)",
+  "reverseCharging": "No",
+  "ratedWh": "10.28 Wh"
+ },
+ "camera": {
+  "rear": "Dual: 12 MP, f/1.8, 28mm (wide), PDAF, OIS + 12 MP, f/2.8, 57mm (telephoto), PDAF, 2x optical zoom",
+  "rearFeatures": "Quad-LED dual-tone flash, HDR",
+  "front": "7 MP, f/2.2, 32mm (standard)",
+  "video": "4K@24/30/60fps, 1080p@30/60/120/240fps",
+  "frontVideo": "1080p@30fps"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 a/b/g/n/ac, dual-band, hotspot",
+  "bluetooth": "5.0, A2DP, LE",
+  "nfc": "Yes",
+  "positioning": "GPS, GLONASS, GALILEO, QZSS",
+  "usb": "Lightning, USB 2.0",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Nano-SIM, single SIM",
+  "esim": "No"
+ },
+ "audio": {
+  "loudspeaker": "Yes, stereo speakers",
+  "stereo": "Yes",
+  "jack35mm": "No",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Fingerprint (front-mounted, Touch ID)",
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Barometer",
+  "Ambient light",
+  "3D Touch"
+ ],
+ "security": {
+  "fingerprintType": "Capacitive (Touch ID, solid-state home button)",
+  "fingerprintLocation": "Front, in the home button",
+  "faceUnlock": "No",
+  "secureHardware": "Secure Enclave"
+ },
+ "software": {
+  "osAtLaunch": "iOS 11",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 16.7.12 (final)",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 340 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_8_plus-8131.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [],
+  "lastVerified": "2026-09-07"
+ }
+}

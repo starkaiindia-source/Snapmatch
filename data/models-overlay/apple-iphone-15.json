@@ -1,0 +1,76 @@
+{
+ "modelId": "apple-iphone-15",
+ "brandId": "apple",
+ "officialModelName": "iPhone 15",
+ "series": "iPhone",
+ "formFactor": "Bar",
+ "releaseDateLabel": "22 September 2023",
+ "summary": "6.1-inch Super Retina XDR OLED, A16 Bionic, 48MP dual camera, USB-C, IP68.",
+ "modelNumbers": ["A2846", "A3089", "A3090", "A3092"],
+ "primarySource": "Apple Official + TechSpecs API",
+ "source1Url": "https://support.apple.com/en-us/111831",
+ "source1Title": "iPhone 15 - Tech Specs - Apple Support",
+
+ "_comment": "fields[] holds values taken verbatim from Apple's own pages (Source 1). The normalizer gives these precedence over TechSpecs and marks any row where the two disagree.",
+ "fields": {
+  "displaySize": "6.1-inch (diagonal) all-screen OLED display",
+  "displayType": "Super Retina XDR display",
+  "panelType": "OLED",
+  "screenShape": "Flat",
+  "resolution": "2556 x 1179 pixels at 460 ppi",
+  "pixelDensity": "460 ppi",
+  "brightness": "1000 nits max (typical); 1600 nits peak (HDR); 2000 nits peak (outdoor)",
+  "hdr": "HDR display, True Tone, Wide colour (P3)",
+  "protection": "Ceramic Shield front",
+  "cutout": "Dynamic Island",
+
+  "chip": "A16 Bionic chip",
+  "cpu": "6-core CPU with 2 performance and 4 efficiency cores",
+  "gpu": "5-core GPU",
+  "npu": "16-core Neural Engine",
+  "storage": "128 GB, 256 GB, 512 GB",
+
+  "mainCamera": "48MP Main: 26 mm, f/1.6 aperture",
+  "ultrawide": "12MP Ultra Wide: 13 mm, f/2.4 aperture",
+  "telephoto": "12MP 2x Telephoto (sensor crop)",
+  "frontCamera": "12MP camera, f/1.9 aperture",
+  "video": "4K Dolby Vision at 24, 25, 30 or 60 fps",
+
+  "batteryType": "Built-in rechargeable lithium-ion battery",
+  "batteryLife": "Video playback up to 20 hours",
+  "wirelessCharging": "MagSafe wireless charging up to 15W",
+
+  "cellular": "5G NR",
+  "wifi": "Wi-Fi 6 (802.11ax) with 2x2 MIMO",
+  "bluetooth": "5.3",
+  "nfc": "NFC with reader mode",
+  "usb": "USB-C connector",
+  "uwb": "Second-generation Ultra Wideband chip",
+
+  "height": "147.6 mm, 5.81 inch",
+  "width": "71.6 mm, 2.82 inch",
+  "thickness": "7.80 mm, 0.31 inch",
+  "weight": "171 g, 6.02 ounces",
+  "frame": "Aluminium design",
+  "front": "Ceramic Shield front",
+  "back": "Colour-infused glass back",
+  "ipRating": "IP68 (maximum depth 6 metres up to 30 minutes)",
+
+  "sim": "Dual eSIM (two active eSIMs; stores eight or more eSIMs)",
+  "faceUnlock": "Face ID",
+  "fingerprint": "None",
+  "jack": "None",
+  "osAtLaunch": "iOS 17"
+ },
+
+ "priceFlag": "TechSpecs returns a raw price of 1099 USD for this record. Apple's tech-specs page publishes no price, so there is no Source 1 value to confirm it against, and 1099 USD does not match the iPhone 15 base tier. The figure is stored but deliberately NOT shown as the launch price, and is not written into any variant row.",
+
+ "notes": [
+  "Apple's tech-specs page lists model numbers A2846 and A2847; A2847 belongs to iPhone 15 Plus because Apple shares one page across both models. Apple's model-identification page (support.apple.com/en-us/108044) is the authority used here.",
+  "TechSpecs models the iPhone 15 as four separate products, one per A-number (A2846, A3089, A3090, A3092). This record is built from A2846; the other three are the same handset for parts purposes.",
+  "TechSpecs lists FM Radio under both its 'No' (absent features) block and its wireless 'Experiences' block. The iPhone has no FM radio, so neither value is surfaced in the UI.",
+  "TechSpecs records the rear flash as 'nine LED flash', which does not match Apple's description. Not surfaced; flagged for review.",
+  "Screen-to-body ratio differs between sources: TechSpecs 86.9%, archived GSMArena record 86.4%. TechSpecs is shown, the archive value is preserved.",
+  "TechSpecs serves product images only through a separately paid Image API. It was NOT purchased; the archived GSMArena image stays primary."
+ ]
+}

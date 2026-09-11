@@ -1,0 +1,16 @@
+{
+ "batches": {
+  "batch-001": {
+   "createdAt": "2026-09-07T16:18:30.126Z",
+   "models": [
+    "apple-iphone-15"
+   ]
+  },
+  "batch-002": {
+   "createdAt": "2026-09-07T16:43:52.644Z",
+   "models": [
+    "apple-iphone-14"
+   ]
+  }
+ }
+}

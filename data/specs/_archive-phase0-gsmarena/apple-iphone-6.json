@@ -1,0 +1,201 @@
+{
+ "modelId": "apple-iphone-6",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone 6",
+  "commercialName": "iPhone 6",
+  "modelNumbers": [
+   "A1549",
+   "A1586",
+   "A1589",
+   "iPhone7,2"
+  ],
+  "internalIdentifier": "iPhone7,2",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "Not Found",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 8",
+  "osCurrentSupported": "iOS 12.5.8 (final)",
+  "announced": "2014-09-09",
+  "released": "2014-09-19",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Ion-strengthened glass, oleophobic coating",
+  "backMaterial": "Aluminium",
+  "frameMaterial": "Aluminium",
+  "heightMm": 138.1,
+  "widthMm": 67.0,
+  "thicknessMm": 6.9,
+  "weightG": 129,
+  "ipRating": "None",
+  "screenShape": "Flat (2.5D edges)",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 4.7,
+  "panelType": "IPS LCD (Retina HD)",
+  "curvature": "Flat (2.5D edges)",
+  "resolutionW": 750,
+  "resolutionH": 1334,
+  "aspectRatio": "16:9",
+  "ppi": 326,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "Not Found",
+  "typicalBrightnessNits": "Not Found",
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Ion-strengthened glass, oleophobic coating",
+  "alwaysOn": "No",
+  "screenToBodyPct": 65.8
+ },
+ "platform": {
+  "chipset": "Apple A8 (20 nm)",
+  "fabricationNm": 20,
+  "cpu": "Dual-core 1.4 GHz Typhoon (ARM v8-based)",
+  "cpuCores": "Dual-core",
+  "gpu": "PowerVR GX6450 (quad-core graphics)",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "1 GB",
+   "storage": "16 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "1 GB",
+   "storage": "32 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "1 GB",
+   "storage": "64 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "1 GB",
+   "storage": "128 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "Not Found"
+ },
+ "colors": [
+  "Space Gray",
+  "Silver",
+  "Gold"
+ ],
+ "battery": {
+  "capacityMah": 1810,
+  "type": "Li-Po",
+  "removable": "No",
+  "wattage": "Not Found",
+  "fastCharging": "Not Found",
+  "wirelessCharging": "No",
+  "reverseCharging": "Not Found",
+  "ratedWh": "6.9 Wh"
+ },
+ "camera": {
+  "rear": "8 MP, f/2.2, 29mm, 1/3.0 inch, 1.5 um, PDAF (single)",
+  "rearFeatures": "Dual-LED dual-tone flash, HDR",
+  "front": "1.2 MP, f/2.2, 31mm",
+  "video": "1080p@60fps, 720p@240fps",
+  "frontVideo": "720p@30fps"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 a/b/g/n/ac, dual-band, hotspot",
+  "bluetooth": "4.0, A2DP, LE",
+  "nfc": "Yes (Apple Pay only)",
+  "positioning": "GPS, GLONASS",
+  "usb": "Lightning, USB 2.0",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Nano-SIM, single SIM",
+  "esim": "No"
+ },
+ "audio": {
+  "loudspeaker": "Yes",
+  "stereo": "No",
+  "jack35mm": "Yes",
+  "extras": "16-bit/44.1 kHz audio"
+ },
+ "sensors": [
+  "Fingerprint (front-mounted, Touch ID)",
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Barometer",
+  "Ambient light"
+ ],
+ "security": {
+  "fingerprintType": "Capacitive (Touch ID)",
+  "fingerprintLocation": "Front, in the home button",
+  "faceUnlock": "No",
+  "secureHardware": "Secure Enclave"
+ },
+ "software": {
+  "osAtLaunch": "iOS 8",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 12.5.8 (final)",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 100 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_6-6378.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "CONFLICT WATCH: the GSMArena iPhone 6 page also lists A1522, A1524 and A1593, which are iPhone 6 Plus / iPod-era numbers. Only A1549, A1586, A1589 and iPhone7,2 are kept here; the disputed numbers are excluded pending a second source rather than recorded as iPhone 6 numbers."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

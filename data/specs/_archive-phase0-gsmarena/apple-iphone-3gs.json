@@ -1,0 +1,190 @@
+{
+ "modelId": "apple-iphone-3gs",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone 3GS",
+  "commercialName": "iPhone 3GS",
+  "modelNumbers": [
+   "A1325",
+   "A1303",
+   "iPhone2,1"
+  ],
+  "internalIdentifier": "iPhone2,1",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "Not Found",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iPhone OS 3.0",
+  "osCurrentSupported": "iOS 6.1.6 (final)",
+  "announced": "2009-06",
+  "released": "2009-06",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "Not Found",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Corning Gorilla Glass, oleophobic coating",
+  "backMaterial": "Plastic (polycarbonate)",
+  "frameMaterial": "Not Found",
+  "heightMm": 115.5,
+  "widthMm": 62.1,
+  "thicknessMm": 12.3,
+  "weightG": 135,
+  "ipRating": "None",
+  "screenShape": "Flat",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 3.5,
+  "panelType": "TFT LCD",
+  "curvature": "Flat",
+  "resolutionW": 320,
+  "resolutionH": 480,
+  "aspectRatio": "3:2",
+  "ppi": 165,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "Not Found",
+  "typicalBrightnessNits": "Not Found",
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Corning Gorilla Glass, oleophobic coating",
+  "alwaysOn": "No",
+  "screenToBodyPct": 50.9
+ },
+ "platform": {
+  "chipset": "Not Found",
+  "fabricationNm": "Not Found",
+  "cpu": "600 MHz Cortex-A8",
+  "cpuCores": "Single-core",
+  "gpu": "PowerVR SGX535",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "256 MB",
+   "storage": "8 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "256 MB",
+   "storage": "16 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "256 MB",
+   "storage": "32 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "Not Found"
+ },
+ "colors": [
+  "Black",
+  "White"
+ ],
+ "battery": {
+  "capacityMah": 1400,
+  "type": "Li-Ion",
+  "removable": "No",
+  "wattage": "Not Found",
+  "fastCharging": "Not Found",
+  "wirelessCharging": "No",
+  "reverseCharging": "Not Found",
+  "ratedWh": "Not Found"
+ },
+ "camera": {
+  "rear": "3.15 MP, f/2.8, AF (single)",
+  "rearFeatures": "Not Found",
+  "front": "None",
+  "video": "480p@30fps",
+  "frontVideo": "Not Found"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 b/g",
+  "bluetooth": "2.1, A2DP",
+  "nfc": "No",
+  "positioning": "GPS, A-GPS",
+  "usb": "USB 2.0 (30-pin dock connector)",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Mini-SIM, single SIM",
+  "esim": "No"
+ },
+ "audio": {
+  "loudspeaker": "Yes",
+  "stereo": "No",
+  "jack35mm": "Yes",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Accelerometer",
+  "Proximity",
+  "Compass",
+  "Ambient light"
+ ],
+ "security": {
+  "fingerprintType": "None",
+  "fingerprintLocation": "Not Found",
+  "faceUnlock": "No",
+  "secureHardware": "Not Found"
+ },
+ "software": {
+  "osAtLaunch": "iPhone OS 3.0",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 6.1.6 (final)",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 110 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_3gs-2826.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "GSMArena lists no chipset row; chipset left as Not Found."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}

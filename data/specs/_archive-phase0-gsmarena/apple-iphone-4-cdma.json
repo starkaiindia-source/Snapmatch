@@ -1,0 +1,189 @@
+{
+ "modelId": "apple-iphone-4-cdma",
+ "brand": "Apple",
+ "brandId": "apple",
+ "identity": {
+  "officialName": "Apple iPhone 4 CDMA",
+  "commercialName": "iPhone 4 (CDMA)",
+  "modelNumbers": [
+   "iPhone3,3"
+  ],
+  "internalIdentifier": "iPhone3,3",
+  "productCodes": [
+   "Not Found"
+  ],
+  "series": "iPhone",
+  "subSeries": "Not Found",
+  "deviceType": "Smartphone",
+  "osAtLaunch": "iOS 4",
+  "osCurrentSupported": "iOS 7.1.1 (final)",
+  "announced": "2011-01",
+  "released": "2011-02",
+  "availability": "Not Found",
+  "discontinued": "Not Found",
+  "launchRegions": "United States (Verizon / Sprint CDMA carriers)",
+  "status": "Discontinued"
+ },
+ "design": {
+  "formFactor": "Bar",
+  "frontMaterial": "Glass (Corning-made), oleophobic coating",
+  "backMaterial": "Glass",
+  "frameMaterial": "Stainless steel (CDMA antenna layout differs from the GSM unit)",
+  "heightMm": 115.2,
+  "widthMm": 58.6,
+  "thicknessMm": 9.3,
+  "weightG": 137,
+  "ipRating": "None",
+  "screenShape": "Flat",
+  "hinge": "Not Found"
+ },
+ "display": {
+  "sizeInch": 3.5,
+  "panelType": "IPS LCD (Retina)",
+  "curvature": "Flat",
+  "resolutionW": 640,
+  "resolutionH": 960,
+  "aspectRatio": "3:2",
+  "ppi": 330,
+  "refreshRateHz": 60,
+  "peakBrightnessNits": "Not Found",
+  "typicalBrightnessNits": "Not Found",
+  "hdr": "No",
+  "touchSamplingHz": "Not Found",
+  "protection": "Corning Gorilla Glass, oleophobic coating",
+  "alwaysOn": "No",
+  "screenToBodyPct": 54.0
+ },
+ "platform": {
+  "chipset": "Apple A4 (45 nm)",
+  "fabricationNm": 45,
+  "cpu": "1.0 GHz Cortex-A8",
+  "cpuCores": "Single-core",
+  "gpu": "PowerVR SGX535",
+  "regionalChipset": "Not Found"
+ },
+ "variants": [
+  {
+   "ram": "512 MB",
+   "storage": "16 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  },
+  {
+   "ram": "512 MB",
+   "storage": "32 GB",
+   "launchPrice": "Not Found",
+   "currentPrice": "Not Found"
+  }
+ ],
+ "storage": {
+  "expandable": "No",
+  "maxMicroSd": "Not Found",
+  "storageTech": "Not Found"
+ },
+ "colors": [
+  "Black",
+  "White"
+ ],
+ "battery": {
+  "capacityMah": 1420,
+  "type": "Li-Po",
+  "removable": "No",
+  "wattage": "Not Found",
+  "fastCharging": "Not Found",
+  "wirelessCharging": "No",
+  "reverseCharging": "Not Found",
+  "ratedWh": "Not Found"
+ },
+ "camera": {
+  "rear": "5 MP, AF (single)",
+  "rearFeatures": "LED flash, HDR",
+  "front": "VGA, video calling over Wi-Fi only",
+  "video": "720p@30fps",
+  "frontVideo": "Not Found"
+ },
+ "connectivity": {
+  "bands": "Not Found",
+  "network5g": "No",
+  "wlan": "Wi-Fi 802.11 b/g/n",
+  "bluetooth": "2.1, A2DP",
+  "nfc": "No",
+  "positioning": "GPS, A-GPS",
+  "usb": "USB 2.0 (30-pin dock connector)",
+  "otg": "Not Found",
+  "infrared": "Not Found",
+  "uwb": "Not Found",
+  "radio": "No"
+ },
+ "sim": {
+  "config": "Micro-SIM, single SIM",
+  "esim": "No"
+ },
+ "audio": {
+  "loudspeaker": "Yes",
+  "stereo": "No",
+  "jack35mm": "Yes",
+  "extras": "Not Found"
+ },
+ "sensors": [
+  "Accelerometer",
+  "Gyroscope",
+  "Proximity",
+  "Compass",
+  "Ambient light"
+ ],
+ "security": {
+  "fingerprintType": "None",
+  "fingerprintLocation": "Not Found",
+  "faceUnlock": "No",
+  "secureHardware": "Not Found"
+ },
+ "software": {
+  "osAtLaunch": "iOS 4",
+  "uiVersion": "Not Found",
+  "maxOsVersion": "iOS 7.1.1 (final)",
+  "updatePolicy": "Not Found"
+ },
+ "regionVariants": [
+  {
+   "region": "USA (CDMA)",
+   "identifier": "iPhone3,3",
+   "difference": "CDMA / EV-DO baseband and revised antenna band; repair-relevant board difference vs the GSM iPhone 4"
+  }
+ ],
+ "pricing": {
+  "launch": [],
+  "approxMarket": "About 150 EUR (GSMArena street-price estimate, NOT a launch price)",
+  "amazonIn": "Not Found",
+  "priceCheckedDate": "2026-09-07"
+ },
+ "serviceParts": {
+  "displayAssemblyPartNo": "Not Publicly Available",
+  "displayModelNo": "Not Publicly Available",
+  "batteryModelNo": "Not Publicly Available",
+  "batteryPartNo": "Not Publicly Available",
+  "backGlassPartNo": "Not Publicly Available",
+  "chargingBoardPartNo": "Not Publicly Available",
+  "mainboardId": "Not Publicly Available",
+  "cameraModuleId": "Not Publicly Available",
+  "speakerPartNo": "Not Publicly Available",
+  "vibrationMotorPartNo": "Not Publicly Available",
+  "fingerprintModulePartNo": "Not Publicly Available",
+  "flexCableIds": "Not Publicly Available",
+  "otherParts": "Not Publicly Available"
+ },
+ "sources": [
+  {
+   "id": "gsmarena",
+   "url": "https://www.gsmarena.com/apple_iphone_4_cdma-3716.php",
+   "fetchedAt": "2026-09-07"
+  }
+ ],
+ "verification": {
+  "status": "PARTIAL",
+  "notes": [
+   "Kept as a separate record from apple-iphone-4 because the antenna and board differ, which matters for parts matching."
+  ],
+  "lastVerified": "2026-09-07"
+ }
+}
