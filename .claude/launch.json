@@ -2,11 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "mobile-parts-finder",
+      "name": "mpf-local",
       "runtimeExecutable": "node",
       "runtimeArgs": ["scripts/dev-server.js"],
-      "port": 4321,
-      "autoPort": true
+      "port": 4321
     }
   ]
 }
