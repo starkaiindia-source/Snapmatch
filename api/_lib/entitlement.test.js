@@ -14,7 +14,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  TIERS, FREE_DAILY_SEARCHES,
+  TIERS, FREE_DAILY_SEARCHES, FREE_MEMBERS,
   SMALL_GROUP_MAX, MEDIUM_GROUP_MAX, FREE_MEMBERS_MEDIUM, FREE_MEMBERS_LARGE,
   dayKeyFor, resetsAt, tierFor, visibleMemberLimit, describe: describeAccess
 } = require('../_schema/entitlement');
@@ -66,30 +66,25 @@ test('cancelled but still inside the paid period is paid', () => {
 
    Edge cases 7-12 from the brief, stated as a table. */
 
-test('the member allowance follows the size of the group', () => {
-  const cases = [
-    /* size, free sees */
-    [1, 1], [3, 3], [5, 5],           /* <= 5: all of it, no lock at all */
-    [6, 5], [10, 5], [30, 5], [50, 5],/* 6..50: the first five */
-    [51, 10], [100, 10], [268, 10]    /* > 50: the first ten */
-  ];
-  cases.forEach(([size, expected]) => {
-    assert.equal(visibleMemberLimit(size, TIERS.FREE), expected,
-      `a ${size}-member group should show a free account ${expected}`);
+test('a free account sees NO members, whatever the size of the group', () => {
+  /* The free sample is gone. It used to be "all of a group of five, then
+     five, then ten"; a free account may no longer open a group at all, so
+     every size returns zero and the sizes stop mattering. */
+  [1, 2, 3, 5, 6, 10, 30, 50, 51, 100, 268, 325, 10000].forEach(size => {
+    assert.equal(visibleMemberLimit(size, TIERS.FREE), 0,
+      `a ${size}-member group must show a free account nothing`);
   });
 });
 
-test('the band edges are exactly where the brief puts them', () => {
-  assert.equal(SMALL_GROUP_MAX, 5);
-  assert.equal(MEDIUM_GROUP_MAX, 50);
-  assert.equal(FREE_MEMBERS_MEDIUM, 5);
-  assert.equal(FREE_MEMBERS_LARGE, 10);
-
-  /* Off-by-one is the whole risk here, so both sides of both edges. */
-  assert.equal(visibleMemberLimit(5, TIERS.FREE), 5);
-  assert.equal(visibleMemberLimit(6, TIERS.FREE), 5);
-  assert.equal(visibleMemberLimit(50, TIERS.FREE), 5);
-  assert.equal(visibleMemberLimit(51, TIERS.FREE), 10);
+test('there are no band edges left to get wrong', () => {
+  /* The old rule had two edges and four off-by-one risks. There is one
+     number now, and this is it. */
+  assert.equal(FREE_MEMBERS, 0);
+  assert.equal(FREE_MEMBERS_MEDIUM, 0);
+  assert.equal(FREE_MEMBERS_LARGE, 0);
+  [5, 6, 50, 51].forEach(size => {
+    assert.equal(visibleMemberLimit(size, TIERS.FREE), 0);
+  });
 });
 
 test('a paid account has no member cap at any size', () => {
@@ -119,32 +114,52 @@ function groupOfSize(predicate) {
   return null;
 }
 
-test('a real small group is shown whole, with no lock', async () => {
+test('a real SMALL group is withheld from a free account in full', async () => {
+  /* The case that used to be the free sample. A group of three is still a
+     group, and opening it is still the thing the plan is for. */
   const id = groupOfSize(n => n > 0 && n <= 5);
   assert.ok(id, 'the catalogue should contain a group of five or fewer');
 
   const free = await entitlements.groupForUser(id, TIERS.FREE);
-  assert.equal(free.members.length, free.memberCount);
-  assert.equal(free.lockedCount, 0);
-  assert.equal(free.locked, false);
+  assert.equal(free.members.length, 0);
+  assert.equal(free.lockedCount, free.memberCount);
+  assert.equal(free.locked, true);
+  assert.equal(free.requiresPlan, true);
 });
 
-test('a real medium group shows five and locks the rest', async () => {
+test('a real MEDIUM group is withheld from a free account in full', async () => {
   const id = groupOfSize(n => n > 5 && n <= 50);
   const free = await entitlements.groupForUser(id, TIERS.FREE);
 
-  assert.equal(free.members.length, 5);
-  assert.equal(free.lockedCount, free.memberCount - 5);
+  assert.equal(free.members.length, 0);
+  assert.equal(free.lockedCount, free.memberCount);
   assert.equal(free.locked, true);
+  assert.equal(free.requiresPlan, true);
 });
 
-test('a real large group shows ten and locks the rest', async () => {
+test('a real LARGE group is withheld from a free account in full', async () => {
   const id = groupOfSize(n => n > 50);
   const free = await entitlements.groupForUser(id, TIERS.FREE);
 
-  assert.equal(free.members.length, 10);
-  assert.equal(free.lockedCount, free.memberCount - 10);
+  assert.equal(free.members.length, 0);
+  assert.equal(free.lockedCount, free.memberCount);
   assert.equal(free.locked, true);
+  assert.equal(free.requiresPlan, true);
+});
+
+test('requiresPlan is false for a subscriber, at every group size', async () => {
+  for (const pick of [n => n > 0 && n <= 5, n => n > 5 && n <= 50, n => n > 50]) {
+    const id = groupOfSize(pick);
+    const paid = await entitlements.groupForUser(id, TIERS.PAID);
+    assert.equal(paid.requiresPlan, false, `${id} should be open to a subscriber`);
+  }
+});
+
+test('groupAccess says free accounts may not open a group', () => {
+  const free = describeAccess(TIERS.FREE, 0, NOW);
+  const paid = describeAccess(TIERS.PAID, 0, NOW);
+  assert.equal(free.groupAccess, false);
+  assert.equal(paid.groupAccess, true);
 });
 
 test('a paid account gets every member of a real large group', async () => {
@@ -164,8 +179,10 @@ test('WITHHELD DEVICE NAMES ARE NOT IN THE FREE PAYLOAD', async () => {
   const paid = await entitlements.groupForUser(id, TIERS.PAID);
 
   const serialised = JSON.stringify(free);
-  const withheld = paid.members.slice(free.members.length);
-  assert.ok(withheld.length > 50, 'expected a substantial withheld remainder');
+  /* EVERY member is withheld now, not a remainder after a sample. */
+  const withheld = paid.members;
+  assert.equal(free.members.length, 0);
+  assert.ok(withheld.length > 50, 'expected a substantial group to test against');
 
   withheld.forEach(m => {
     /* The master model name is public — it is in assets/dataset.json, on every
@@ -186,6 +203,7 @@ test('the free payload still carries the real total, so the UI can say "10 of 88
      it covers cannot show anyone what they would be buying. */
   assert.equal(free.memberCount, paid.memberCount);
   assert.ok(free.memberCount > free.members.length);
+  assert.equal(free.members.length, 0, 'the count is free; not one name is');
 });
 
 test('part codes are not tier-gated', async () => {

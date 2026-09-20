@@ -45,11 +45,57 @@ const unavailable = (res, reason, extra) =>
   json(res, 503, { error: reason, ...extra });
 
 /**
+ * True when the failure is Firestore refusing to serve this project at all,
+ * rather than anything about the request.
+ *
+ * The gRPC status codes below are the ones that mean "the datastore is not
+ * answering": the database does not exist, billing is disabled on the Google
+ * Cloud project, the quota is spent, the service is down, or the credential
+ * has stopped being accepted. None of them can be fixed by the person holding
+ * the phone, and none of them is a bug in the request.
+ *
+ * WHY THIS DISTINCTION IS WORTH A FUNCTION. A blanket 500 made the browser say
+ * "Check the connection and try again", which is a false statement with a
+ * useless instruction attached: the connection is fine, retrying cannot work,
+ * and the shop owner reads it as their own phone being at fault. Separating
+ * the two lets the account screen say what is actually true.
+ *
+ * Only a NUMERIC code counts. Firestore's errors carry a gRPC status number;
+ * an ordinary JavaScript error carries a string or nothing, and must keep
+ * falling through to the 500 it deserves.
+ */
+const DATASTORE_DOWN = new Set([
+  4,   /* DEADLINE_EXCEEDED   */
+  5,   /* NOT_FOUND           — no such database in this project */
+  7,   /* PERMISSION_DENIED   — billing disabled, or the API is off */
+  8,   /* RESOURCE_EXHAUSTED  — quota spent */
+  9,   /* FAILED_PRECONDITION — Datastore mode, or an index is missing */
+  13,  /* INTERNAL            */
+  14,  /* UNAVAILABLE         */
+  16   /* UNAUTHENTICATED     — the service account is no longer accepted */
+]);
+
+function datastoreDown(err) {
+  return !!err && typeof err.code === 'number' && DATASTORE_DOWN.has(err.code);
+}
+
+/**
  * Anything unexpected becomes a 500 with an opaque body. Internal messages can
  * name collections, plan internals or key state, and none of that belongs in a
  * browser. The detail goes to the function log instead, where it is useful.
+ *
+ * The one exception is a datastore outage, which answers 503 with the name of
+ * the condition and nothing else. That is not a leak — "the database is not
+ * answering" says nothing a caller could exploit — and it is the difference
+ * between a browser that tells a shop to check their wifi and one that tells
+ * them the site is down and their details are safe.
  */
 function fail(res, err, context) {
+  if (datastoreDown(err)) {
+    console.error(`[billing:${context}] DATASTORE UNAVAILABLE`,
+                  `grpc=${err.code}`, err && err.message);
+    return json(res, 503, { error: 'datastore-unavailable', context });
+  }
   console.error(`[billing:${context}]`, err && err.stack ? err.stack : err);
   json(res, 500, { error: 'server error', context });
 }
@@ -141,5 +187,6 @@ function body(req) {
 
 module.exports = {
   json, ok, bad, unauthorised, forbidden, notAllowed, unavailable, fail,
+  datastoreDown,
   requireMethod, requireUser, readRawBody, body
 };

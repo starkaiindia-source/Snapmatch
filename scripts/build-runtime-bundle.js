@@ -153,12 +153,36 @@ function main() {
     g.memberCount
   ]);
 
-  /* Device -> which groups fit it, per category, as group ids. The client
-     could rebuild this by walking every group's member list, but it is needed
-     on the very first render of a device page and walking 3,340 groups to
-     answer one question is work done 3,340 times too often. */
+  /* ---- device -> part categories: COUNTS ONLY -----------------------------
+
+     THIS IS THE HOLE THE `mem` REMOVAL ABOVE DID NOT CLOSE.
+
+     The bundle used to ship `modelGroups` — device -> { categoryId: [groupId] }
+     — for all 3,141 devices. That map IS the fitment list, written the other
+     way round, and src/data/dataset.js inverted it on every page load to build
+     `membersByGroup`. So withholding `mem` from the groups array withheld
+     nothing: every one of the 3,384 groups' complete member lists could be
+     reconstructed from this file, by the app itself and by anyone with curl.
+     Checked against the deployed file before this change: 3,384 of 3,384
+     groups recoverable, including all 325 members of sg-0167.
+
+     What ships now is the COUNT per category and nothing else. "This device
+     has a back cover, a battery and a combo display listed" is the free
+     answer and the reason to sign up; WHICH groups, and which devices are in
+     them, comes from /api/device-parts, which reads the caller's subscription
+     first and returns no members at all to a free account.
+
+     A count cannot be inverted into a list. That is the whole point. */
   const mgPublic = {};
-  modelGroups.forEach(r => { mgPublic[r.id] = r.byCategory; });
+  modelGroups.forEach(r => {
+    const counts = {};
+    Object.keys(r.byCategory || {}).forEach(cat => {
+      const ids = r.byCategory[cat];
+      const n = Array.isArray(ids) ? ids.length : 0;
+      if (n > 0) counts[cat] = n;
+    });
+    mgPublic[r.id] = counts;
+  });
 
   const bundle = {
     v: meta.version,
@@ -186,7 +210,11 @@ function main() {
     models: modelRows,
     groupCols: GROUP_COLS,
     groups: groupRows,
-    modelGroups: mgPublic
+    /* Renamed as well as narrowed, so a deployed bundle cannot be mistaken for
+       the old shape: `modelGroups` meant ids, `modelCats` means counts, and a
+       reader of either the file or the hydration code can tell at a glance
+       which one they have. */
+    modelCats: mgPublic
   };
 
   const json = JSON.stringify(bundle);
@@ -225,7 +253,7 @@ function main() {
   console.log('  ' + '-'.repeat(50));
   console.log('  models     ', modelRows.length, JSON.stringify(counts));
   console.log('  groups     ', groupRows.length);
-  console.log('  devices    ', Object.keys(mgPublic).length, 'with group lists');
+  console.log('  devices    ', Object.keys(mgPublic).length, 'with per-category COUNTS');
   console.log('  brands     ', bundle.brands.length);
   console.log('  categories ', bundle.categories.length);
   console.log('  ' + '-'.repeat(50));
@@ -238,7 +266,10 @@ function main() {
   console.log('  WITHHELD from the public bundle:');
   console.log('    fitments          ', groups.reduce((s, g) => s + (g.memberIds || []).length, 0),
               ' (which devices each part fits)');
-  console.log('  Not in assets/dataset.json. Reaches a browser only through');
+  console.log('    group id lists    ', modelGroups.length,
+              ' devices (device -> group ids; counts only now)');
+  console.log('  Neither is in assets/dataset.json, and neither can be derived');
+  console.log('  from it. Both reach a browser only through');
   console.log('  /api/device-parts, sliced to the caller\'s tier.');
   console.log('  PUBLIC: group identity, part codes, category, master, member COUNT.');
   console.log();

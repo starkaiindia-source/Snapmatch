@@ -77,11 +77,23 @@ module.exports = async function handler(req, res) {
 
     /* 200 either way. This route reporting "not configured" is it working
        correctly, and a non-200 would make a monitor treat a truthful answer as
-       an outage. `ok` in the body is the field to alert on. */
+       an outage. `ok` in the body is the field to alert on.
+
+       AND THE DEEP PROBE NOW DECIDES IT. `ok` used to mean nothing but "every
+       environment variable is set", so a deployment whose Firestore was
+       answering 7 PERMISSION_DENIED to every single request — billing disabled
+       on the Google Cloud project, no sign-in possible, no profile readable,
+       no subscription checkable — reported `"ok": true` with the failure
+       sitting two fields below it, unread. A health check that stays green
+       through a total database outage is worse than none: it is the reason
+       nobody was alerted. */
+    const healthy = firestore ? (cfg.ok && firestore.ok) : cfg.ok;
+
     return json(res, 200, {
       service: 'mobile-parts-finder',
       time: new Date().toISOString(),
       ...cfg,
+      ok: healthy,
       ...(firestore ? { firestore } : {})
     });
   } catch (err) {

@@ -63,6 +63,60 @@
     };
   }
 
+  /* One group as /api/device-parts returned it, in the shape the cards expect.
+
+     The server sends membership and nothing about presentation; the number,
+     serial, category and master come from the loaded catalogue, which is
+     public and already in memory. A group the local bundle has never heard of
+     -- added in the console since the last build -- is dropped rather than
+     rendered as undefined, the same way hydrateRemote handles it.
+
+     `devices` is resolved against db.modelById first so the cards get real
+     photographs and brands. A member the catalogue does not carry falls back
+     to the name the server sent, which is better than a blank row. */
+  function rowFromServerGroup(sg) {
+    if (!sg || !sg.groupId) return null;
+    var g = db.groupById[sg.groupId];
+    if (!g) {
+      SM.debug.warn('api', 'server returned a group the catalogue does not have',
+                    { groupId: sg.groupId });
+      return null;
+    }
+    var cat = db.categoryById[g.categoryId];
+    var master = db.modelById[g.masterModelId];
+    if (!cat || !master) return null;
+
+    var members = Array.isArray(sg.members) ? sg.members : [];
+    var devices = members.length
+      ? members.map(function (m) {
+          var id = m && (m.id || m);
+          return db.modelById[id] || {
+            id: id,
+            fullName: (m && m.name) || id,
+            modelName: (m && m.name) || id,
+            brandId: null,
+            search: String((m && m.name) || id).toLowerCase()
+          };
+        })
+      : null;
+
+    return {
+      group: g,
+      category: cat,
+      master: master,
+      devices: devices,
+      deviceCount: Number(sg.memberCount) || g.compatibleCount || 0,
+      /* The server's own verdict, not a guess from an empty array: a group
+         with no members recorded and a group withheld from a free account are
+         different things and get different words on screen. */
+      locked: !!sg.requiresPlan || !!sg.locked,
+      requiresPlan: !!sg.requiresPlan,
+      lockedCount: Number(sg.lockedCount) || 0,
+      partCode: sg.partCode || g.partCode || null,
+      oemPartNo: sg.oemPartNo || g.oemPartNo || null
+    };
+  }
+
   /* A group read from Firestore, put into the shape the cards expect.
 
      The two sources carry the same fields — the CDN bundle is built from the
@@ -429,7 +483,8 @@
 
   function groupCountFor(modelId, cat, counts) {
     if (cat) return (counts[modelId] && counts[modelId][cat]) || 0;
-    return (db.groupsByModel[modelId] || []).length;
+    /* The bundle ships counts, not ids — see src/data/dataset.js. */
+    return (db.groupCountByModel && db.groupCountByModel[modelId]) || 0;
   }
 
   /* How many groups match, from the in-memory catalogue. Used so the header
@@ -466,15 +521,13 @@
     getModel: function (id) {
       var m = db.modelById[id];
       if (!m) return respond(null, LAT.fast);
-      var gids = db.groupsByModel[m.id] || [];
       /* The public catalogue ships counts per category and withholds the group
-         ids, so counting memberships here returns zero for every category.
-         The count map is the source when it exists; the membership scan is
-         the fallback for a fully loaded catalogue. */
+         ids, so `groupCountByModel` is the only figure available here — and
+         the only one that was ever free. */
       var counts = db.partCountsByCategory && db.partCountsByCategory[m.id];
       return respond({
         model: m,
-        groupCount: gids.length,
+        groupCount: (db.groupCountByModel && db.groupCountByModel[m.id]) || 0,
         categories: db.categories.map(function (c) {
           /* Groups this model sits in for this category. Derived from the same
              membership index the rest of the app uses - there is no second
@@ -598,20 +651,71 @@
       return respond(g ? hydrate(g) : null, LAT.fast);
     },
 
-    /* the core Device Finder lookup: model (+ optional category) -> groups */
+    /* ------------------------------- the core Device Finder lookup: ASK THE
+       SERVER
+
+       model (+ optional category) -> the groups that fit it.
+
+       THIS USED TO BE A LOCAL MAP READ. db.groupsByModel came out of
+       assets/dataset.json, which is a public file, and inverting it gave
+       anybody every group's full member list -- so the paywall the rest of
+       this file describes was decorative. The bundle now ships per-category
+       counts only and this asks /api/device-parts, which reads the caller's
+       subscription from Firestore before it answers:
+
+         subscriber  every group, every member
+         free        every group's IDENTITY and size, and no members at all
+         signed out  the same as free
+
+       The withheld names are not in the response. There is nothing here to
+       filter, hide or unhide -- the rows do not arrive.
+
+       The group's display fields still come from the local catalogue, because
+       they are public and already loaded: number, serial, part code, category,
+       master model. The server supplies which groups, and who is in them.
+
+       @returns {Promise<Array>} rows in the shape hydrate() produces. The
+       array carries `.unavailable = true` when the server could not answer,
+       which the caller MUST render differently from an empty result: "we
+       could not load this" and "this device has no parts" are opposite
+       statements and only one of them is ever true at a time. */
     findMatches: function (opts) {
       opts = opts || {};
       var order = {};
       db.categories.forEach(function (c, i) { order[c.id] = i; });
-      var gids = db.groupsByModel[opts.modelId] || [];
-      var out = gids.map(function (id) { return db.groupById[id]; })
-        .filter(function (g) { return !opts.categoryId || opts.categoryId === 'all' || g.categoryId === opts.categoryId; })
-        /* canonical part order first (glass, cover, display, …), then group no. */
-        .sort(function (a, b) {
-          return order[a.categoryId] - order[b.categoryId] || a.groupNumber.localeCompare(b.groupNumber);
-        })
-        .map(hydrate);
-      return respond(out, LAT.normal);
+
+      var wanted = opts.categoryId && opts.categoryId !== 'all' ? opts.categoryId : null;
+
+      if (!SM.access || !SM.access.deviceGroups) {
+        var none = [];
+        none.unavailable = true;
+        return Promise.resolve(none);
+      }
+
+      return SM.access.deviceGroups(opts.modelId).then(function (device) {
+        if (device && device.unavailable) {
+          var out0 = [];
+          out0.unavailable = true;
+          return out0;
+        }
+        if (!device || !device.categories) return [];
+
+        var rows = [];
+        device.categories.forEach(function (cat) {
+          if (wanted && cat.categoryId !== wanted) return;
+          (cat.groups || []).forEach(function (sg) {
+            var row = rowFromServerGroup(sg);
+            if (row) rows.push(row);
+          });
+        });
+
+        /* canonical part order first (glass, cover, display, ...), then no. */
+        rows.sort(function (a, b) {
+          return (order[a.group.categoryId] - order[b.group.categoryId]) ||
+            String(a.group.groupNumber).localeCompare(String(b.group.groupNumber));
+        });
+        return rows;
+      });
     },
 
     /* per-category availability for the selected model (drives the chips) */
@@ -624,14 +728,11 @@
       var byCat = Object.create(null);
       var counts = db.partCountsByCategory && db.partCountsByCategory[modelId];
 
-      if (counts) {
-        byCat = counts;
-      } else {
-        (db.groupsByModel[modelId] || []).forEach(function (id) {
-          var g = db.groupById[id];
-          if (g) byCat[g.categoryId] = (byCat[g.categoryId] || 0) + 1;
-        });
-      }
+      /* One source now. The membership scan that used to stand behind this
+         counted a map the bundle no longer ships, so it could only ever have
+         returned zero — and a silent zero reads as "no parts for this device",
+         which is the opposite of what the chips are for. */
+      if (counts) byCat = counts;
       return respond(db.categories.map(function (c) {
         return { category: c, count: byCat[c.id] || 0 };
       }), LAT.fast);
@@ -654,18 +755,17 @@
      which is inside the allowance at every group size. The server remains the
      enforcement point for the full list — this only decides what a card is
      allowed to show without asking for it. */
+  /* Zero, matching api/_schema/entitlement.js. A free account sees no members
+     of any group, at any size — see that file for why the sample went. This
+     copy exists so a card can decide not to draw a strip without a round
+     trip; it withholds nothing on its own, because the bundle it would read
+     from no longer carries the members either. */
   var FREE_SMALL_MAX = 5;
   var FREE_MEDIUM_MAX = 50;
-  var FREE_MEMBERS_MEDIUM = 5;
-  var FREE_MEMBERS_LARGE = 10;
+  var FREE_MEMBERS_MEDIUM = 0;
+  var FREE_MEMBERS_LARGE = 0;
 
-  function freeMemberLimit(total) {
-    var n = Number(total);
-    if (!isFinite(n) || n <= 0) return 0;
-    if (n <= FREE_SMALL_MAX) return n;
-    if (n <= FREE_MEDIUM_MAX) return FREE_MEMBERS_MEDIUM;
-    return FREE_MEMBERS_LARGE;
-  }
+  function freeMemberLimit() { return 0; }
 
   /**
    * A representative handful of the devices in a group.
@@ -681,10 +781,19 @@
    */
   api.groupPreview = function (g, max) {
     if (!g) return [];
+    /* Empty since the fitment list left the public bundle. A group card
+       therefore shows the group and its size and no handsets, which is what
+       a free account is entitled to; C.groupPreview renders nothing for an
+       empty list rather than an empty strip. */
     var ids = (db.membersByGroup && db.membersByGroup[g.groupId]) || [];
     var total = g.compatibleCount || ids.length;
     var cap = Math.min(Number(max) || 5, freeMemberLimit(total));
     if (cap <= 0) return [];
+    /* Nothing to preview. Without this the master model was `take`n below and
+       every card drew a one-handset strip UNDER the master card that already
+       names it — the same phone twice, presented as a preview of the group's
+       other members. */
+    if (!ids.length) return [];
 
     var picked = [];
     var seen = Object.create(null);
@@ -718,10 +827,23 @@
     return picked;
   };
 
-  /** Every device in a group, for the inline group view's centre column. */
+  /** Every device in a group, for the inline group view's centre column.
+
+     THE LOCAL SOURCE IS GONE. db.membersByGroup was built by inverting the
+     public bundle's fitment map, and that map is the product -- so it no
+     longer ships and this map is always empty. Members now come from
+     /api/device-parts through SM.access, and the group view holds them in
+     `state.finder.groupMembers`.
+
+     Returning [] rather than [master] is deliberate. A group rendered with
+     exactly its master model in it looks like a group of one, which is a
+     false statement about a part that fits 325 handsets. Empty means "not
+     loaded here", and the caller shows either the members it fetched or the
+     paywall. */
   api.groupMembers = function (g) {
     if (!g) return [];
     var ids = (db.membersByGroup && db.membersByGroup[g.groupId]) || [];
+    if (!ids.length) return [];
     var out = [];
     var seen = Object.create(null);
     var master = db.modelById[g.masterModelId];
@@ -961,10 +1083,72 @@
     }).catch(function (err) {
       SM.debug.warn('identity', 'profile load failed', { code: err && err.code, message: err && err.message });
       refresh();
-      return { profile: SM.auth.findProfile(uid) || null, complete: false, isNew: false, offline: true };
+      return {
+        profile: SM.auth.findProfile(uid) || null, complete: false, isNew: false,
+        offline: true,
+        /* Carried through so the account screen can say whether the database
+           refused or the phone did. Without it every read failure read as
+           "check your connection", which was false for the one that was
+           actually happening. */
+        outage: SM.isBackendOutage(err),
+        reason: (err && err.code) || (err && err.message) || null
+      };
     });
   }
   SM.session_initializeAuthenticatedUser = initializeAuthenticatedUser;
+
+  /* ------------------------------------------------------- outage, not you
+
+     Firestore can fail for two completely different reasons, and the account
+     screen has to be able to tell them apart because the sentence it shows is
+     different in each case.
+
+       the READER is offline    — their phone has no signal. Retrying works.
+       the DATABASE is refusing — the project's billing is disabled, the quota
+                                  is spent, the database does not exist, the
+                                  service is down. Retrying cannot work, and
+                                  nothing about their phone is wrong.
+
+     The second one is what this deployment actually hit: Firestore answered
+     every request, from the browser AND from the Admin SDK, with
+     `7 PERMISSION_DENIED — This API method requires billing to be enabled`.
+     The browser reported that as "Check the connection and try again", so a
+     shop owner sat re-entering their shop details into a form that could never
+     have saved them, on a connection that was working perfectly.
+
+     TELLING THEM APART
+
+       · a SERVER reply of any kind proves the connection works, so an HTTP 5xx
+         is the site's fault by definition. 503 datastore-unavailable says so
+         outright — see api/_lib/http.js.
+       · the Firestore SDK's own codes below all mean the backend answered and
+         refused. `unavailable` is the one billing produces, after the SDK has
+         retried the 403 to exhaustion.
+       · navigator.onLine breaks the remaining tie. It is unreliable as proof
+         that a connection WORKS, but a browser saying it is offline is worth
+         believing, and that is the only direction it is used in here. */
+  var DATASTORE_CODES = {
+    'unavailable': 1, 'permission-denied': 1, 'resource-exhausted': 1,
+    'failed-precondition': 1, 'internal': 1, 'not-found': 1,
+    'unauthenticated': 1, 'deadline-exceeded': 1
+  };
+
+  /** A Firestore SDK rejection that means the backend refused, not the phone. */
+  function firestoreOutage(err) {
+    return !!(err && err.code && DATASTORE_CODES[String(err.code)]);
+  }
+
+  /** An /api/* rejection that means the server answered and broke. */
+  function serverOutage(err) {
+    return !!(err && typeof err.status === 'number' && err.status >= 500);
+  }
+
+  function browserOffline() {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
+  SM.isBackendOutage = function (err) {
+    return !browserOffline() && (firestoreOutage(err) || serverOutage(err));
+  };
 
   /* ------------------------------------------------- registration, persisted
 
@@ -1003,6 +1187,9 @@
     };
 
     var serverOk = false, clientOk = false;
+    /* Set when a path failed in a way that is the SITE's fault rather than the
+       reader's connection — see SM.isBackendOutage above. */
+    var serverDown = false, clientDown = false;
     var reasons = [];
 
     var viaServer = SM.billing
@@ -1012,6 +1199,7 @@
             SM.debug.log('signup', 'profile written server side', { uid: r.uid, complete: r.profileCompleted });
             return r;
           }, function (e) {
+            if (serverOutage(e)) serverDown = true;
             reasons.push('server: ' + ((e && e.message) || 'unreachable'));
             SM.debug.warn('signup', 'server profile write failed',
                           { status: e && e.status, error: e && e.message });
@@ -1026,6 +1214,7 @@
             SM.debug.log('signup', 'profile written from the browser', { uid: identity.sub });
             return p;
           }, function (e) {
+            if (firestoreOutage(e)) clientDown = true;
             reasons.push('client: ' + ((e && e.code) || (e && e.message) || 'failed'));
             SM.debug.warn('signup', 'direct profile write failed', { code: e && e.code });
             return null;
@@ -1037,6 +1226,10 @@
         var err = new Error('profile-save-failed');
         err.code = 'profile-save-failed';
         err.reasons = reasons;
+        /* Both halves failed. `outage` says whether that was the database
+           refusing or the reader's connection dropping, so the account screen
+           can stop telling people to check a connection that is fine. */
+        err.outage = !browserOffline() && (serverDown || clientDown);
         throw err;
       }
       /* Read it back rather than trusting the write. What the account screen

@@ -270,39 +270,53 @@
     var groupById = Object.create(null);
     groups.forEach(function (g) { groupById[g.groupId] = g; });
 
-    /* device -> the groups that fit it, as ids, and the per-category counts
-       the device page reads. Both come from the one map in the bundle, so a
-       count can never disagree with the list it counts. */
+    /* --------------------------------------------- device -> part categories
+
+       COUNTS, NOT LISTS, AND THAT IS THE PAYWALL.
+
+       `bundle.modelCats` is device -> { categoryId: howManyGroups }. It used
+       to be `bundle.modelGroups`, device -> { categoryId: [groupId, …] }, and
+       the block below used to invert it into `membersByGroup` — every group's
+       complete member list, rebuilt in the browser, for everyone, signed in or
+       not. Withholding the member list from the `groups` array achieved
+       nothing while this map shipped: all 3,384 groups were recoverable from
+       it, and so was every one of the 12,345 fitments the subscription sells.
+
+       So the bundle carries the counts and the counts alone. They are what a
+       free account is entitled to — "this phone has a back cover and a battery
+       listed" — and a count cannot be turned back into a list.
+
+       WHERE THE LISTS COME FROM NOW. /api/device-parts, which reads the
+       caller's subscription from Firestore before it answers and returns no
+       members at all to a free account. See api/_services/entitlement-service.
+
+       groupsByModel and membersByGroup stay declared, and stay EMPTY. Every
+       reader of them already writes `|| []`, so an empty map degrades to "no
+       members known locally" — which is the truth — rather than throwing. */
     var groupsByModel = Object.create(null);
-    var partCounts = Object.create(null);
-    var mg = bundle.modelGroups || {};
-    Object.keys(mg).forEach(function (modelId) {
-      var byCat = mg[modelId];
-      var all = [];
-      var counts = Object.create(null);
-      Object.keys(byCat).forEach(function (cat) {
-        var ids = byCat[cat] || [];
-        counts[cat] = ids.length;
-        all = all.concat(ids);
-      });
-      groupsByModel[modelId] = all;
-      partCounts[modelId] = counts;
-    });
-
-    /* The same edge list read the other way round: group -> the devices in it.
-       Built here rather than fetched because the bundle already carries every
-       edge — inverting a map that is in memory costs one pass and no request.
-
-       This is what lets a group card show the handsets it covers instead of a
-       sentence about how many it covers. How MANY of them a given card may
-       name is not decided here: that is the free-tier allowance, applied at
-       the point of display in api.groupPreview. */
     var membersByGroup = Object.create(null);
-    Object.keys(groupsByModel).forEach(function (modelId) {
-      var ids = groupsByModel[modelId];
-      for (var i = 0; i < ids.length; i++) {
-        (membersByGroup[ids[i]] || (membersByGroup[ids[i]] = [])).push(modelId);
-      }
+    var partCounts = Object.create(null);
+    var groupCountByModel = Object.create(null);
+
+    /* `modelGroups` is the OLD key. A browser holding a bundle from before
+       this change still has it, and reading the counts out of it keeps that
+       browser's category chips working until the new file arrives. What is
+       NOT done with it, ever again, is building a member list. */
+    var mc = bundle.modelCats || null;
+    var legacy = !mc && bundle.modelGroups ? bundle.modelGroups : null;
+    var src = mc || legacy || {};
+
+    Object.keys(src).forEach(function (modelId) {
+      var byCat = src[modelId] || {};
+      var counts = Object.create(null);
+      var total = 0;
+      Object.keys(byCat).forEach(function (cat) {
+        var v = byCat[cat];
+        var n = typeof v === 'number' ? v : (v && v.length) || 0;
+        if (n > 0) { counts[cat] = n; total += n; }
+      });
+      partCounts[modelId] = counts;
+      groupCountByModel[modelId] = total;
     });
 
     /* Total fitments. It read g.memberCount, which this layer never sets — the
@@ -322,9 +336,15 @@
       brandById: brandById,
       categoryById: categoryById,
       groupById: groupById,
+      /* Both empty — see the block above. Kept so `db.groupsByModel[x] || []`
+         at every existing call site keeps meaning "nothing known here". */
       groupsByModel: groupsByModel,
       membersByGroup: membersByGroup,
       partCountsByCategory: partCounts,
+      /* How many groups fit a device, in total. The one figure the old
+         `groupsByModel[id].length` was actually used for at most call sites,
+         and the only part of it that was ever free. */
+      groupCountByModel: groupCountByModel,
       /* So the UI can state its own limits instead of rendering blank rows. */
       coverage: {
         present: bundle.fieldsPresent,

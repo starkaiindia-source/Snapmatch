@@ -41,6 +41,8 @@
   var state = null;
   var inFlight = null;
   var listeners = [];
+  /* modelId -> the in-flight or settled promise for its group list. */
+  var deviceCache = Object.create(null);
 
   function emit() {
     listeners.forEach(function (fn) {
@@ -188,10 +190,71 @@
       });
     },
 
+    /**
+     * Every group that fits one device, per category, cut to this account's
+     * tier by the server.
+     *
+     * THIS REPLACED A LOCAL LOOKUP. The map of device -> groups used to be in
+     * assets/dataset.json, which is one unauthenticated GET, and inverting it
+     * handed anybody the full member list of all 3,384 groups. The bundle now
+     * carries per-category COUNTS only, and the ids — with the members, for a
+     * subscriber — come from here.
+     *
+     * Cached per model for the life of the page: opening a group, going back,
+     * and opening it again is one request, not three. The cache is dropped by
+     * reset(), which runs on every sign-in and sign-out, so a free account
+     * cannot read a subscriber's answer out of it after a handover at the
+     * counter.
+     *
+     * @returns {Promise<{categories:Array}|{unavailable:true}|null>}
+     *          null  — the server has no such device
+     *          unavailable — it could not answer; NOT the same as "no parts",
+     *          and the caller must not render one as the other.
+     */
+    deviceGroups: function (modelId) {
+      if (!modelId) return Promise.resolve(null);
+      if (deviceCache[modelId]) return deviceCache[modelId];
+
+      var req = headers().then(function (h) {
+        return fetch('/api/device-parts?modelId=' + encodeURIComponent(modelId), { headers: h });
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (data) {
+          if (data && data.access) { state = data.access; emit(); }
+          if (r.status === 404) return null;
+          if (!r.ok) {
+            /* Forget it, so a retry after the outage is a real request rather
+               than the cached failure. */
+            delete deviceCache[modelId];
+            SM.debug.warn('access', 'device parts unavailable',
+                          { modelId: modelId, status: r.status, error: data && data.error });
+            return { unavailable: true, status: r.status };
+          }
+          return (data && data.device) || null;
+        });
+      }).catch(function (err) {
+        delete deviceCache[modelId];
+        SM.debug.warn('access', 'device parts request failed',
+                      { modelId: modelId, message: err && err.message });
+        return { unavailable: true, status: 0 };
+      });
+
+      deviceCache[modelId] = req;
+      return req;
+    },
+
+    /** Drops one device's cached answer, so a retry is a real request. */
+    forgetDevice: function (modelId) {
+      if (modelId) delete deviceCache[modelId];
+    },
+
     /** Forgets everything. Called on sign-in and sign-out — see the header. */
     reset: function () {
       state = null;
       inFlight = null;
+      /* The per-device answers were cut to the PREVIOUS account's tier. Keeping
+         them across a sign-out would leave a subscriber's member lists in
+         memory for whoever signs in next on a shared counter machine. */
+      deviceCache = Object.create(null);
       emit();
     }
   };

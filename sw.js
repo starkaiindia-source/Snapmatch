@@ -36,7 +36,7 @@
    ========================================================================== */
 'use strict';
 
-var VERSION = 'mpf-v1';
+var VERSION = 'mpf-v2';   /* bumped: the catalogue bundle and the app shell both changed shape */
 var SHELL = VERSION + '-shell';
 
 /* The smallest set that can paint something useful offline, and a CLOSED set:

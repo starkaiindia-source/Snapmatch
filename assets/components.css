@@ -1151,6 +1151,33 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .notice--brand{ background:var(--teal-050); border-color:var(--teal-100); }
 .notice--brand svg{ color:var(--teal-600); }
 
+/* ---------------------------------------------------------------- paywall
+   Drawn wherever a compatibility list is withheld: an opened group, a match
+   card, the device page. It is the same component in all three, because three
+   wordings of one rule read as three rules.
+
+   Deliberately NOT a blur or a fade over rows. There are no rows underneath
+   it — the names never left the server — so anything that looked like
+   obscured content would be a lie about what the page is holding. */
+.paywall{
+  display:flex; gap:14px; align-items:flex-start;
+  padding:18px; border-radius:var(--r);
+  border:1px solid var(--teal-100); background:var(--teal-050);
+}
+.paywall__ico{
+  flex:none; display:grid; place-items:center;
+  width:38px; height:38px; border-radius:50%;
+  background:var(--teal-100); color:var(--teal-700);
+}
+.paywall__ico svg{ width:19px; height:19px; }
+.paywall__b{ display:flex; flex-direction:column; gap:8px; min-width:0; }
+.paywall__t{ margin:0; font-size:15px; font-weight:750; letter-spacing:-.012em; color:var(--ink); }
+.paywall__p{ margin:0; font-size:13.5px; line-height:1.5; color:var(--ink-2); }
+@media (max-width:480px){
+  .paywall{ padding:15px; gap:11px; }
+  .paywall__ico{ width:32px; height:32px; }
+}
+
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important; }
 }
@@ -1765,6 +1792,20 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .regcta{ bottom:var(--tabbar-h, 0px); }
 }
 
+/* The line under the form that says what is still missing, or that everything
+   is complete. It carries an icon, and `img,svg{display:block}` in styles.css
+   would otherwise drop the sentence onto the line beneath it. */
+#regHint{
+  display:flex; align-items:flex-start; gap:7px;
+  margin-top:12px; line-height:1.45;
+}
+#regHint svg{ width:15px; height:15px; flex:none; margin-top:1px; color:var(--ok); }
+
+/* The sign-in / sign-up error and status line. It sits between the form and
+   the Google button, so an empty one must take no room at all — a bare
+   #authMsg with padding left a gap that read as a missing field. */
+#authMsg:empty{ display:none; }
+
 /* A spec the source workbook has a column for but no value for on this device.
    Drawn rather than dropped, because "we have not recorded this yet" is a fact
    the person enriching the catalogue needs to see. Muted so a page of real
@@ -2080,6 +2121,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .gbar__meta{ display:flex; align-items:center; gap:8px; min-width:0; }
 /* The answer to the question the page was opened to ask, so it is the one
    thing in the second line that is not grey. */
+/* Empty until the server answers how many devices this account may see, so
+   it must take no room at all in the meantime — a bare pill with nothing in
+   it reads as a loading failure. */
+.gbar__count:empty{ display:none; }
 .gbar__count{
   flex:none; font-size:11.5px; font-weight:800; letter-spacing:.01em;
   color:var(--teal-700); background:var(--teal-050);

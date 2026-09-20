@@ -73,9 +73,22 @@
     parts: '<circle cx="7" cy="7" r="3"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><path d="M4 20.5h7l-3.5-6-3.5 6Z"/><circle cx="17" cy="17" r="3.5"/>'
   };
 
+  /* width/height are ATTRIBUTES, not CSS, so every existing rule that sizes an
+     icon — .btn svg, .pill svg, .tab svg and the rest — still wins. They exist
+     only as the default for the places that size nothing.
+
+     Without them an <svg> carrying a viewBox and no dimensions is a replaced
+     element with no intrinsic size: `max-width:100%` in styles.css caps its
+     width to the container and the aspect ratio takes the height with it, so
+     one 24x24 glyph rendered as a 306x306 disc. That is the giant arc that was
+     appearing under "Add shop address" on the Create account page — the check
+     icon in #regHint, which nothing had a size rule for — and the same bug had
+     already been patched one selector at a time in .authwait. Fixed here, at
+     the source, so the next unsized call site cannot repeat it. */
   SM.icon = function (name, cls) {
     var d = P[name] || P.info;
-    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.8" ' +
       'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"' +
       (cls ? ' class="' + cls + '"' : '') + '>' + d + '</svg>';
   };

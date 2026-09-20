@@ -34,7 +34,21 @@
       trending: [], suggest: [], newModels: [], restTotal: 0,
       /* An open compatibility group, and which of its devices the right panel
          is describing. Both null means the finder is in its default state. */
-      groupId: null, detailModelId: null, groupQ: '', groupShown: 400
+      groupId: null, detailModelId: null, groupQ: '', groupShown: 400,
+      /* The devices in the open group, as /api/device-parts returned them for
+         THIS account. Not read from the catalogue: the fitment list is the
+         paid half and no longer ships to the browser.
+
+           null  not asked yet, or asking
+           []    asked, and this account may not have them
+           [..]  a subscriber's real list
+
+         `groupLocked` is the server saying which of the last two it is, so an
+         empty list is never rendered as "this group has no devices". */
+      groupMembers: null, groupLocked: false, groupLoadFailed: false,
+      /* The rows the last search returned, kept so the header can count the
+         distinct devices it was actually given rather than guessing. */
+      matches: null
     },
     models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
       /* View state, not query state: the same records are already in memory,
@@ -281,6 +295,12 @@
       state.finder.detailModelId = null;
       state.finder.groupQ = '';
       state.finder.groupShown = 400;
+      /* A new group: forget the last one's devices before anything paints, or
+         the first frame of group B shows group A's list. */
+      state.finder.groupMembers = null;
+      state.finder.groupLocked = false;
+      state.finder.groupLoadFailed = false;
+      if (state.finder.groupId) loadGroupMembers(state.finder.groupId);
       /* The variant helpers are shared with the model page and hold one
          device's selection at a time; a group opens on its master. */
       state.deviceColour = 0;
@@ -291,6 +311,9 @@
       state.finder.groupId = null;
       state.finder.detailModelId = null;
       state.finder.groupQ = '';
+      state.finder.groupMembers = null;
+      state.finder.groupLocked = false;
+      state.finder.groupLoadFailed = false;
     }
 
     state.sheet = null;
@@ -705,18 +728,19 @@
 
   /* ------------------------------------------------------------ the count
 
-     How many devices this group actually links, read from the compatibility
-     edges themselves rather than from any stored figure. api.groupMembers
-     resolves db.membersByGroup — the inverse of the model -> groups map the
-     bundle ships — so the number here and the list under it are always the
-     same set counted twice. Nothing about it is written down in this file.
+     How many devices this group links.
 
-     compatibleCount is the group row's own tally and is used only when the
-     member list has not been hydrated yet, so a group that is still loading
-     says how big it is instead of saying nothing. */
+     THE COUNT IS FREE AND THE NAMES ARE NOT, so this reads the group row's
+     own tally first. It used to count db.membersByGroup — the fitment list
+     inverted out of the public bundle — which no longer ships, so counting it
+     would report 0 for every group and the banner would say "0 devices
+     linked" above a part that fits 325.
+
+     The loaded member list still wins WHEN THERE IS ONE, so a subscriber's
+     banner and the grid under it are the same set counted twice. */
   function groupMemberCount(g) {
-    var members = api.groupMembers(g);
-    if (members.length) return members.length;
+    var loaded = state.finder.groupId === (g && g.groupId) ? openGroupMembers() : null;
+    if (loaded && loaded.length) return loaded.length;
     return g && g.compatibleCount ? g.compatibleCount : 0;
   }
 
@@ -943,9 +967,11 @@
     var total = groupMemberCount(g);
 
     /* Brands, counted from the same member list the grid is built from, so
-       the number and the headings below it cannot disagree. */
+       the number and the headings below it cannot disagree. Zero for a free
+       account, which has no member list — the banner leaves the phrase out
+       rather than claiming "0 brands". */
     var seen = Object.create(null), brands = 0;
-    api.groupMembers(g).forEach(function (m) {
+    (openGroupMembers() || []).forEach(function (m) {
       var b = m.brandId || '?';
       if (!seen[b]) { seen[b] = 1; brands++; }
     });
@@ -988,8 +1014,84 @@
 
   /* Just the list. Repainted on its own when the filter changes, so the input
      keeps its caret and its focus. */
+  /* ------------------------------------------------------------- the paywall
+
+     ONE card, used everywhere a compatibility list is withheld: the opened
+     group, a match card, the device page. A second copy would be a second
+     wording, and two different explanations of the same rule read as two
+     different rules.
+
+     It states the count it is withholding, because that number is public —
+     the group row carries it, and "325 devices" is the advertisement. What it
+     never contains is a name: the rows are not in the response, so there is
+     nothing here to hide, blur or truncate.
+
+     The button is data-act="go-plans", which routes through gatedUpgrade() —
+     a signed-out visitor reaches Sign in, a signed-in free account reaches
+     Plans, and neither decision is made in this markup. */
+  function paywallHTML(opts) {
+    opts = opts || {};
+    var n = Number(opts.count) || 0;
+    var what = opts.what || 'the devices in this group';
+    return '<div class="paywall">' +
+      '<span class="paywall__ico">' + icon('lock') + '</span>' +
+      '<div class="paywall__b">' +
+      '<h3 class="paywall__t">' +
+        (n ? esc(deviceCountLabel(n, 'in this group')) : 'Compatible devices') +
+        ' &mdash; part of a plan</h3>' +
+      '<p class="paywall__p">Seeing ' + esc(what) + ' needs an active ' +
+        'subscription. Monthly is &#8377;99 and Yearly is &#8377;799, and both ' +
+        'unlock every group, every part category and unlimited searches.</p>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn--primary" data-act="go-plans">' + icon('crown') +
+        'See the plans</button>' +
+      '</div></div></div>';
+  }
+
+  /* The devices in the open group, as the SERVER gave them to this account.
+
+     Resolved against the local catalogue for photographs and brands, with the
+     server's own name as the fallback for a device the bundle does not carry.
+     Never read from db.membersByGroup — that map is empty now, on purpose. */
+  function openGroupMembers() {
+    var raw = state.finder.groupMembers;
+    if (!raw) return null;
+    return raw.map(function (m) {
+      var id = m && (m.id || m);
+      return db.modelById[id] || {
+        id: id,
+        fullName: (m && m.name) || id,
+        modelName: (m && m.name) || id,
+        brandId: null,
+        search: String((m && m.name) || id).toLowerCase()
+      };
+    });
+  }
+
   function groupListHTML(row) {
-    var all = api.groupMembers(row.group);
+    /* WITHHELD. The server said this account may not read the member list, so
+       there is no list here to render — not a truncated one, not a blurred
+       one. The names were never sent. */
+    if (state.finder.groupLocked) {
+      return paywallHTML({
+        count: row.group.compatibleCount,
+        what: 'which devices this part fits'
+      });
+    }
+
+    if (state.finder.groupLoadFailed) {
+      return '<div class="notice notice--amber">' + icon('alert') +
+        '<span>The devices in this group could not be loaded just now. This is ' +
+        'a fault on our side, not with your connection &mdash; nothing about ' +
+        'your account has changed. Try again in a moment.</span></div>';
+    }
+
+    var all = openGroupMembers();
+    if (all === null) {
+      return '<div class="notice">' + icon('refresh') +
+        '<span>Loading the devices in this group&hellip;</span></div>';
+    }
+
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
     /* The cap is a guard rail, not a page size: the largest group in the
@@ -1000,13 +1102,54 @@
     var sel = detailModel();
     if (!shown.length) {
       return '<div class="notice">' + icon('alert') +
-        '<span>No device in this group matches that filter.</span></div>';
+        '<span>' + (q
+          ? 'No device in this group matches that filter.'
+          : 'No devices are recorded in this group yet.') + '</span></div>';
     }
     return brandBlocksHTML(shown, { masterId: row.master.id, sel: sel, card: true }) +
       (list.length > shown.length
         ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
           'Show ' + nf(list.length - shown.length) + ' more</button></div>'
         : '');
+  }
+
+  /* ------------------------------------------------ opening a group, gated
+
+     THE SERVER DECIDES, AND IT DECIDES BEFORE ANY DEVICE REACHES THE PAGE.
+
+     /api/device-parts reads the caller's subscription out of Firestore and
+     returns `members: []` with `requiresPlan: true` to a free account. So a
+     free user who types /group/sg-0167 into the address bar, presses Back into
+     a group they saw as a subscriber, or calls the endpoint with curl gets the
+     same answer in all three cases: the group's identity and its size, and no
+     device names anywhere in the payload.
+
+     This function does not gate anything by itself; it records what the server
+     said so the view can draw the right thing. Gating in the browser would be
+     a lock on a door with no wall around it. */
+  var groupLoadSeq = 0;
+  function loadGroupMembers(groupId) {
+    var ticket = ++groupLoadSeq;
+    if (!SM.access || !SM.access.groupMembers) {
+      state.finder.groupLoadFailed = true;
+      return;
+    }
+    SM.access.groupMembers(groupId).then(function (g) {
+      /* A later group was opened while this was in flight. */
+      if (ticket !== groupLoadSeq || state.finder.groupId !== groupId) return;
+
+      if (!g) {
+        state.finder.groupLoadFailed = true;
+        state.finder.groupMembers = null;
+      } else {
+        state.finder.groupLocked = !!g.requiresPlan;
+        state.finder.groupMembers = Array.isArray(g.members) ? g.members : [];
+        state.finder.groupLoadFailed = false;
+      }
+      if (state.route.name === 'finder' && state.finder.groupId === groupId) {
+        renderWorkspace();
+      }
+    });
   }
 
   /* The right panel: the selected device, in the space a sidebar has.
@@ -1424,9 +1567,18 @@
     if (!row) return;
     var host = document.getElementById('groupList');
     if (host) host.innerHTML = groupListHTML(row);
-    var all = api.groupMembers(row.group);
+    /* The group's own size is public and comes from the catalogue row; only
+       the NAMES are gated. So a locked group still says "325 devices linked",
+       which is the sentence that makes the plan worth buying. */
+    var all = openGroupMembers() || [];
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var n = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }).length : all.length;
+    if (!all.length) {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-gcount]'), function (c) {
+        c.textContent = deviceCountLabel(row.group.compatibleCount || 0, 'linked');
+      });
+      return;
+    }
     /* Filtering narrows what is on screen; it does not change how many devices
        the group links. "12 of 325 devices" says both, and the group's own
        total never silently becomes the size of a search.
@@ -1456,18 +1608,37 @@
      The model itself is seeded into `seen`, because a phone is not compatible
      with itself; a device that appears in six of its groups is counted once,
      because it is one phone you could take the part off. */
+  /* COUNTED FROM WHAT THE SERVER ACTUALLY SENT, never from the bundle.
+
+     This used to walk db.groupsByModel and db.membersByGroup, which is the
+     fitment list — and the fitment list no longer ships to the browser, so
+     that walk can only return 0 now. Printing "0 devices linked" over a phone
+     with five part groups would be a confident lie, which is worse than
+     saying nothing.
+
+     So it counts the distinct devices in the matches THIS account was given.
+     A subscriber has them all and gets the real figure; a free account was
+     given none, and gets null — which the header renders as no phrase at all
+     rather than as a zero.
+
+     @returns {number|null} null means "not known to this account" */
   function linkedDeviceCount(modelId) {
-    var gids = (db.groupsByModel && db.groupsByModel[modelId]) || [];
+    var rows = state.finder.matches;
+    if (!rows || !rows.length) return null;
     var seen = Object.create(null);
     seen[modelId] = 1;
     var n = 0;
-    for (var i = 0; i < gids.length; i++) {
-      var ids = (db.membersByGroup && db.membersByGroup[gids[i]]) || [];
-      for (var j = 0; j < ids.length; j++) {
-        if (!seen[ids[j]]) { seen[ids[j]] = 1; n++; }
+    var any = false;
+    for (var i = 0; i < rows.length; i++) {
+      var ds = rows[i] && rows[i].devices;
+      if (!ds || !ds.length) continue;
+      any = true;
+      for (var j = 0; j < ds.length; j++) {
+        var id = ds[j] && ds[j].id;
+        if (id && !seen[id]) { seen[id] = 1; n++; }
       }
     }
-    return n;
+    return any ? n : null;
   }
 
   /* The selected model, as the head of the CENTRE column.
@@ -1485,13 +1656,13 @@
     var f = state.finder;
     var m = db.modelById[f.modelId];
     if (!m) return '';
-    var gids = (db.groupsByModel && db.groupsByModel[m.id]) || [];
+    var nGroups = (db.groupCountByModel && db.groupCountByModel[m.id]) || 0;
     var cats = (db.partCountsByCategory && db.partCountsByCategory[m.id]) || {};
     var nCats = Object.keys(cats).length;
     var linked = linkedDeviceCount(m.id);
 
     var meta = [
-      gids.length ? nf(gids.length) + ' group' + (gids.length === 1 ? '' : 's') : null,
+      nGroups ? nf(nGroups) + ' group' + (nGroups === 1 ? '' : 's') : null,
       nCats ? nf(nCats) + ' part ' + (nCats === 1 ? 'category' : 'categories') : null
     ].filter(Boolean).join(' · ');
 
@@ -1509,7 +1680,14 @@
         '<span class="gbar__id">' +
           '<span class="gbar__n">' + esc(deviceTitle(m)) + '</span>' +
           '<span class="gbar__meta">' +
-            '<span class="gbar__count">' + esc(deviceCountLabel(linked, 'linked')) + '</span>' +
+            /* Always in the DOM, empty until the answer arrives. The header
+               paints before /api/device-parts has replied, so the tally is
+               filled in by loadMatches rather than guessed at here — and an
+               element that is not rendered cannot be filled in later. Empty
+               it collapses, because :empty hides it. */
+            '<span class="gbar__count">' +
+              (linked != null ? esc(deviceCountLabel(linked, 'linked')) : '') +
+            '</span>' +
             (meta ? '<span class="gbar__codes">' + esc(meta) + '</span>' : '') +
           '</span>' +
         '</span>' +
@@ -2207,6 +2385,28 @@
       /* Model, category and sequence all still current, or this answer is to
          a question nobody is asking any more. */
       if (!host || !current()) return;
+
+      /* COULD NOT ASK is not the same as NOTHING FOUND, and rendering the
+         first as the second tells a shop their customer's phone has no parts
+         when in fact the server did not answer. findMatches marks the array
+         rather than throwing, because an outage is an outcome to draw, not an
+         exception to swallow. */
+      if (rows && rows.unavailable) {
+        state.finder.matches = null;
+        var cntU = document.getElementById('gcount');
+        if (cntU) cntU.textContent = '';
+        host.innerHTML = C.state({
+          icon: 'alert',
+          title: 'Could not load the compatibility groups',
+          text: 'The server did not answer, so nothing is being shown rather ' +
+            'than something that might be wrong. This is a fault on our side ' +
+            'and not a statement about ' + esc(db.modelById[f.modelId] ? db.modelById[f.modelId].fullName : 'this device') + '.',
+          action: '<button class="btn btn--soft" data-act="retry-matches">' +
+            icon('refresh') + 'Try again</button>'
+        });
+        return;
+      }
+      state.finder.matches = rows;
       /* The browse view's infinite scroll must not keep firing underneath a
          result — it would append library groups below the matches. */
       if (io) io.disconnect();
@@ -2270,6 +2470,16 @@
       var shown = rows.slice(0, f.matchShown);
       var cnt = document.getElementById('gcount');
       if (cnt) cnt.textContent = rows.length === 1 ? '1 match' : rows.length + ' matches';
+
+      /* The header was drawn before this answer arrived, so the device tally
+         in it is either absent or stale. Updated here rather than by
+         re-rendering the whole sticky bar, which would scroll the column. */
+      var linkedNow = linkedDeviceCount(f.modelId);
+      var gc = document.querySelector('.gbar__count');
+      if (gc) {
+        if (linkedNow == null) gc.textContent = '';
+        else gc.textContent = deviceCountLabel(linkedNow, 'linked');
+      }
       var head =
         (rows.length > 1 && !cat
           ? '<div class="notice notice--brand" style="margin-bottom:14px">' + icon('layers') +
@@ -2306,19 +2516,18 @@
     });
   }
 
-  /* Every device in a group, from the best source that has them.
+  /* Every device in a group.
 
-     api.groupMembers reads db.membersByGroup — the bundle's own model-to-groups
-     map inverted — which is present for every group in the catalogue and costs
-     no request. It is what the opened group page has always listed from, so a
-     match card and the group it opens now name the same devices from the same
-     place rather than from two.
+     ONE SOURCE NOW: row.devices, which is what /api/device-parts returned for
+     THIS account. The local map it used to prefer — db.membersByGroup, the
+     public bundle's fitment list inverted — is gone, because shipping it made
+     every group's membership readable by anyone with the URL of a JSON file.
 
-     row.devices is the server's list, filled for a group fetched from Firestore
-     that the local bundle has never seen. It is the fallback, not the lead. */
+     Empty for a free account. The caller draws the paywall from
+     row.requiresPlan rather than from the emptiness, so "withheld" and "we
+     have none recorded" stay different sentences. */
   function groupDevices(row) {
-    var members = api.groupMembers(row.group);
-    return members.length ? members : (row.devices || []);
+    return row.devices || [];
   }
 
   function matchCard(row, hitModel) {
@@ -2332,17 +2541,26 @@
        details. The card grew; the journey did not. */
     var devices = groupDevices(row);
     var total = devices.length || g.compatibleCount || 0;
-    var included = devices.some(function (d) { return d.id === hitModel.id; });
+    var included = !row.requiresPlan &&
+      devices.some(function (d) { return d.id === hitModel.id; });
 
     /* Brand blocks earn their headings on a long list and are noise on a short
        one: five devices under one heading is a heading saying what the five
        already say. The cut is where a list stops being readable in one glance. */
-    var list = devices.length
-      ? (devices.length > 12
-          ? brandBlocksHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' })
-          : chipGridHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' }))
-      : '<p class="t-xs muted" style="margin:0">The devices in this group are not ' +
-        'in the local catalogue. Open the group to load them.</p>';
+    /* WITHHELD, NOT MISSING. `row.requiresPlan` is the server saying this
+       account may not read the list; the list is therefore not in `devices`
+       and never was. The sentence this replaces — "the devices in this group
+       are not in the local catalogue" — described a loading quirk and is
+       exactly the wrong thing to tell a free user, because it reads as the
+       catalogue being incomplete rather than as the product being paid for. */
+    var list = row.requiresPlan
+      ? paywallHTML({ count: total, what: 'the devices this part fits' })
+      : (devices.length
+          ? (devices.length > 12
+              ? brandBlocksHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' })
+              : chipGridHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' }))
+          : '<p class="t-xs muted" style="margin:0">No devices are recorded in ' +
+            'this group yet.</p>');
 
     return '<div class="match" style="margin-bottom:14px">' +
       '<div class="match__head">' +
@@ -2472,7 +2690,7 @@
     return TABLE_COLS_ALL.filter(function (c) { return !c.needs || dbHas(c.needs); });
   }
 
-  function groupCountOf(m) { return (db.groupsByModel[m.id] || []).length; }
+  function groupCountOf(m) { return (db.groupCountByModel && db.groupCountByModel[m.id]) || 0; }
 
   /* Does the loaded catalogue actually carry this field?
      The UI is built for a richer dataset than the current export provides, so
@@ -2815,23 +3033,33 @@
         return C.planCard(p, { current: s.status === 'pro' && s.plan === p.id });
       }).join('') + '</div>' +
 
+      /* THIS TABLE MUST BE TRUE. It is the page people are asked to pay on,
+         and every row of it is enforced somewhere in api/. When the catalogue
+         was open it said "Free" down both columns and a notice underneath
+         explained that nothing was locked; saying that now, over a paywall
+         that does withhold the fitment list, would be the one page on the
+         site that must never mislead doing exactly that.
+
+         Each row below corresponds to a real check:
+           searches        -> POST /api/access, metered in Firestore by uid
+           opening a group -> GET /api/device-parts, members sliced by tier
+           group search    -> access.groupFilter                            */
       '<div class="sec"><div class="sec__head"><div class="sec__title"><h2>What a plan changes</h2></div></div>' +
       '<div class="idgrid" style="grid-template-columns:repeat(1,minmax(0,1fr))">' +
       cmp('Browse all mobile models & specs', 'Free', 'Free') +
-      cmp('Browse the compatibility group library', 'Free', 'Free') +
-      cmp('Match a model to its group', 'Free', 'Free') +
-      cmp('Full compatible-device list', 'Free', 'Free') +
-      cmp('Part code, serial & group number', 'Free', 'Free') +
+      cmp('Browse the group library — number, part code, master', 'Free', 'Free') +
+      cmp('Model searches per day', '3', 'Unlimited') +
+      cmp('Open a group and see the devices it fits', '—', 'Every group') +
+      cmp('Full compatible-device list', '—', 'Included') +
+      cmp('Search and filter inside the group library', '—', 'Included') +
       '</div></div>' +
 
-      /* Says what is actually true. The table above claimed four locks that
-         the app no longer has, and a plan page that describes a paywall the
-         product does not enforce is the one page that must not. */
       '<div class="notice" style="margin:18px 0 8px">' + icon('info') +
-      '<span><b>The whole catalogue is currently open.</b> Every compatibility ' +
-      'group, part code and fitment list is free to use while Mobile Parts Finder ' +
-      'is being built out. A plan supports that work and keeps your account ' +
-      'ready for the staff logins and part-code export that are next.</span></div>' +
+      '<span><b>What the three free searches show you.</b> A free account can ' +
+      'look up three models a day and see which compatibility groups they ' +
+      'belong to, with the group number and part code. Which other handsets ' +
+      'take the same part — the fitment list — is what a plan unlocks, on ' +
+      'every group and with no daily limit.</span></div>' +
       '</div>';
   }
   function cmp(label, free, pro) {
@@ -3053,6 +3281,58 @@
     addrOpen: false,          /* the address section starts collapsed */
     touched: {}
   };
+  /* --------------------------------------------- the draft survives Google
+
+     WHAT THIS PROTECTS AGAINST. `reg` is module state, and module state does
+     not survive a navigation. Sign-in opens a popup on almost every device, so
+     usually there is no navigation to survive — but when a popup cannot open
+     (blocked, or a browser that does not support one) SM.fb.signIn falls back
+     to signInWithRedirect, which sends the whole page to Google and reloads it
+     on the way back. Everything the shop typed was gone at that point, and
+     what they came back to was an empty form and the message "That Google
+     account has no shop profile yet. Fill in your shop details below" — asking
+     them to type it all again, having just proved they were who they said.
+
+     The same draft also survives an accidental reload, a back button, and the
+     tab being restored from the background on a phone with little memory.
+
+     sessionStorage, not localStorage: a draft belongs to the tab that is
+     filling it in. A shop name left behind on a counter machine must not greet
+     the next person who opens the site on it. It is cleared the moment the
+     account exists, and `touched` is deliberately NOT stored — validation
+     errors are a state of the current attempt, not of the draft. */
+  var REG_DRAFT_KEY = 'mpf.reg.draft.v1';
+  var REG_DRAFT_FIELDS = ['country', 'mobile', 'shopName', 'proprietor',
+                          'flat', 'area', 'city', 'district', 'stateName', 'addrOpen'];
+
+  function saveRegDraft() {
+    try {
+      var out = {};
+      REG_DRAFT_FIELDS.forEach(function (k) { out[k] = reg[k]; });
+      sessionStorage.setItem(REG_DRAFT_KEY, JSON.stringify(out));
+    } catch (e) { /* private mode — the draft is a nicety, never a blocker */ }
+  }
+
+  function restoreRegDraft() {
+    try {
+      var raw = sessionStorage.getItem(REG_DRAFT_KEY);
+      if (!raw) return false;
+      var d = JSON.parse(raw);
+      if (!d || typeof d !== 'object') return false;
+      var any = false;
+      REG_DRAFT_FIELDS.forEach(function (k) {
+        if (typeof d[k] === 'string' && d[k]) { reg[k] = d[k]; any = true; }
+        if (k === 'addrOpen' && d[k] === true) reg.addrOpen = true;
+      });
+      if (any) SM.debug.log('signup', 'restored the shop details draft');
+      return any;
+    } catch (e) { return false; }
+  }
+
+  function clearRegDraft() {
+    try { sessionStorage.removeItem(REG_DRAFT_KEY); } catch (e) { /* private mode */ }
+  }
+
   /* mandatory only — the address is optional and must never block sign-up */
   var REG_FIELDS = [
     { k: 'mobile', label: 'Mobile number' },
@@ -3635,24 +3915,31 @@
   /* A function, not a constant: the model count comes from the catalogue, which
      now arrives over the network. Evaluating this at module scope read
      db.stats before the fetch had resolved and took the whole app down. */
+  /* WHAT THIS SCREEN SAYS HAS TO MATCH WHAT THE SERVER DOES.
+
+     These two lists were last written while the catalogue was open, and they
+     promised a free account "Full compatible-device list for every group" and
+     "Group sheets you can show a customer" with a tick beside each, while
+     PRO_ONLY was empty. Both are now withheld by /api/device-parts. A ticked
+     line for something the product refuses is worse than no line at all: it
+     is the account screen telling a shop they have something, and the app
+     then refusing it. */
   function freeIncluded() { return [
+    'Three model searches a day',
     'Browse all ' + nf(db.stats.models) + ' phone models and their specs',
-    'Browse every compatibility group in the catalogue',
-    'Search by model, part code or group number',
-    /* These four moved up from PRO_ONLY when the catalogue was opened. They
-       are shown to everyone now, signed in or not, so listing them with a
-       padlock would be the account screen describing a lock the app does not
-       have. */
-    'Match a model to its compatibility group',
-    'Full compatible-device list for every group',
-    'Part code, serial number and group number',
-    'Group sheets you can show a customer'
+    'Browse every compatibility group — number, part code, master model',
+    'See how many devices each group covers'
   ]; }
-  /* Nothing is plan-only at present. The list is kept rather than deleted
-     because the split still exists everywhere else — the rules, the paid
-     collections and /api/device-parts — and narrowing the catalogue again is a
-     matter of putting entries back here. */
-  var PRO_ONLY = [];
+
+  /* Enforced in api/_schema/entitlement.js and api/access.js, not here. This
+     list draws the padlocks; it does not decide anything. */
+  var PRO_ONLY = [
+    'Unlimited model searches',
+    'Open any group and see every device it fits',
+    'Full compatible-device list for every group',
+    'Search and filter inside the group library',
+    'Group sheets you can show a customer'
+  ];
 
   function accessHTML() {
     return '<span class="t-lab">What your account can do</span>' +
@@ -5716,7 +6003,26 @@
       /* A group opens in the centre column. go() still writes /group/<id> —
          that URL is the share link and the back button — but route() resolves
          it to the finder with the group selected rather than to a sheet. */
-      case 'open-group': go('/group/' + id); break;
+      /* THE GROUP DOES NOT OPEN FOR A FREE ACCOUNT.
+
+         The server refuses the member list regardless — that is the actual
+         enforcement, and it is why a typed /group/<id> URL, a Back button and
+         a curl all get the same nothing. This is the courteous half: when the
+         server has ALREADY told us this account is free, there is no reason to
+         navigate into a group whose body would be a paywall. Straight to the
+         plans instead.
+
+         isFree() is false while the answer is still outstanding, deliberately.
+         An unanswered question is not a denial, and treating it as one would
+         paywall a subscriber for as long as the request takes; the group view
+         draws the paywall itself if the answer turns out to be "free". */
+      case 'open-group':
+        if (SM.access && SM.access.isFree()) {
+          gatedUpgrade('A plan unlocks the devices in a group');
+          break;
+        }
+        go('/group/' + id);
+        break;
 
       /* Picking a device inside an open group changes the right panel and
          nothing else. No navigation, no overlay. */
@@ -5883,6 +6189,11 @@
          here. Routed through the shared branch so an authenticated free user
          reaches Plans and an anonymous one reaches Sign In — the card looks
          the same either way, which is why the decision cannot live in it. */
+      case 'retry-matches':
+        if (SM.access && SM.access.forgetDevice) SM.access.forgetDevice(state.finder.modelId);
+        loadMatches();
+        break;
+
       case 'go-plans': gatedUpgrade('A plan unlocks the full list'); break;
       case 'subscribe':
         /* a plan belongs to a signed-in identity, so sign in first */
@@ -6071,6 +6382,7 @@
 
       case 'toggle-address':
         reg.addrOpen = !reg.addrOpen;
+        saveRegDraft();
         repaintAuth();
         break;
 
@@ -6137,6 +6449,7 @@
           state.sheet = { type: 'editprofile' }; renderSheet();
         } else {
           reg.country = id;
+          saveRegDraft();
           state.sheet = null; renderSheet();
           /* A number valid for one country is not valid for the next, so the
              whole form is redrawn rather than just the flag. */
@@ -6268,6 +6581,7 @@
       var rk = el.getAttribute('data-reg');
       reg[rk] = (rk === 'mobile') ? el.value.replace(/[^\d\s-]/g, '') : el.value;
       if (rk === 'mobile' && el.value !== reg.mobile) el.value = reg.mobile;
+      saveRegDraft();
       syncRegCta();
       var hint = document.getElementById('regHint');
       if (hint) hint.innerHTML = regHintHTML();
@@ -6483,6 +6797,15 @@
     });
   }
 
+  /* The raw provider codes, kept visible but subordinate. They are what makes
+     a support message actionable ("client: unavailable; server:
+     datastore-unavailable" names the fault exactly) and they are meaningless
+     to everyone else, so they are muted and come last. */
+  function reasonNote(reasons) {
+    if (!reasons || !reasons.length) return '';
+    return ' <span class="muted">(' + esc(reasons.join('; ')) + ')</span>';
+  }
+
   function finishGoogle(identity, isSignup) {
     var rc = SM.countries.byCode(reg.country) || {};
 
@@ -6544,8 +6867,12 @@
         return;
       }
       /* Cleared HERE, not before the write — a failed save keeps the identity
-         so the same details can be resubmitted. */
+         so the same details can be resubmitted. Same for the draft: it exists
+         only to survive the trip to Google, and the account now exists, so
+         keeping it would refill the form for whoever signs in next on this
+         tab. */
       state.pendingIdentity = null;
+      clearRegDraft();
       renderShellBits();
       renderAccount(document.getElementById('page'));
 
@@ -6579,21 +6906,49 @@
          identity so the same details can be submitted again with one tap —
          this used to toast "Account created — welcome" over a failed write. */
       restoreSignupButton();
+
+      /* TELL THE READER WHOSE FAULT IT IS.
+
+         Both of these messages used to end with "check the connection", and
+         for the failure that actually happened that was false in every word:
+         Firestore was refusing every request from every client because billing
+         had been switched off on the Google Cloud project, the shop's phone was
+         working perfectly, and no number of retries could ever have saved the
+         form. People re-typed their shop details into a form that could not
+         save them, and then blamed their own wifi.
+
+         So an outage says it is an outage, and says the thing that matters
+         next: stop retrying, nothing you typed is lost, the owner has to fix
+         it. A genuine connection drop keeps the old advice, which is correct
+         for it. err.outage is decided in src/data/api.js from the HTTP status
+         and the Firestore error code, never from a guess here. */
       if (err && err.code === 'profile-save-failed') {
         state.pendingIdentity = identity;
-        authMsg('Your details could not be saved to your account, so it has not been created. ' +
-                'Check the connection and press Create account again.' +
-                (err.reasons && err.reasons.length
-                  ? ' <span class="muted">(' + esc(err.reasons.join('; ')) + ')</span>'
-                  : ''));
-        toast('Account not created — nothing was saved', 'alert');
+        authMsg(err.outage
+          ? 'Your account could not be created — the site’s database is not ' +
+            'responding. This is a fault on our side, not with your connection ' +
+            'or your Google account. <strong>Your shop details are still on this ' +
+            'screen</strong>, so nothing needs re-typing: press Create account ' +
+            'again once the site is back.' +
+            reasonNote(err.reasons)
+          : 'Your details could not be saved to your account, so it has not been ' +
+            'created. Check the connection and press Create account again.' +
+            reasonNote(err.reasons));
+        toast(err.outage ? 'Site database unavailable — nothing was saved'
+                         : 'Account not created — nothing was saved', 'alert');
         return;
       }
       if (err && err.code === 'profile-unreadable') {
-        authMsg('Signed in, but your account could not be read from the server. ' +
-                'Check the connection and try again — your details are safe, and ' +
-                'nothing needs re-entering.');
-        toast('Could not load your account — try again', 'alert');
+        authMsg(err.outage
+          ? 'You are signed in, but the site’s database is not responding, so ' +
+            'your account could not be loaded. This is a fault on our side — your ' +
+            'account and your subscription are safe and nothing needs re-entering. ' +
+            'Please try again later.'
+          : 'Signed in, but your account could not be read from the server. ' +
+            'Check the connection and try again — your details are safe, and ' +
+            'nothing needs re-entering.');
+        toast(err.outage ? 'Site database unavailable — try again later'
+                         : 'Could not load your account — try again', 'alert');
         return;
       }
       authMsg('Signed in with Google, but your profile could not be loaded. Check the connection and reload.');
@@ -6670,6 +7025,8 @@
       if (r && r.offline) {
         var offline = new Error('profile-unreadable');
         offline.code = 'profile-unreadable';
+        offline.outage = !!r.outage;
+        offline.reason = r.reason || null;
         throw offline;
       }
 
@@ -6688,6 +7045,10 @@
   }
 
   /* ----------------------------------------------------------------- boot */
+  /* Before anything renders, so an account page drawn on this load — including
+     the one the browser lands on coming back from a Google redirect — is drawn
+     with the shop details already in it rather than empty. */
+  restoreRegDraft();
   applyTheme();
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {

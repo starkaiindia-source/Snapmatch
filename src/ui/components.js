@@ -287,7 +287,7 @@
 
   C.modelCard = function (m, q) {
     var b = SM.db.brandById[m.brandId];
-    var gc = (SM.db.groupsByModel[m.id] || []).length;
+    var gc = (SM.db.groupCountByModel && SM.db.groupCountByModel[m.id]) || 0;
     /* An href for the same reason the device grid uses one: this is how a
        crawler — and a middle-click — reaches a model page. */
     return '<a class="mcard" href="/model/' + m.id + '">' +

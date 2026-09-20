@@ -39,7 +39,7 @@
 'use strict';
 
 const { db, admin } = require('../_lib/firebase');
-const { USERS, GROUP_DETAILS, DEVICE_GROUPS } = require('../_schema/collections');
+const { USERS, GROUP_DETAILS, DEVICE_GROUPS, MODEL_GROUPS } = require('../_schema/collections');
 const {
   TIERS, FREE_DAILY_SEARCHES, dayKeyFor, resetsAt,
   tierFor, visibleMemberLimit, describe
@@ -219,13 +219,48 @@ async function groupForUser(groupId, tier) {
     oemPartNo: group.oemPartNo,
     masterModelName: group.masterModelName,
     memberCount: total,
+    /* Empty for a free caller. visibleMemberLimit returns 0 for `free`, so
+       this is `[]` and the names are never serialised — there is no truncated
+       list in the payload, nothing in the network tab, and nothing in a
+       JavaScript variable for a console to widen. */
     members: visible,
     /* A number, not a list. The withheld names are not in this object at all,
        so there is nothing in the response to recover them from. */
     lockedCount: Math.max(0, total - visible.length),
     locked: visible.length < total,
+    /* The flag the browser draws the paywall from. Explicit rather than
+       inferred from `members.length === 0`, which is also true of a group that
+       genuinely has no members recorded — two very different sentences to put
+       in front of a shop. */
+    requiresPlan: tier !== TIERS.PAID,
     tier
   };
+}
+
+/**
+ * The device -> {categoryId: [groupId]} map for one device, from whichever
+ * collection holds it. Returns null when the device is in neither.
+ */
+async function readDeviceGroupDoc(modelId) {
+  const firestore = db();
+
+  const mg = await firestore.collection(MODEL_GROUPS).doc(modelId).get();
+  if (mg.exists) {
+    const d = mg.data() || {};
+    /* The importer's shape. `byCategory` is the map; `id` is the device. */
+    if (d.byCategory && typeof d.byCategory === 'object') return d.byCategory;
+    /* A document written flat by some other route still works. */
+    const flat = { ...d };
+    delete flat.id;
+    if (Object.keys(flat).length) return flat;
+  }
+
+  const dg = await firestore.collection(DEVICE_GROUPS).doc(modelId).get();
+  if (dg.exists) {
+    const d = dg.data() || {};
+    return d.byCategory && typeof d.byCategory === 'object' ? d.byCategory : d;
+  }
+  return null;
 }
 
 /**
@@ -245,9 +280,22 @@ async function deviceGroupsForUser(modelId, tier) {
       groupIds: c.groups.map(g => g.groupId)
     }));
   } else {
-    const snap = await db().collection(DEVICE_GROUPS).doc(modelId).get();
-    if (!snap.exists) return null;
-    const d = snap.data() || {};
+    /* WHICH COLLECTION, AND WHY BOTH.
+
+       scripts/import-firestore.js writes this map to `modelGroups`, as
+       documents shaped { id, byCategory: { <categoryId>: [groupId, …] } }.
+       This function read `deviceGroups` and treated the document's OWN keys as
+       category ids — a collection the importer has never written and a shape
+       it has never produced. Every ?modelId= request therefore answered
+       404 "no such model", for every device in the catalogue.
+
+       It went unnoticed because nothing called it: the front end read the
+       whole fitment list out of the public bundle instead, which is the hole
+       this change closes. Routing the browser through here makes the bug
+       load-bearing, so both the real collection and the shape the code
+       expected are accepted, newest first. */
+    const d = await readDeviceGroupDoc(modelId);
+    if (!d) return null;
     byCategory = Object.keys(d).map(categoryId => ({
       categoryId,
       categoryName: categoryId,

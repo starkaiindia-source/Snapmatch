@@ -30,8 +30,10 @@ const { auth } = require('./_lib/firebase');
 const { adminConfigured } = require('./_lib/config');
 const { consume } = require('./_lib/rate-limit');
 const chatbot = require('./_services/chatbot-service');
+const entitlements = require('./_services/entitlement-service');
 const analytics = require('./_services/analytics-service');
 const v = require('./_lib/validate');
+const { TIERS } = require('./_schema/entitlement');
 
 /** Per caller, per minute. */
 const CHAT_LIMIT = 10;
@@ -77,7 +79,28 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    const reply = await chatbot.respond({ message, userId, now });
+    /* THE ASSISTANT ANSWERS AT THE CALLER'S TIER.
+
+       It used to answer at everyone's, which made it the easiest way round
+       the paywall on the site: no sign-in, one POST, and the fitment list
+       came back in `facts`. The tier is read from Firestore against the uid
+       in the verified token — the same read /api/access and
+       /api/device-parts do — and a signed-out caller has no uid and is free
+       by definition.
+
+       A failed read is treated as free rather than allowed to fail the
+       request: the assistant staying up with less to say is better than the
+       assistant being down, and the wrong direction to fail in is the one
+       that hands out the fitment list. */
+    let tier = TIERS.FREE;
+    try {
+      const access = await entitlements.readAccess(userId, now);
+      if (access && access.paid) tier = TIERS.PAID;
+    } catch (err) {
+      console.warn('[chat] tier unreadable, answering at the free tier:', err && err.message);
+    }
+
+    const reply = await chatbot.respond({ message, userId, now, tier });
 
     /* Recorded as analytics, not as a transcript. The event carries the
        INTENT and the length of the question, never its text — a chat log is a

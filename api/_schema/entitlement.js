@@ -23,16 +23,26 @@
 
      header searches   3 per calendar day, per ACCOUNT
      group filter      paid only
-     group member list depends on the size of the group:
+     group member list PAID ONLY — a free account sees NO members, at any
+                       group size
 
-         group size        free sees      why
-         ─────────────     ──────────     ────────────────────────────────────
-         1 – 5             all of them    a small group is the free sample;
-                                          hiding one of three is petty and
-                                          teaches nobody what the product does
-         6 – 50            first 5        enough to prove the data is real
-         51 and above      first 10       a big group is the thing worth
-                                          paying for, and ten is a taste
+   THE MEMBER LIST USED TO HAVE A FREE SAMPLE — the whole of a group of five,
+   then the first five, then the first ten. That is gone, by an explicit
+   owner decision: opening a group and reading which devices a part fits is
+   the thing the subscription sells, and a free account may not do it at all.
+
+   What a free account still gets, because it is what makes the free tier
+   worth having and gives nothing away:
+
+     · 3 searches a day
+     · the group's IDENTITY — group number, serial, part code, category,
+       master model
+     · `memberCount`, the real size of the group
+
+   "This part fits 325 devices" is the advertisement. The 325 names are the
+   product. A free caller receives the first sentence and not one row of the
+   second — not truncated in the browser, not hidden with CSS: the names are
+   never put into the response at all.
 
    ----------------------------------------------------------------------------
    THIS FILE IS PURE
@@ -55,11 +65,21 @@ const TIERS = { FREE: 'free', PAID: 'paid' };
 /** Header searches a free account may run per calendar day. */
 const FREE_DAILY_SEARCHES = 3;
 
-/** Group sizes at which the free member allowance changes. */
-const SMALL_GROUP_MAX = 5;      /* at or below: the whole group is free */
-const MEDIUM_GROUP_MAX = 50;    /* above SMALL, up to here: 5 members */
-const FREE_MEMBERS_MEDIUM = 5;
-const FREE_MEMBERS_LARGE = 10;  /* above MEDIUM_GROUP_MAX */
+/* The free member allowance. Zero, at every group size.
+
+   The three constants below are kept rather than deleted because
+   describe() still reports the rule to the client and the admin screens
+   still name it; a single number here is what the whole policy now is, and
+   keeping the shape means restoring a sample later is one edit in one file
+   rather than a reconstruction. */
+const FREE_MEMBERS = 0;
+
+/* Retained for the tests and the admin copy that name the old tiers. They no
+   longer decide anything — visibleMemberLimit ignores group size entirely. */
+const SMALL_GROUP_MAX = 5;
+const MEDIUM_GROUP_MAX = 50;
+const FREE_MEMBERS_MEDIUM = FREE_MEMBERS;
+const FREE_MEMBERS_LARGE = FREE_MEMBERS;
 
 /**
  * The business runs in India, so "calendar day" means a day in India.
@@ -108,12 +128,10 @@ function tierFor(profile, now) {
  */
 function visibleMemberLimit(memberCount, tier) {
   if (tier === TIERS.PAID) return Infinity;
-
-  const n = Number(memberCount);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  if (n <= SMALL_GROUP_MAX) return n;                    /* all of a small group */
-  if (n <= MEDIUM_GROUP_MAX) return FREE_MEMBERS_MEDIUM;
-  return FREE_MEMBERS_LARGE;
+  /* Free sees none of them, whatever the group size. `memberCount` is still
+     taken so every caller keeps its shape and the signature can carry a
+     sample again without a hunt through the call sites. */
+  return FREE_MEMBERS;
 }
 
 /** Everything the client needs to draw the right UI, and nothing more. */
@@ -131,10 +149,15 @@ function describe(tier, searchesUsed, now) {
     dailySearchesRemaining: paid ? null : Math.max(0, FREE_DAILY_SEARCHES - used),
     searchResetsAt: paid ? null : resetsAt(now),
     groupFilter: paid,
-    /* Restated so the client can label a lock ("5 of 30 shown") without
-       re-deriving the rule and drifting from it. It is a LABEL: the server has
-       already removed the rows. */
+    /* May this account OPEN a compatibility group and read the devices in it?
+       One boolean, decided here, so the router, the group page, the match card
+       and the device page cannot each arrive at their own answer. It is a
+       LABEL for drawing the lock: the server has already withheld the rows. */
+    groupAccess: paid,
+    /* Restated so the client can word the paywall without re-deriving the
+       rule. `members: 0` is the whole rule now. */
     freeMemberRule: paid ? null : {
+      members: FREE_MEMBERS,
       smallGroupMax: SMALL_GROUP_MAX,
       mediumGroupMax: MEDIUM_GROUP_MAX,
       membersMedium: FREE_MEMBERS_MEDIUM,
@@ -146,6 +169,7 @@ function describe(tier, searchesUsed, now) {
 module.exports = {
   TIERS,
   FREE_DAILY_SEARCHES,
+  FREE_MEMBERS,
   SMALL_GROUP_MAX, MEDIUM_GROUP_MAX, FREE_MEMBERS_MEDIUM, FREE_MEMBERS_LARGE,
   IST_OFFSET_MS,
   dayKeyFor, resetsAt, tierFor, visibleMemberLimit, describe

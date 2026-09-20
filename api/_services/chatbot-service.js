@@ -58,6 +58,7 @@
 'use strict';
 
 const search = require('./search-service');
+const { TIERS } = require('../_schema/entitlement');
 const ai = require('./ai-service');
 const missingModels = require('./missing-model-service');
 const v = require('../_lib/validate');
@@ -200,9 +201,13 @@ function reply({ intent, answeredFrom, facts, message, suggestions, missingModel
  * @param {number} args.now
  * @returns {Promise<object>} the reply shape above
  */
-async function respond({ message, userId, now }) {
+async function respond({ message, userId, now, tier }) {
   const text = v.searchTerm(message, 500);
   const intent = classify(text);
+  /* Fails closed. A caller that forgets to pass a tier gets the free answer,
+     never the paid one — the opposite default would make every future call
+     site a potential leak. */
+  const access = tier === TIERS.PAID ? TIERS.PAID : TIERS.FREE;
 
   if (intent === INTENTS.GREETING) {
     return reply({
@@ -219,12 +224,19 @@ async function respond({ message, userId, now }) {
   if (partCode) {
     const group = search.findByPartCode(partCode);
     if (group) {
+      /* The most precise question there is, and the most complete answer —
+         groupDetail returns EVERY member, uncapped. Cut to the tier before it
+         is serialised, exactly as /api/device-parts does. */
+      const view = cutGroupToTier(group, access);
       return reply({
         intent: INTENTS.PART_CODE,
         answeredFrom: 'database',
-        facts: { kind: 'group', group },
+        facts: { kind: 'group', group: view },
         message: `${group.partCode} fits ${group.memberCount} ` +
-                 `${group.memberCount === 1 ? 'model' : 'models'}.`
+                 `${group.memberCount === 1 ? 'model' : 'models'}.` +
+                 (view.requiresPlan
+                   ? ' Which models those are is part of a plan — open /plans to see the full fitment list.'
+                   : '')
       });
     }
     return reply({
@@ -280,7 +292,7 @@ async function respond({ message, userId, now }) {
   }
 
   const model = found.models[0];
-  const compatibility = search.compatibilityFor(model.id);
+  const compatibility = cutToTier(search.compatibilityFor(model.id), access);
 
   if (!compatibility || !compatibility.categories.length) {
     /* The handset is in the catalogue and has no recorded fitments. That is a
@@ -308,12 +320,57 @@ async function respond({ message, userId, now }) {
     message: `${model.name} belongs to ${totalGroups} compatibility ` +
              `${totalGroups === 1 ? 'group' : 'groups'} across ` +
              `${compatibility.categories.length} part ` +
-             `${compatibility.categories.length === 1 ? 'category' : 'categories'}.`
+             `${compatibility.categories.length === 1 ? 'category' : 'categories'}.` +
+             (access === TIERS.PAID
+               ? ''
+               : ' Which other handsets take the same parts is part of a plan.')
   });
 }
 
 function publicModel(m) {
   return { id: m.id, name: m.name, brandId: m.brandId, year: m.year || null };
+}
+
+/* ------------------------------------------------- the assistant is not a hole
+
+   THE CHATBOT WAS A THIRD WAY ROUND THE PAYWALL.
+
+   search.compatibilityFor() returns up to forty member names per group and
+   search.groupDetail() returns all of them, and this service handed both back
+   in `facts` with no tier check anywhere. "Which models take the same glass as
+   a Realme 5?" and "what fits MPF-SG-0167?" were answered in full, to anybody,
+   signed in or not — the same list /api/device-parts exists to withhold,
+   reachable by asking politely.
+
+   A route is only as gated as its least-gated answer, so the rule from
+   api/_schema/entitlement.js applies here too: the group, its part code and
+   its SIZE are free; the names in it are not. They are removed before the
+   object is serialised, so there is nothing in the reply to recover them from
+   — not a truncated list, not a flag over a full one.
+
+   @param {'free'|'paid'} tier */
+function cutGroupToTier(group, tier) {
+  if (!group) return group;
+  if (tier === TIERS.PAID) return Object.assign({}, group, { requiresPlan: false });
+  return {
+    groupId: group.groupId,
+    partCode: group.partCode,
+    oemPartNo: group.oemPartNo,
+    masterModelName: group.masterModelName,
+    memberCount: group.memberCount,
+    members: [],
+    requiresPlan: true
+  };
+}
+
+function cutToTier(compat, tier) {
+  if (!compat || tier === TIERS.PAID) return compat;
+  return Object.assign({}, compat, {
+    categories: (compat.categories || []).map(cat => Object.assign({}, cat, {
+      groups: (cat.groups || []).map(g =>
+        Object.assign(cutGroupToTier(g, tier), { truncated: false }))
+    }))
+  });
 }
 
 /**

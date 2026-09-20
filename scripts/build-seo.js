@@ -112,7 +112,37 @@ const MODELS = dataset.models.map(r => ({
   mah: r[MC.mah], img: r[MC.img], src: r[MC.src], type: r[MC.dt],
   screenType: r[MC.st], batteryPart: r[MC.bp], batteryVerified: r[MC.bv]
 }));
-const MODEL_GROUPS = dataset.modelGroups || {};
+/* ------------------------------------------- where the edge list comes from
+
+   NOT from assets/dataset.json any more. That file is public, and it used to
+   carry `modelGroups` — device -> the groups that fit it — which inverts into
+   the complete member list of all 3,384 groups. It now ships per-category
+   COUNTS only, so this generator reads the private build output instead.
+
+   That is the right shape for a GENERATOR: it holds the whole catalogue and
+   decides what to publish, exactly as scripts/build-runtime-bundle.js does.
+   data/build/ is committed for the build and excluded from the Vercel upload
+   by .vercelignore, so nothing here is reachable over HTTP.
+
+   What these pages publish out of it is decided by freeMemberLimit() below,
+   and that is now zero: a signed-out reader of /model/<id> is a free account,
+   and a free account may not read a fitment list. */
+const MODEL_GROUPS = (() => {
+  const file = path.join(ROOT, 'data', 'build', 'modelGroups.ndjson');
+  if (!fs.existsSync(file)) {
+    throw new Error(
+      'data/build/modelGroups.ndjson is missing. The SEO pages are built from ' +
+      'the private edge list, not from assets/dataset.json — run ' +
+      'scripts/build-dataset.js first.'
+    );
+  }
+  const out = {};
+  fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).forEach(line => {
+    const row = JSON.parse(line);
+    out[row.id] = row.byCategory || {};
+  });
+  return out;
+})();
 const BRAND_BY_ID = {};
 dataset.brands.forEach(r => { BRAND_BY_ID[r[0]] = r[1]; });
 const CAT_BY_ID = {};
@@ -201,27 +231,35 @@ function compatFor(modelId) {
   }).filter(Boolean);
 }
 
-/* A group can run to 325 members, and the member list is the thing the
-   subscription sells. api/_schema/entitlement.js gives a free account the
-   whole group up to five members, then five, then ten — these pages are the
-   free view of the catalogue, so they publish exactly that and count the rest.
+/* THESE PAGES PUBLISH WHAT A FREE ACCOUNT MAY SEE, AND THAT IS NOW NOTHING.
 
-   Publishing the full list would hand every subscription's worth of data to
-   anyone with curl. It would also make the pre-rendered HTML say more than the
-   app shows the same visitor a second later, which is the mismatch between
-   served and rendered content that Google calls cloaking. Mirroring the free
-   tier fixes both at once. */
-const SMALL_GROUP_MAX = 5;
-const MEDIUM_GROUP_MAX = 50;
-const FREE_MEMBERS_MEDIUM = 5;
-const FREE_MEMBERS_LARGE = 10;
+   The rule these pages mirror lives in api/_schema/entitlement.js. It used to
+   grant a free account the whole of a small group, then five, then ten, and
+   these pages published exactly that — which meant a group of five had its
+   complete fitment list in static HTML, served to anyone, indexed by Google,
+   and repeated across 4,933 pages.
 
-function freeMemberLimit(total) {
-  const n = Number(total);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  if (n <= SMALL_GROUP_MAX) return n;
-  if (n <= MEDIUM_GROUP_MAX) return FREE_MEMBERS_MEDIUM;
-  return FREE_MEMBERS_LARGE;
+   The free allowance is zero now, so these pages name no members either.
+
+   MIRRORING IS THE POINT, NOT AN IMPLEMENTATION DETAIL. Pre-rendered HTML
+   that says more than the app shows the same visitor a second later is the
+   mismatch between served and rendered content that Google calls cloaking —
+   and, more simply, it is the paywall handing out the thing behind it. One
+   number governs both surfaces.
+
+   WHAT THESE PAGES STILL SAY, and it is most of their SEO value: the handset,
+   its specs, which part CATEGORIES it has groups in, each group's number and
+   part code, which model is the master, how many devices the group covers,
+   and links to every category page and to the model's contemporaries. "Which
+   tempered glass fits a Realme 5" is still answered — with a part code a shop
+   can order by. What is withheld is the list of the other 324 handsets.
+
+   Named `freeMemberLimit` rather than deleted so the two surfaces keep the
+   same vocabulary, and so restoring a teaser is one number in one place. */
+const FREE_MEMBERS = 0;
+
+function freeMemberLimit() {
+  return FREE_MEMBERS;
 }
 
 const linkList = list => '<ul class="seo__models">' +
@@ -253,10 +291,21 @@ function groupMemberLinks(list, total, reserved) {
   const limit = Math.max(0, freeMemberLimit(total) - (reserved || 0));
   const shown = list.slice(0, limit);
   const rest = list.length - shown.length;
-  return { html: (shown.length ? linkList(shown) : '') + (rest > 0
+
+  /* "324 FURTHER models" is only true after some were shown. With none shown
+     it has to say how many there are, not how many are left over — the old
+     sentence read "324 further models in this group" under an empty list,
+     which invites the reader to look for the ones that came before. */
+  const more = rest <= 0 ? '' : shown.length
     ? `<p class="seo__more">${nf(rest)} further ${rest === 1 ? 'model' : 'models'} in this ` +
       `group. <a href="/plans">See the full fitment list with a plan</a>.</p>`
-    : ''), shown };
+    : rest === 1
+      ? `<p class="seo__more">The other model in this group is part of a plan. ` +
+        `<a href="/plans">See the full fitment list with a plan</a>.</p>`
+      : `<p class="seo__more">All ${nf(rest)} models in this group are part of a plan. ` +
+        `<a href="/plans">See the full fitment list with a plan</a>.</p>`;
+
+  return { html: (shown.length ? linkList(shown) : '') + more, shown };
 }
 
 /* Contemporaries, not just the first N alphabetically: walk outwards from this
@@ -683,8 +732,12 @@ function categoryPage(cat) {
     return `<div class="seo__group">
       <p class="seo__groupmeta">${meta}</p>
       ${members.length
-        ? `<p>Fits ${nf(members.length)} ${members.length === 1 ? 'model' : 'models'}:</p>` +
-          groupMemberLinks(members, members.length, 0).html
+        ? (() => {
+            const view = groupMemberLinks(members, members.length, 0);
+            return `<p>Fits ${nf(members.length)} ` +
+              `${members.length === 1 ? 'model' : 'models'}` +
+              `${view.shown.length ? ':' : '.'}</p>` + view.html;
+          })()
         : ''}
     </div>`;
   }).join('\n    ');
@@ -1170,8 +1223,25 @@ function modelPage(m) {
       g.no ? `Group <b>${esc(g.no)}</b>` : `Group <b>${esc(g.id)}</b>`,
       g.part ? `part code <b>${esc(g.part)}</b>` : null,
       g.oem ? `OEM ${esc(g.oem)}` : null,
+      /* THE MASTER IS NOT NAMED ON ANOTHER MODEL'S PAGE, and that is a
+         deliberate loss.
+
+         "Group MF-0592 · cut from Google Pixel 7 Pro", printed on the Pixel
+         6 Pro's page, is a fitment: it says these two handsets take the same
+         middle frame. 1,585 of the 3,384 groups have exactly TWO members, so
+         for 47% of the catalogue that one line was the complete fitment list
+         — published as static HTML, to anyone, indexed.
+
+         The group's own identity stays: number, part code, OEM code, size.
+         Those are what a shop orders by and what the page ranks for. On the
+         master's OWN page the phrase is self-referential and discloses
+         nothing, so it is kept.
+
+         The cost is real — the master's name is a strong search term and
+         these links were internal PageRank. To publish them again, restore
+         the link here; nothing else depends on the change. */
       master && master.id !== m.id
-        ? `cut from <a href="/model/${esc(master.id)}">${esc(master.name)}</a>`
+        ? 'cut from the master model in this group'
         : (master ? 'this model is the master' : null)
     ].filter(Boolean).join(' · ');
 
@@ -1180,7 +1250,10 @@ function modelPage(m) {
       ${e.others.length
         ? `<p>The same ${esc(intent)} also fits ` +
           `<strong>${nf(e.others.length)}</strong> other ` +
-          `${e.others.length === 1 ? 'model' : 'models'}:</p>` + e.view.html
+          /* A colon promises a list. With the list withheld the sentence has
+             to end, or the page reads as broken rather than as gated. */
+          `${e.others.length === 1 ? 'model' : 'models'}` +
+          `${e.view.shown.length ? ':' : '.'}</p>` + e.view.html
         : `<p>No other handset in the catalogue shares this ${esc(intent)} — ` +
           `it is specific to the ${esc(m.name)}.</p>`}
     </div>`;

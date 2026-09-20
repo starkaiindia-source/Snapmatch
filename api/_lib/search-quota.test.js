@@ -264,14 +264,21 @@ test('a group read from Firestore is sliced by tier, exactly as a local one is',
   });
 
   const free = await entitlements.groupForUser('gd-1', 'free');
-  assert.equal(free.memberCount, 60);
-  assert.equal(free.members.length, 10, 'over 50 members: a free account sees ten');
-  assert.equal(free.lockedCount, 50);
+  assert.equal(free.memberCount, 60, 'the SIZE is free');
+  assert.equal(free.members.length, 0, 'a free account sees no members at all');
+  assert.equal(free.lockedCount, 60);
+  assert.equal(free.requiresPlan, true);
   assert.equal(free.partCode, 'MPF-XX-0001');
 
-  /* And the withheld names are not in the payload. */
+  /* And not one name is in the payload. */
   const serialised = JSON.stringify(free);
-  for (let i = 10; i < 60; i++) {
+  for (let i = 0; i < 60; i++) {
     assert.equal(serialised.includes('Model ' + i), false, `Model ${i} leaked`);
   }
+
+  /* The same group, for a subscriber, is the whole list. */
+  const paid = await entitlements.groupForUser('gd-1', 'paid');
+  assert.equal(paid.members.length, 60);
+  assert.equal(paid.lockedCount, 0);
+  assert.equal(paid.requiresPlan, false);
 });
