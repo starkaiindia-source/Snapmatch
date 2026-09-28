@@ -52,6 +52,11 @@ function load(opts) {
   const behaviour = opts.behaviour || 'hang';
   const delays = [];
   const warnings = [];
+  const calls = { get: 0 };
+
+  /* A list of behaviours, one per attempt, for the retry tests. Falls back to
+     the single `behaviour` when not given. */
+  const sequence = opts.sequence || null;
 
   /* The whole point: a deadline of 10s is asserted on, never waited for. The
      requested delay is recorded so the test can check the NUMBER as well as
@@ -67,12 +72,22 @@ function load(opts) {
   }
 
   function result() {
-    if (behaviour === 'resolve') {
+    calls.get += 1;
+    const mode = sequence
+      ? (sequence[calls.get - 1] || sequence[sequence.length - 1])
+      : behaviour;
+
+    if (mode === 'resolve') {
       return Promise.resolve(snapshot({ uid: 'u1', mobileShopName: 'S' }));
     }
-    if (behaviour === 'reject') {
+    if (mode === 'reject') {
       const err = new Error('permission denied by rules');
       err.code = 'permission-denied';
+      return Promise.reject(err);
+    }
+    if (mode === 'unavailable') {
+      const err = new Error('backend unavailable');
+      err.code = 'unavailable';
       return Promise.reject(err);
     }
     /* The failure this file exists for: neither resolved nor rejected, ever. */
@@ -121,7 +136,7 @@ function load(opts) {
   vm.createContext(sandbox);
   vm.runInContext(SOURCE, sandbox, { filename: 'firestore.js' });
 
-  return { SM: sandbox.SM, delays, warnings };
+  return { SM: sandbox.SM, delays, warnings, calls };
 }
 
 /** The rejection a call produced, or the string 'RESOLVED'. */
@@ -197,9 +212,9 @@ test('check() answers with a failure report rather than hanging', async () => {
 
 /* ------------------------------------------------------- the right numbers */
 
-test('a read gets 10 seconds and a photo upload gets 60', async () => {
+test('an ordinary read gets 10 seconds and a photo upload gets 60', async () => {
   const read = load({ behaviour: 'hang' });
-  await outcome(read.SM.store.loadProfile('u'));
+  await outcome(read.SM.store.group('g'));
   assert.ok(read.delays.includes(10000),
     `a read should be given 10000ms, got ${JSON.stringify(read.delays)}`);
 
@@ -209,6 +224,44 @@ test('a read gets 10 seconds and a photo upload gets 60', async () => {
   await outcome(up.SM.store.uploadProfilePhoto('u', { type: 'image/png', size: 1024 }));
   assert.ok(up.delays.includes(60000),
     `an upload should be given 60000ms, got ${JSON.stringify(up.delays)}`);
+});
+
+/* ------------------------------------------------------------------ retry */
+
+test('the profile read is tried three times, on a shrinking clock', async () => {
+  const { SM, delays, calls } = load({ behaviour: 'hang' });
+  const err = await outcome(SM.store.loadProfile('u'));
+
+  assert.equal(calls.get, 3, 'a hung profile read should be attempted three times');
+  assert.deepEqual(delays, [6000, 500, 4000, 1000, 3000],
+    'deadlines and backoff waits should interleave 6s / 0.5s / 4s / 1s / 3s');
+  assert.equal(err.code, 'deadline-exceeded');
+});
+
+test('the whole retry budget stays inside the identity gate', () => {
+  /* 6000 + 500 + 4000 + 1000 + 3000 = 14500, against the 22000 ceiling in
+     app.js. If the gate fires first the retries were time nobody got back. */
+  const budget = 6000 + 500 + 4000 + 1000 + 3000;
+  const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+  const gate = /var IDENTITY_DEADLINE_MS = (\d+);/.exec(app);
+  assert.ok(gate, 'IDENTITY_DEADLINE_MS not found in app.js');
+  assert.ok(budget < Number(gate[1]),
+    `retry budget ${budget}ms must be under the ${gate[1]}ms identity gate`);
+});
+
+test('a transient failure that clears on the second attempt just works', async () => {
+  const { SM, calls } = load({ sequence: ['unavailable', 'resolve'] });
+  const profile = await SM.store.loadProfile('u1');
+  assert.equal(calls.get, 2, 'it should have retried exactly once');
+  assert.equal(profile.uid, 'u1', 'and returned the profile the retry fetched');
+});
+
+test('a rules refusal is NOT retried — it needs a person, not three attempts', async () => {
+  const { SM, calls } = load({ behaviour: 'reject' });
+  const err = await outcome(SM.store.loadProfile('u1'));
+  assert.equal(calls.get, 1, 'permission-denied must fail on the first attempt');
+  assert.equal(err.code, 'permission-denied',
+    'and keep its own code, so the fault points at the rules rather than the network');
 });
 
 /* ------------------------------------------- the deadline changes nothing else */

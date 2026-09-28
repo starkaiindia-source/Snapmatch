@@ -3133,8 +3133,16 @@
 
      Generous on purpose. It is a backstop for a fault, not a performance
      budget, and cutting off a sign-in that was about to succeed would trade
-     one bug for another. Every step beneath it settles well inside this. */
-  var IDENTITY_DEADLINE_MS = 20000;
+     one bug for another.
+
+     It has to clear the slowest legitimate path beneath it, or it fires first
+     and the work underneath was time nobody gets back — in particular the
+     profile read's three attempts, which cost 14.5s worst case (see
+     RETRY_PLAN in src/data/firestore.js). A test asserts that budget stays
+     under this number. The point of the headroom is that the SPECIFIC error
+     wins: 'permission-denied' or 'unavailable' tells the owner what to fix,
+     and a generic 'identity-timeout' does not. */
+  var IDENTITY_DEADLINE_MS = 25000;
 
   function identityDeadline(promise) {
     return new Promise(function (resolve) {
@@ -3277,6 +3285,56 @@
   function authFailedHTML(fault) {
     var outage = !!(fault && fault.outage);
     var signedIn = !!(SM.fb && SM.fb.user && SM.fb.user());
+
+    /* ------------------------------------------- REFUSED IS NOT UNREACHABLE
+
+       'permission-denied' and 'deadline-exceeded' are both "the database did
+       not give us the profile", and they need opposite responses.
+
+         deadline-exceeded / unavailable   the backend did not answer in time.
+                                           Transient. Already retried three
+                                           times before reaching this screen,
+                                           and pressing Try again is sensible.
+         permission-denied                 the backend answered, and said no.
+                                           The rules, or the project the rules
+                                           belong to, are wrong. Retrying will
+                                           be refused identically for ever, and
+                                           telling somebody to "try again
+                                           shortly" sends them to wait for a
+                                           thing that will never happen on its
+                                           own. It needs the owner.
+
+       This matters most right after a Firebase project change, which is when a
+       rules deployment is most likely to be missing — exactly the situation
+       this site is in. */
+    var refused = fault && (fault.code === 'permission-denied' ||
+                            fault.code === 'unauthenticated');
+
+    if (refused) {
+      return '<div class="acct"><div class="card card--pad">' +
+        '<h2 class="t-h1">' + esc(signedIn
+          ? 'Signed in — but this account is not allowed to read its own profile'
+          : 'The site refused the request') + '</h2>' +
+        '<p class="t-sub" style="margin-top:6px">' + esc(
+          'Google signed you in and the database answered — it refused. That is a ' +
+          'permissions setting on our side, not anything about your account, and ' +
+          'it will not clear by itself. Nothing you have entered has been lost.') +
+        '</p>' +
+        '<p class="t-sub" style="margin-top:8px">' + esc(
+          'Searching and browsing the catalogue are unaffected.') + '</p>' +
+        '<p class="t-sub" style="margin-top:10px;opacity:.7">Reference: ' +
+          esc(String(fault.code)) + '</p>' +
+        '<div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">' +
+          '<a class="btn btn--primary" href="/finder">Browse the catalogue</a>' +
+          '<button class="btn btn--outline btn--sm" data-act="retry-identity" type="button">' +
+            icon('refresh') + 'Try again</button>' +
+          (signedIn
+            ? '<button class="btn btn--ghost btn--sm" data-act="signout" type="button">' +
+              icon('logout') + 'Sign out</button>'
+            : '') +
+        '</div>' +
+        '</div></div>';
+    }
 
     /* Four combinations, four sentences. Whether Google signed them in is a
        different fact from whether the database answered, and a message that

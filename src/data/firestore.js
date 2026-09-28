@@ -82,6 +82,71 @@
      would cancel legitimate slow uploads. */
   var DEADLINE_UPLOAD_MS = 60000;
 
+  /* ====================================================== RETRY, BUT BRIEFLY
+
+     Firebase's own guidance is to retry DEADLINE_EXCEEDED with exponential
+     backoff, and that is right for the failure it describes: a slow round
+     trip, a dropped connection, a moment of backend pressure. A second
+     attempt costs a second and usually works.
+
+     WHAT MUST NOT BE RETRIED, and why it is worth being strict about:
+
+       permission-denied   the rules said no. Asking again asks the same
+                           question and gets the same answer, and hiding it
+                           behind three attempts turns a configuration fault
+                           into a mystery slow failure. It needs a person, not
+                           a retry.
+       not-found           an answer, not a failure.
+       unauthenticated     the token is wrong. A retry cannot mint a better one.
+       resource-exhausted  the quota is spent. Retrying is what spent it.
+
+     And the budget is small on purpose. Every attempt is time somebody spends
+     looking at a spinner, and the total has to stay inside the identity gate's
+     ceiling or the gate fires first and the retries were pointless. Three
+     attempts at 6s, 4s and 3s with 0.5s and 1s between them is 14.5s worst
+     case, against a 22s gate.
+
+     It is honestly a small loss for a PERMANENTLY dead backend — the reader
+     waits 14.5s for the error rather than 6s. That is the price of recovering
+     automatically from the transient case, which is the common one. */
+  var TRANSIENT = {
+    'deadline-exceeded': 1,
+    'unavailable': 1,
+    'internal': 1,
+    'aborted': 1
+  };
+
+  /* Only the read the sign-in blocks on. Retrying a browse query would spend a
+     reader's time on a page they can simply reload. */
+  var RETRY_PLAN = {
+    loadProfile: { deadlines: [6000, 4000, 3000], backoff: [500, 1000] }
+  };
+
+  function withRetry(name, invoke, plan) {
+    var attempt = 0;
+
+    function run() {
+      /* A FRESH call each time. Re-awaiting the same promise would re-await
+         the same hang. */
+      return deadline(invoke(), name + ' (attempt ' + (attempt + 1) + ')',
+                      plan.deadlines[attempt])
+        .catch(function (err) {
+          var code = err && err.code;
+          var isLast = attempt >= plan.deadlines.length - 1;
+          if (isLast || !TRANSIENT[code]) throw err;
+
+          var wait = plan.backoff[Math.min(attempt, plan.backoff.length - 1)];
+          attempt++;
+          SM.debug.warn('firestore', name + ' failed, retrying', {
+            code: code, nextAttempt: attempt + 1, afterMs: wait
+          });
+          return new Promise(function (r) { setTimeout(r, wait); }).then(run);
+        });
+    }
+
+    return run();
+  }
+
   function deadline(promise, label, ms) {
     return new Promise(function (resolve, reject) {
       var settled = false;
@@ -546,11 +611,20 @@
       if (typeof fn !== 'function' || SYNC[name] || SELF_BOUNDED[name]) return;
 
       SM.store[name] = function () {
-        var out;
+        var self = this === undefined ? SM.store : SM.store;
+        var args = arguments;
+
         /* A method that throws synchronously must still reject rather than
            explode in the caller's stack — callers here only ever .catch. */
-        try { out = fn.apply(SM.store, arguments); }
-        catch (e) { return Promise.reject(e); }
+        var invoke = function () {
+          try { return fn.apply(self, args); }
+          catch (e) { return Promise.reject(e); }
+        };
+
+        var plan = RETRY_PLAN[name];
+        if (plan) return withRetry(name, invoke, plan);
+
+        var out = invoke();
         if (!out || typeof out.then !== 'function') return out;
         return deadline(out, name, LONGER[name] || DEADLINE_MS);
       };
