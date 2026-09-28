@@ -10441,8 +10441,29 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
        to the left of the avatar rather than a banner across the page. */
     end = freeSearchChipHTML() + end;
 
-    if (s.status === 'guest') {
+    /* ------------------------------------------- signed in is not the same as
+       having a profile.
+
+       `s.status` is derived from the LOCAL profile cache, so it reads 'guest'
+       whenever users/{uid} could not be loaded — which is what happens while
+       the database is refusing. The header then offered "Sign in" to somebody
+       Google had signed in moments earlier, and pressing it did the whole
+       Google dance again to arrive back in the same place.
+
+       Firebase is the authority on whether there is a session. It is asked
+       directly here, and a signed-in user with no readable profile gets a link
+       to the account screen — which explains the fault and offers the retry —
+       rather than an invitation to do something they have already done.
+
+       This deliberately does NOT promote them out of 'guest' anywhere else.
+       Access is decided by the server, and a profile that could not be read is
+       not evidence of a subscription. */
+    var fbSignedIn = !!(SM.fb && SM.fb.user && SM.fb.user());
+
+    if (s.status === 'guest' && !fbSignedIn) {
       end += '<a class="btn btn--primary btn--sm" href="/account">Sign in</a>';
+    } else if (s.status === 'guest') {
+      end += '<a class="btn btn--outline btn--sm" href="/account">Account</a>';
     } else {
       end += '<a class="avatar" href="/account" title="' + esc(s.name) + '">' + esc(initials(s.name)) + '</a>';
     }
@@ -13552,6 +13573,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           : 'Google sign-in could not be completed. Nothing was changed on your ' +
             'account. Please try again.');
 
+    /* WHAT STILL WORKS, said plainly.
+
+       The catalogue, the search and every device page are served from a CDN
+       bundle and never touch Firestore — so a database outage costs the
+       profile and the subscription, and nothing else. A screen that does not
+       say so reads as "the site is down", and the reader has no way to know
+       they could simply carry on. */
+    var stillWorks = signedIn
+      ? 'Searching and browsing the catalogue are unaffected — they do not use ' +
+        'the database.'
+      : '';
+
     /* The technical code, small and last. It is what turns "it did not work"
        into something the owner can act on without a screen recording, and it
        carries no credential — SM.isBackendOutage decides from exactly this. */
@@ -13559,18 +13592,31 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       ? '<p class="t-sub" style="margin-top:10px;opacity:.7">Reference: ' + esc(String(fault.code)) + '</p>'
       : '';
 
+    /* Try again retries the PROFILE READ, not the sign-in: resolveIdentity
+       asks SM.fb.whenResolved(), which answers from the session already in
+       hand. No popup, no account chooser, no second trip to Google. Saying so
+       is worth a line — a button that might restart an OAuth flow is one
+       people hesitate over. */
     return '<div class="acct"><div class="card card--pad">' +
       '<h2 class="t-h1">' + esc(title) + '</h2>' +
       '<p class="t-sub" style="margin-top:6px">' + esc(text) + '</p>' +
+      (stillWorks ? '<p class="t-sub" style="margin-top:8px">' + esc(stillWorks) + '</p>' : '') +
       detail +
       '<div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">' +
         '<button class="btn btn--primary" data-act="retry-identity" type="button">' +
           icon('refresh') + 'Try again</button>' +
         (signedIn
-          ? '<button class="btn btn--outline" data-act="signout" type="button">' +
+          ? '<a class="btn btn--outline" href="/finder">Browse the catalogue</a>'
+          : '') +
+        (signedIn
+          ? '<button class="btn btn--ghost btn--sm" data-act="signout" type="button">' +
             icon('logout') + 'Sign out</button>'
           : '') +
       '</div>' +
+      (signedIn
+        ? '<p class="t-sub" style="margin-top:12px;opacity:.7">Try again re-reads your ' +
+          'account. It will not ask you to sign in with Google a second time.</p>'
+        : '') +
       '</div></div>';
   }
 
