@@ -38,6 +38,75 @@
   var FIRESTORE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js';
   var dbLoad = null;
 
+  /* ====================================================== EVERY READ EXPIRES
+
+     THE BUG THIS EXISTS TO KILL: "Finishing sign-in..." for ever.
+
+     A Firestore call can fail in a way the SDK never reports. When the Google
+     Cloud project itself refuses the API — billing switched off, the API
+     disabled, the database deleted — firestore.googleapis.com answers
+
+         403 PERMISSION_DENIED: This API method requires billing to be enabled
+
+     to every single request. The SDK does not surface that. It classifies a
+     failed WebChannel as a transient connection problem and retries with
+     backoff, for ever, and the promise returned by .get() NEVER SETTLES. Not
+     resolved, not rejected: pending until the tab is closed.
+
+     Measured on the live site, 2026-09-28, while billing was disabled on the
+     project: catalog/meta — a document the rules let anyone read — was still
+     pending after 30 seconds with no error of any kind.
+
+     Everything downstream of such a call is therefore unreachable. That is the
+     whole production failure: sign-in with Google genuinely SUCCEEDED, the
+     Firebase user was real, and then initializeAuthenticatedUser awaited
+     loadProfile() and stopped. identitySettled stayed false, so the account
+     screen repainted "Finishing sign-in... / Checking your Google account."
+     and had nothing left that could ever change it. Every recovery path the
+     app already has — the offline branch, the outage message, the retry —
+     hangs off a .catch that could not run, because nothing ever rejected.
+
+     A deadline turns that back into an ordinary error. 'deadline-exceeded' is
+     already one of the codes SM.isBackendOutage treats as "the database
+     refused, not your phone" (src/data/api.js), so a timeout lands in the
+     outage wording that was written for exactly this incident rather than in
+     "check your connection", which was false for it.
+
+     This does NOT paper over an outage. Nothing is faked, no read is answered
+     from nowhere: a call that cannot complete now says so, in bounded time, to
+     a caller that knows what to do about it. */
+  var DEADLINE_MS = 10000;
+
+  /* Uploading a photo is not a lookup — it is megabytes over whatever
+     connection a counter in a shop has. Holding it to a reader's deadline
+     would cancel legitimate slow uploads. */
+  var DEADLINE_UPLOAD_MS = 60000;
+
+  function deadline(promise, label, ms) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        SM.debug.warn('firestore', label + ' timed out', { after: ms });
+        /* Shaped like a Firestore rejection, because that is what every caller
+           is already written to read. */
+        var err = new Error('firestore ' + label + ' did not answer within ' + ms + 'ms');
+        err.code = 'deadline-exceeded';
+        err.timedOut = true;
+        reject(err);
+      }, ms);
+
+      promise.then(function (v) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(v);
+      }, function (e) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); reject(e);
+      });
+    });
+  }
+
   /* Loads the Firestore SDK on first use. Most visits never sign in and never
      need it, so it is not part of the boot payload. */
   function store() {
@@ -396,8 +465,13 @@
     /* ------------------------------------------------------------- history */
 
     /** The shop's own recent searches. Owner-only by rule. */
+    /* This one, pushSearch and check all promise never to throw, and they mean
+       it — so each puts the deadline INSIDE its own catch. The blanket wrapper
+       at the foot of this file would sit outside it and turn a timeout into
+       exactly the rejection these methods exist to absorb. They are listed in
+       SELF_BOUNDED there. */
     recentSearches: function (uid, limit) {
-      return store().then(function (db) {
+      return deadline(store().then(function (db) {
         return db.collection('users').doc(uid).collection('recent')
           .orderBy('at', 'desc').limit(limit || 10).get();
       }).then(function (snap) {
@@ -405,15 +479,17 @@
           var x = d.data();
           return { id: d.id, modelId: x.modelId, query: x.query, at: ms(x.at) };
         });
-      }).catch(function () { return []; });   /* history is a nicety, never a blocker */
+      }), 'recentSearches', DEADLINE_MS)
+        .catch(function () { return []; });   /* history is a nicety, never a blocker */
     },
 
     pushSearch: function (uid, modelId, query) {
-      return store().then(function (db) {
+      return deadline(store().then(function (db) {
         return db.collection('users').doc(uid).collection('recent').doc(modelId).set({
           modelId: modelId, query: query || '', at: Date.now()
         });
-      }).catch(function () { /* losing a history row must not break a search */ });
+      }), 'pushSearch', DEADLINE_MS)
+        .catch(function () { /* losing a history row must not break a search */ });
     },
 
     /* -------------------------------------------------------------- health */
@@ -423,7 +499,7 @@
      * rules. Used by the diagnostics rather than guessing from a blank screen.
      */
     check: function () {
-      return store().then(function (db) {
+      return deadline(store().then(function (db) {
         return db.collection('catalog').doc('meta').get();
       }).then(function (snap) {
         return {
@@ -432,9 +508,52 @@
           catalogMeta: snap.exists ? snap.data() : null,
           imported: snap.exists
         };
-      }).catch(function (err) {
-        return { ok: false, code: err && err.code, message: err && err.message };
-      });
+      }), 'check', DEADLINE_MS)
+        .catch(function (err) {
+          /* A diagnostics call that throws is a diagnostics call nobody can
+             use while the thing it diagnoses is broken. A timeout is a RESULT
+             here — and the most informative one this function can return,
+             because a backend that never answers is precisely what it is for. */
+          return { ok: false, code: err && err.code, message: err && err.message };
+        });
     }
   };
+
+  /* ------------------------------------------------- the deadline, applied
+
+     Wrapping the object rather than each method is deliberate. A per-call-site
+     timeout is one someone forgets to add to the next method, and the method
+     they forget is the one that strands a screen — which is precisely how this
+     outage reached production with recovery code already written for it. Here
+     there is nothing to remember: every asynchronous door out of this module
+     goes through the same clock.
+
+     `available` and `normaliseProfile` are pure and synchronous, and a
+     non-thenable return is passed through untouched, so a future synchronous
+     helper needs no maintenance here either. */
+  (function applyDeadlines() {
+    var SYNC = { available: 1, normaliseProfile: 1 };
+
+    /* Already bounded, inside their own catch. Wrapping them again would put a
+       rejection outside the handler that exists to absorb it, and these three
+       promise their callers that they never throw. */
+    var SELF_BOUNDED = { recentSearches: 1, pushSearch: 1, check: 1 };
+
+    var LONGER = { uploadProfilePhoto: DEADLINE_UPLOAD_MS };
+
+    Object.keys(SM.store).forEach(function (name) {
+      var fn = SM.store[name];
+      if (typeof fn !== 'function' || SYNC[name] || SELF_BOUNDED[name]) return;
+
+      SM.store[name] = function () {
+        var out;
+        /* A method that throws synchronously must still reject rather than
+           explode in the caller's stack — callers here only ever .catch. */
+        try { out = fn.apply(SM.store, arguments); }
+        catch (e) { return Promise.reject(e); }
+        if (!out || typeof out.then !== 'function') return out;
+        return deadline(out, name, LONGER[name] || DEADLINE_MS);
+      };
+    });
+  })();
 })(window);

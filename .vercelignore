@@ -34,8 +34,11 @@
 # tree would be slow and could ship a platform-specific build.
 /node_modules/
 
-# Tests run in CI and locally, not in a function bundle.
+# Tests run in CI and locally, not in a function bundle. src/ is served
+# statically by vercel.json's allowlist, so a test file left there would be a
+# publicly downloadable file that no page loads.
 /api/_lib/*.test.js
+/src/data/*.test.js
 
 # Generated SEO output IS deployed (finder/, models/, categories/, the landing
 # pages, robots.txt, sitemap.xml, site.webmanifest and the brand icons) — it is

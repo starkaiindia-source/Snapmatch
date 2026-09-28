@@ -1819,6 +1819,33 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .notice--brand{ background:var(--teal-050); border-color:var(--teal-100); }
 .notice--brand svg{ color:var(--teal-600); }
 
+/* ---------------------------------------------------------------- paywall
+   Drawn wherever a compatibility list is withheld: an opened group, a match
+   card, the device page. It is the same component in all three, because three
+   wordings of one rule read as three rules.
+
+   Deliberately NOT a blur or a fade over rows. There are no rows underneath
+   it — the names never left the server — so anything that looked like
+   obscured content would be a lie about what the page is holding. */
+.paywall{
+  display:flex; gap:14px; align-items:flex-start;
+  padding:18px; border-radius:var(--r);
+  border:1px solid var(--teal-100); background:var(--teal-050);
+}
+.paywall__ico{
+  flex:none; display:grid; place-items:center;
+  width:38px; height:38px; border-radius:50%;
+  background:var(--teal-100); color:var(--teal-700);
+}
+.paywall__ico svg{ width:19px; height:19px; }
+.paywall__b{ display:flex; flex-direction:column; gap:8px; min-width:0; }
+.paywall__t{ margin:0; font-size:15px; font-weight:750; letter-spacing:-.012em; color:var(--ink); }
+.paywall__p{ margin:0; font-size:13.5px; line-height:1.5; color:var(--ink-2); }
+@media (max-width:480px){
+  .paywall{ padding:15px; gap:11px; }
+  .paywall__ico{ width:32px; height:32px; }
+}
+
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important; }
 }
@@ -2433,6 +2460,20 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   .regcta{ bottom:var(--tabbar-h, 0px); }
 }
 
+/* The line under the form that says what is still missing, or that everything
+   is complete. It carries an icon, and `img,svg{display:block}` in styles.css
+   would otherwise drop the sentence onto the line beneath it. */
+#regHint{
+  display:flex; align-items:flex-start; gap:7px;
+  margin-top:12px; line-height:1.45;
+}
+#regHint svg{ width:15px; height:15px; flex:none; margin-top:1px; color:var(--ok); }
+
+/* The sign-in / sign-up error and status line. It sits between the form and
+   the Google button, so an empty one must take no room at all — a bare
+   #authMsg with padding left a gap that read as a missing field. */
+#authMsg:empty{ display:none; }
+
 /* A spec the source workbook has a column for but no value for on this device.
    Drawn rather than dropped, because "we have not recorded this yet" is a fact
    the person enriching the catalogue needs to see. Muted so a page of real
@@ -2748,6 +2789,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .gbar__meta{ display:flex; align-items:center; gap:8px; min-width:0; }
 /* The answer to the question the page was opened to ask, so it is the one
    thing in the second line that is not grey. */
+/* Empty until the server answers how many devices this account may see, so
+   it must take no room at all in the meantime — a bare pill with nothing in
+   it reads as a loading failure. */
+.gbar__count:empty{ display:none; }
 .gbar__count{
   flex:none; font-size:11.5px; font-weight:800; letter-spacing:.01em;
   color:var(--teal-700); background:var(--teal-050);
@@ -4384,39 +4429,53 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var groupById = Object.create(null);
     groups.forEach(function (g) { groupById[g.groupId] = g; });
 
-    /* device -> the groups that fit it, as ids, and the per-category counts
-       the device page reads. Both come from the one map in the bundle, so a
-       count can never disagree with the list it counts. */
+    /* --------------------------------------------- device -> part categories
+
+       COUNTS, NOT LISTS, AND THAT IS THE PAYWALL.
+
+       `bundle.modelCats` is device -> { categoryId: howManyGroups }. It used
+       to be `bundle.modelGroups`, device -> { categoryId: [groupId, …] }, and
+       the block below used to invert it into `membersByGroup` — every group's
+       complete member list, rebuilt in the browser, for everyone, signed in or
+       not. Withholding the member list from the `groups` array achieved
+       nothing while this map shipped: all 3,384 groups were recoverable from
+       it, and so was every one of the 12,345 fitments the subscription sells.
+
+       So the bundle carries the counts and the counts alone. They are what a
+       free account is entitled to — "this phone has a back cover and a battery
+       listed" — and a count cannot be turned back into a list.
+
+       WHERE THE LISTS COME FROM NOW. /api/device-parts, which reads the
+       caller's subscription from Firestore before it answers and returns no
+       members at all to a free account. See api/_services/entitlement-service.
+
+       groupsByModel and membersByGroup stay declared, and stay EMPTY. Every
+       reader of them already writes `|| []`, so an empty map degrades to "no
+       members known locally" — which is the truth — rather than throwing. */
     var groupsByModel = Object.create(null);
-    var partCounts = Object.create(null);
-    var mg = bundle.modelGroups || {};
-    Object.keys(mg).forEach(function (modelId) {
-      var byCat = mg[modelId];
-      var all = [];
-      var counts = Object.create(null);
-      Object.keys(byCat).forEach(function (cat) {
-        var ids = byCat[cat] || [];
-        counts[cat] = ids.length;
-        all = all.concat(ids);
-      });
-      groupsByModel[modelId] = all;
-      partCounts[modelId] = counts;
-    });
-
-    /* The same edge list read the other way round: group -> the devices in it.
-       Built here rather than fetched because the bundle already carries every
-       edge — inverting a map that is in memory costs one pass and no request.
-
-       This is what lets a group card show the handsets it covers instead of a
-       sentence about how many it covers. How MANY of them a given card may
-       name is not decided here: that is the free-tier allowance, applied at
-       the point of display in api.groupPreview. */
     var membersByGroup = Object.create(null);
-    Object.keys(groupsByModel).forEach(function (modelId) {
-      var ids = groupsByModel[modelId];
-      for (var i = 0; i < ids.length; i++) {
-        (membersByGroup[ids[i]] || (membersByGroup[ids[i]] = [])).push(modelId);
-      }
+    var partCounts = Object.create(null);
+    var groupCountByModel = Object.create(null);
+
+    /* `modelGroups` is the OLD key. A browser holding a bundle from before
+       this change still has it, and reading the counts out of it keeps that
+       browser's category chips working until the new file arrives. What is
+       NOT done with it, ever again, is building a member list. */
+    var mc = bundle.modelCats || null;
+    var legacy = !mc && bundle.modelGroups ? bundle.modelGroups : null;
+    var src = mc || legacy || {};
+
+    Object.keys(src).forEach(function (modelId) {
+      var byCat = src[modelId] || {};
+      var counts = Object.create(null);
+      var total = 0;
+      Object.keys(byCat).forEach(function (cat) {
+        var v = byCat[cat];
+        var n = typeof v === 'number' ? v : (v && v.length) || 0;
+        if (n > 0) { counts[cat] = n; total += n; }
+      });
+      partCounts[modelId] = counts;
+      groupCountByModel[modelId] = total;
     });
 
     /* Total fitments. It read g.memberCount, which this layer never sets — the
@@ -4436,9 +4495,15 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       brandById: brandById,
       categoryById: categoryById,
       groupById: groupById,
+      /* Both empty — see the block above. Kept so `db.groupsByModel[x] || []`
+         at every existing call site keeps meaning "nothing known here". */
       groupsByModel: groupsByModel,
       membersByGroup: membersByGroup,
       partCountsByCategory: partCounts,
+      /* How many groups fit a device, in total. The one figure the old
+         `groupsByModel[id].length` was actually used for at most call sites,
+         and the only part of it that was ever free. */
+      groupCountByModel: groupCountByModel,
       /* So the UI can state its own limits instead of rendering blank rows. */
       coverage: {
         present: bundle.fieldsPresent,
@@ -5344,6 +5409,75 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   var FIRESTORE_SDK = 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js';
   var dbLoad = null;
 
+  /* ====================================================== EVERY READ EXPIRES
+
+     THE BUG THIS EXISTS TO KILL: "Finishing sign-in..." for ever.
+
+     A Firestore call can fail in a way the SDK never reports. When the Google
+     Cloud project itself refuses the API — billing switched off, the API
+     disabled, the database deleted — firestore.googleapis.com answers
+
+         403 PERMISSION_DENIED: This API method requires billing to be enabled
+
+     to every single request. The SDK does not surface that. It classifies a
+     failed WebChannel as a transient connection problem and retries with
+     backoff, for ever, and the promise returned by .get() NEVER SETTLES. Not
+     resolved, not rejected: pending until the tab is closed.
+
+     Measured on the live site, 2026-09-28, while billing was disabled on the
+     project: catalog/meta — a document the rules let anyone read — was still
+     pending after 30 seconds with no error of any kind.
+
+     Everything downstream of such a call is therefore unreachable. That is the
+     whole production failure: sign-in with Google genuinely SUCCEEDED, the
+     Firebase user was real, and then initializeAuthenticatedUser awaited
+     loadProfile() and stopped. identitySettled stayed false, so the account
+     screen repainted "Finishing sign-in... / Checking your Google account."
+     and had nothing left that could ever change it. Every recovery path the
+     app already has — the offline branch, the outage message, the retry —
+     hangs off a .catch that could not run, because nothing ever rejected.
+
+     A deadline turns that back into an ordinary error. 'deadline-exceeded' is
+     already one of the codes SM.isBackendOutage treats as "the database
+     refused, not your phone" (src/data/api.js), so a timeout lands in the
+     outage wording that was written for exactly this incident rather than in
+     "check your connection", which was false for it.
+
+     This does NOT paper over an outage. Nothing is faked, no read is answered
+     from nowhere: a call that cannot complete now says so, in bounded time, to
+     a caller that knows what to do about it. */
+  var DEADLINE_MS = 10000;
+
+  /* Uploading a photo is not a lookup — it is megabytes over whatever
+     connection a counter in a shop has. Holding it to a reader's deadline
+     would cancel legitimate slow uploads. */
+  var DEADLINE_UPLOAD_MS = 60000;
+
+  function deadline(promise, label, ms) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        SM.debug.warn('firestore', label + ' timed out', { after: ms });
+        /* Shaped like a Firestore rejection, because that is what every caller
+           is already written to read. */
+        var err = new Error('firestore ' + label + ' did not answer within ' + ms + 'ms');
+        err.code = 'deadline-exceeded';
+        err.timedOut = true;
+        reject(err);
+      }, ms);
+
+      promise.then(function (v) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(v);
+      }, function (e) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); reject(e);
+      });
+    });
+  }
+
   /* Loads the Firestore SDK on first use. Most visits never sign in and never
      need it, so it is not part of the boot payload. */
   function store() {
@@ -5702,8 +5836,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     /* ------------------------------------------------------------- history */
 
     /** The shop's own recent searches. Owner-only by rule. */
+    /* This one, pushSearch and check all promise never to throw, and they mean
+       it — so each puts the deadline INSIDE its own catch. The blanket wrapper
+       at the foot of this file would sit outside it and turn a timeout into
+       exactly the rejection these methods exist to absorb. They are listed in
+       SELF_BOUNDED there. */
     recentSearches: function (uid, limit) {
-      return store().then(function (db) {
+      return deadline(store().then(function (db) {
         return db.collection('users').doc(uid).collection('recent')
           .orderBy('at', 'desc').limit(limit || 10).get();
       }).then(function (snap) {
@@ -5711,15 +5850,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           var x = d.data();
           return { id: d.id, modelId: x.modelId, query: x.query, at: ms(x.at) };
         });
-      }).catch(function () { return []; });   /* history is a nicety, never a blocker */
+      }), 'recentSearches', DEADLINE_MS)
+        .catch(function () { return []; });   /* history is a nicety, never a blocker */
     },
 
     pushSearch: function (uid, modelId, query) {
-      return store().then(function (db) {
+      return deadline(store().then(function (db) {
         return db.collection('users').doc(uid).collection('recent').doc(modelId).set({
           modelId: modelId, query: query || '', at: Date.now()
         });
-      }).catch(function () { /* losing a history row must not break a search */ });
+      }), 'pushSearch', DEADLINE_MS)
+        .catch(function () { /* losing a history row must not break a search */ });
     },
 
     /* -------------------------------------------------------------- health */
@@ -5729,7 +5870,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      * rules. Used by the diagnostics rather than guessing from a blank screen.
      */
     check: function () {
-      return store().then(function (db) {
+      return deadline(store().then(function (db) {
         return db.collection('catalog').doc('meta').get();
       }).then(function (snap) {
         return {
@@ -5738,11 +5879,54 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           catalogMeta: snap.exists ? snap.data() : null,
           imported: snap.exists
         };
-      }).catch(function (err) {
-        return { ok: false, code: err && err.code, message: err && err.message };
-      });
+      }), 'check', DEADLINE_MS)
+        .catch(function (err) {
+          /* A diagnostics call that throws is a diagnostics call nobody can
+             use while the thing it diagnoses is broken. A timeout is a RESULT
+             here — and the most informative one this function can return,
+             because a backend that never answers is precisely what it is for. */
+          return { ok: false, code: err && err.code, message: err && err.message };
+        });
     }
   };
+
+  /* ------------------------------------------------- the deadline, applied
+
+     Wrapping the object rather than each method is deliberate. A per-call-site
+     timeout is one someone forgets to add to the next method, and the method
+     they forget is the one that strands a screen — which is precisely how this
+     outage reached production with recovery code already written for it. Here
+     there is nothing to remember: every asynchronous door out of this module
+     goes through the same clock.
+
+     `available` and `normaliseProfile` are pure and synchronous, and a
+     non-thenable return is passed through untouched, so a future synchronous
+     helper needs no maintenance here either. */
+  (function applyDeadlines() {
+    var SYNC = { available: 1, normaliseProfile: 1 };
+
+    /* Already bounded, inside their own catch. Wrapping them again would put a
+       rejection outside the handler that exists to absorb it, and these three
+       promise their callers that they never throw. */
+    var SELF_BOUNDED = { recentSearches: 1, pushSearch: 1, check: 1 };
+
+    var LONGER = { uploadProfilePhoto: DEADLINE_UPLOAD_MS };
+
+    Object.keys(SM.store).forEach(function (name) {
+      var fn = SM.store[name];
+      if (typeof fn !== 'function' || SYNC[name] || SELF_BOUNDED[name]) return;
+
+      SM.store[name] = function () {
+        var out;
+        /* A method that throws synchronously must still reject rather than
+           explode in the caller's stack — callers here only ever .catch. */
+        try { out = fn.apply(SM.store, arguments); }
+        catch (e) { return Promise.reject(e); }
+        if (!out || typeof out.then !== 'function') return out;
+        return deadline(out, name, LONGER[name] || DEADLINE_MS);
+      };
+    });
+  })();
 })(window);
 
 
@@ -5797,20 +5981,73 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     return checkoutLoading;
   }
 
+  /* ------------------------------------------------------- nothing waits for ever
+
+     A fetch() has no timeout of its own. A request that is accepted and then
+     never answered — a serverless function wedged on a database that has
+     stopped replying, a captive portal that swallows the connection - leaves
+     its promise pending indefinitely, and every await behind it with it.
+
+     That is the same shape of failure as the Firestore hang in
+     src/data/firestore.js, and it strands the same screens: /api/profile-sync
+     is awaited on the sign-in path and /api/admin/session is awaited by the
+     account screen's role gate. Either one hanging is another permanent
+     "Finishing sign-in...".
+
+     AbortController is what actually cancels the request rather than merely
+     stopping waiting on it, so a timed-out call does not leave a connection
+     open behind the error. */
+  var API_TIMEOUT_MS = 15000;
+
+  function timedFetch(path, init, ms) {
+    init = init || {};
+    var ctrl = null;
+    try { ctrl = new AbortController(); } catch (e) { /* very old browser */ }
+    if (ctrl) init.signal = ctrl.signal;
+
+    var timer = null;
+    var limit = ms || API_TIMEOUT_MS;
+
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        if (ctrl) { try { ctrl.abort(); } catch (e) { /* already gone */ } }
+        SM.debug.warn('api', path + ' timed out', { after: limit });
+        var err = new Error('request-timeout');
+        err.code = 'deadline-exceeded';
+        err.timedOut = true;
+        /* 504-shaped so SM.isBackendOutage reads it as the site's fault, which
+           is what a request the site accepted and never answered is. */
+        err.status = 504;
+        reject(err);
+      }, limit);
+
+      fetch(path, init).then(function (res) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(res);
+      }, function (e) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); reject(e);
+      });
+    });
+  }
+
   /* Every authenticated call goes through here so the token is always fresh
      and a 401 always means the same thing. */
   function apiFetch(path, options) {
     options = options || {};
     return SM.fb.idToken().then(function (token) {
       if (!token) throw new Error('signin-required');
-      return fetch(path, {
+      return timedFetch(path, {
         method: options.method || 'GET',
         headers: Object.assign({
           'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         }, options.headers || {}),
         body: options.body ? JSON.stringify(options.body) : undefined
-      });
+      }, options.timeoutMs);
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (!res.ok) {
@@ -5827,7 +6064,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   SM.billing = {
     /** Public pricing. No auth — a signed-out visitor must see the price. */
     plans: function () {
-      return fetch('/api/plans').then(function (r) { return r.json(); });
+      return timedFetch('/api/plans').then(function (r) { return r.json(); });
     },
 
     /**
@@ -5839,7 +6076,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      * Now the browser can ask directly, and so can anyone with curl.
      */
     health: function () {
-      return fetch('/api/health').then(function (r) { return r.json(); })
+      return timedFetch('/api/health').then(function (r) { return r.json(); })
         .catch(function () { return { ok: false, unreachable: true }; });
     },
 
@@ -5856,8 +6093,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      * It grants nothing. /admin and every /api/admin/* route re-check the same
      * token on every request; this only stops the UI guessing.
      */
-    adminSession: function () {
-      return apiFetch('/api/admin/session');
+    adminSession: function (options) {
+      return apiFetch('/api/admin/session', options);
     },
 
     /**
@@ -6319,6 +6556,60 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     };
   }
 
+  /* One group as /api/device-parts returned it, in the shape the cards expect.
+
+     The server sends membership and nothing about presentation; the number,
+     serial, category and master come from the loaded catalogue, which is
+     public and already in memory. A group the local bundle has never heard of
+     -- added in the console since the last build -- is dropped rather than
+     rendered as undefined, the same way hydrateRemote handles it.
+
+     `devices` is resolved against db.modelById first so the cards get real
+     photographs and brands. A member the catalogue does not carry falls back
+     to the name the server sent, which is better than a blank row. */
+  function rowFromServerGroup(sg) {
+    if (!sg || !sg.groupId) return null;
+    var g = db.groupById[sg.groupId];
+    if (!g) {
+      SM.debug.warn('api', 'server returned a group the catalogue does not have',
+                    { groupId: sg.groupId });
+      return null;
+    }
+    var cat = db.categoryById[g.categoryId];
+    var master = db.modelById[g.masterModelId];
+    if (!cat || !master) return null;
+
+    var members = Array.isArray(sg.members) ? sg.members : [];
+    var devices = members.length
+      ? members.map(function (m) {
+          var id = m && (m.id || m);
+          return db.modelById[id] || {
+            id: id,
+            fullName: (m && m.name) || id,
+            modelName: (m && m.name) || id,
+            brandId: null,
+            search: String((m && m.name) || id).toLowerCase()
+          };
+        })
+      : null;
+
+    return {
+      group: g,
+      category: cat,
+      master: master,
+      devices: devices,
+      deviceCount: Number(sg.memberCount) || g.compatibleCount || 0,
+      /* The server's own verdict, not a guess from an empty array: a group
+         with no members recorded and a group withheld from a free account are
+         different things and get different words on screen. */
+      locked: !!sg.requiresPlan || !!sg.locked,
+      requiresPlan: !!sg.requiresPlan,
+      lockedCount: Number(sg.lockedCount) || 0,
+      partCode: sg.partCode || g.partCode || null,
+      oemPartNo: sg.oemPartNo || g.oemPartNo || null
+    };
+  }
+
   /* A group read from Firestore, put into the shape the cards expect.
 
      The two sources carry the same fields — the CDN bundle is built from the
@@ -6685,7 +6976,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   function groupCountFor(modelId, cat, counts) {
     if (cat) return (counts[modelId] && counts[modelId][cat]) || 0;
-    return (db.groupsByModel[modelId] || []).length;
+    /* The bundle ships counts, not ids — see src/data/dataset.js. */
+    return (db.groupCountByModel && db.groupCountByModel[modelId]) || 0;
   }
 
   /* How many groups match, from the in-memory catalogue. Used so the header
@@ -6722,15 +7014,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     getModel: function (id) {
       var m = db.modelById[id];
       if (!m) return respond(null, LAT.fast);
-      var gids = db.groupsByModel[m.id] || [];
       /* The public catalogue ships counts per category and withholds the group
-         ids, so counting memberships here returns zero for every category.
-         The count map is the source when it exists; the membership scan is
-         the fallback for a fully loaded catalogue. */
+         ids, so `groupCountByModel` is the only figure available here — and
+         the only one that was ever free. */
       var counts = db.partCountsByCategory && db.partCountsByCategory[m.id];
       return respond({
         model: m,
-        groupCount: gids.length,
+        groupCount: (db.groupCountByModel && db.groupCountByModel[m.id]) || 0,
         categories: db.categories.map(function (c) {
           /* Groups this model sits in for this category. Derived from the same
              membership index the rest of the app uses - there is no second
@@ -6854,20 +7144,71 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return respond(g ? hydrate(g) : null, LAT.fast);
     },
 
-    /* the core Device Finder lookup: model (+ optional category) -> groups */
+    /* ------------------------------- the core Device Finder lookup: ASK THE
+       SERVER
+
+       model (+ optional category) -> the groups that fit it.
+
+       THIS USED TO BE A LOCAL MAP READ. db.groupsByModel came out of
+       assets/dataset.json, which is a public file, and inverting it gave
+       anybody every group's full member list -- so the paywall the rest of
+       this file describes was decorative. The bundle now ships per-category
+       counts only and this asks /api/device-parts, which reads the caller's
+       subscription from Firestore before it answers:
+
+         subscriber  every group, every member
+         free        every group's IDENTITY and size, and no members at all
+         signed out  the same as free
+
+       The withheld names are not in the response. There is nothing here to
+       filter, hide or unhide -- the rows do not arrive.
+
+       The group's display fields still come from the local catalogue, because
+       they are public and already loaded: number, serial, part code, category,
+       master model. The server supplies which groups, and who is in them.
+
+       @returns {Promise<Array>} rows in the shape hydrate() produces. The
+       array carries `.unavailable = true` when the server could not answer,
+       which the caller MUST render differently from an empty result: "we
+       could not load this" and "this device has no parts" are opposite
+       statements and only one of them is ever true at a time. */
     findMatches: function (opts) {
       opts = opts || {};
       var order = {};
       db.categories.forEach(function (c, i) { order[c.id] = i; });
-      var gids = db.groupsByModel[opts.modelId] || [];
-      var out = gids.map(function (id) { return db.groupById[id]; })
-        .filter(function (g) { return !opts.categoryId || opts.categoryId === 'all' || g.categoryId === opts.categoryId; })
-        /* canonical part order first (glass, cover, display, …), then group no. */
-        .sort(function (a, b) {
-          return order[a.categoryId] - order[b.categoryId] || a.groupNumber.localeCompare(b.groupNumber);
-        })
-        .map(hydrate);
-      return respond(out, LAT.normal);
+
+      var wanted = opts.categoryId && opts.categoryId !== 'all' ? opts.categoryId : null;
+
+      if (!SM.access || !SM.access.deviceGroups) {
+        var none = [];
+        none.unavailable = true;
+        return Promise.resolve(none);
+      }
+
+      return SM.access.deviceGroups(opts.modelId).then(function (device) {
+        if (device && device.unavailable) {
+          var out0 = [];
+          out0.unavailable = true;
+          return out0;
+        }
+        if (!device || !device.categories) return [];
+
+        var rows = [];
+        device.categories.forEach(function (cat) {
+          if (wanted && cat.categoryId !== wanted) return;
+          (cat.groups || []).forEach(function (sg) {
+            var row = rowFromServerGroup(sg);
+            if (row) rows.push(row);
+          });
+        });
+
+        /* canonical part order first (glass, cover, display, ...), then no. */
+        rows.sort(function (a, b) {
+          return (order[a.group.categoryId] - order[b.group.categoryId]) ||
+            String(a.group.groupNumber).localeCompare(String(b.group.groupNumber));
+        });
+        return rows;
+      });
     },
 
     /* per-category availability for the selected model (drives the chips) */
@@ -6880,14 +7221,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       var byCat = Object.create(null);
       var counts = db.partCountsByCategory && db.partCountsByCategory[modelId];
 
-      if (counts) {
-        byCat = counts;
-      } else {
-        (db.groupsByModel[modelId] || []).forEach(function (id) {
-          var g = db.groupById[id];
-          if (g) byCat[g.categoryId] = (byCat[g.categoryId] || 0) + 1;
-        });
-      }
+      /* One source now. The membership scan that used to stand behind this
+         counted a map the bundle no longer ships, so it could only ever have
+         returned zero — and a silent zero reads as "no parts for this device",
+         which is the opposite of what the chips are for. */
+      if (counts) byCat = counts;
       return respond(db.categories.map(function (c) {
         return { category: c, count: byCat[c.id] || 0 };
       }), LAT.fast);
@@ -6910,18 +7248,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      which is inside the allowance at every group size. The server remains the
      enforcement point for the full list — this only decides what a card is
      allowed to show without asking for it. */
+  /* Zero, matching api/_schema/entitlement.js. A free account sees no members
+     of any group, at any size — see that file for why the sample went. This
+     copy exists so a card can decide not to draw a strip without a round
+     trip; it withholds nothing on its own, because the bundle it would read
+     from no longer carries the members either. */
   var FREE_SMALL_MAX = 5;
   var FREE_MEDIUM_MAX = 50;
-  var FREE_MEMBERS_MEDIUM = 5;
-  var FREE_MEMBERS_LARGE = 10;
+  var FREE_MEMBERS_MEDIUM = 0;
+  var FREE_MEMBERS_LARGE = 0;
 
-  function freeMemberLimit(total) {
-    var n = Number(total);
-    if (!isFinite(n) || n <= 0) return 0;
-    if (n <= FREE_SMALL_MAX) return n;
-    if (n <= FREE_MEDIUM_MAX) return FREE_MEMBERS_MEDIUM;
-    return FREE_MEMBERS_LARGE;
-  }
+  function freeMemberLimit() { return 0; }
 
   /**
    * A representative handful of the devices in a group.
@@ -6937,10 +7274,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    */
   api.groupPreview = function (g, max) {
     if (!g) return [];
+    /* Empty since the fitment list left the public bundle. A group card
+       therefore shows the group and its size and no handsets, which is what
+       a free account is entitled to; C.groupPreview renders nothing for an
+       empty list rather than an empty strip. */
     var ids = (db.membersByGroup && db.membersByGroup[g.groupId]) || [];
     var total = g.compatibleCount || ids.length;
     var cap = Math.min(Number(max) || 5, freeMemberLimit(total));
     if (cap <= 0) return [];
+    /* Nothing to preview. Without this the master model was `take`n below and
+       every card drew a one-handset strip UNDER the master card that already
+       names it — the same phone twice, presented as a preview of the group's
+       other members. */
+    if (!ids.length) return [];
 
     var picked = [];
     var seen = Object.create(null);
@@ -6974,10 +7320,23 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     return picked;
   };
 
-  /** Every device in a group, for the inline group view's centre column. */
+  /** Every device in a group, for the inline group view's centre column.
+
+     THE LOCAL SOURCE IS GONE. db.membersByGroup was built by inverting the
+     public bundle's fitment map, and that map is the product -- so it no
+     longer ships and this map is always empty. Members now come from
+     /api/device-parts through SM.access, and the group view holds them in
+     `state.finder.groupMembers`.
+
+     Returning [] rather than [master] is deliberate. A group rendered with
+     exactly its master model in it looks like a group of one, which is a
+     false statement about a part that fits 325 handsets. Empty means "not
+     loaded here", and the caller shows either the members it fetched or the
+     paywall. */
   api.groupMembers = function (g) {
     if (!g) return [];
     var ids = (db.membersByGroup && db.membersByGroup[g.groupId]) || [];
+    if (!ids.length) return [];
     var out = [];
     var seen = Object.create(null);
     var master = db.modelById[g.masterModelId];
@@ -7217,10 +7576,72 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     }).catch(function (err) {
       SM.debug.warn('identity', 'profile load failed', { code: err && err.code, message: err && err.message });
       refresh();
-      return { profile: SM.auth.findProfile(uid) || null, complete: false, isNew: false, offline: true };
+      return {
+        profile: SM.auth.findProfile(uid) || null, complete: false, isNew: false,
+        offline: true,
+        /* Carried through so the account screen can say whether the database
+           refused or the phone did. Without it every read failure read as
+           "check your connection", which was false for the one that was
+           actually happening. */
+        outage: SM.isBackendOutage(err),
+        reason: (err && err.code) || (err && err.message) || null
+      };
     });
   }
   SM.session_initializeAuthenticatedUser = initializeAuthenticatedUser;
+
+  /* ------------------------------------------------------- outage, not you
+
+     Firestore can fail for two completely different reasons, and the account
+     screen has to be able to tell them apart because the sentence it shows is
+     different in each case.
+
+       the READER is offline    — their phone has no signal. Retrying works.
+       the DATABASE is refusing — the project's billing is disabled, the quota
+                                  is spent, the database does not exist, the
+                                  service is down. Retrying cannot work, and
+                                  nothing about their phone is wrong.
+
+     The second one is what this deployment actually hit: Firestore answered
+     every request, from the browser AND from the Admin SDK, with
+     `7 PERMISSION_DENIED — This API method requires billing to be enabled`.
+     The browser reported that as "Check the connection and try again", so a
+     shop owner sat re-entering their shop details into a form that could never
+     have saved them, on a connection that was working perfectly.
+
+     TELLING THEM APART
+
+       · a SERVER reply of any kind proves the connection works, so an HTTP 5xx
+         is the site's fault by definition. 503 datastore-unavailable says so
+         outright — see api/_lib/http.js.
+       · the Firestore SDK's own codes below all mean the backend answered and
+         refused. `unavailable` is the one billing produces, after the SDK has
+         retried the 403 to exhaustion.
+       · navigator.onLine breaks the remaining tie. It is unreliable as proof
+         that a connection WORKS, but a browser saying it is offline is worth
+         believing, and that is the only direction it is used in here. */
+  var DATASTORE_CODES = {
+    'unavailable': 1, 'permission-denied': 1, 'resource-exhausted': 1,
+    'failed-precondition': 1, 'internal': 1, 'not-found': 1,
+    'unauthenticated': 1, 'deadline-exceeded': 1
+  };
+
+  /** A Firestore SDK rejection that means the backend refused, not the phone. */
+  function firestoreOutage(err) {
+    return !!(err && err.code && DATASTORE_CODES[String(err.code)]);
+  }
+
+  /** An /api/* rejection that means the server answered and broke. */
+  function serverOutage(err) {
+    return !!(err && typeof err.status === 'number' && err.status >= 500);
+  }
+
+  function browserOffline() {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
+  SM.isBackendOutage = function (err) {
+    return !browserOffline() && (firestoreOutage(err) || serverOutage(err));
+  };
 
   /* ------------------------------------------------- registration, persisted
 
@@ -7259,6 +7680,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     };
 
     var serverOk = false, clientOk = false;
+    /* Set when a path failed in a way that is the SITE's fault rather than the
+       reader's connection — see SM.isBackendOutage above. */
+    var serverDown = false, clientDown = false;
     var reasons = [];
 
     var viaServer = SM.billing
@@ -7268,6 +7692,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
             SM.debug.log('signup', 'profile written server side', { uid: r.uid, complete: r.profileCompleted });
             return r;
           }, function (e) {
+            if (serverOutage(e)) serverDown = true;
             reasons.push('server: ' + ((e && e.message) || 'unreachable'));
             SM.debug.warn('signup', 'server profile write failed',
                           { status: e && e.status, error: e && e.message });
@@ -7282,6 +7707,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
             SM.debug.log('signup', 'profile written from the browser', { uid: identity.sub });
             return p;
           }, function (e) {
+            if (firestoreOutage(e)) clientDown = true;
             reasons.push('client: ' + ((e && e.code) || (e && e.message) || 'failed'));
             SM.debug.warn('signup', 'direct profile write failed', { code: e && e.code });
             return null;
@@ -7293,6 +7719,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         var err = new Error('profile-save-failed');
         err.code = 'profile-save-failed';
         err.reasons = reasons;
+        /* Both halves failed. `outage` says whether that was the database
+           refusing or the reader's connection dropping, so the account screen
+           can stop telling people to check a connection that is fine. */
+        err.outage = !browserOffline() && (serverDown || clientDown);
         throw err;
       }
       /* Read it back rather than trusting the write. What the account screen
@@ -7639,6 +8069,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   var state = null;
   var inFlight = null;
   var listeners = [];
+  /* modelId -> the in-flight or settled promise for its group list. */
+  var deviceCache = Object.create(null);
 
   function emit() {
     listeners.forEach(function (fn) {
@@ -7786,10 +8218,71 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       });
     },
 
+    /**
+     * Every group that fits one device, per category, cut to this account's
+     * tier by the server.
+     *
+     * THIS REPLACED A LOCAL LOOKUP. The map of device -> groups used to be in
+     * assets/dataset.json, which is one unauthenticated GET, and inverting it
+     * handed anybody the full member list of all 3,384 groups. The bundle now
+     * carries per-category COUNTS only, and the ids — with the members, for a
+     * subscriber — come from here.
+     *
+     * Cached per model for the life of the page: opening a group, going back,
+     * and opening it again is one request, not three. The cache is dropped by
+     * reset(), which runs on every sign-in and sign-out, so a free account
+     * cannot read a subscriber's answer out of it after a handover at the
+     * counter.
+     *
+     * @returns {Promise<{categories:Array}|{unavailable:true}|null>}
+     *          null  — the server has no such device
+     *          unavailable — it could not answer; NOT the same as "no parts",
+     *          and the caller must not render one as the other.
+     */
+    deviceGroups: function (modelId) {
+      if (!modelId) return Promise.resolve(null);
+      if (deviceCache[modelId]) return deviceCache[modelId];
+
+      var req = headers().then(function (h) {
+        return fetch('/api/device-parts?modelId=' + encodeURIComponent(modelId), { headers: h });
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (data) {
+          if (data && data.access) { state = data.access; emit(); }
+          if (r.status === 404) return null;
+          if (!r.ok) {
+            /* Forget it, so a retry after the outage is a real request rather
+               than the cached failure. */
+            delete deviceCache[modelId];
+            SM.debug.warn('access', 'device parts unavailable',
+                          { modelId: modelId, status: r.status, error: data && data.error });
+            return { unavailable: true, status: r.status };
+          }
+          return (data && data.device) || null;
+        });
+      }).catch(function (err) {
+        delete deviceCache[modelId];
+        SM.debug.warn('access', 'device parts request failed',
+                      { modelId: modelId, message: err && err.message });
+        return { unavailable: true, status: 0 };
+      });
+
+      deviceCache[modelId] = req;
+      return req;
+    },
+
+    /** Drops one device's cached answer, so a retry is a real request. */
+    forgetDevice: function (modelId) {
+      if (modelId) delete deviceCache[modelId];
+    },
+
     /** Forgets everything. Called on sign-in and sign-out — see the header. */
     reset: function () {
       state = null;
       inFlight = null;
+      /* The per-device answers were cut to the PREVIOUS account's tier. Keeping
+         them across a sign-out would leave a subscriber's member lists in
+         memory for whoever signs in next on a shared counter machine. */
+      deviceCache = Object.create(null);
       emit();
     }
   };
@@ -8180,9 +8673,22 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     parts: '<circle cx="7" cy="7" r="3"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><path d="M4 20.5h7l-3.5-6-3.5 6Z"/><circle cx="17" cy="17" r="3.5"/>'
   };
 
+  /* width/height are ATTRIBUTES, not CSS, so every existing rule that sizes an
+     icon — .btn svg, .pill svg, .tab svg and the rest — still wins. They exist
+     only as the default for the places that size nothing.
+
+     Without them an <svg> carrying a viewBox and no dimensions is a replaced
+     element with no intrinsic size: `max-width:100%` in styles.css caps its
+     width to the container and the aspect ratio takes the height with it, so
+     one 24x24 glyph rendered as a 306x306 disc. That is the giant arc that was
+     appearing under "Add shop address" on the Create account page — the check
+     icon in #regHint, which nothing had a size rule for — and the same bug had
+     already been patched one selector at a time in .authwait. Fixed here, at
+     the source, so the next unsized call site cannot repeat it. */
   SM.icon = function (name, cls) {
     var d = P[name] || P.info;
-    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.8" ' +
       'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"' +
       (cls ? ' class="' + cls + '"' : '') + '>' + d + '</svg>';
   };
@@ -9644,7 +10150,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   C.modelCard = function (m, q) {
     var b = SM.db.brandById[m.brandId];
-    var gc = (SM.db.groupsByModel[m.id] || []).length;
+    var gc = (SM.db.groupCountByModel && SM.db.groupCountByModel[m.id]) || 0;
     /* An href for the same reason the device grid uses one: this is how a
        crawler — and a middle-click — reaches a model page. */
     return '<a class="mcard" href="/model/' + m.id + '">' +
@@ -9789,7 +10295,21 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       trending: [], suggest: [], newModels: [], restTotal: 0,
       /* An open compatibility group, and which of its devices the right panel
          is describing. Both null means the finder is in its default state. */
-      groupId: null, detailModelId: null, groupQ: '', groupShown: 400
+      groupId: null, detailModelId: null, groupQ: '', groupShown: 400,
+      /* The devices in the open group, as /api/device-parts returned them for
+         THIS account. Not read from the catalogue: the fitment list is the
+         paid half and no longer ships to the browser.
+
+           null  not asked yet, or asking
+           []    asked, and this account may not have them
+           [..]  a subscriber's real list
+
+         `groupLocked` is the server saying which of the last two it is, so an
+         empty list is never rendered as "this group has no devices". */
+      groupMembers: null, groupLocked: false, groupLoadFailed: false,
+      /* The rows the last search returned, kept so the header can count the
+         distinct devices it was actually given rather than guessing. */
+      matches: null
     },
     models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
       /* View state, not query state: the same records are already in memory,
@@ -10036,6 +10556,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       state.finder.detailModelId = null;
       state.finder.groupQ = '';
       state.finder.groupShown = 400;
+      /* A new group: forget the last one's devices before anything paints, or
+         the first frame of group B shows group A's list. */
+      state.finder.groupMembers = null;
+      state.finder.groupLocked = false;
+      state.finder.groupLoadFailed = false;
+      if (state.finder.groupId) loadGroupMembers(state.finder.groupId);
       /* The variant helpers are shared with the model page and hold one
          device's selection at a time; a group opens on its master. */
       state.deviceColour = 0;
@@ -10046,6 +10572,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       state.finder.groupId = null;
       state.finder.detailModelId = null;
       state.finder.groupQ = '';
+      state.finder.groupMembers = null;
+      state.finder.groupLocked = false;
+      state.finder.groupLoadFailed = false;
     }
 
     state.sheet = null;
@@ -10460,18 +10989,19 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   /* ------------------------------------------------------------ the count
 
-     How many devices this group actually links, read from the compatibility
-     edges themselves rather than from any stored figure. api.groupMembers
-     resolves db.membersByGroup — the inverse of the model -> groups map the
-     bundle ships — so the number here and the list under it are always the
-     same set counted twice. Nothing about it is written down in this file.
+     How many devices this group links.
 
-     compatibleCount is the group row's own tally and is used only when the
-     member list has not been hydrated yet, so a group that is still loading
-     says how big it is instead of saying nothing. */
+     THE COUNT IS FREE AND THE NAMES ARE NOT, so this reads the group row's
+     own tally first. It used to count db.membersByGroup — the fitment list
+     inverted out of the public bundle — which no longer ships, so counting it
+     would report 0 for every group and the banner would say "0 devices
+     linked" above a part that fits 325.
+
+     The loaded member list still wins WHEN THERE IS ONE, so a subscriber's
+     banner and the grid under it are the same set counted twice. */
   function groupMemberCount(g) {
-    var members = api.groupMembers(g);
-    if (members.length) return members.length;
+    var loaded = state.finder.groupId === (g && g.groupId) ? openGroupMembers() : null;
+    if (loaded && loaded.length) return loaded.length;
     return g && g.compatibleCount ? g.compatibleCount : 0;
   }
 
@@ -10698,9 +11228,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var total = groupMemberCount(g);
 
     /* Brands, counted from the same member list the grid is built from, so
-       the number and the headings below it cannot disagree. */
+       the number and the headings below it cannot disagree. Zero for a free
+       account, which has no member list — the banner leaves the phrase out
+       rather than claiming "0 brands". */
     var seen = Object.create(null), brands = 0;
-    api.groupMembers(g).forEach(function (m) {
+    (openGroupMembers() || []).forEach(function (m) {
       var b = m.brandId || '?';
       if (!seen[b]) { seen[b] = 1; brands++; }
     });
@@ -10743,8 +11275,84 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   /* Just the list. Repainted on its own when the filter changes, so the input
      keeps its caret and its focus. */
+  /* ------------------------------------------------------------- the paywall
+
+     ONE card, used everywhere a compatibility list is withheld: the opened
+     group, a match card, the device page. A second copy would be a second
+     wording, and two different explanations of the same rule read as two
+     different rules.
+
+     It states the count it is withholding, because that number is public —
+     the group row carries it, and "325 devices" is the advertisement. What it
+     never contains is a name: the rows are not in the response, so there is
+     nothing here to hide, blur or truncate.
+
+     The button is data-act="go-plans", which routes through gatedUpgrade() —
+     a signed-out visitor reaches Sign in, a signed-in free account reaches
+     Plans, and neither decision is made in this markup. */
+  function paywallHTML(opts) {
+    opts = opts || {};
+    var n = Number(opts.count) || 0;
+    var what = opts.what || 'the devices in this group';
+    return '<div class="paywall">' +
+      '<span class="paywall__ico">' + icon('lock') + '</span>' +
+      '<div class="paywall__b">' +
+      '<h3 class="paywall__t">' +
+        (n ? esc(deviceCountLabel(n, 'in this group')) : 'Compatible devices') +
+        ' &mdash; part of a plan</h3>' +
+      '<p class="paywall__p">Seeing ' + esc(what) + ' needs an active ' +
+        'subscription. Monthly is &#8377;99 and Yearly is &#8377;799, and both ' +
+        'unlock every group, every part category and unlimited searches.</p>' +
+      '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn--primary" data-act="go-plans">' + icon('crown') +
+        'See the plans</button>' +
+      '</div></div></div>';
+  }
+
+  /* The devices in the open group, as the SERVER gave them to this account.
+
+     Resolved against the local catalogue for photographs and brands, with the
+     server's own name as the fallback for a device the bundle does not carry.
+     Never read from db.membersByGroup — that map is empty now, on purpose. */
+  function openGroupMembers() {
+    var raw = state.finder.groupMembers;
+    if (!raw) return null;
+    return raw.map(function (m) {
+      var id = m && (m.id || m);
+      return db.modelById[id] || {
+        id: id,
+        fullName: (m && m.name) || id,
+        modelName: (m && m.name) || id,
+        brandId: null,
+        search: String((m && m.name) || id).toLowerCase()
+      };
+    });
+  }
+
   function groupListHTML(row) {
-    var all = api.groupMembers(row.group);
+    /* WITHHELD. The server said this account may not read the member list, so
+       there is no list here to render — not a truncated one, not a blurred
+       one. The names were never sent. */
+    if (state.finder.groupLocked) {
+      return paywallHTML({
+        count: row.group.compatibleCount,
+        what: 'which devices this part fits'
+      });
+    }
+
+    if (state.finder.groupLoadFailed) {
+      return '<div class="notice notice--amber">' + icon('alert') +
+        '<span>The devices in this group could not be loaded just now. This is ' +
+        'a fault on our side, not with your connection &mdash; nothing about ' +
+        'your account has changed. Try again in a moment.</span></div>';
+    }
+
+    var all = openGroupMembers();
+    if (all === null) {
+      return '<div class="notice">' + icon('refresh') +
+        '<span>Loading the devices in this group&hellip;</span></div>';
+    }
+
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
     /* The cap is a guard rail, not a page size: the largest group in the
@@ -10755,13 +11363,54 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var sel = detailModel();
     if (!shown.length) {
       return '<div class="notice">' + icon('alert') +
-        '<span>No device in this group matches that filter.</span></div>';
+        '<span>' + (q
+          ? 'No device in this group matches that filter.'
+          : 'No devices are recorded in this group yet.') + '</span></div>';
     }
     return brandBlocksHTML(shown, { masterId: row.master.id, sel: sel, card: true }) +
       (list.length > shown.length
         ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
           'Show ' + nf(list.length - shown.length) + ' more</button></div>'
         : '');
+  }
+
+  /* ------------------------------------------------ opening a group, gated
+
+     THE SERVER DECIDES, AND IT DECIDES BEFORE ANY DEVICE REACHES THE PAGE.
+
+     /api/device-parts reads the caller's subscription out of Firestore and
+     returns `members: []` with `requiresPlan: true` to a free account. So a
+     free user who types /group/sg-0167 into the address bar, presses Back into
+     a group they saw as a subscriber, or calls the endpoint with curl gets the
+     same answer in all three cases: the group's identity and its size, and no
+     device names anywhere in the payload.
+
+     This function does not gate anything by itself; it records what the server
+     said so the view can draw the right thing. Gating in the browser would be
+     a lock on a door with no wall around it. */
+  var groupLoadSeq = 0;
+  function loadGroupMembers(groupId) {
+    var ticket = ++groupLoadSeq;
+    if (!SM.access || !SM.access.groupMembers) {
+      state.finder.groupLoadFailed = true;
+      return;
+    }
+    SM.access.groupMembers(groupId).then(function (g) {
+      /* A later group was opened while this was in flight. */
+      if (ticket !== groupLoadSeq || state.finder.groupId !== groupId) return;
+
+      if (!g) {
+        state.finder.groupLoadFailed = true;
+        state.finder.groupMembers = null;
+      } else {
+        state.finder.groupLocked = !!g.requiresPlan;
+        state.finder.groupMembers = Array.isArray(g.members) ? g.members : [];
+        state.finder.groupLoadFailed = false;
+      }
+      if (state.route.name === 'finder' && state.finder.groupId === groupId) {
+        renderWorkspace();
+      }
+    });
   }
 
   /* The right panel: the selected device, in the space a sidebar has.
@@ -11179,9 +11828,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     if (!row) return;
     var host = document.getElementById('groupList');
     if (host) host.innerHTML = groupListHTML(row);
-    var all = api.groupMembers(row.group);
+    /* The group's own size is public and comes from the catalogue row; only
+       the NAMES are gated. So a locked group still says "325 devices linked",
+       which is the sentence that makes the plan worth buying. */
+    var all = openGroupMembers() || [];
     var q = String(state.finder.groupQ || '').trim().toLowerCase();
     var n = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }).length : all.length;
+    if (!all.length) {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-gcount]'), function (c) {
+        c.textContent = deviceCountLabel(row.group.compatibleCount || 0, 'linked');
+      });
+      return;
+    }
     /* Filtering narrows what is on screen; it does not change how many devices
        the group links. "12 of 325 devices" says both, and the group's own
        total never silently becomes the size of a search.
@@ -11211,18 +11869,37 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      The model itself is seeded into `seen`, because a phone is not compatible
      with itself; a device that appears in six of its groups is counted once,
      because it is one phone you could take the part off. */
+  /* COUNTED FROM WHAT THE SERVER ACTUALLY SENT, never from the bundle.
+
+     This used to walk db.groupsByModel and db.membersByGroup, which is the
+     fitment list — and the fitment list no longer ships to the browser, so
+     that walk can only return 0 now. Printing "0 devices linked" over a phone
+     with five part groups would be a confident lie, which is worse than
+     saying nothing.
+
+     So it counts the distinct devices in the matches THIS account was given.
+     A subscriber has them all and gets the real figure; a free account was
+     given none, and gets null — which the header renders as no phrase at all
+     rather than as a zero.
+
+     @returns {number|null} null means "not known to this account" */
   function linkedDeviceCount(modelId) {
-    var gids = (db.groupsByModel && db.groupsByModel[modelId]) || [];
+    var rows = state.finder.matches;
+    if (!rows || !rows.length) return null;
     var seen = Object.create(null);
     seen[modelId] = 1;
     var n = 0;
-    for (var i = 0; i < gids.length; i++) {
-      var ids = (db.membersByGroup && db.membersByGroup[gids[i]]) || [];
-      for (var j = 0; j < ids.length; j++) {
-        if (!seen[ids[j]]) { seen[ids[j]] = 1; n++; }
+    var any = false;
+    for (var i = 0; i < rows.length; i++) {
+      var ds = rows[i] && rows[i].devices;
+      if (!ds || !ds.length) continue;
+      any = true;
+      for (var j = 0; j < ds.length; j++) {
+        var id = ds[j] && ds[j].id;
+        if (id && !seen[id]) { seen[id] = 1; n++; }
       }
     }
-    return n;
+    return any ? n : null;
   }
 
   /* The selected model, as the head of the CENTRE column.
@@ -11240,13 +11917,13 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     var f = state.finder;
     var m = db.modelById[f.modelId];
     if (!m) return '';
-    var gids = (db.groupsByModel && db.groupsByModel[m.id]) || [];
+    var nGroups = (db.groupCountByModel && db.groupCountByModel[m.id]) || 0;
     var cats = (db.partCountsByCategory && db.partCountsByCategory[m.id]) || {};
     var nCats = Object.keys(cats).length;
     var linked = linkedDeviceCount(m.id);
 
     var meta = [
-      gids.length ? nf(gids.length) + ' group' + (gids.length === 1 ? '' : 's') : null,
+      nGroups ? nf(nGroups) + ' group' + (nGroups === 1 ? '' : 's') : null,
       nCats ? nf(nCats) + ' part ' + (nCats === 1 ? 'category' : 'categories') : null
     ].filter(Boolean).join(' · ');
 
@@ -11264,7 +11941,14 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         '<span class="gbar__id">' +
           '<span class="gbar__n">' + esc(deviceTitle(m)) + '</span>' +
           '<span class="gbar__meta">' +
-            '<span class="gbar__count">' + esc(deviceCountLabel(linked, 'linked')) + '</span>' +
+            /* Always in the DOM, empty until the answer arrives. The header
+               paints before /api/device-parts has replied, so the tally is
+               filled in by loadMatches rather than guessed at here — and an
+               element that is not rendered cannot be filled in later. Empty
+               it collapses, because :empty hides it. */
+            '<span class="gbar__count">' +
+              (linked != null ? esc(deviceCountLabel(linked, 'linked')) : '') +
+            '</span>' +
             (meta ? '<span class="gbar__codes">' + esc(meta) + '</span>' : '') +
           '</span>' +
         '</span>' +
@@ -11962,6 +12646,28 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       /* Model, category and sequence all still current, or this answer is to
          a question nobody is asking any more. */
       if (!host || !current()) return;
+
+      /* COULD NOT ASK is not the same as NOTHING FOUND, and rendering the
+         first as the second tells a shop their customer's phone has no parts
+         when in fact the server did not answer. findMatches marks the array
+         rather than throwing, because an outage is an outcome to draw, not an
+         exception to swallow. */
+      if (rows && rows.unavailable) {
+        state.finder.matches = null;
+        var cntU = document.getElementById('gcount');
+        if (cntU) cntU.textContent = '';
+        host.innerHTML = C.state({
+          icon: 'alert',
+          title: 'Could not load the compatibility groups',
+          text: 'The server did not answer, so nothing is being shown rather ' +
+            'than something that might be wrong. This is a fault on our side ' +
+            'and not a statement about ' + esc(db.modelById[f.modelId] ? db.modelById[f.modelId].fullName : 'this device') + '.',
+          action: '<button class="btn btn--soft" data-act="retry-matches">' +
+            icon('refresh') + 'Try again</button>'
+        });
+        return;
+      }
+      state.finder.matches = rows;
       /* The browse view's infinite scroll must not keep firing underneath a
          result — it would append library groups below the matches. */
       if (io) io.disconnect();
@@ -12025,6 +12731,16 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       var shown = rows.slice(0, f.matchShown);
       var cnt = document.getElementById('gcount');
       if (cnt) cnt.textContent = rows.length === 1 ? '1 match' : rows.length + ' matches';
+
+      /* The header was drawn before this answer arrived, so the device tally
+         in it is either absent or stale. Updated here rather than by
+         re-rendering the whole sticky bar, which would scroll the column. */
+      var linkedNow = linkedDeviceCount(f.modelId);
+      var gc = document.querySelector('.gbar__count');
+      if (gc) {
+        if (linkedNow == null) gc.textContent = '';
+        else gc.textContent = deviceCountLabel(linkedNow, 'linked');
+      }
       var head =
         (rows.length > 1 && !cat
           ? '<div class="notice notice--brand" style="margin-bottom:14px">' + icon('layers') +
@@ -12061,19 +12777,18 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     });
   }
 
-  /* Every device in a group, from the best source that has them.
+  /* Every device in a group.
 
-     api.groupMembers reads db.membersByGroup — the bundle's own model-to-groups
-     map inverted — which is present for every group in the catalogue and costs
-     no request. It is what the opened group page has always listed from, so a
-     match card and the group it opens now name the same devices from the same
-     place rather than from two.
+     ONE SOURCE NOW: row.devices, which is what /api/device-parts returned for
+     THIS account. The local map it used to prefer — db.membersByGroup, the
+     public bundle's fitment list inverted — is gone, because shipping it made
+     every group's membership readable by anyone with the URL of a JSON file.
 
-     row.devices is the server's list, filled for a group fetched from Firestore
-     that the local bundle has never seen. It is the fallback, not the lead. */
+     Empty for a free account. The caller draws the paywall from
+     row.requiresPlan rather than from the emptiness, so "withheld" and "we
+     have none recorded" stay different sentences. */
   function groupDevices(row) {
-    var members = api.groupMembers(row.group);
-    return members.length ? members : (row.devices || []);
+    return row.devices || [];
   }
 
   function matchCard(row, hitModel) {
@@ -12087,17 +12802,26 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
        details. The card grew; the journey did not. */
     var devices = groupDevices(row);
     var total = devices.length || g.compatibleCount || 0;
-    var included = devices.some(function (d) { return d.id === hitModel.id; });
+    var included = !row.requiresPlan &&
+      devices.some(function (d) { return d.id === hitModel.id; });
 
     /* Brand blocks earn their headings on a long list and are noise on a short
        one: five devices under one heading is a heading saying what the five
        already say. The cut is where a list stops being readable in one glance. */
-    var list = devices.length
-      ? (devices.length > 12
-          ? brandBlocksHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' })
-          : chipGridHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' }))
-      : '<p class="t-xs muted" style="margin:0">The devices in this group are not ' +
-        'in the local catalogue. Open the group to load them.</p>';
+    /* WITHHELD, NOT MISSING. `row.requiresPlan` is the server saying this
+       account may not read the list; the list is therefore not in `devices`
+       and never was. The sentence this replaces — "the devices in this group
+       are not in the local catalogue" — described a loading quirk and is
+       exactly the wrong thing to tell a free user, because it reads as the
+       catalogue being incomplete rather than as the product being paid for. */
+    var list = row.requiresPlan
+      ? paywallHTML({ count: total, what: 'the devices this part fits' })
+      : (devices.length
+          ? (devices.length > 12
+              ? brandBlocksHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' })
+              : chipGridHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' }))
+          : '<p class="t-xs muted" style="margin:0">No devices are recorded in ' +
+            'this group yet.</p>');
 
     return '<div class="match" style="margin-bottom:14px">' +
       '<div class="match__head">' +
@@ -12227,7 +12951,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     return TABLE_COLS_ALL.filter(function (c) { return !c.needs || dbHas(c.needs); });
   }
 
-  function groupCountOf(m) { return (db.groupsByModel[m.id] || []).length; }
+  function groupCountOf(m) { return (db.groupCountByModel && db.groupCountByModel[m.id]) || 0; }
 
   /* Does the loaded catalogue actually carry this field?
      The UI is built for a richer dataset than the current export provides, so
@@ -12570,23 +13294,33 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         return C.planCard(p, { current: s.status === 'pro' && s.plan === p.id });
       }).join('') + '</div>' +
 
+      /* THIS TABLE MUST BE TRUE. It is the page people are asked to pay on,
+         and every row of it is enforced somewhere in api/. When the catalogue
+         was open it said "Free" down both columns and a notice underneath
+         explained that nothing was locked; saying that now, over a paywall
+         that does withhold the fitment list, would be the one page on the
+         site that must never mislead doing exactly that.
+
+         Each row below corresponds to a real check:
+           searches        -> POST /api/access, metered in Firestore by uid
+           opening a group -> GET /api/device-parts, members sliced by tier
+           group search    -> access.groupFilter                            */
       '<div class="sec"><div class="sec__head"><div class="sec__title"><h2>What a plan changes</h2></div></div>' +
       '<div class="idgrid" style="grid-template-columns:repeat(1,minmax(0,1fr))">' +
       cmp('Browse all mobile models & specs', 'Free', 'Free') +
-      cmp('Browse the compatibility group library', 'Free', 'Free') +
-      cmp('Match a model to its group', 'Free', 'Free') +
-      cmp('Full compatible-device list', 'Free', 'Free') +
-      cmp('Part code, serial & group number', 'Free', 'Free') +
+      cmp('Browse the group library — number, part code, master', 'Free', 'Free') +
+      cmp('Model searches per day', '3', 'Unlimited') +
+      cmp('Open a group and see the devices it fits', '—', 'Every group') +
+      cmp('Full compatible-device list', '—', 'Included') +
+      cmp('Search and filter inside the group library', '—', 'Included') +
       '</div></div>' +
 
-      /* Says what is actually true. The table above claimed four locks that
-         the app no longer has, and a plan page that describes a paywall the
-         product does not enforce is the one page that must not. */
       '<div class="notice" style="margin:18px 0 8px">' + icon('info') +
-      '<span><b>The whole catalogue is currently open.</b> Every compatibility ' +
-      'group, part code and fitment list is free to use while Mobile Parts Finder ' +
-      'is being built out. A plan supports that work and keeps your account ' +
-      'ready for the staff logins and part-code export that are next.</span></div>' +
+      '<span><b>What the three free searches show you.</b> A free account can ' +
+      'look up three models a day and see which compatibility groups they ' +
+      'belong to, with the group number and part code. Which other handsets ' +
+      'take the same part — the fitment list — is what a plan unlocks, on ' +
+      'every group and with no daily limit.</span></div>' +
       '</div>';
   }
   function cmp(label, free, pro) {
@@ -12616,6 +13350,57 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   var identityReady = null;
   var identitySettled = false;
 
+  /* Why the last resolution failed, when it failed in a way the reader has to
+     be told about. Null on the happy path. Read by renderAccount so the screen
+     that was stuck on a spinner now says what went wrong and offers a way out. */
+  var identityFault = null;
+
+  /* ------------------------------------------------- the gate always opens
+
+     A ceiling on the whole question, not on any one step inside it.
+
+     The infinite "Finishing sign-in…" was one unbounded await — a Firestore
+     read against a project whose API was refusing, which the SDK retries for
+     ever without ever rejecting. src/data/firestore.js now gives every read a
+     deadline, so that specific hang is gone at its source.
+
+     This is the second line, and it is here because the first one can only
+     cover what it knows about. resolveIdentity awaits whatever the identity
+     path happens to await today, and the next thing added to that path will
+     not arrive with a timeout attached. So the gate itself expires: whatever
+     is or is not pending underneath, the spinner comes down and the screen
+     says something true.
+
+     Generous on purpose. It is a backstop for a fault, not a performance
+     budget, and cutting off a sign-in that was about to succeed would trade
+     one bug for another. Every step beneath it settles well inside this. */
+  var IDENTITY_DEADLINE_MS = 20000;
+
+  function identityDeadline(promise) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        SM.debug.warn('boot', 'identity resolution timed out', { after: IDENTITY_DEADLINE_MS });
+        identityFault = {
+          code: 'identity-timeout',
+          outage: true,
+          message: 'the site did not finish checking the account'
+        };
+        resolve(null);
+      }, IDENTITY_DEADLINE_MS);
+
+      promise.then(function (v) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(v);
+      }, function () {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(null);
+      });
+    });
+  }
+
   /* True while the app still cannot say whether anyone is signed in.
 
      There are two unknowns, not one, and both have to clear. Until the Firebase
@@ -12632,8 +13417,9 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   function resolveIdentity() {
     if (identityReady) return identityReady;
+    identityFault = null;
 
-    identityReady = SM.fb.loadConfig().then(function (cfg) {
+    var work = SM.fb.loadConfig().then(function (cfg) {
       /* Firebase is genuinely unavailable — no config, no sign-in, nobody to
          resolve. Not an error: the catalogue works without it. */
       if (!cfg) {
@@ -12646,14 +13432,49 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         return S.initializeAuthenticatedUser(fbUser);
       });
     }).catch(function (err) {
-      SM.debug.warn('boot', 'identity resolution failed', { message: err && err.message });
+      SM.debug.warn('boot', 'identity resolution failed', { code: err && err.code, message: err && err.message });
+      /* Remembered rather than swallowed. This used to return null and say
+         nothing, so a signed-in user whose profile could not be read was
+         indistinguishable from a visitor who had never signed in — and the
+         account screen drew the sign-in form at someone who was, in fact,
+         signed in. */
+      identityFault = {
+        code: (err && err.code) || 'identity-failed',
+        outage: SM.isBackendOutage ? SM.isBackendOutage(err) : false,
+        message: (err && err.message) || null
+      };
       return null;
-    }).then(function (r) {
+    });
+
+    identityReady = identityDeadline(work).then(function (r) {
+      /* The profile read came back and said it could not be read. That is not
+         a new account and it is not a signed-out visitor; it is an outage, and
+         the screen has to be able to say which. */
+      if (r && r.offline && !identityFault) {
+        identityFault = {
+          code: r.reason || 'profile-unreadable',
+          outage: !!r.outage,
+          message: null
+        };
+      }
+      /* Set LAST and on every path, including the timeout. A gate that stays
+         shut after the answer has come back is the bug it was built to
+         prevent, pointed the other way. */
       identitySettled = true;
       return r;
     });
 
     return identityReady;
+  }
+
+  /* Throws the cached answer away and asks again — what the Try again button
+     on the account screen runs. */
+  function retryIdentity() {
+    identityReady = null;
+    identitySettled = false;
+    identityFault = null;
+    clearRoleState();
+    if (state.route.name === 'account') renderAccount(document.getElementById('page'));
   }
 
   /* Shown while Firebase is still answering. It is deliberately NOT the
@@ -12669,6 +13490,80 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       '<h2 class="t-h1">Finishing sign-in…</h2>' +
       '<p class="t-sub" style="margin-top:4px">Checking your Google account.</p>' +
       '</div></div></div></div>';
+  }
+
+  /* ------------------------------------------------- the spinner's way out
+
+     WHAT WENT WRONG, AND WHAT TO DO ABOUT IT.
+
+     The screen above is the one that hung. It had no terminal state at all:
+     every path into it ended in a promise, and when a promise never settled
+     there was nothing left that could repaint it. A user watched "Checking
+     your Google account." until they gave up, with no error, no cause and
+     nothing to press.
+
+     So identity resolution now always ends somewhere, and when it ends badly
+     it ends HERE — naming the fault and offering the retry. The two wordings
+     are the same distinction the sign-up form already draws:
+
+       outage   the database refused. Their phone is fine, retrying now will
+                not help, and saying "check your connection" to someone whose
+                connection is working is how people end up re-entering details
+                into a form that could never have saved them.
+       not      something local failed. Retrying is genuinely worth a try.
+
+     Signing out stays available in both. Someone stuck on a broken account
+     screen must always be able to leave it. */
+  function authFailedHTML(fault) {
+    var outage = !!(fault && fault.outage);
+    var signedIn = !!(SM.fb && SM.fb.user && SM.fb.user());
+
+    /* Four combinations, four sentences. Whether Google signed them in is a
+       different fact from whether the database answered, and a message that
+       blurs them is how someone ends up retrying the wrong thing — which is
+       the failure mode this whole screen exists to end. */
+    var title = signedIn
+      ? (outage ? 'Signed in — but your account could not be loaded'
+                : 'Your account could not be loaded')
+      : (outage ? 'The site is not responding'
+                : 'Sign-in could not be completed');
+
+    var text = outage
+      ? (signedIn
+          ? 'Google signed you in successfully. The site’s own database is not ' +
+            'responding, so your shop profile and subscription could not be read. ' +
+            'This is a fault on our side, not with your connection or your Google ' +
+            'account — nothing has been lost and nothing needs re-entering. ' +
+            'Please try again shortly.'
+          : 'The site’s database is not responding, so your account could not be ' +
+            'checked. This is a fault on our side, not with your connection. ' +
+            'Please try again shortly.')
+      : (signedIn
+          ? 'Your account details could not be read. Check the connection and ' +
+            'try again — nothing has been lost, and nothing needs re-entering.'
+          : 'Google sign-in could not be completed. Nothing was changed on your ' +
+            'account. Please try again.');
+
+    /* The technical code, small and last. It is what turns "it did not work"
+       into something the owner can act on without a screen recording, and it
+       carries no credential — SM.isBackendOutage decides from exactly this. */
+    var detail = fault && fault.code
+      ? '<p class="t-sub" style="margin-top:10px;opacity:.7">Reference: ' + esc(String(fault.code)) + '</p>'
+      : '';
+
+    return '<div class="acct"><div class="card card--pad">' +
+      '<h2 class="t-h1">' + esc(title) + '</h2>' +
+      '<p class="t-sub" style="margin-top:6px">' + esc(text) + '</p>' +
+      detail +
+      '<div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">' +
+        '<button class="btn btn--primary" data-act="retry-identity" type="button">' +
+          icon('refresh') + 'Try again</button>' +
+        (signedIn
+          ? '<button class="btn btn--outline" data-act="signout" type="button">' +
+            icon('logout') + 'Sign out</button>'
+          : '') +
+      '</div>' +
+      '</div></div>';
   }
 
   /* ====================================================================== ROLE
@@ -12724,8 +13619,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return Promise.resolve('user');
     }
 
+    /* Bounded, like every other call the account screen waits on. A role
+       lookup is a link on a page — it is never worth holding a screen open
+       for, and holding one open is exactly what it did. */
     roleState.pending = SM.billing && SM.billing.adminSession
-      ? SM.billing.adminSession().then(function (res) {
+      ? SM.billing.adminSession({ timeoutMs: 8000 }).then(function (res) {
           var role = (res && res.admin && res.admin.role) || 'user';
           if (roleState.uid === uid) { roleState.role = role; roleState.pending = null; }
           SM.debug.log('identity', 'role resolved from server', { uid: uid, role: role });
@@ -12784,10 +13682,30 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       return;
     }
 
+    /* Identity is settled and it settled badly. Draw the fault, not the
+       sign-in form.
+
+       Drawing the sign-in form here was the second half of the reported bug.
+       A failed profile read used to resolve to null, which is the same value a
+       genuine visitor produces, so the screen offered "Continue with Google"
+       to somebody Google had already signed in — and pressing it signed them
+       in again, read the profile again, failed again. */
+    var fbUser = SM.fb && SM.fb.user && SM.fb.user();
+    if (identityFault && (fbUser || identityFault.outage)) {
+      page.innerHTML = '<div class="shell" style="padding-top:20px">' +
+        authFailedHTML(identityFault) + '</div>';
+      return;
+    }
+
     /* Authenticated, profile in hand, role not yet settled. Keep waiting
        rather than painting a normal-user screen that has to become an admin
-       one a moment later — that flash is the thing section 9 forbids. */
-    var fbUser = SM.fb && SM.fb.user && SM.fb.user();
+       one a moment later — that flash is the thing section 9 forbids.
+
+       The wait is bounded now. roleFor resolves through /api/admin/session,
+       and this screen used to have no answer at all for that call not coming
+       back: the same spinner, the same forever. It settles to 'user' on any
+       failure, which costs a link and never access — /admin re-checks the
+       token on every request regardless. */
     if (fbUser && currentRole() === null) {
       page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
       roleFor(fbUser.uid).then(function () {
@@ -12808,6 +13726,58 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     addrOpen: false,          /* the address section starts collapsed */
     touched: {}
   };
+  /* --------------------------------------------- the draft survives Google
+
+     WHAT THIS PROTECTS AGAINST. `reg` is module state, and module state does
+     not survive a navigation. Sign-in opens a popup on almost every device, so
+     usually there is no navigation to survive — but when a popup cannot open
+     (blocked, or a browser that does not support one) SM.fb.signIn falls back
+     to signInWithRedirect, which sends the whole page to Google and reloads it
+     on the way back. Everything the shop typed was gone at that point, and
+     what they came back to was an empty form and the message "That Google
+     account has no shop profile yet. Fill in your shop details below" — asking
+     them to type it all again, having just proved they were who they said.
+
+     The same draft also survives an accidental reload, a back button, and the
+     tab being restored from the background on a phone with little memory.
+
+     sessionStorage, not localStorage: a draft belongs to the tab that is
+     filling it in. A shop name left behind on a counter machine must not greet
+     the next person who opens the site on it. It is cleared the moment the
+     account exists, and `touched` is deliberately NOT stored — validation
+     errors are a state of the current attempt, not of the draft. */
+  var REG_DRAFT_KEY = 'mpf.reg.draft.v1';
+  var REG_DRAFT_FIELDS = ['country', 'mobile', 'shopName', 'proprietor',
+                          'flat', 'area', 'city', 'district', 'stateName', 'addrOpen'];
+
+  function saveRegDraft() {
+    try {
+      var out = {};
+      REG_DRAFT_FIELDS.forEach(function (k) { out[k] = reg[k]; });
+      sessionStorage.setItem(REG_DRAFT_KEY, JSON.stringify(out));
+    } catch (e) { /* private mode — the draft is a nicety, never a blocker */ }
+  }
+
+  function restoreRegDraft() {
+    try {
+      var raw = sessionStorage.getItem(REG_DRAFT_KEY);
+      if (!raw) return false;
+      var d = JSON.parse(raw);
+      if (!d || typeof d !== 'object') return false;
+      var any = false;
+      REG_DRAFT_FIELDS.forEach(function (k) {
+        if (typeof d[k] === 'string' && d[k]) { reg[k] = d[k]; any = true; }
+        if (k === 'addrOpen' && d[k] === true) reg.addrOpen = true;
+      });
+      if (any) SM.debug.log('signup', 'restored the shop details draft');
+      return any;
+    } catch (e) { return false; }
+  }
+
+  function clearRegDraft() {
+    try { sessionStorage.removeItem(REG_DRAFT_KEY); } catch (e) { /* private mode */ }
+  }
+
   /* mandatory only — the address is optional and must never block sign-up */
   var REG_FIELDS = [
     { k: 'mobile', label: 'Mobile number' },
@@ -13390,24 +14360,31 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   /* A function, not a constant: the model count comes from the catalogue, which
      now arrives over the network. Evaluating this at module scope read
      db.stats before the fetch had resolved and took the whole app down. */
+  /* WHAT THIS SCREEN SAYS HAS TO MATCH WHAT THE SERVER DOES.
+
+     These two lists were last written while the catalogue was open, and they
+     promised a free account "Full compatible-device list for every group" and
+     "Group sheets you can show a customer" with a tick beside each, while
+     PRO_ONLY was empty. Both are now withheld by /api/device-parts. A ticked
+     line for something the product refuses is worse than no line at all: it
+     is the account screen telling a shop they have something, and the app
+     then refusing it. */
   function freeIncluded() { return [
+    'Three model searches a day',
     'Browse all ' + nf(db.stats.models) + ' phone models and their specs',
-    'Browse every compatibility group in the catalogue',
-    'Search by model, part code or group number',
-    /* These four moved up from PRO_ONLY when the catalogue was opened. They
-       are shown to everyone now, signed in or not, so listing them with a
-       padlock would be the account screen describing a lock the app does not
-       have. */
-    'Match a model to its compatibility group',
-    'Full compatible-device list for every group',
-    'Part code, serial number and group number',
-    'Group sheets you can show a customer'
+    'Browse every compatibility group — number, part code, master model',
+    'See how many devices each group covers'
   ]; }
-  /* Nothing is plan-only at present. The list is kept rather than deleted
-     because the split still exists everywhere else — the rules, the paid
-     collections and /api/device-parts — and narrowing the catalogue again is a
-     matter of putting entries back here. */
-  var PRO_ONLY = [];
+
+  /* Enforced in api/_schema/entitlement.js and api/access.js, not here. This
+     list draws the padlocks; it does not decide anything. */
+  var PRO_ONLY = [
+    'Unlimited model searches',
+    'Open any group and see every device it fits',
+    'Full compatible-device list for every group',
+    'Search and filter inside the group library',
+    'Group sheets you can show a customer'
+  ];
 
   function accessHTML() {
     return '<span class="t-lab">What your account can do</span>' +
@@ -15471,7 +16448,26 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       /* A group opens in the centre column. go() still writes /group/<id> —
          that URL is the share link and the back button — but route() resolves
          it to the finder with the group selected rather than to a sheet. */
-      case 'open-group': go('/group/' + id); break;
+      /* THE GROUP DOES NOT OPEN FOR A FREE ACCOUNT.
+
+         The server refuses the member list regardless — that is the actual
+         enforcement, and it is why a typed /group/<id> URL, a Back button and
+         a curl all get the same nothing. This is the courteous half: when the
+         server has ALREADY told us this account is free, there is no reason to
+         navigate into a group whose body would be a paywall. Straight to the
+         plans instead.
+
+         isFree() is false while the answer is still outstanding, deliberately.
+         An unanswered question is not a denial, and treating it as one would
+         paywall a subscriber for as long as the request takes; the group view
+         draws the paywall itself if the answer turns out to be "free". */
+      case 'open-group':
+        if (SM.access && SM.access.isFree()) {
+          gatedUpgrade('A plan unlocks the devices in a group');
+          break;
+        }
+        go('/group/' + id);
+        break;
 
       /* Picking a device inside an open group changes the right panel and
          nothing else. No navigation, no overlay. */
@@ -15638,6 +16634,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
          here. Routed through the shared branch so an authenticated free user
          reaches Plans and an anonymous one reaches Sign In — the card looks
          the same either way, which is why the decision cannot live in it. */
+      case 'retry-matches':
+        if (SM.access && SM.access.forgetDevice) SM.access.forgetDevice(state.finder.modelId);
+        loadMatches();
+        break;
+
       case 'go-plans': gatedUpgrade('A plan unlocks the full list'); break;
       case 'subscribe':
         /* a plan belongs to a signed-in identity, so sign in first */
@@ -15826,6 +16827,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
       case 'toggle-address':
         reg.addrOpen = !reg.addrOpen;
+        saveRegDraft();
         repaintAuth();
         break;
 
@@ -15892,6 +16894,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
           state.sheet = { type: 'editprofile' }; renderSheet();
         } else {
           reg.country = id;
+          saveRegDraft();
           state.sheet = null; renderSheet();
           /* A number valid for one country is not valid for the next, so the
              whole form is redrawn rather than just the flag. */
@@ -15901,6 +16904,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         break;
 
       case 'google-signin': startGoogle(false); break;
+
+      /* The way off the failure screen. Drops the cached answer and asks the
+         whole identity question again — no reload, so a half-filled sign-up
+         form on the same page survives the retry. */
+      case 'retry-identity': retryIdentity(); break;
 
       /* The way out of an embedded browser. SM.env owns the platform detail —
          an Android intent that names Chrome and falls back to the default
@@ -16023,6 +17031,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       var rk = el.getAttribute('data-reg');
       reg[rk] = (rk === 'mobile') ? el.value.replace(/[^\d\s-]/g, '') : el.value;
       if (rk === 'mobile' && el.value !== reg.mobile) el.value = reg.mobile;
+      saveRegDraft();
       syncRegCta();
       var hint = document.getElementById('regHint');
       if (hint) hint.innerHTML = regHintHTML();
@@ -16238,6 +17247,15 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     });
   }
 
+  /* The raw provider codes, kept visible but subordinate. They are what makes
+     a support message actionable ("client: unavailable; server:
+     datastore-unavailable" names the fault exactly) and they are meaningless
+     to everyone else, so they are muted and come last. */
+  function reasonNote(reasons) {
+    if (!reasons || !reasons.length) return '';
+    return ' <span class="muted">(' + esc(reasons.join('; ')) + ')</span>';
+  }
+
   function finishGoogle(identity, isSignup) {
     var rc = SM.countries.byCode(reg.country) || {};
 
@@ -16299,8 +17317,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
         return;
       }
       /* Cleared HERE, not before the write — a failed save keeps the identity
-         so the same details can be resubmitted. */
+         so the same details can be resubmitted. Same for the draft: it exists
+         only to survive the trip to Google, and the account now exists, so
+         keeping it would refill the form for whoever signs in next on this
+         tab. */
       state.pendingIdentity = null;
+      clearRegDraft();
       renderShellBits();
       renderAccount(document.getElementById('page'));
 
@@ -16334,21 +17356,49 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
          identity so the same details can be submitted again with one tap —
          this used to toast "Account created — welcome" over a failed write. */
       restoreSignupButton();
+
+      /* TELL THE READER WHOSE FAULT IT IS.
+
+         Both of these messages used to end with "check the connection", and
+         for the failure that actually happened that was false in every word:
+         Firestore was refusing every request from every client because billing
+         had been switched off on the Google Cloud project, the shop's phone was
+         working perfectly, and no number of retries could ever have saved the
+         form. People re-typed their shop details into a form that could not
+         save them, and then blamed their own wifi.
+
+         So an outage says it is an outage, and says the thing that matters
+         next: stop retrying, nothing you typed is lost, the owner has to fix
+         it. A genuine connection drop keeps the old advice, which is correct
+         for it. err.outage is decided in src/data/api.js from the HTTP status
+         and the Firestore error code, never from a guess here. */
       if (err && err.code === 'profile-save-failed') {
         state.pendingIdentity = identity;
-        authMsg('Your details could not be saved to your account, so it has not been created. ' +
-                'Check the connection and press Create account again.' +
-                (err.reasons && err.reasons.length
-                  ? ' <span class="muted">(' + esc(err.reasons.join('; ')) + ')</span>'
-                  : ''));
-        toast('Account not created — nothing was saved', 'alert');
+        authMsg(err.outage
+          ? 'Your account could not be created — the site’s database is not ' +
+            'responding. This is a fault on our side, not with your connection ' +
+            'or your Google account. <strong>Your shop details are still on this ' +
+            'screen</strong>, so nothing needs re-typing: press Create account ' +
+            'again once the site is back.' +
+            reasonNote(err.reasons)
+          : 'Your details could not be saved to your account, so it has not been ' +
+            'created. Check the connection and press Create account again.' +
+            reasonNote(err.reasons));
+        toast(err.outage ? 'Site database unavailable — nothing was saved'
+                         : 'Account not created — nothing was saved', 'alert');
         return;
       }
       if (err && err.code === 'profile-unreadable') {
-        authMsg('Signed in, but your account could not be read from the server. ' +
-                'Check the connection and try again — your details are safe, and ' +
-                'nothing needs re-entering.');
-        toast('Could not load your account — try again', 'alert');
+        authMsg(err.outage
+          ? 'You are signed in, but the site’s database is not responding, so ' +
+            'your account could not be loaded. This is a fault on our side — your ' +
+            'account and your subscription are safe and nothing needs re-entering. ' +
+            'Please try again later.'
+          : 'Signed in, but your account could not be read from the server. ' +
+            'Check the connection and try again — your details are safe, and ' +
+            'nothing needs re-entering.');
+        toast(err.outage ? 'Site database unavailable — try again later'
+                         : 'Could not load your account — try again', 'alert');
         return;
       }
       authMsg('Signed in with Google, but your profile could not be loaded. Check the connection and reload.');
@@ -16400,9 +17450,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
      does, then report it in the shape finishGoogle expects. */
   function resolveSignIn(identity) {
     /* The gate is per page load, and a sign-in is a new answer to the question
-       it caches — so it is rebuilt rather than reused. */
+       it caches — so it is rebuilt rather than reused. The fault goes with it:
+       a fresh attempt must not be judged by the last one's failure, and this
+       path reports its own outcome through authMsg. */
     identityReady = null;
     identitySettled = false;
+    identityFault = null;
 
     /* Normally the SDK has already published the new user by the time the
        popup promise resolves. Not assumed: if it has not, wait for it rather
@@ -16425,6 +17478,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
       if (r && r.offline) {
         var offline = new Error('profile-unreadable');
         offline.code = 'profile-unreadable';
+        offline.outage = !!r.outage;
+        offline.reason = r.reason || null;
         throw offline;
       }
 
@@ -16443,6 +17498,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   }
 
   /* ----------------------------------------------------------------- boot */
+  /* Before anything renders, so an account page drawn on this load — including
+     the one the browser lands on coming back from a Google redirect — is drawn
+     with the shop details already in it rather than empty. */
+  restoreRegDraft();
   applyTheme();
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
@@ -16545,6 +17604,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     clearRoleState();
     identityReady = null;
     identitySettled = false;
+    identityFault = null;
 
     if (!uid) {
       /* Signed out. The local session cache is the one thing that would

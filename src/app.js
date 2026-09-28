@@ -3089,6 +3089,57 @@
   var identityReady = null;
   var identitySettled = false;
 
+  /* Why the last resolution failed, when it failed in a way the reader has to
+     be told about. Null on the happy path. Read by renderAccount so the screen
+     that was stuck on a spinner now says what went wrong and offers a way out. */
+  var identityFault = null;
+
+  /* ------------------------------------------------- the gate always opens
+
+     A ceiling on the whole question, not on any one step inside it.
+
+     The infinite "Finishing sign-in…" was one unbounded await — a Firestore
+     read against a project whose API was refusing, which the SDK retries for
+     ever without ever rejecting. src/data/firestore.js now gives every read a
+     deadline, so that specific hang is gone at its source.
+
+     This is the second line, and it is here because the first one can only
+     cover what it knows about. resolveIdentity awaits whatever the identity
+     path happens to await today, and the next thing added to that path will
+     not arrive with a timeout attached. So the gate itself expires: whatever
+     is or is not pending underneath, the spinner comes down and the screen
+     says something true.
+
+     Generous on purpose. It is a backstop for a fault, not a performance
+     budget, and cutting off a sign-in that was about to succeed would trade
+     one bug for another. Every step beneath it settles well inside this. */
+  var IDENTITY_DEADLINE_MS = 20000;
+
+  function identityDeadline(promise) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      var timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        SM.debug.warn('boot', 'identity resolution timed out', { after: IDENTITY_DEADLINE_MS });
+        identityFault = {
+          code: 'identity-timeout',
+          outage: true,
+          message: 'the site did not finish checking the account'
+        };
+        resolve(null);
+      }, IDENTITY_DEADLINE_MS);
+
+      promise.then(function (v) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(v);
+      }, function () {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(null);
+      });
+    });
+  }
+
   /* True while the app still cannot say whether anyone is signed in.
 
      There are two unknowns, not one, and both have to clear. Until the Firebase
@@ -3105,8 +3156,9 @@
 
   function resolveIdentity() {
     if (identityReady) return identityReady;
+    identityFault = null;
 
-    identityReady = SM.fb.loadConfig().then(function (cfg) {
+    var work = SM.fb.loadConfig().then(function (cfg) {
       /* Firebase is genuinely unavailable — no config, no sign-in, nobody to
          resolve. Not an error: the catalogue works without it. */
       if (!cfg) {
@@ -3119,14 +3171,49 @@
         return S.initializeAuthenticatedUser(fbUser);
       });
     }).catch(function (err) {
-      SM.debug.warn('boot', 'identity resolution failed', { message: err && err.message });
+      SM.debug.warn('boot', 'identity resolution failed', { code: err && err.code, message: err && err.message });
+      /* Remembered rather than swallowed. This used to return null and say
+         nothing, so a signed-in user whose profile could not be read was
+         indistinguishable from a visitor who had never signed in — and the
+         account screen drew the sign-in form at someone who was, in fact,
+         signed in. */
+      identityFault = {
+        code: (err && err.code) || 'identity-failed',
+        outage: SM.isBackendOutage ? SM.isBackendOutage(err) : false,
+        message: (err && err.message) || null
+      };
       return null;
-    }).then(function (r) {
+    });
+
+    identityReady = identityDeadline(work).then(function (r) {
+      /* The profile read came back and said it could not be read. That is not
+         a new account and it is not a signed-out visitor; it is an outage, and
+         the screen has to be able to say which. */
+      if (r && r.offline && !identityFault) {
+        identityFault = {
+          code: r.reason || 'profile-unreadable',
+          outage: !!r.outage,
+          message: null
+        };
+      }
+      /* Set LAST and on every path, including the timeout. A gate that stays
+         shut after the answer has come back is the bug it was built to
+         prevent, pointed the other way. */
       identitySettled = true;
       return r;
     });
 
     return identityReady;
+  }
+
+  /* Throws the cached answer away and asks again — what the Try again button
+     on the account screen runs. */
+  function retryIdentity() {
+    identityReady = null;
+    identitySettled = false;
+    identityFault = null;
+    clearRoleState();
+    if (state.route.name === 'account') renderAccount(document.getElementById('page'));
   }
 
   /* Shown while Firebase is still answering. It is deliberately NOT the
@@ -3142,6 +3229,80 @@
       '<h2 class="t-h1">Finishing sign-in…</h2>' +
       '<p class="t-sub" style="margin-top:4px">Checking your Google account.</p>' +
       '</div></div></div></div>';
+  }
+
+  /* ------------------------------------------------- the spinner's way out
+
+     WHAT WENT WRONG, AND WHAT TO DO ABOUT IT.
+
+     The screen above is the one that hung. It had no terminal state at all:
+     every path into it ended in a promise, and when a promise never settled
+     there was nothing left that could repaint it. A user watched "Checking
+     your Google account." until they gave up, with no error, no cause and
+     nothing to press.
+
+     So identity resolution now always ends somewhere, and when it ends badly
+     it ends HERE — naming the fault and offering the retry. The two wordings
+     are the same distinction the sign-up form already draws:
+
+       outage   the database refused. Their phone is fine, retrying now will
+                not help, and saying "check your connection" to someone whose
+                connection is working is how people end up re-entering details
+                into a form that could never have saved them.
+       not      something local failed. Retrying is genuinely worth a try.
+
+     Signing out stays available in both. Someone stuck on a broken account
+     screen must always be able to leave it. */
+  function authFailedHTML(fault) {
+    var outage = !!(fault && fault.outage);
+    var signedIn = !!(SM.fb && SM.fb.user && SM.fb.user());
+
+    /* Four combinations, four sentences. Whether Google signed them in is a
+       different fact from whether the database answered, and a message that
+       blurs them is how someone ends up retrying the wrong thing — which is
+       the failure mode this whole screen exists to end. */
+    var title = signedIn
+      ? (outage ? 'Signed in — but your account could not be loaded'
+                : 'Your account could not be loaded')
+      : (outage ? 'The site is not responding'
+                : 'Sign-in could not be completed');
+
+    var text = outage
+      ? (signedIn
+          ? 'Google signed you in successfully. The site’s own database is not ' +
+            'responding, so your shop profile and subscription could not be read. ' +
+            'This is a fault on our side, not with your connection or your Google ' +
+            'account — nothing has been lost and nothing needs re-entering. ' +
+            'Please try again shortly.'
+          : 'The site’s database is not responding, so your account could not be ' +
+            'checked. This is a fault on our side, not with your connection. ' +
+            'Please try again shortly.')
+      : (signedIn
+          ? 'Your account details could not be read. Check the connection and ' +
+            'try again — nothing has been lost, and nothing needs re-entering.'
+          : 'Google sign-in could not be completed. Nothing was changed on your ' +
+            'account. Please try again.');
+
+    /* The technical code, small and last. It is what turns "it did not work"
+       into something the owner can act on without a screen recording, and it
+       carries no credential — SM.isBackendOutage decides from exactly this. */
+    var detail = fault && fault.code
+      ? '<p class="t-sub" style="margin-top:10px;opacity:.7">Reference: ' + esc(String(fault.code)) + '</p>'
+      : '';
+
+    return '<div class="acct"><div class="card card--pad">' +
+      '<h2 class="t-h1">' + esc(title) + '</h2>' +
+      '<p class="t-sub" style="margin-top:6px">' + esc(text) + '</p>' +
+      detail +
+      '<div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">' +
+        '<button class="btn btn--primary" data-act="retry-identity" type="button">' +
+          icon('refresh') + 'Try again</button>' +
+        (signedIn
+          ? '<button class="btn btn--outline" data-act="signout" type="button">' +
+            icon('logout') + 'Sign out</button>'
+          : '') +
+      '</div>' +
+      '</div></div>';
   }
 
   /* ====================================================================== ROLE
@@ -3197,8 +3358,11 @@
       return Promise.resolve('user');
     }
 
+    /* Bounded, like every other call the account screen waits on. A role
+       lookup is a link on a page — it is never worth holding a screen open
+       for, and holding one open is exactly what it did. */
     roleState.pending = SM.billing && SM.billing.adminSession
-      ? SM.billing.adminSession().then(function (res) {
+      ? SM.billing.adminSession({ timeoutMs: 8000 }).then(function (res) {
           var role = (res && res.admin && res.admin.role) || 'user';
           if (roleState.uid === uid) { roleState.role = role; roleState.pending = null; }
           SM.debug.log('identity', 'role resolved from server', { uid: uid, role: role });
@@ -3257,10 +3421,30 @@
       return;
     }
 
+    /* Identity is settled and it settled badly. Draw the fault, not the
+       sign-in form.
+
+       Drawing the sign-in form here was the second half of the reported bug.
+       A failed profile read used to resolve to null, which is the same value a
+       genuine visitor produces, so the screen offered "Continue with Google"
+       to somebody Google had already signed in — and pressing it signed them
+       in again, read the profile again, failed again. */
+    var fbUser = SM.fb && SM.fb.user && SM.fb.user();
+    if (identityFault && (fbUser || identityFault.outage)) {
+      page.innerHTML = '<div class="shell" style="padding-top:20px">' +
+        authFailedHTML(identityFault) + '</div>';
+      return;
+    }
+
     /* Authenticated, profile in hand, role not yet settled. Keep waiting
        rather than painting a normal-user screen that has to become an admin
-       one a moment later — that flash is the thing section 9 forbids. */
-    var fbUser = SM.fb && SM.fb.user && SM.fb.user();
+       one a moment later — that flash is the thing section 9 forbids.
+
+       The wait is bounded now. roleFor resolves through /api/admin/session,
+       and this screen used to have no answer at all for that call not coming
+       back: the same spinner, the same forever. It settles to 'user' on any
+       failure, which costs a link and never access — /admin re-checks the
+       token on every request regardless. */
     if (fbUser && currentRole() === null) {
       page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
       roleFor(fbUser.uid).then(function () {
@@ -6460,6 +6644,11 @@
 
       case 'google-signin': startGoogle(false); break;
 
+      /* The way off the failure screen. Drops the cached answer and asks the
+         whole identity question again — no reload, so a half-filled sign-up
+         form on the same page survives the retry. */
+      case 'retry-identity': retryIdentity(); break;
+
       /* The way out of an embedded browser. SM.env owns the platform detail —
          an Android intent that names Chrome and falls back to the default
          browser, Chrome's own URL scheme on iOS — and it carries the CURRENT
@@ -7000,9 +7189,12 @@
      does, then report it in the shape finishGoogle expects. */
   function resolveSignIn(identity) {
     /* The gate is per page load, and a sign-in is a new answer to the question
-       it caches — so it is rebuilt rather than reused. */
+       it caches — so it is rebuilt rather than reused. The fault goes with it:
+       a fresh attempt must not be judged by the last one's failure, and this
+       path reports its own outcome through authMsg. */
     identityReady = null;
     identitySettled = false;
+    identityFault = null;
 
     /* Normally the SDK has already published the new user by the time the
        popup promise resolves. Not assumed: if it has not, wait for it rather
@@ -7151,6 +7343,7 @@
     clearRoleState();
     identityReady = null;
     identitySettled = false;
+    identityFault = null;
 
     if (!uid) {
       /* Signed out. The local session cache is the one thing that would

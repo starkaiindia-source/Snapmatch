@@ -48,20 +48,73 @@
     return checkoutLoading;
   }
 
+  /* ------------------------------------------------------- nothing waits for ever
+
+     A fetch() has no timeout of its own. A request that is accepted and then
+     never answered — a serverless function wedged on a database that has
+     stopped replying, a captive portal that swallows the connection - leaves
+     its promise pending indefinitely, and every await behind it with it.
+
+     That is the same shape of failure as the Firestore hang in
+     src/data/firestore.js, and it strands the same screens: /api/profile-sync
+     is awaited on the sign-in path and /api/admin/session is awaited by the
+     account screen's role gate. Either one hanging is another permanent
+     "Finishing sign-in...".
+
+     AbortController is what actually cancels the request rather than merely
+     stopping waiting on it, so a timed-out call does not leave a connection
+     open behind the error. */
+  var API_TIMEOUT_MS = 15000;
+
+  function timedFetch(path, init, ms) {
+    init = init || {};
+    var ctrl = null;
+    try { ctrl = new AbortController(); } catch (e) { /* very old browser */ }
+    if (ctrl) init.signal = ctrl.signal;
+
+    var timer = null;
+    var limit = ms || API_TIMEOUT_MS;
+
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      timer = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        if (ctrl) { try { ctrl.abort(); } catch (e) { /* already gone */ } }
+        SM.debug.warn('api', path + ' timed out', { after: limit });
+        var err = new Error('request-timeout');
+        err.code = 'deadline-exceeded';
+        err.timedOut = true;
+        /* 504-shaped so SM.isBackendOutage reads it as the site's fault, which
+           is what a request the site accepted and never answered is. */
+        err.status = 504;
+        reject(err);
+      }, limit);
+
+      fetch(path, init).then(function (res) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(res);
+      }, function (e) {
+        if (settled) return;
+        settled = true; clearTimeout(timer); reject(e);
+      });
+    });
+  }
+
   /* Every authenticated call goes through here so the token is always fresh
      and a 401 always means the same thing. */
   function apiFetch(path, options) {
     options = options || {};
     return SM.fb.idToken().then(function (token) {
       if (!token) throw new Error('signin-required');
-      return fetch(path, {
+      return timedFetch(path, {
         method: options.method || 'GET',
         headers: Object.assign({
           'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         }, options.headers || {}),
         body: options.body ? JSON.stringify(options.body) : undefined
-      });
+      }, options.timeoutMs);
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (!res.ok) {
@@ -78,7 +131,7 @@
   SM.billing = {
     /** Public pricing. No auth — a signed-out visitor must see the price. */
     plans: function () {
-      return fetch('/api/plans').then(function (r) { return r.json(); });
+      return timedFetch('/api/plans').then(function (r) { return r.json(); });
     },
 
     /**
@@ -90,7 +143,7 @@
      * Now the browser can ask directly, and so can anyone with curl.
      */
     health: function () {
-      return fetch('/api/health').then(function (r) { return r.json(); })
+      return timedFetch('/api/health').then(function (r) { return r.json(); })
         .catch(function () { return { ok: false, unreachable: true }; });
     },
 
@@ -107,8 +160,8 @@
      * It grants nothing. /admin and every /api/admin/* route re-check the same
      * token on every request; this only stops the UI guessing.
      */
-    adminSession: function () {
-      return apiFetch('/api/admin/session');
+    adminSession: function (options) {
+      return apiFetch('/api/admin/session', options);
     },
 
     /**
