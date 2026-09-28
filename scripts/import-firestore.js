@@ -9,12 +9,12 @@
      A) gcloud / Firebase CLI application-default credentials
           firebase login
           gcloud auth application-default login
-          node scripts/import-firestore.js --project mobilepartsfinder
+          node scripts/import-firestore.js --project mobilepartsfindercom
 
      B) a service-account key file you download from
         Firebase console -> Project settings -> Service accounts
           set GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\key.json
-          node scripts/import-firestore.js --project mobilepartsfinder
+          node scripts/import-firestore.js --project mobilepartsfindercom
 
    Never commit the key file. .gitignore already excludes *.serviceaccount.json.
 

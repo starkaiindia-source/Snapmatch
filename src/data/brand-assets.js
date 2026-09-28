@@ -23,7 +23,7 @@
      EXISTING bucket, alongside category-assets/. Public read, no client write —
      see storage.rules. Upload with:
 
-         node scripts/upload-brand-assets.js --project mobilepartsfinder
+         node scripts/upload-brand-assets.js --project mobilepartsfindercom
 
      which fills in the `storage` URLs below. Until then a brand with no file
      simply falls through to tier 2 or tier 3 — never to a broken image.

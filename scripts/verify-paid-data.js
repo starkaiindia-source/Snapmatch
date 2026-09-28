@@ -22,7 +22,7 @@
    Run this after any import, and after restoring billing on the Google Cloud
    project:
 
-       node scripts/verify-paid-data.js --project mobilepartsfinder
+       node scripts/verify-paid-data.js --project mobilepartsfindercom
 
    It reads and writes nothing. Exit code 1 means something is missing.
 

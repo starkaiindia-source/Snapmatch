@@ -109,7 +109,7 @@
   "routes": [
     {
       "src": "/__/auth/(.*)",
-      "dest": "https://mobilepartsfinder.firebaseapp.com/__/auth/$1"
+      "dest": "https://mobilepartsfindercom.firebaseapp.com/__/auth/$1"
     },
     {
       "src": "/(.+)/$",

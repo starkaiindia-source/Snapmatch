@@ -44,7 +44,7 @@ const FULL = {
   RAZORPAY_KEY_SECRET: 'super-secret-value',
   RAZORPAY_WEBHOOK_SECRET: 'another-secret',
   FIREBASE_SERVICE_ACCOUNT: '{"project_id":"x","private_key":"-----BEGIN-----"}',
-  FIREBASE_PROJECT_ID: 'mobilepartsfinder',
+  FIREBASE_PROJECT_ID: 'mobilepartsfindercom',
   FIREBASE_API_KEY: 'AIzaSyExample',
   FIREBASE_APP_ID: '1:1:web:1'
 };

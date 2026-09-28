@@ -142,7 +142,7 @@ console.
 1. Desktop: sign in -> account page shows the shop, not the sign-in form.
 2. **Phone: sign in -> the app opens, it does not return to the sign-in page.**
    Sign-in now uses a popup on phones too; the redirect flow's pending state
-   lives on `mobilepartsfinder.firebaseapp.com`, and mobile browsers discard
+   lives on `mobilepartsfindercom.firebaseapp.com`, and mobile browsers discard
    third-party storage, which is what lost the session.
 3. Firestore -> `users` -> a document whose id is the Firebase UID, with the
    shop fields and a fresh `lastLoginAt`.
@@ -171,7 +171,7 @@ be reliable on phones, make it same-origin:
 
 1. Set `FIREBASE_AUTH_DOMAIN=www.mobilepartsfinder.com` in Vercel.
 2. `vercel.json` already proxies `/__/auth/*` to
-   `mobilepartsfinder.firebaseapp.com`, which is what makes that work.
+   `mobilepartsfindercom.firebaseapp.com`, which is what makes that work.
 3. Keep `www.mobilepartsfinder.com` in **Authentication -> Settings -> Authorised
    domains**, or Google closes the window with `auth/unauthorized-domain`.
 
@@ -256,7 +256,7 @@ re-run the build — nothing else has to change.
 ```bash
 node scripts/build-dataset.js --src "C:/Users/stark/Downloads"
 node scripts/build-runtime-bundle.js
-node scripts/import-firestore.js --project mobilepartsfinder
+node scripts/import-firestore.js --project mobilepartsfindercom
 ```
 
 The first reads the six `*_export.json` files and the model workbook and writes

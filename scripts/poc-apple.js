@@ -10,7 +10,7 @@
 
    Usage
      node scripts/poc-apple.js                 collect, validate, report
-     node scripts/poc-apple.js --write --project mobilepartsfinder
+     node scripts/poc-apple.js --write --project mobilepartsfindercom
      node scripts/poc-apple.js --limit 10      cap the device count
 
    Output lands in data/build/poc-apple/ as the exact documents that would be
