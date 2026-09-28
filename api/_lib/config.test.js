@@ -47,8 +47,8 @@ const FULL = {
   RAZORPAY_KEY_ID: 'rzp_test_abc123',
   RAZORPAY_KEY_SECRET: 'super-secret-value',
   RAZORPAY_WEBHOOK_SECRET: 'another-secret',
-  FIREBASE_SERVICE_ACCOUNT: '{"project_id":"mobilepartsfinder","private_key":"-----BEGIN-----"}',
-  FIREBASE_PROJECT_ID: 'mobilepartsfinder',
+  FIREBASE_SERVICE_ACCOUNT: '{"project_id":"mobilepartsfindercom","private_key":"-----BEGIN-----"}',
+  FIREBASE_PROJECT_ID: 'mobilepartsfindercom',
   FIREBASE_API_KEY: 'AIzaSyExample',
   FIREBASE_APP_ID: '1:1:web:1'
 };
@@ -123,7 +123,7 @@ test('a service account from a different project than the browser is a hard fail
     const r = config.report();
     assert.equal(r.ok, false, 'a project mismatch must not report ok');
     assert.equal(r.firebaseProject.match, false);
-    assert.equal(r.firebaseProject.web, 'mobilepartsfinder');
+    assert.equal(r.firebaseProject.web, 'mobilepartsfindercom');
     assert.equal(r.firebaseProject.admin, 'mobilepartsfinder-old');
     /* Nothing is MISSING — that is exactly why this needed its own check. */
     assert.deepEqual(r.missing, []);
@@ -155,9 +155,9 @@ test('an unknown project on either side is not reported as a mismatch', () => {
 });
 
 test('the base64 service account is read for its project id too', () => {
-  const b64 = Buffer.from('{"project_id":"mobilepartsfinder"}').toString('base64');
+  const b64 = Buffer.from('{"project_id":"mobilepartsfindercom"}').toString('base64');
   withEnv({ ...FULL, FIREBASE_SERVICE_ACCOUNT: undefined, FIREBASE_SERVICE_ACCOUNT_B64: b64 }, () => {
-    assert.equal(config.serviceAccountProjectId(), 'mobilepartsfinder');
+    assert.equal(config.serviceAccountProjectId(), 'mobilepartsfindercom');
     assert.equal(config.report().firebaseProject.match, true);
   });
 });

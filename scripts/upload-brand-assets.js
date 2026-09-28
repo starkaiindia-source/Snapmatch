@@ -13,7 +13,7 @@
    stay on your machine.
 
        set GOOGLE_APPLICATION_CREDENTIALS=C:\\path\\to\\serviceAccount.json
-       node scripts/upload-brand-assets.js --project mobilepartsfinder
+       node scripts/upload-brand-assets.js --project mobilepartsfindercom
 
    Flags
      --project <id>   Firebase project id                      (required)
@@ -67,7 +67,7 @@ const ONLY = (flag('only', '') || '').split(',').map((s) => s.trim()).filter(Boo
 
 if (!PROJECT) {
   console.error('\n  --project is required, e.g.\n' +
-    '    node scripts/upload-brand-assets.js --project mobilepartsfinder\n');
+    '    node scripts/upload-brand-assets.js --project mobilepartsfindercom\n');
   process.exit(1);
 }
 if (!fs.existsSync(SRC)) {

@@ -9,7 +9,7 @@
    stay on your machine.
 
        set GOOGLE_APPLICATION_CREDENTIALS=C:\\path\\to\\serviceAccount.json
-       node scripts/upload-category-assets.js --project mobilepartsfinder
+       node scripts/upload-category-assets.js --project mobilepartsfindercom
 
    Flags
      --project <id>   Firebase project id                      (required)
@@ -54,7 +54,7 @@ const BUCKET = flag('bucket', PROJECT ? `${PROJECT}.firebasestorage.app` : null)
 
 if (!PROJECT) {
   console.error('\n  --project is required, e.g.\n' +
-    '    node scripts/upload-category-assets.js --project mobilepartsfinder\n');
+    '    node scripts/upload-category-assets.js --project mobilepartsfindercom\n');
   process.exit(1);
 }
 

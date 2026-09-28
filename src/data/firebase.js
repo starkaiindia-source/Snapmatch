@@ -11,7 +11,7 @@
      Nothing is hardcoded here. The config comes from /api/firebase-config,
      which reads it from the Vercel environment:
 
-       FIREBASE_PROJECT_ID       mobilepartsfinder
+       FIREBASE_PROJECT_ID       mobilepartsfindercom
        FIREBASE_API_KEY
        FIREBASE_APP_ID
        FIREBASE_MESSAGING_SENDER_ID    (optional)
@@ -304,13 +304,13 @@
      * on phones.
      *
      * The reason is not the redirect itself, it is where the redirect state is
-     * kept. `authDomain` is mobilepartsfinder.firebaseapp.com while the site is
-     * on mobilepartsfinder.com, so the SDK parks the pending sign-in in storage
-     * belonging to a THIRD-PARTY origin. Mobile Chrome, Safari and anything with
-     * third-party storage partitioning discard it. The user picks their Google
-     * account, comes back, getRedirectResult() finds nothing, and the app can
-     * only conclude they are signed out — which is exactly the reported bug:
-     * choose the account, land back on the sign-in page.
+     * kept. `authDomain` is mobilepartsfindercom.firebaseapp.com while the site
+     * is on mobilepartsfinder.com, so the SDK parks the pending sign-in in
+     * storage belonging to a THIRD-PARTY origin. Mobile Chrome, Safari and
+     * anything with third-party storage partitioning discard it. The user picks
+     * their Google account, comes back, getRedirectResult() finds nothing, and
+     * the app can only conclude they are signed out — which is exactly the
+     * reported bug: choose the account, land back on the sign-in page.
      *
      * A popup never leaves the page, so nothing has to survive a navigation and
      * no third-party storage is involved. It opens reliably here because it is

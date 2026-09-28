@@ -165,7 +165,7 @@ def main():
             w("    %-15s %s\n" % (cid, label))
         w("    Put <id>.png in the source folder and run again.\n")
     w("\n  manifest -> assets/categories/manifest.json\n")
-    w("  next     -> node scripts/upload-category-assets.js --project mobilepartsfinder\n\n")
+    w("  next     -> node scripts/upload-category-assets.js --project mobilepartsfindercom\n\n")
 
 
 if __name__ == "__main__":
