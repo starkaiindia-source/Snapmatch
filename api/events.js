@@ -105,7 +105,10 @@ module.exports = async function handler(req, res) {
       userId,
       sessionId,
       source: v.oneOf(payload.source, ['web', 'chatbot'], 'web'),
-      now
+      now,
+      /* A boolean or nothing. An older client omits it, and anything that is
+         not a boolean is read the same way — the old session-start path. */
+      newSession: typeof payload.newSession === 'boolean' ? payload.newSession : undefined
     });
 
     return ok(res, result);

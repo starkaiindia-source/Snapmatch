@@ -71,7 +71,7 @@ const { db, auth } = require('./firebase');
 const { forbidden, unauthorised } = require('./http');
 const { ADMIN_USERS } = require('../_schema/collections');
 const {
-  ROLES, OWNER_ONLY, isOwnerEmail,
+  ROLES, OWNER_ONLY, isOwnerEmail, isOwnerUid,
   normaliseRole, isStaff, can, permissionsFor
 } = require('../_schema/roles');
 
@@ -123,7 +123,8 @@ async function requireAdmin(req, res) {
      Checked FIRST, and it needs no registry document. That is deliberate: the
      owner can never be locked out of their own backend by a missing record, a
      failed write, or a revocation gone wrong. */
-  if (isOwnerEmail(decoded.email) && decoded.email_verified === true) {
+  if (isOwnerEmail(decoded.email) && decoded.email_verified === true &&
+      isOwnerUid(decoded.uid)) {
     return {
       uid: decoded.uid,
       email: decoded.email,

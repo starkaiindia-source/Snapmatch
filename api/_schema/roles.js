@@ -105,6 +105,33 @@ function isOwnerEmail(email) {
   return candidate !== '' && candidate === normaliseEmail(OWNER_EMAIL);
 }
 
+/**
+ * THE OWNER'S UID, WHEN IT IS PINNED.
+ *
+ * The Firebase UID is the account's real identity; an email is an attribute
+ * of it. The email check above cannot be pinned to a uid in source, because a
+ * uid only exists once the owner has signed in to a given Firebase project —
+ * and a project change (as on 2026-09-29) issues a new one.
+ *
+ * So the uid lives in the environment. With OWNER_UID set, the owner is the
+ * account that has BOTH that uid and the verified owner email; an account that
+ * merely presents the address — a future provider, a recreated account — is
+ * not the owner. Unset, the verified email alone decides — which is how the
+ * owner signs in the first time on a new project. Their uid is then the one
+ * listed against the owner address in Firebase console -> Authentication ->
+ * Users, and that is the value to set.
+ */
+function ownerUid() {
+  const v = process.env.OWNER_UID;
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+/** False only when a uid is pinned and this is not it. */
+function isOwnerUid(uid) {
+  const pinned = ownerUid();
+  return !pinned || pinned === uid;
+}
+
 const ROLES = {
   SUPER_ADMIN: 'super_admin',
   ADMIN: 'admin',
@@ -222,7 +249,7 @@ function permissionsFor(role) {
 }
 
 module.exports = {
-  OWNER_EMAIL, OWNER_ONLY, normaliseEmail, isOwnerEmail,
+  OWNER_EMAIL, OWNER_ONLY, normaliseEmail, isOwnerEmail, isOwnerUid, ownerUid,
   ROLES, ROLE_LIST, STAFF_ROLES,
   PERMISSIONS, ALL_PERMISSIONS, ROLE_PERMISSIONS,
   normaliseRole, can, isStaff, permissionsFor

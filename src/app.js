@@ -3197,7 +3197,10 @@
       return SM.fb.whenResolved().then(function (fbUser) {
         SM.debug.log('boot', 'auth resolved', { signedIn: !!fbUser, uid: fbUser ? fbUser.uid : null });
         if (!fbUser) return null;
-        return S.initializeAuthenticatedUser(fbUser);
+        /* reuse: a reload inside a few minutes takes this tab's copy of the
+           profile rather than reading users/{uid} again. A sign-in never finds
+           one — sign-out drops it, and it is keyed to the account. */
+        return S.initializeAuthenticatedUser(fbUser, { reuse: true });
       });
     }).catch(function (err) {
       SM.debug.warn('boot', 'identity resolution failed', { code: err && err.code, message: err && err.message });
@@ -3225,6 +3228,13 @@
           message: null
         };
       }
+      /* Signed in, profile read, and it is missing or incomplete: this is a
+         new shop, and the next screen is the one that finishes its account.
+         Decided HERE, once, for every way into it — a fresh sign-in, a reload
+         halfway through sign-up, a return from a Google redirect — so no path
+         can land a signed-in user on the plain sign-in form instead. */
+      if (r && !r.offline && !r.complete && SM.fb.user()) enterProfileCompletion(r);
+
       /* Set LAST and on every path, including the timeout. A gate that stays
          shut after the answer has come back is the bug it was built to
          prevent, pointed the other way. */
@@ -3233,6 +3243,30 @@
     });
 
     return identityReady;
+  }
+
+  /* The account exists in Google and not yet as a shop: open the "finish
+     setting up" form, filled with whatever the record already holds so a
+     half-finished profile is not asked for twice. Nothing is invented — an
+     absent field stays absent. */
+  function enterProfileCompletion(r) {
+    var u = SM.fb.user();
+    if (!u) return;
+    authMode = 'signup';
+    state.pendingIdentity = {
+      sub: u.uid,
+      email: u.email || (r.profile && r.profile.email) || '',
+      name: u.displayName || '',
+      picture: u.photoURL || ''
+    };
+    var p = r.profile || {};
+    reg.shopName = reg.shopName || p.mobileShopName || p.shopName || '';
+    reg.proprietor = reg.proprietor || p.proprietorName || p.proprietor || '';
+    reg.mobile = reg.mobile || p.mobileNumber || p.mobile || '';
+    if (p.countryCode) reg.country = p.countryCode;
+    SM.debug.log('identity', 'new or incomplete account — asking for the shop details', {
+      has: { shop: !!reg.shopName, proprietor: !!reg.proprietor, mobile: !!reg.mobile }
+    });
   }
 
   /* Throws the cached answer away and asks again — what the Try again button
@@ -3252,11 +3286,22 @@
      most visible on the way back from Google, where the session arrives a
      moment after the page does. */
   function authPendingHTML() {
+    /* Two different waits, two different sentences. With a Firebase user in
+       hand, Google has already said yes and all that is left is loading the
+       shop — "Signing in" is the truth. Without one, the page is only finding
+       out whether a session exists, and saying "Signing in" to a visitor who
+       never pressed anything would be false. */
+    var u = SM.fb && SM.fb.user && SM.fb.user();
     return '<div class="acct"><div class="card card--pad">' +
-      '<div class="authwait">' + icon('refresh') +
+      '<div class="authwait" role="status" aria-live="polite">' + icon('refresh') +
       '<div class="grow" style="min-width:0">' +
-      '<h2 class="t-h1">Finishing sign-in…</h2>' +
-      '<p class="t-sub" style="margin-top:4px">Checking your Google account.</p>' +
+      (u
+        ? '<h2 class="t-h1">Signing in…</h2>' +
+          '<p class="t-sub" style="margin-top:4px">' +
+            (u.email ? esc(u.email) + ' — loading your shop account.' : 'Loading your shop account.') +
+          '</p>'
+        : '<h2 class="t-h1">Checking sign-in…</h2>' +
+          '<p class="t-sub" style="margin-top:4px">One moment.</p>') +
       '</div></div></div></div>';
   }
 
@@ -3557,6 +3602,23 @@
       return;
     }
 
+    /* THE RULE THE WHOLE SCREEN EXISTS TO KEEP: somebody Google has signed in
+       is never shown the signed-out form.
+
+       The legitimate signed-in-but-no-shop state is a new account, and that
+       has already been routed to the "finish setting up" form by
+       enterProfileCompletion — state.pendingIdentity says so. Anything else
+       that reaches here signed in and without a session is a state the app
+       could not load, and it gets the screen that says so, with Try again and
+       Sign out, rather than a "Continue with Google" that would start a second
+       sign-in over the first. */
+    if (fbUser && s.status === 'guest' && !state.pendingIdentity) {
+      SM.debug.warn('identity', 'signed in with no loadable session', { uid: fbUser.uid });
+      page.innerHTML = '<div class="shell" style="padding-top:20px">' +
+        authFailedHTML({ code: 'session-unavailable', outage: false }) + '</div>';
+      return;
+    }
+
     page.innerHTML = '<div class="shell" style="padding-top:20px">' +
       (s.status === 'guest' ? authHTML() : profileHTML(s)) +
       '</div>';
@@ -3685,14 +3747,28 @@
   }
 
   function authHTML() {
-    var signup = authMode === 'signup';
+    /* Already through Google and only missing the shop details: the one
+       screen is the completion form. The Sign in / Create account tabs are for
+       somebody who has not signed in yet — offering "Sign in" here would put a
+       second Google sign-in one tap away from someone who has just done one.
+       The only other way out is to use a different account, which is a sign
+       out, and is offered as exactly that. */
+    var completing = !!state.pendingIdentity;
+    var signup = completing || authMode === 'signup';
     return '<div class="acct">' +
       '<div class="card card--pad">' +
-      '<div class="segmented" style="margin-bottom:18px">' +
-      '<button class="' + (signup ? '' : 'is-on') + '" data-act="auth-tab" data-id="signin">Sign in</button>' +
-      '<button class="' + (signup ? 'is-on' : '') + '" data-act="auth-tab" data-id="signup">Create account</button>' +
-      '</div>' +
+      (completing
+        ? ''
+        : '<div class="segmented" style="margin-bottom:18px">' +
+          '<button class="' + (signup ? '' : 'is-on') + '" data-act="auth-tab" data-id="signin">Sign in</button>' +
+          '<button class="' + (signup ? 'is-on' : '') + '" data-act="auth-tab" data-id="signup">Create account</button>' +
+          '</div>') +
       (signup ? signupHTML() : signinHTML()) +
+      (completing
+        ? '<div style="margin-top:12px">' +
+          '<button class="btn btn--ghost btn--sm" data-act="signout" type="button">' +
+          icon('logout') + 'Use a different Google account</button></div>'
+        : '') +
       '</div>' +
 
       '<div class="card card--pad">' +
@@ -3829,7 +3905,12 @@
 
   function regHintHTML() {
     var missing = REG_FIELDS.filter(function (f) { return regError(f.k); });
-    if (!missing.length) return icon('checkCircle') + ' All details complete — pick your Google account to finish.';
+    if (!missing.length) {
+      /* Someone already signed in has no Google account left to pick. */
+      return icon('checkCircle') + (state.pendingIdentity
+        ? ' All details complete — press Continue to finish.'
+        : ' All details complete — pick your Google account to finish.');
+    }
     return 'Complete ' + missing.length + ' more ' + (missing.length === 1 ? 'field' : 'fields') +
       ' to continue: ' + esc(missing.map(function (f) { return f.label; }).join(', '));
   }
@@ -7154,9 +7235,11 @@
         reg.mobile = reg.mobile || p.mobileNumber || p.mobile || '';
         if (p.countryCode) reg.country = p.countryCode;
 
-        repaintAuth();
+        /* Straight onto the completion form. Its own heading says what is
+           happening — "Finish setting up your shop", with the Google account
+           shown — so there is no error-coloured message to add over it: a new
+           shop arriving here is the flow working, not something going wrong. */
         renderAccount(document.getElementById('page'));
-        authMsg('That Google account has no shop profile yet. Fill in your shop details below to finish creating it.');
         return;
       }
       /* Cleared HERE, not before the write — a failed save keeps the identity
@@ -7232,16 +7315,18 @@
         return;
       }
       if (err && err.code === 'profile-unreadable') {
-        authMsg(err.outage
-          ? 'You are signed in, but the site’s database is not responding, so ' +
-            'your account could not be loaded. This is a fault on our side — your ' +
-            'account and your subscription are safe and nothing needs re-entering. ' +
-            'Please try again later.'
-          : 'Signed in, but your account could not be read from the server. ' +
-            'Check the connection and try again — your details are safe, and ' +
-            'nothing needs re-entering.');
-        toast(err.outage ? 'Site database unavailable — try again later'
-                         : 'Could not load your account — try again', 'alert');
+        /* Google DID sign them in; only the profile read failed. That is not
+           a message to print under a "Continue with Google" button — it is a
+           state of the account screen, which already knows how to draw it:
+           signed in, what failed, Try again (which re-reads the profile and
+           never reopens Google), and Sign out. The session is kept. */
+        renderShellBits();
+        if (state.route.name === 'account') {
+          renderAccount(document.getElementById('page'));
+        } else {
+          toast(err.outage ? 'Signed in — but the site’s database is not responding'
+                           : 'Signed in — your account could not be loaded yet', 'alert');
+        }
         return;
       }
       authMsg('Signed in with Google, but your profile could not be loaded. Check the connection and reload.');
@@ -7292,51 +7377,69 @@
   /* The plain sign-in half of finishGoogle: resolve identity exactly as boot
      does, then report it in the shape finishGoogle expects. */
   function resolveSignIn(identity) {
-    /* The gate is per page load, and a sign-in is a new answer to the question
-       it caches — so it is rebuilt rather than reused. The fault goes with it:
-       a fresh attempt must not be judged by the last one's failure, and this
-       path reports its own outcome through authMsg. */
-    identityReady = null;
-    identitySettled = false;
-    identityFault = null;
+    /* ONE RESOLUTION, NOT TWO.
 
-    /* Normally the SDK has already published the new user by the time the
-       popup promise resolves. Not assumed: if it has not, wait for it rather
-       than resolving identity against a null and concluding "new account". */
-    var who = SM.fb.user() ? Promise.resolve(SM.fb.user()) : SM.fb.whenResolved();
+       This used to throw the identity gate away and resolve the account all
+       over again — while the auth listener below, woken by the very same
+       sign-in, was already doing exactly that for the account screen. Two
+       resolutions raced: two server profile-syncs, two profile reads, and
+       whichever finished second decided what the screen showed. When the
+       database was refusing, the loser cleared the fault the winner had
+       recorded, and the screen fell through to the signed-out form — the
+       "Google said yes and it sent me back to Sign in" report.
 
-    return who.then(function (fbUser) {
-      return S.initializeAuthenticatedUser(fbUser);
+       Now this waits until the listener has published THIS account (it has
+       normally done so before the popup promise resolves) and then asks
+       resolveIdentity(), which hands back the resolution already running. */
+    return accountPublished(identity.sub).then(function () {
+      return resolveIdentity();
     }).then(function (r) {
-      /* Re-armed on BOTH paths. Leaving it false after a failure would strand
-         the account screen on "Finishing sign-in…" for the rest of the page's
-         life, waiting for an answer that has already come back. */
-      identitySettled = true;
-      identityReady = Promise.resolve(r);
-
       /* Firestore could not be read — offline, blocked, rules in flight. That
          is NOT the same as "this account has no profile", and treating it as
          one shows the sign-up form to a shop that already has an account and
-         invites it to enter everything a second time. Refuse to guess. */
-      if (r && r.offline) {
+         invites it to enter everything a second time. Refuse to guess.
+         resolveIdentity has already recorded the fault for the screen. */
+      if (!r || r.offline) {
         var offline = new Error('profile-unreadable');
         offline.code = 'profile-unreadable';
-        offline.outage = !!r.outage;
-        offline.reason = r.reason || null;
+        offline.outage = identityFault ? !!identityFault.outage : !!(r && r.outage);
+        offline.reason = (r && r.reason) || (identityFault && identityFault.code) || null;
         throw offline;
       }
 
-      if (!r || !r.complete) {
-        return { needsRegistration: true, identity: identity, existing: (r && r.profile) || null };
+      if (!r.complete) {
+        return { needsRegistration: true, identity: identity, existing: r.profile || null };
       }
       /* Access comes from the server, never from the cache this browser holds. */
       return S.syncFromServer().then(function () {
-        return { session: S.get(), isNew: !!(r && r.isNew) };
+        return { session: S.get(), isNew: !!r.isNew };
       });
-    }, function (err) {
-      identitySettled = true;
-      identityReady = Promise.resolve(null);
-      throw err;
+    });
+  }
+
+  /* Resolves once the auth listener has announced the account with this uid —
+     which is what resets the identity gate for it. Bounded: a listener that
+     never fires must not hold the sign-in open, and resolveIdentity then
+     resolves against whatever Firebase says, exactly as a reload would. */
+  function accountPublished(uid) {
+    var u = SM.fb.user();
+    if (u && u.uid === uid && lastAuthUid === uid) return Promise.resolve();
+    return new Promise(function (resolve) {
+      var done = false;
+      var off = SM.fb.onChange(function (user) {
+        if (done || !user || user.uid !== uid) return;
+        done = true;
+        /* After the app's own listener, which registered first and has
+           already reset the gate for this account. */
+        setTimeout(function () { if (off) off(); resolve(); }, 0);
+      });
+      setTimeout(function () {
+        if (done) return;
+        done = true;
+        if (off) off();
+        SM.debug.warn('auth', 'account was not announced in time — resolving anyway', { uid: uid });
+        resolve();
+      }, 10000);
     });
   }
 
@@ -7448,6 +7551,9 @@
     identityReady = null;
     identitySettled = false;
     identityFault = null;
+    /* A half-finished sign-up belongs to the account that started it. The new
+       account's own resolution decides whether it needs one. */
+    state.pendingIdentity = null;
 
     if (!uid) {
       /* Signed out. The local session cache is the one thing that would
@@ -7474,36 +7580,15 @@
       if (state.route.name === 'account') renderAccount(document.getElementById('page'));
       if (!r) return;
 
-      /* A signed-in account with no usable profile has to finish signing up —
-         but only once the server has actually said so. A profile that merely
-         has not loaded yet is not a missing profile. */
-      if (!r.complete && !r.offline) {
-        var u = SM.fb.user();
-        authMode = 'signup';
-        state.pendingIdentity = {
-          sub: u ? u.uid : (r.profile && r.profile.uid) || '',
-          email: (u && u.email) || (r.profile && r.profile.email) || '',
-          name: (u && u.displayName) || '',
-          picture: (u && u.photoURL) || ''
-        };
-        /* Prefill from whatever the record already holds, so a shop that has
-           entered two of the three details is not asked for all three again.
-           Nothing is invented — an absent field stays absent. */
-        var p = r.profile || {};
-        reg.shopName = reg.shopName || p.mobileShopName || p.shopName || '';
-        reg.proprietor = reg.proprietor || p.proprietorName || p.proprietor || '';
-        reg.mobile = reg.mobile || p.mobileNumber || p.mobile || '';
-        if (p.countryCode) reg.country = p.countryCode;
-
-        SM.debug.log('boot', 'profile incomplete — asking for the missing details', {
-          has: { shop: !!reg.shopName, proprietor: !!reg.proprietor, mobile: !!reg.mobile }
-        });
-        if (state.route.name === 'account') renderAccount(document.getElementById('page'));
-      } else if (r.complete) {
+      /* A signed-in account with no usable profile has already been routed to
+         the completion form by resolveIdentity (enterProfileCompletion); the
+         repaint above drew it. */
+      if (r.complete) {
         /* Pull the SERVER's record of access in. The account screen must show
            the subscription the server believes in, not the one this browser
-           last cached. */
-        S.syncFromServer().then(function () {
+           last cached — but a reload a few minutes after the last answer reuses
+           it rather than asking again. Paying or cancelling always asks. */
+        S.syncFromServer({ maxAgeMs: 5 * 60 * 1000 }).then(function () {
           renderShellBits();
           if (state.route.name === 'account') renderAccount(document.getElementById('page'));
         });

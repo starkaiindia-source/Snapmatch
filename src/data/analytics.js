@@ -54,11 +54,18 @@
   var ENDPOINT = '/api/events';
   var SESSION_KEY = 'mpf.analytics.session';
   var VISITED_KEY = 'mpf.analytics.visited';
+  /* Set once this tab session has counted its visit and sent its first batch. */
+  var VISIT_COUNTED_KEY = 'mpf.analytics.visitCounted';
+  var SESSION_OPENED_KEY = 'mpf.analytics.sessionOpened';
 
-  /* How long a batch waits for company before being sent. Long enough to
-     collect a burst, short enough that a visitor who leaves has already had
-     their events sent. */
-  var FLUSH_MS = 2500;
+  /* How long a batch waits for company before being sent.
+
+     Every batch costs Firestore writes beyond its events — a rate-limit
+     counter, the day's rollup, the session row — so the fewer batches, the
+     cheaper each event. Fifteen seconds gathers a whole burst of browsing into
+     one. A visitor who leaves sooner is still covered: pagehide and a hidden
+     tab both flush on a beacon (see start()). */
+  var FLUSH_MS = 15000;
 
   /* A search is only recorded once the typing stops. */
   var SEARCH_DEBOUNCE_MS = 900;
@@ -116,9 +123,20 @@
     if (!queue.length || !enabled) return;
 
     var events = queue.splice(0, queue.length);
+
+    /* The first batch of a session says so, which lets the server stamp when
+       the session began in the same write that records it — instead of a
+       second "create if absent" write attempted on every batch. */
+    var opened = false;
+    try {
+      opened = sessionStorage.getItem(SESSION_OPENED_KEY) !== '1';
+      if (opened) sessionStorage.setItem(SESSION_OPENED_KEY, '1');
+    } catch (e) { /* private mode: no session id either, so nothing to stamp */ }
+
     var payload = JSON.stringify({
       events: events,
       sessionId: sessionId(),
+      newSession: opened,
       source: 'web'
     });
 
@@ -285,10 +303,19 @@
           }
         } catch (e) { /* unparseable referrer */ }
 
-        analytics.track(returning ? 'return_visit' : 'first_visit', {
-          landingPath: location.pathname,
-          referrerHost: referrerHost
-        });
+        /* A VISIT is a tab session, not a page load. This used to fire on
+           every start() — every full page load of the app — so moving between
+           the finder and a pre-rendered model page counted one person as a new
+           "return visit" each time, and paid a Firestore write for each. */
+        var counted = false;
+        try { counted = sessionStorage.getItem(VISIT_COUNTED_KEY) === '1'; } catch (e) { /* private mode */ }
+        if (!counted) {
+          try { sessionStorage.setItem(VISIT_COUNTED_KEY, '1'); } catch (e) { /* private mode */ }
+          analytics.track(returning ? 'return_visit' : 'first_visit', {
+            landingPath: location.pathname,
+            referrerHost: referrerHost
+          });
+        }
 
         /* Anything still queued when the tab closes goes out on a beacon. */
         global.addEventListener('pagehide', function () { flush(true); });

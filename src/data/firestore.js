@@ -203,8 +203,56 @@
     return null;
   }
 
+  /* What set(doc, {merge:true}) leaves behind: plain objects merge key by
+     key, everything else — strings, numbers, arrays, Timestamps — replaces. */
+  function isPlainObject(v) {
+    return !!v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
+  }
+  function mergeDeep(base, patch) {
+    var out = Object.assign({}, base);
+    Object.keys(patch).forEach(function (k) {
+      out[k] = isPlainObject(patch[k]) && isPlainObject(out[k])
+        ? mergeDeep(out[k], patch[k])
+        : patch[k];
+    });
+    return out;
+  }
+
+  /* --------------------------------------------------- this tab's profile copy
+
+     sessionStorage, keyed by uid, stamped with when it was read. It belongs to
+     the tab and dies with it, so a counter machine does not carry one shop's
+     profile to the next person who opens a window. It is a copy of what
+     Firestore said, never a source: nothing here is written that did not come
+     back from the database or go into it. */
+  var PROFILE_CACHE_KEY = 'mpf.profile.cache.v1';
+  var profileCache = {
+    get: function (uid, maxAgeMs) {
+      try {
+        var c = JSON.parse(sessionStorage.getItem(PROFILE_CACHE_KEY) || 'null');
+        if (!c || c.uid !== uid || !c.profile) return null;
+        var age = Date.now() - c.at;
+        if (!(age >= 0 && age < maxAgeMs)) return null;
+        return { profile: c.profile, ageMs: age };
+      } catch (e) { return null; }
+    },
+    put: function (uid, profile) {
+      try {
+        sessionStorage.setItem(PROFILE_CACHE_KEY,
+          JSON.stringify({ uid: uid, at: Date.now(), profile: profile }));
+      } catch (e) { /* private mode: every load simply reads */ }
+    },
+    drop: function () {
+      try { sessionStorage.removeItem(PROFILE_CACHE_KEY); } catch (e) { /* private mode */ }
+    }
+  };
+
   SM.store = {
     available: function () { return SM.fb.isConfigured(); },
+
+    /** Forgets this tab's copy of the profile — on sign-out, and whenever the
+        server may have changed the document behind the browser's back. */
+    forgetProfile: function () { profileCache.drop(); },
 
     /* ------------------------------------------------------------- profile */
 
@@ -262,15 +310,35 @@
       };
     },
 
-    /** The authoritative profile for a UID, or null if this account is new. */
-    loadProfile: function (uid) {
+    /**
+     * The authoritative profile for a UID, or null if this account is new.
+     *
+     * `opts.maxAgeMs` lets a caller accept this tab's own recent copy instead
+     * of a document read. Boot passes it, so moving between the app and the
+     * pre-rendered pages — each a full page load — costs one read per session
+     * rather than one per page. Every other caller omits it and reads fresh,
+     * and a fresh read refreshes the copy. Only a profile that EXISTS is kept:
+     * "no document" is the new-account answer, and caching it would hide the
+     * profile the sign-up form is about to create.
+     */
+    loadProfile: function (uid, opts) {
       var self = this;
+      var maxAge = opts && opts.maxAgeMs;
+      if (maxAge) {
+        var hit = profileCache.get(uid, maxAge);
+        if (hit) {
+          SM.debug.log('profile', 'users/' + uid + ' from this tab’s copy', { ageMs: hit.ageMs });
+          return Promise.resolve(hit.profile);
+        }
+      }
       return store().then(function (db) {
         return db.collection('users').doc(uid).get();
       }).then(function (snap) {
         SM.debug.log('profile', 'read users/' + uid,
                      { exists: snap.exists, complete: snap.exists ? !!snap.data().profileCompleted : false });
-        return snap.exists ? self.normaliseProfile(snap.data()) : null;
+        var p = snap.exists ? self.normaliseProfile(snap.data()) : null;
+        if (p) profileCache.put(uid, p); else profileCache.drop(uid);
+        return p;
       }, function (err) {
         SM.debug.warn('profile', 'read users/' + uid + ' FAILED',
                       { code: err && err.code, message: err && err.message });
@@ -337,11 +405,17 @@
           if (!snap.exists) doc.createdAt = Date.now();
           SM.debug.log('profile', snap.exists ? 'updating users/' + uid : 'creating users/' + uid,
                        { fields: Object.keys(doc) });
-          return ref.set(doc, { merge: true });
-        }).then(function () { return ref.get(); });
-      }).then(function (snap) {
+          /* The stored result is the document read above with this write
+             merged over it, which is exactly what set(..., {merge:true}) does —
+             so it is computed here instead of paying a second read for it. */
+          var merged = mergeDeep(snap.exists ? snap.data() : {}, doc);
+          return ref.set(doc, { merge: true }).then(function () { return merged; });
+        });
+      }).then(function (stored) {
         SM.debug.log('profile', 'firestore write ok', { uid: uid });
-        return self.normaliseProfile(snap.data());
+        var p = self.normaliseProfile(stored);
+        profileCache.put(uid, p);
+        return p;
       }, function (err) {
         /* Loud on purpose. A rejected profile write is how a shop ends up
            signed in with no record anywhere, and it used to happen silently. */
@@ -597,7 +671,7 @@
      non-thenable return is passed through untouched, so a future synchronous
      helper needs no maintenance here either. */
   (function applyDeadlines() {
-    var SYNC = { available: 1, normaliseProfile: 1 };
+    var SYNC = { available: 1, normaliseProfile: 1, forgetProfile: 1 };
 
     /* Already bounded, inside their own catch. Wrapping them again would put a
        rejection outside the handler that exists to absorb it, and these three

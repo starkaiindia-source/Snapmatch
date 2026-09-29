@@ -18,6 +18,7 @@
 /scripts/
 
 # Backend configuration — deployed with the Firebase CLI, not with the site.
+/.firebaserc
 /firebase.json
 /firestore.rules
 /firestore.indexes.json

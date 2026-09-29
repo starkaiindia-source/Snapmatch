@@ -4,7 +4,7 @@
    GENERATED. Do not edit by hand.
 
        python scripts/build-category-assets.py --src "<folder of masters>"
-       node scripts/upload-category-assets.js --project mobilepartsfinder
+       node scripts/upload-category-assets.js --project mobilepartsfindercom
 
    ONE MAPPING, EVERY SURFACE
 
@@ -32,6 +32,16 @@
      else.
 
    Generated 2026-09-04T19:53:23.052Z
+
+   2026-09-29 — every `storage` URL was cleared by hand, on purpose. They all
+   pointed into the RETIRED Firebase project's bucket
+   (mobilepartsfinder.firebasestorage.app), which answers 404, so every logo
+   was a failed request before the bundled copy took over. With storage null
+   the bundled file is the primary — the state the generator itself writes for
+   a category not uploaded yet — and the logos cost no Storage operations at
+   all. Running the uploader against the new project
+   (`--project mobilepartsfindercom`) regenerates this file with that bucket's
+   URLs, if Storage is ever wanted as the system of record again.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -40,7 +50,7 @@
   var ASSETS = {
     'screen-guards': {
       label: "Screen Guards",
-      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fscreen-guards%2Flogo-256.png?alt=media",
+      storage: null,
       bundled: "/assets/categories/screen-guards.png",
       focus: { iw: 1.2516, il: -0.1258, it: 0.0417 }
     },
@@ -57,25 +67,25 @@
     },
     'combo-display': {
       label: "Combo/Display",
-      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fcombo-display%2Flogo-256.png?alt=media",
+      storage: null,
       bundled: "/assets/categories/combo-display.png",
       focus: { iw: 1.221, il: -0.1105, it: 0.0457 }
     },
     'middle-frame': {
       label: "Middle Frame",
-      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fmiddle-frame%2Flogo-256.png?alt=media",
+      storage: null,
       bundled: "/assets/categories/middle-frame.png",
       focus: { iw: 1.2412, il: -0.1182, it: 0.0345 }
     },
     'cc-board': {
       label: "CC Board",
-      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fcc-board%2Flogo-256.png?alt=media",
+      storage: null,
       bundled: "/assets/categories/cc-board.png",
       focus: { iw: 1.0478, il: -0.0219, it: 0.1853 }
     },
     'battery': {
       label: "Battery",
-      storage: "https://firebasestorage.googleapis.com/v0/b/mobilepartsfinder.firebasestorage.app/o/category-assets%2Fbattery%2Flogo-256.png?alt=media",
+      storage: null,
       bundled: "/assets/categories/battery.png",
       focus: { iw: 1.2947, il: -0.1448, it: 0.0183 }
     },

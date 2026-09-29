@@ -241,8 +241,26 @@ async function syncProfile({ uid, email, displayName, photoURL, emailVerified,
   Object.assign(doc, searchFieldsFor({ ...prior, ...doc }));
 
   await ref.set(doc, { merge: true });
-  const after = await ref.get();
-  return { created: !existed, profile: after.data() || doc };
+  /* What the document now holds is the one read above with this write merged
+     over it — exactly what set(..., {merge:true}) does — so it is computed
+     rather than read back. That read-back was a second billed read on every
+     call, for a value this function already had. */
+  return { created: !existed, profile: mergeDeep(prior, doc) };
+}
+
+/* set(..., {merge:true}) semantics: plain objects merge key by key, and every
+   other value — string, number, array, Timestamp, FieldValue — replaces. */
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype;
+}
+function mergeDeep(base, patch) {
+  const out = { ...base };
+  Object.keys(patch).forEach(k => {
+    out[k] = isPlainObject(patch[k]) && isPlainObject(out[k])
+      ? mergeDeep(out[k], patch[k])
+      : patch[k];
+  });
+  return out;
 }
 
 /**

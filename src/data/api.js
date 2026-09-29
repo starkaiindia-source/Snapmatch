@@ -974,11 +974,88 @@
      @param {object} fbUser  the Firebase user, already resolved
      @returns {Promise<{profile:object|null, complete:boolean, isNew:boolean}>}
   */
-  function initializeAuthenticatedUser(fbUser) {
+  /* ------------------------------------------------ one resolution per account
+
+     Sign-in reaches this from two places at once: the auth listener repaints
+     the account screen, which resolves identity, and the popup's own promise
+     resolves it again. Each call used to run the whole thing — a server
+     profile-sync (two reads and a write) and a browser profile read — so one
+     tap on "Continue with Google" cost twice what it needed to. Every caller
+     now shares the resolution already running, or already finished, for the
+     same account.
+
+     A failed resolution is NOT kept. "Try again" has to actually ask again,
+     and remembering an outage would turn a thirty-second blip into a broken
+     account for the rest of the page's life. */
+  var resolution = { uid: null, promise: null };
+
+  function forgetResolution() { resolution = { uid: null, promise: null }; }
+
+  /* When this tab last had the server's subscription answer, per account. */
+  var SERVER_SYNC_KEY = 'mpf.subsync.v1';
+  function serverSyncFresh(uid, maxAgeMs) {
+    try {
+      var s = JSON.parse(sessionStorage.getItem(SERVER_SYNC_KEY) || 'null');
+      var age = s && s.uid === uid ? Date.now() - s.at : -1;
+      return age >= 0 && age < maxAgeMs;
+    } catch (e) { return false; }
+  }
+  function markServerSync(uid) {
+    try { sessionStorage.setItem(SERVER_SYNC_KEY, JSON.stringify({ uid: uid, at: Date.now() })); }
+    catch (e) { /* private mode: every load asks */ }
+  }
+  function forgetServerSync() {
+    try { sessionStorage.removeItem(SERVER_SYNC_KEY); } catch (e) { /* private mode */ }
+  }
+
+  /* How stale lastLoginAt may get before a sign-in refreshes it. It is an
+     admin-facing "last seen", not an audit log, and stamping it on every page
+     load was a Firestore write per page per signed-in shop. */
+  var LOGIN_STAMP_MS = 24 * 3600 * 1000;
+
+  /* A reload inside this window reuses the tab's own copy of the profile
+     instead of reading users/{uid} again. Short, because an edit made on
+     another device should show here without anyone having to think about it. */
+  var PROFILE_REUSE_MS = 10 * 60 * 1000;
+
+  function initializeAuthenticatedUser(fbUser, opts) {
     if (!fbUser) {
       SM.debug.log('identity', 'no user to initialise');
       return Promise.resolve({ profile: null, complete: false, isNew: false });
     }
+    var force = !!(opts && opts.force);
+    if (!force && resolution.uid === fbUser.uid && resolution.promise) {
+      SM.debug.log('identity', 'joining the resolution already under way', { uid: fbUser.uid });
+      return resolution.promise;
+    }
+
+    var p = resolveAccount(fbUser, opts || {}).then(function (r) {
+      if (r && r.offline && resolution.promise === p) forgetResolution();
+      return r;
+    });
+    resolution = { uid: fbUser.uid, promise: p };
+    return p;
+  }
+
+  /* The profile-sync call, reported rather than thrown: the caller decides
+     whether its failure matters. */
+  function serverSync(fbUser) {
+    if (!SM.billing) return Promise.resolve(null);
+    return SM.billing.syncProfile({ photoURL: fbUser.photoURL || null })
+      .then(function (r) {
+        SM.debug.log('identity', 'profile-sync ' + (r.created ? 'created' : 'updated'),
+                     { uid: r.uid, complete: r.profileCompleted, missing: r.missing });
+        return r;
+      })
+      .catch(function (err) {
+        SM.debug.warn('identity', 'profile-sync failed', {
+          status: err && err.status, error: err && err.message
+        });
+        return null;
+      });
+  }
+
+  function resolveAccount(fbUser, opts) {
     var uid = fbUser.uid;
     SM.debug.log('identity', 'initialising', { uid: uid, email: fbUser.email || null });
 
@@ -987,38 +1064,36 @@
       return Promise.resolve({ profile: null, complete: false, isNew: false, offline: true });
     }
 
-    /* THE WRITE THAT MAKES THE DOCUMENT EXIST.
-       Firebase Authentication creating a user creates nothing in Firestore —
-       they are separate products — so a sign-in that never reached the sign-up
-       form left an account with no record anywhere. That was the bug: visible
-       under Authentication -> Users, absent from the users collection.
+    /* READ FIRST, WRITE ONLY WHEN THERE IS SOMETHING TO WRITE.
 
-       It runs on the server through the Admin SDK, for two reasons. Security
-       rules cannot silently swallow it, which a client-side write can; and the
-       server-owned fields — the opening subscriptionStatus, accountStatus,
-       lastLoginAt — get written by the only party allowed to write them.
+       This used to call /api/profile-sync before every read, on every page
+       load: two server reads and a write of lastLoginAt/updatedAt, whether or
+       not anything had changed, for every signed-in shop on every page. Now
+       the profile is read once, and the server is asked to write only when
 
-       Its failure is not fatal. Firestore is still read below, and the browser
-       still writes its own shop details directly, so a profile-sync that cannot
-       reach the server degrades to what the app did before rather than blocking
-       the sign-in. */
-    var synced = SM.billing
-      ? SM.billing.syncProfile({ photoURL: fbUser.photoURL || null })
-          .then(function (r) {
-            SM.debug.log('identity', 'profile-sync ' + (r.created ? 'created' : 'updated'),
-                         { uid: r.uid, complete: r.profileCompleted, missing: r.missing });
-            return r;
-          })
-          .catch(function (err) {
-            SM.debug.warn('identity', 'profile-sync failed', {
-              status: err && err.status, error: err && err.message
-            });
-            return null;
-          })
-      : Promise.resolve(null);
+         · there is no document — a genuinely new account. The sync is what
+           makes users/{uid} exist, with the server-owned fields (opening
+           subscriptionStatus, accountStatus) written by the only party allowed
+           to write them. It is awaited, so the sign-up form that follows is
+           completing a record that already exists.
+         · lastLoginAt is more than a day old, or absent — a returning shop.
+           Fired and not awaited: nothing on screen depends on it.
 
-    return synced.then(function () {
-      return SM.store.loadProfile(uid);
+       The Google account's email is re-sent in that same sync, so a changed
+       address still reaches the record within a day. */
+    return SM.store.loadProfile(uid, opts.reuse ? { maxAgeMs: PROFILE_REUSE_MS } : null).then(function (remote) {
+      if (!remote) {
+        /* No record yet. Create it server side, then report a new account —
+           there are no shop details to read back, so there is no second read. */
+        return serverSync(fbUser).then(function () { return null; });
+      }
+      var stamp = remote.lastLoginAt || 0;
+      if (!stamp || Date.now() - stamp > LOGIN_STAMP_MS) {
+        serverSync(fbUser).then(function (r) {
+          if (r && SM.store.forgetProfile) SM.store.forgetProfile();
+        });
+      }
+      return remote;
     }).then(function (remote) {
       var cached = SM.auth.findProfile(uid);
 
@@ -1192,6 +1267,14 @@
     var serverDown = false, clientDown = false;
     var reasons = [];
 
+    /* The server first, and the browser only if the server could not.
+
+       Both used to run every time, in parallel, so one registration cost two
+       writes of the same document and five reads (the server's read and
+       read-back, the browser's read and read-back, and the final read below).
+       The server path is the better one — rules cannot refuse it and it owns
+       the server fields — so it goes alone, and the direct write remains
+       exactly what it was meant to be: the way through when the API is down. */
     var viaServer = SM.billing
       ? SM.billing.syncProfile({ photoURL: identity.picture || null, profile: shop })
           .then(function (r) {
@@ -1207,21 +1290,23 @@
           })
       : Promise.resolve(null);
 
-    var viaClient = (SM.store && SM.store.available() && SM.fb.user())
-      ? SM.store.saveProfile(identity.sub, shop, SM.fb.user())
-          .then(function (p) {
-            clientOk = true;
-            SM.debug.log('signup', 'profile written from the browser', { uid: identity.sub });
-            return p;
-          }, function (e) {
-            if (firestoreOutage(e)) clientDown = true;
-            reasons.push('client: ' + ((e && e.code) || (e && e.message) || 'failed'));
-            SM.debug.warn('signup', 'direct profile write failed', { code: e && e.code });
-            return null;
-          })
-      : Promise.resolve(null);
+    var viaClient = viaServer.then(function () {
+      if (serverOk) return null;
+      if (!(SM.store && SM.store.available() && SM.fb.user())) return null;
+      return SM.store.saveProfile(identity.sub, shop, SM.fb.user())
+        .then(function (p) {
+          clientOk = true;
+          SM.debug.log('signup', 'profile written from the browser', { uid: identity.sub });
+          return p;
+        }, function (e) {
+          if (firestoreOutage(e)) clientDown = true;
+          reasons.push('client: ' + ((e && e.code) || (e && e.message) || 'failed'));
+          SM.debug.warn('signup', 'direct profile write failed', { code: e && e.code });
+          return null;
+        });
+    });
 
-    return Promise.all([viaServer, viaClient]).then(function () {
+    return viaClient.then(function (clientProfile) {
       if (!serverOk && !clientOk) {
         var err = new Error('profile-save-failed');
         err.code = 'profile-save-failed';
@@ -1232,6 +1317,13 @@
         err.outage = !browserOffline() && (serverDown || clientDown);
         throw err;
       }
+      /* The profile is about to be different, so whatever this page resolved
+         for the account before it is out of date. */
+      forgetResolution();
+
+      /* The direct write already returns the stored document. */
+      if (clientProfile) return clientProfile;
+
       /* Read it back rather than trusting the write. What the account screen
          shows is then the document as Firestore actually holds it. */
       return SM.store.loadProfile(identity.sub).catch(function (e) {
@@ -1310,11 +1402,15 @@
        finds the same profile instead of looking like a new shop. The local
        copy is refreshed from it and used only as a cache afterwards. */
     /* The one identity entry point. Every screen and both auth pages use it. */
-    initializeAuthenticatedUser: function (fbUser) { return initializeAuthenticatedUser(fbUser); },
+    /* opts.reuse  accept this tab's recent copy of the profile (boot only)
+       opts.force  ignore any resolution already made for this account */
+    initializeAuthenticatedUser: function (fbUser, opts) { return initializeAuthenticatedUser(fbUser, opts); },
 
     signInWithGoogle: function (identity, registration) {
+      /* Identity resolution read this document moments ago; its copy is
+         reused rather than read a second time on the way into the form. */
       var remote = (SM.store && SM.store.available())
-        ? SM.store.loadProfile(identity.sub).catch(function (e) {
+        ? SM.store.loadProfile(identity.sub, { maxAgeMs: PROFILE_REUSE_MS }).catch(function (e) {
             console.warn('[auth] profile read failed', e && e.code);
             return null;                      /* fall back to the local copy */
           })
@@ -1377,6 +1473,10 @@
        still authenticate as the user who just signed out. */
     signOut: function () {
       writeSub(null);
+      /* Nothing resolved or copied for this account may outlive it. */
+      forgetResolution();
+      forgetServerSync();
+      if (SM.store && SM.store.forgetProfile) SM.store.forgetProfile();
       var done = (SM.fb && SM.fb.isConfigured())
         ? SM.fb.signOut().catch(function () { /* already gone is fine */ })
         : Promise.resolve();
@@ -1402,9 +1502,21 @@
        The expiry is decided by the server clock, so a device set forward
        cannot extend a subscription, and localStorage becomes a cache of the
        server's answer rather than the answer itself. */
-    syncFromServer: function () {
+    /* `opts.maxAgeMs`: boot passes it so a reload within a few minutes of the
+       last answer reuses it — the local session already holds that answer.
+       Payment and cancellation call this with no options and always ask. The
+       server enforces access on every paid request regardless, so a copy a
+       few minutes old can only ever affect what the account page SAYS. */
+    syncFromServer: function (opts) {
       if (!this.hasPaymentBackend() || !current.signedIn) return Promise.resolve(current);
+      var uid = current.sub;
+      var maxAge = opts && opts.maxAgeMs;
+      if (maxAge && serverSyncFresh(uid, maxAge)) {
+        SM.debug.log('billing', 'subscription status reused from this tab', { uid: uid });
+        return Promise.resolve(current);
+      }
       return SM.billing.status().then(function (data) {
+        markServerSync(uid);
         var a = data.access || {};
         SM.auth.saveProfile(current.sub, {
           subscription: a.expiresAt ? {
