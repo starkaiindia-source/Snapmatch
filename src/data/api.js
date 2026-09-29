@@ -991,21 +991,26 @@
 
   function forgetResolution() { resolution = { uid: null, promise: null }; }
 
-  /* When this tab last had the server's subscription answer, per account. */
+  /* When this device last had the server's subscription answer, per account.
+     The answer itself lives in the session profile (mpf.profiles.v1); this is
+     only when it was fetched. */
   var SERVER_SYNC_KEY = 'mpf.subsync.v1';
   function serverSyncFresh(uid, maxAgeMs) {
     try {
-      var s = JSON.parse(sessionStorage.getItem(SERVER_SYNC_KEY) || 'null');
+      var s = JSON.parse(localStorage.getItem(SERVER_SYNC_KEY) || 'null');
       var age = s && s.uid === uid ? Date.now() - s.at : -1;
       return age >= 0 && age < maxAgeMs;
     } catch (e) { return false; }
   }
   function markServerSync(uid) {
-    try { sessionStorage.setItem(SERVER_SYNC_KEY, JSON.stringify({ uid: uid, at: Date.now() })); }
+    try { localStorage.setItem(SERVER_SYNC_KEY, JSON.stringify({ uid: uid, at: Date.now() })); }
     catch (e) { /* private mode: every load asks */ }
   }
   function forgetServerSync() {
-    try { sessionStorage.removeItem(SERVER_SYNC_KEY); } catch (e) { /* private mode */ }
+    try {
+      localStorage.removeItem(SERVER_SYNC_KEY);
+      sessionStorage.removeItem(SERVER_SYNC_KEY);   /* the first version's copy */
+    } catch (e) { /* private mode */ }
   }
 
   /* How stale lastLoginAt may get before a sign-in refreshes it. It is an
@@ -1013,10 +1018,19 @@
      load was a Firestore write per page per signed-in shop. */
   var LOGIN_STAMP_MS = 24 * 3600 * 1000;
 
-  /* A reload inside this window reuses the tab's own copy of the profile
-     instead of reading users/{uid} again. Short, because an edit made on
-     another device should show here without anyone having to think about it. */
-  var PROFILE_REUSE_MS = 10 * 60 * 1000;
+  /* A page load inside this window reuses this device's copy of the profile
+     instead of reading users/{uid} again. The profile changes when the shop
+     edits it — and an edit made HERE updates the copy — so the only thing the
+     window delays is an edit made on another device showing up on this one.
+     Six hours bounds that to within a working day, for at most a few reads a
+     day per shop instead of one per page. */
+  var PROFILE_REUSE_MS = 6 * 3600 * 1000;
+
+  /* The same for the subscription answer. Shorter, because it changes when a
+     payment lands — and a payment made on THIS device refreshes it at once
+     (subscribe() and cancel() always ask). Expiry needs no read at all: the
+     session re-derives it from expiresAt against the clock. */
+  var SUBSCRIPTION_REUSE_MS = 30 * 60 * 1000;
 
   function initializeAuthenticatedUser(fbUser, opts) {
     if (!fbUser) {
@@ -1471,9 +1485,24 @@
     /* Signing out has to end the Firebase session too. Clearing only the local
        record leaves a live ID token behind, so the next billing call would
        still authenticate as the user who just signed out. */
-    signOut: function () {
+    /* Everything this browser holds for the signed-in account, dropped —
+       without touching Firebase. For when Firebase has already said nobody is
+       signed in and the local copy is simply out of date. */
+    forgetLocal: function () {
+      if (current.sub && SM.auth.forgetProfile) SM.auth.forgetProfile(current.sub);
       writeSub(null);
-      /* Nothing resolved or copied for this account may outlive it. */
+      forgetResolution();
+      forgetServerSync();
+      if (SM.store && SM.store.forgetProfile) SM.store.forgetProfile();
+      refresh();
+      return current;
+    },
+
+    signOut: function () {
+      /* Nothing resolved or copied for this account may outlive it — the
+         shop details included, on a machine the next person will use. */
+      if (current.sub && SM.auth.forgetProfile) SM.auth.forgetProfile(current.sub);
+      writeSub(null);
       forgetResolution();
       forgetServerSync();
       if (SM.store && SM.store.forgetProfile) SM.store.forgetProfile();
@@ -1502,15 +1531,16 @@
        The expiry is decided by the server clock, so a device set forward
        cannot extend a subscription, and localStorage becomes a cache of the
        server's answer rather than the answer itself. */
-    /* `opts.maxAgeMs`: boot passes it so a reload within a few minutes of the
-       last answer reuses it — the local session already holds that answer.
-       Payment and cancellation call this with no options and always ask. The
-       server enforces access on every paid request regardless, so a copy a
-       few minutes old can only ever affect what the account page SAYS. */
+    /* `opts.reuse` (or an explicit `opts.maxAgeMs`): boot passes it so a page
+       load within SUBSCRIPTION_REUSE_MS of the last answer reuses it — the
+       local session already holds that answer. Payment and cancellation call
+       this with no options and always ask. The server enforces access on
+       every paid request regardless, so a copy some minutes old can only ever
+       affect what the account page SAYS. */
     syncFromServer: function (opts) {
       if (!this.hasPaymentBackend() || !current.signedIn) return Promise.resolve(current);
       var uid = current.sub;
-      var maxAge = opts && opts.maxAgeMs;
+      var maxAge = opts && (opts.maxAgeMs || (opts.reuse ? SUBSCRIPTION_REUSE_MS : 0));
       if (maxAge && serverSyncFresh(uid, maxAge)) {
         SM.debug.log('billing', 'subscription status reused from this tab', { uid: uid });
         return Promise.resolve(current);

@@ -1116,8 +1116,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .locpin .mono{ font-size:11.5px; color:var(--ink-3); }
 
 /* ---------------- account ---------------- */
-.acct{ display:grid; gap:16px; grid-template-columns:1fr; }
-@media (min-width:900px){ .acct{ grid-template-columns:1.05fr .95fr; align-items:start; } }
+/* minmax(0, …), not a bare fr. A bare 1fr track cannot shrink below its
+   content's min-content width, so one unbreakable line inside a card — a long
+   Gmail address, a nowrap button label — widened the column, the card and then
+   the whole page past the phone's edge. */
+.acct{ display:grid; gap:16px; grid-template-columns:minmax(0,1fr); }
+@media (min-width:900px){ .acct{ grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr); align-items:start; } }
 .statusbar{ height:8px; border-radius:99px; background:var(--surface-3); overflow:hidden; }
 .statusbar i{ display:block; height:100%; border-radius:99px; background:var(--grad-brand); }
 .segmented{ display:flex; gap:4px; padding:4px; background:var(--surface-3); border-radius:var(--r-sm); }
@@ -1751,9 +1755,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
   color:var(--ink-3);
 }
+/* Wrapped, not truncated: this card exists so the shop can see WHICH account
+   it is finishing, and "jeevananthamsathiy…" does not answer that. */
 .gacct__e{
   font-size:14px; font-weight:600; color:var(--ink);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  overflow-wrap:anywhere; line-height:1.35;
 }
 .gacct > svg{ width:18px; height:18px; color:var(--teal-600); flex:none; }
 
@@ -1787,6 +1793,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 @media (min-width:768px){
   .regcta{ margin:18px -22px -22px; padding:16px 22px; }
 }
+/* The button fills the bar and never more. .btn is nowrap, so a label that
+   outgrows a narrow phone is clipped inside the button instead of pushing it
+   past the card's edge. */
+.regcta .btn{ max-width:100%; min-width:0; overflow:hidden; }
 @media (max-width:900px){
   /* Clear of the bottom navigation, which is fixed over the page down here. */
   .regcta{ bottom:var(--tabbar-h, 0px); }

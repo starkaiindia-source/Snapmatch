@@ -113,7 +113,7 @@ function load(o = {}) {
   vm.runInContext(STORE, sandbox, { filename: 'firestore.js' });
   vm.runInContext(API, sandbox, { filename: 'api.js' });
 
-  return { SM: sandbox.SM, counts, user, getDoc: () => doc };
+  return { SM: sandbox.SM, counts, user, getDoc: () => doc, sandbox };
 }
 
 const COMPLETE = {
@@ -209,6 +209,44 @@ test('saving a profile does not read the document back', async () => {
   assert.deepEqual({ ...p.address }, { city: 'Coimbatore', area: 'RS Puram', flat: '12B' },
     'nested fields merge exactly as set(..., {merge:true}) merges them');
   assert.equal(p.profileCompleted, true);
+});
+
+test('a new tab reuses the device copy — it does not read the profile again', async () => {
+  const { SM, counts, user, sandbox } = load({ doc: { ...COMPLETE, lastLoginAt: Date.now() } });
+
+  await SM.session.initializeAuthenticatedUser(user, { reuse: true });
+  /* A new tab starts with an empty sessionStorage and the same localStorage. */
+  sandbox.sessionStorage.removeItem('mpf.profile.cache.v1');
+  const again = await SM.session.initializeAuthenticatedUser(user, { reuse: true, force: true });
+
+  assert.equal(again.complete, true);
+  assert.equal(counts.gets, 1);
+});
+
+test('the subscription answer is reused within its window, and asked for after a payment', async () => {
+  const { SM, counts, user } = load({ doc: { ...COMPLETE, lastLoginAt: Date.now() } });
+  await SM.session.initializeAuthenticatedUser(user);
+
+  await SM.session.syncFromServer({ reuse: true });
+  await SM.session.syncFromServer({ reuse: true });
+  assert.equal(counts.status, 1, 'a page load soon after the last answer does not ask again');
+
+  await SM.session.syncFromServer();
+  assert.equal(counts.status, 2, 'payment and cancellation call it without reuse, and it asks');
+});
+
+test('a cached answer never crosses to another account or survives sign-out', async () => {
+  const { SM, counts, user } = load({ doc: { ...COMPLETE, lastLoginAt: Date.now() } });
+  await SM.session.initializeAuthenticatedUser(user);
+  await SM.session.syncFromServer({ reuse: true });
+
+  SM.session.forgetLocal();
+  assert.equal(SM.session.get().signedIn, false, 'the local session is gone');
+
+  await SM.session.initializeAuthenticatedUser(user, { reuse: true });
+  await SM.session.syncFromServer({ reuse: true });
+  assert.equal(counts.gets, 2, 'the profile is read again after the copy was dropped');
+  assert.equal(counts.status, 2, 'and so is the subscription');
 });
 
 test('signing out forgets everything the tab kept for the account', async () => {

@@ -3110,6 +3110,11 @@
   var identityReady = null;
   var identitySettled = false;
 
+  /* True from "Continue with Google" until Google answers, either way. While
+     it is set and no Firebase user exists yet, the account screen shows
+     "Signing in…" instead of the sign-in form. */
+  var signingIn = false;
+
   /* Why the last resolution failed, when it failed in a way the reader has to
      be told about. Null on the happy path. Read by renderAccount so the screen
      that was stuck on a spinner now says what went wrong and offers a way out. */
@@ -3196,7 +3201,20 @@
       }
       return SM.fb.whenResolved().then(function (fbUser) {
         SM.debug.log('boot', 'auth resolved', { signedIn: !!fbUser, uid: fbUser ? fbUser.uid : null });
-        if (!fbUser) return null;
+        if (!fbUser) {
+          /* Firebase is the authority, and it says nobody. A signed-in copy
+             this browser still holds — a session that expired, or was ended on
+             another tab — is dropped, so the account screen that may have been
+             drawn from it repaints as signed out. Local only: nothing is asked
+             of Firebase, so a slow network that merely timed out costs a
+             repaint, never the real session. */
+          if (S.get().signedIn && S.forgetLocal) {
+            SM.debug.log('boot', 'no Firebase session — dropping the cached one');
+            S.forgetLocal();
+            forgetRole();
+          }
+          return null;
+        }
         /* reuse: a reload inside a few minutes takes this tab's copy of the
            profile rather than reading users/{uid} again. A sign-in never finds
            one — sign-out drops it, and it is keyed to the account. */
@@ -3285,24 +3303,38 @@
      as "it sent me back to the login page". That is the whole mobile bug —
      most visible on the way back from Google, where the session arrives a
      moment after the page does. */
-  function authPendingHTML() {
-    /* Two different waits, two different sentences. With a Firebase user in
-       hand, Google has already said yes and all that is left is loading the
-       shop — "Signing in" is the truth. Without one, the page is only finding
-       out whether a session exists, and saying "Signing in" to a visitor who
-       never pressed anything would be false. */
+  function authPendingHTML(opts) {
+    /* Three different waits, three different sentences. With a Firebase user
+       in hand, Google has already said yes and all that is left is loading the
+       shop. Before one, after "Continue with Google", the person is choosing an
+       account. And with neither, the page is only finding out whether a
+       session exists — saying "Signing in" to a visitor who never pressed
+       anything would be false. */
     var u = SM.fb && SM.fb.user && SM.fb.user();
+    var choosing = !u && opts && opts.signingIn;
     return '<div class="acct"><div class="card card--pad">' +
       '<div class="authwait" role="status" aria-live="polite">' + icon('refresh') +
       '<div class="grow" style="min-width:0">' +
       (u
         ? '<h2 class="t-h1">Signing in…</h2>' +
-          '<p class="t-sub" style="margin-top:4px">' +
+          '<p class="t-sub" style="margin-top:4px;overflow-wrap:anywhere">' +
             (u.email ? esc(u.email) + ' — loading your shop account.' : 'Loading your shop account.') +
           '</p>'
-        : '<h2 class="t-h1">Checking sign-in…</h2>' +
-          '<p class="t-sub" style="margin-top:4px">One moment.</p>') +
-      '</div></div></div></div>';
+        : choosing
+          ? '<h2 class="t-h1">Signing in…</h2>' +
+            '<p class="t-sub" style="margin-top:4px">Choose your Google account in the ' +
+            'window that opened. This page carries on by itself.</p>'
+          : '<h2 class="t-h1">Checking sign-in…</h2>' +
+            '<p class="t-sub" style="margin-top:4px">One moment.</p>') +
+      '</div></div>' +
+      /* The way back, for a chooser that was closed without the browser
+         telling the page. It puts the form back; it cannot start a second
+         sign-in, because SM.fb.signIn joins the attempt already open. */
+      (choosing
+        ? '<div style="margin-top:14px"><button class="btn btn--ghost btn--sm" ' +
+          'data-act="cancel-signin" type="button">Cancel</button></div>'
+        : '') +
+      '</div></div>';
   }
 
   /* ------------------------------------------------- the spinner's way out
@@ -3514,6 +3546,7 @@
       ? SM.billing.adminSession({ timeoutMs: 8000 }).then(function (res) {
           var role = (res && res.admin && res.admin.role) || 'user';
           if (roleState.uid === uid) { roleState.role = role; roleState.pending = null; }
+          rememberRole(uid, role);
           SM.debug.log('identity', 'role resolved from server', { uid: uid, role: role });
           return role;
         }, function (err) {
@@ -3522,6 +3555,7 @@
              and the only honest one. /admin re-checks regardless, so a wrong
              guess here costs a link, never access. */
           if (roleState.uid === uid) { roleState.role = 'user'; roleState.pending = null; }
+          forgetRole();
           SM.debug.warn('identity', 'role lookup failed, treating as user', {
             uid: uid, status: err && err.status, message: err && err.message
           });
@@ -3535,11 +3569,44 @@
     return roleState.pending;
   }
 
+  /* ------------------------------------------------ the last answer, per uid
+
+     The server's last role answer for an account, kept so a full page load can
+     draw the owner's Admin Panel link on its first paint instead of a spinner.
+     It decides a LINK and nothing else: /admin and every /api/admin/* route
+     verify the ID token on each request, so an edited value buys a page that
+     refuses you. Keyed by uid, so it can never describe a different account,
+     re-verified on every load, and dropped on sign-out. */
+  var ROLE_KEY = 'mpf.role.v1';
+  function rememberRole(uid, role) {
+    try { localStorage.setItem(ROLE_KEY, JSON.stringify({ uid: uid, role: role })); } catch (e) { /* private mode */ }
+  }
+  function forgetRole() {
+    try { localStorage.removeItem(ROLE_KEY); } catch (e) { /* private mode */ }
+  }
+  function cachedRole(uid) {
+    if (!uid) return null;
+    try {
+      var c = JSON.parse(localStorage.getItem(ROLE_KEY) || 'null');
+      return c && c.uid === uid && typeof c.role === 'string' ? c.role : null;
+    } catch (e) { return null; }
+  }
+
   /** The settled role, or null while it is still being decided. */
   function currentRole() {
     var u = SM.fb && SM.fb.user && SM.fb.user();
-    if (!u) return SM.fb && SM.fb.phase && SM.fb.phase() === 'loading' ? null : 'guest';
-    return roleState.uid === u.uid ? roleState.role : null;
+    if (!u) {
+      /* Firebase is still restoring the session. The account screen may be
+         drawing this browser's cached copy of it meanwhile, and the cached
+         role for that same account is what goes with it. */
+      if (SM.fb && SM.fb.phase && SM.fb.phase() === 'loading') {
+        var s = S.get();
+        return s.signedIn ? cachedRole(s.sub) : null;
+      }
+      return 'guest';
+    }
+    if (roleState.uid === u.uid && roleState.role) return roleState.role;
+    return cachedRole(u.uid);
   }
 
   function isAdminRole(role) {
@@ -3550,23 +3617,66 @@
      previous account behind. */
   function clearRoleState() { roleState = { uid: null, role: null, pending: null }; }
 
+  /* The three details that make a shop a shop. A cached profile missing any
+     of them is not drawn early: that account belongs on the completion form,
+     and only the resolved profile can say so. */
+  function cachedProfileComplete(s) {
+    return !!(s && s.shopName && s.proprietor && s.mobile);
+  }
+
   function renderAccount(page) {
     var s = S.get();
+    var fbUser = SM.fb && SM.fb.user && SM.fb.user();
+    var again = function () {
+      /* Only if the user is still looking at this screen. */
+      if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+    };
 
-    /* Nothing decides anything while identity is unresolved. resolveIdentity()
-       covers both halves — Firebase answering, and the profile being read —
-       because a user who is authenticated but whose profile has not loaded yet
-       is still not a user the account screen can draw.
+    /* "Continue with Google" has been pressed and Google has not answered yet
+       — the account chooser is open, or it has closed and the SDK is
+       exchanging the credential, which takes a second or two on a phone.
 
-       The cached-session check is gone from this condition on purpose. It was
-       the bug: a warm localStorage session made the page skip the wait and
-       draw a signed-in screen before Firebase had said who was signed in. */
+       This used to leave the sign-in form on screen with its button greyed
+       out, so a shop that had just picked its Gmail was looking at "Sign in to
+       Mobile Parts Finder" again and read it as being sent back. Nothing about
+       that moment is signed out; it is signing in, and the card says so. */
+    if (signingIn && !fbUser) {
+      page.innerHTML = '<div class="shell" style="padding-top:20px">' +
+        authPendingHTML({ signingIn: true }) + '</div>';
+      return;
+    }
+
+    /* Nothing is DECIDED while identity is unresolved. resolveIdentity() covers
+       both halves — Firebase answering, and the profile being read.
+
+       But a returning shop does not have to look at a spinner while that
+       happens. The app is a set of pages, so opening Account from the home page
+       or a model page is a full page load, and it used to show "Checking
+       sign-in…" every single time. When this browser holds a completed
+       profile for an account, and Firebase has not said otherwise, that profile
+       is drawn at once and resolution carries on underneath; whatever it
+       decides repaints the screen.
+
+       What keeps that safe:
+         · only while Firebase is still restoring (no user yet), or has
+           restored the SAME uid — a different account never sees this one's
+           copy, not even for a frame
+         · the admin link comes from the cached role for this uid only, and
+           /admin re-verifies the token regardless
+         · if Firebase says nobody is signed in, resolveIdentity drops the
+           local copy and the screen repaints as signed out
+         · paid access is never decided here; the server decides it per
+           request */
     if (identityPending()) {
-      page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
-      resolveIdentity().then(function () {
-        /* Only if the user is still looking at this screen. */
-        if (state.route.name === 'account') renderAccount(document.getElementById('page'));
-      });
+      var restoring = !fbUser && SM.fb && SM.fb.phase && SM.fb.phase() === 'loading';
+      var sameAccount = fbUser && fbUser.uid === s.sub;
+      if ((restoring || sameAccount) && s.signedIn && s.status !== 'guest' && cachedProfileComplete(s)) {
+        SM.debug.log('identity', 'drawing the cached account while it is verified', { uid: s.sub });
+        page.innerHTML = '<div class="shell" style="padding-top:20px">' + profileHTML(s) + '</div>';
+      } else {
+        page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
+      }
+      resolveIdentity().then(again);
       return;
     }
 
@@ -3578,28 +3688,33 @@
        genuine visitor produces, so the screen offered "Continue with Google"
        to somebody Google had already signed in — and pressing it signed them
        in again, read the profile again, failed again. */
-    var fbUser = SM.fb && SM.fb.user && SM.fb.user();
     if (identityFault && (fbUser || identityFault.outage)) {
       page.innerHTML = '<div class="shell" style="padding-top:20px">' +
         authFailedHTML(identityFault) + '</div>';
       return;
     }
 
-    /* Authenticated, profile in hand, role not yet settled. Keep waiting
-       rather than painting a normal-user screen that has to become an admin
-       one a moment later — that flash is the thing section 9 forbids.
+    /* Authenticated, profile in hand, role not yet confirmed by the server.
 
-       The wait is bounded now. roleFor resolves through /api/admin/session,
-       and this screen used to have no answer at all for that call not coming
-       back: the same spinner, the same forever. It settles to 'user' on any
+       For everyone who is not the owner, roleFor answers 'user' on the spot
+       and nothing waits. For the owner it asks /api/admin/session. If the
+       server's last answer for this uid is cached, the screen is drawn with it
+       now and redrawn only if the server disagrees; if not, the screen waits
+       rather than drawing a normal-user page that becomes an admin one a
+       moment later. That wait is bounded, and settles to 'user' on any
        failure, which costs a link and never access — /admin re-checks the
        token on every request regardless. */
-    if (fbUser && currentRole() === null) {
-      page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
-      roleFor(fbUser.uid).then(function () {
-        if (state.route.name === 'account') renderAccount(document.getElementById('page'));
-      });
-      return;
+    if (fbUser && !(roleState.uid === fbUser.uid && roleState.role)) {
+      var asked = roleFor(fbUser.uid);
+      if (currentRole() === null) {
+        page.innerHTML = '<div class="shell" style="padding-top:20px">' + authPendingHTML() + '</div>';
+        asked.then(again);
+        return;
+      }
+      if (!(roleState.uid === fbUser.uid && roleState.role)) {
+        var drawnWith = currentRole();
+        asked.then(function (role) { if (role !== drawnWith) again(); });
+      }
     }
 
     /* THE RULE THE WHOLE SCREEN EXISTS TO KEEP: somebody Google has signed in
@@ -3871,9 +3986,12 @@
           /* Already authenticated — this saves the profile. Showing another
              "Continue with Google" here would send the user through the
              account chooser a second time for no reason. */
+          /* "Continue", not "Continue as <email>". The address is already on
+             the Google account card above, and a long one — any real Gmail —
+             made this button wider than a phone, which dragged the whole page
+             sideways. */
           ? '<button class="btn btn--primary btn--lg btn--block" data-act="finish-signup"' +
-            (ready ? '' : ' disabled') + '>' + icon('check') +
-            'Continue as ' + esc(acct.email) + '</button>'
+            (ready ? '' : ' disabled') + '>' + icon('check') + 'Continue</button>'
           : googleBtn('Continue with Google', 'google-signup', !ready)) +
       '</div>';
   }
@@ -6799,6 +6917,7 @@
         });
         break;
       case 'signout':
+        forgetRole();
         S.signOut().then(function () {
           authMode = 'signin';           /* land back on Sign in, not the form */
           state.pendingIdentity = null;
@@ -6828,6 +6947,14 @@
         break;
 
       case 'google-signin': startGoogle(false); break;
+
+      /* Puts the sign-in form back. The Google attempt itself is not
+         cancelled — a page cannot close the chooser — so if the person does
+         pick an account after all, the auth listener still signs them in. */
+      case 'cancel-signin':
+        signingIn = false;
+        renderAccount(document.getElementById('page'));
+        break;
 
       /* The way off the failure screen. Drops the cached answer and asks the
          whole identity question again — no reload, so a half-filled sign-up
@@ -7138,16 +7265,55 @@
        cosmetic — it stops the button looking pressable while a popup is open. */
     if (SM.fb && SM.fb.signInPending && SM.fb.signInPending()) {
       SM.debug.log('auth', 'sign-in already running — ignoring the extra press');
+      /* After Cancel the chooser may still be open; say so again rather
+         than leaving a press that visibly does nothing. */
+      if (!isSignup && !signingIn) {
+        signingIn = true;
+        if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+      }
       return;
     }
 
-    var btn = document.querySelector('.gbtn');
-    if (btn) { btn.classList.add('is-busy'); btn.disabled = true; }
     SM.debug.log('auth', 'Continue with Google pressed', { signup: !!isSignup });
+
+    /* From here until Google answers, the account card says "Signing in…".
+       The sign-in form with a greyed-out button is what used to sit here, and
+       it is what a shop coming back from the account chooser read as "it sent
+       me back to Sign in". A sign-up keeps its form on screen instead: the
+       shop's details are in it, and they are what is being submitted. */
+    if (!isSignup) {
+      signingIn = true;
+      if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+    } else {
+      var btn = document.querySelector('.gbtn');
+      if (btn) { btn.classList.add('is-busy'); btn.disabled = true; }
+    }
+
+    /* The profile read that follows needs the Firestore SDK, which is fetched
+       on first use. Starting that download now overlaps it with the account
+       chooser instead of adding it to the wait after it. */
+    if (SM.store && SM.store.warm) SM.store.warm();
+
     SM.auth.signInWithGoogle().then(function (identity) {
+      signingIn = false;
       finishGoogle(identity, isSignup);
     }, function (err) {
-      if (btn) { btn.classList.remove('is-busy'); btn.disabled = false; }
+      signingIn = false;
+      /* The page is navigating to Google; leave the screen as it is rather
+         than flashing a form the user will never finish reading. */
+      if (err && err.code === 'redirecting') {
+        SM.debug.log('auth', 'redirecting to Google — result arrives on the next page load');
+        return;
+      }
+      /* A second press that the in-flight guard turned away. The first attempt
+         is still running; saying anything here would talk over it. */
+      if (err && err.code === 'superseded') return;
+
+      /* Every other outcome puts the form back, then says why. */
+      if (state.route.name === 'account' && !(SM.fb.user && SM.fb.user())) {
+        renderAccount(document.getElementById('page'));
+      }
+      restoreSignupButton();
       if (err && err.code === 'unconfigured') {
         /* Firebase Auth is not reachable. There is deliberately no stand-in
            account any more: a pretend identity would let someone hold a
@@ -7156,16 +7322,7 @@
                 'persists the site configuration needs checking.');
         return;
       }
-      /* The page is navigating to Google; leave the button as it is rather
-         than flashing an error the user will never finish reading. */
-      if (err && err.code === 'redirecting') {
-        SM.debug.log('auth', 'redirecting to Google — result arrives on the next page load');
-        return;
-      }
       if (err && err.code === 'cancelled') { toast('Sign-in cancelled'); return; }
-      /* A second press that the in-flight guard turned away. The first attempt
-         is still on screen; saying anything here would talk over it. */
-      if (err && err.code === 'superseded') return;
       SM.debug.warn('auth', 'sign-in rejected', { code: err && err.code, message: err && err.message });
       authMsg(esc(err && err.message ? err.message : 'Google sign-in failed. Try again.'));
     });
@@ -7524,6 +7681,27 @@
      needs it (resolveIdentity) awaits it themselves. */
   SM.fb.loadConfig().catch(function () { return null; });
 
+  /* ------------------------------------------------ start Firebase early, when
+     it is going to be needed
+
+     Restoring a session means downloading the auth SDK and letting it read
+     IndexedDB, and resolveIdentity used to begin that only after the
+     catalogue had arrived — one wait stacked on another, on every page load
+     of a signed-in shop. When this browser already holds a signed-in session,
+     or the page is the account screen (which must find out either way), the
+     two now run side by side. The Firestore SDK is warmed as well for a
+     signed-in session, since its profile read comes next.
+
+     A visitor with no session anywhere else on the site still loads neither:
+     that is most visits, and they should not pay for sign-in they never use. */
+  (function preloadIdentity() {
+    var signedIn = S.get().signedIn;
+    var onAccount = /^\/account(\/|$)/.test(location.pathname);
+    if (!signedIn && !onAccount) return;
+    SM.fb.ready().catch(function () { /* resolveIdentity reports it */ });
+    if (signedIn && SM.store && SM.store.warm) SM.store.warm();
+  }());
+
   /* ------------------------------------------------- the account, whoever it is
 
      THE SUBSCRIPTION NOBODY HAD MADE.
@@ -7559,8 +7737,14 @@
       /* Signed out. The local session cache is the one thing that would
          otherwise survive and keep the previous shop on screen. */
       S.signOut();
+      forgetRole();
     }
 
+    /* Firebase is started before the catalogue has finished downloading (see
+       the preload below), so this can fire before the shell is mounted. The
+       state above is reset either way; the drawing waits for mountShell,
+       which reads it. */
+    if (!document.getElementById('topEnd')) return;
     renderShellBits();
     if (state.route.name === 'account') {
       var host = document.getElementById('page');
@@ -7586,9 +7770,10 @@
       if (r.complete) {
         /* Pull the SERVER's record of access in. The account screen must show
            the subscription the server believes in, not the one this browser
-           last cached — but a reload a few minutes after the last answer reuses
-           it rather than asking again. Paying or cancelling always asks. */
-        S.syncFromServer({ maxAgeMs: 5 * 60 * 1000 }).then(function () {
+           last cached — but a page load soon after the last answer reuses it
+           rather than asking again (SUBSCRIPTION_REUSE_MS in api.js). Paying or
+           cancelling always asks. */
+        S.syncFromServer({ reuse: true }).then(function () {
           renderShellBits();
           if (state.route.name === 'account') renderAccount(document.getElementById('page'));
         });

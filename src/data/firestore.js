@@ -218,18 +218,24 @@
     return out;
   }
 
-  /* --------------------------------------------------- this tab's profile copy
+  /* ------------------------------------------------ this device's profile copy
 
-     sessionStorage, keyed by uid, stamped with when it was read. It belongs to
-     the tab and dies with it, so a counter machine does not carry one shop's
-     profile to the next person who opens a window. It is a copy of what
-     Firestore said, never a source: nothing here is written that did not come
-     back from the database or go into it. */
+     localStorage, keyed by uid, stamped with when it was read — so a new tab,
+     or tomorrow morning's first visit, does not have to read users/{uid} to
+     draw the same shop it drew last time. It was per-tab at first; shops open
+     the site in a new tab constantly, and every one of those was a read.
+
+     It is a copy of what Firestore said, never a source: nothing is written
+     here that did not come back from the database or go into it. It holds the
+     same non-secret shop details mpf.profiles.v1 has always held on this
+     device, and nothing about access — the server decides that on every paid
+     request. One slot only, tied to one uid: another account never reads it,
+     and signing out deletes it. */
   var PROFILE_CACHE_KEY = 'mpf.profile.cache.v1';
   var profileCache = {
     get: function (uid, maxAgeMs) {
       try {
-        var c = JSON.parse(sessionStorage.getItem(PROFILE_CACHE_KEY) || 'null');
+        var c = JSON.parse(localStorage.getItem(PROFILE_CACHE_KEY) || 'null');
         if (!c || c.uid !== uid || !c.profile) return null;
         var age = Date.now() - c.at;
         if (!(age >= 0 && age < maxAgeMs)) return null;
@@ -238,21 +244,38 @@
     },
     put: function (uid, profile) {
       try {
-        sessionStorage.setItem(PROFILE_CACHE_KEY,
+        localStorage.setItem(PROFILE_CACHE_KEY,
           JSON.stringify({ uid: uid, at: Date.now(), profile: profile }));
       } catch (e) { /* private mode: every load simply reads */ }
     },
     drop: function () {
-      try { sessionStorage.removeItem(PROFILE_CACHE_KEY); } catch (e) { /* private mode */ }
+      try {
+        localStorage.removeItem(PROFILE_CACHE_KEY);
+        /* The per-tab copy the first version of this kept. */
+        sessionStorage.removeItem(PROFILE_CACHE_KEY);
+      } catch (e) { /* private mode */ }
     }
   };
 
   SM.store = {
     available: function () { return SM.fb.isConfigured(); },
 
-    /** Forgets this tab's copy of the profile — on sign-out, and whenever the
-        server may have changed the document behind the browser's back. */
+    /** Forgets this device's copy of the profile — on sign-out, and whenever
+        the server may have changed the document behind the browser's back. */
     forgetProfile: function () { profileCache.drop(); },
+
+    /**
+     * Starts fetching the Firestore SDK without reading anything.
+     *
+     * The first profile read pays for the SDK download on top of the read. A
+     * caller that knows a read is coming — "Continue with Google" pressed, a
+     * signed-in page loading — calls this first, so the download overlaps the
+     * account chooser or the catalogue download instead of following it. No
+     * document is touched, so it costs nothing in Firestore.
+     */
+    warm: function () {
+      return store().then(function () { return true; }, function () { return false; });
+    },
 
     /* ------------------------------------------------------------- profile */
 
@@ -676,7 +699,7 @@
     /* Already bounded, inside their own catch. Wrapping them again would put a
        rejection outside the handler that exists to absorb it, and these three
        promise their callers that they never throw. */
-    var SELF_BOUNDED = { recentSearches: 1, pushSearch: 1, check: 1 };
+    var SELF_BOUNDED = { recentSearches: 1, pushSearch: 1, check: 1, warm: 1 };
 
     var LONGER = { uploadProfilePhoto: DEADLINE_UPLOAD_MS };
 

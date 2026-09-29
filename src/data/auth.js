@@ -255,6 +255,16 @@
       writeStore(s);
       return s[sub];
     },
-    allProfiles: function () { return readStore(); }
+    allProfiles: function () { return readStore(); },
+
+    /* Drops one account's copy. Signing out calls it, so a shop's details do
+       not stay behind on a counter machine for whoever uses it next. */
+    forgetProfile: function (sub) {
+      if (!sub) return;
+      var s = readStore();
+      if (!Object.prototype.hasOwnProperty.call(s, sub)) return;
+      delete s[sub];
+      writeStore(s);
+    }
   };
 })(window);
