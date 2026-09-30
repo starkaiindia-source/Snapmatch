@@ -125,6 +125,54 @@ const SOURCES = {
       'unavailable rather than inventing a price.'
   },
 
+  /* ------------------------------------------------------------- instagram
+     Two entries, because there are two very different ways to read Instagram
+     and only one of them is permitted.
+
+     The web pages are NOT fetched: Instagram's Terms of Use prohibit
+     collecting content by automated means without permission, the pages sit
+     behind login walls and anti-automation systems, and getting past those is
+     exactly what this project will not build. `allowed: false` makes
+     fetchAllowed() throw for any instagram.com URL.
+
+     The official Instagram Graph API IS the route: Business Discovery reads
+     the public media of other PROFESSIONAL (Business/Creator) accounts, and
+     the /{ig-user-id}/media edge reads the business's own account. Personal
+     and private accounts are simply not reachable through it, and the
+     importer reports them as "Unable to collect" rather than trying harder.
+     See api/_services/instagram/graph-client.js. */
+  'instagram-web': {
+    id: 'instagram-web',
+    name: 'Instagram (web pages)',
+    baseUrl: 'https://www.instagram.com/',
+    kind: 'compatibility-claims',
+    allowed: false,
+    accessMethod: 'blocked',
+    robotsVerdict:
+      'Instagram Terms of Use prohibit automated collection without permission; ' +
+      'content is behind login walls and anti-automation systems. Not fetched.',
+    robotsCheckedAt: '2026-09-30',
+    requiresCredentials: false,
+    notes: 'Use the instagram-graph-api source. Never scrape, never bypass a login or rate limit.'
+  },
+
+  'instagram-graph-api': {
+    id: 'instagram-graph-api',
+    name: 'Instagram Graph API (Business Discovery + own media)',
+    baseUrl: 'https://graph.facebook.com/',
+    kind: 'compatibility-claims',
+    allowed: true,
+    accessMethod: 'api',
+    robotsVerdict: 'Official Meta API; access is governed by the app\'s granted permissions and token.',
+    robotsCheckedAt: '2026-09-30',
+    requiresCredentials: true,
+    credentialEnvVar: 'INSTAGRAM_GRAPH_ACCESS_TOKEN / INSTAGRAM_BUSINESS_ACCOUNT_ID',
+    apiDocs: 'https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/business-discovery',
+    notes:
+      'Reads only professional accounts. Rate-limited by Meta (Business Use Case ' +
+      'limits); a limit pauses the job, it is never worked around.'
+  },
+
   'amazon-in': {
     id: 'amazon-in',
     name: 'Amazon India',

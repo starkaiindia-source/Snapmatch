@@ -328,6 +328,30 @@ service cloud.firestore {
        nothing useful; one that could write it would have no limit at all. */
     match /rateLimits/{bucket}        { allow read, write: if false; }
 
+    /* ------------------------------------- instagram compatibility intelligence
+       Sources, import jobs and their work queue, collected content, extraction
+       versions, the review queue, evidence, the approved ledger, the OCR/AI
+       cache and the usage counters. All server-only, both ways, for the same
+       reasons as the queues above: a client that could write a candidate could
+       put words in front of an administrator about to click Approve, and one
+       that could read the queue would read the paid fitment claims in it.
+
+       Approval writes groupDetails / groups / modelGroups through the Admin SDK
+       (api/_services/instagram/review-service.js); those rules are unchanged —
+       still closed to every client. */
+    match /instagramSources/{sourceKey}        { allow read, write: if false; }
+    match /instagramImportJobs/{jobId} {
+      allow read, write: if false;
+      match /items/{itemKey}                   { allow read, write: if false; }
+    }
+    match /instagramContent/{contentKey}       { allow read, write: if false; }
+    match /instagramExtractions/{extractionId} { allow read, write: if false; }
+    match /compatibilityCandidates/{id}        { allow read, write: if false; }
+    match /compatibilityEvidence/{id}          { allow read, write: if false; }
+    match /approvedCompatibilities/{relKey}    { allow read, write: if false; }
+    match /instagramMediaCache/{hash}          { allow read, write: if false; }
+    match /instagramUsageDaily/{day}           { allow read, write: if false; }
+
     /* anything not matched above is closed */
     match /{document=**} {
       allow read, write: if false;

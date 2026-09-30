@@ -345,6 +345,27 @@ function build() {
     });
   });
 
+  /* ---- 2a. approved Instagram fitments, folded back in ----
+
+     An administrator approving an Instagram claim in the admin review queue
+     can ADD a device to an existing group in production Firestore. Those
+     approvals are exported to data/raw/approved-compatibilities.json by
+     scripts/export-approved-compatibilities.js; without folding them in here,
+     the next import-firestore run would rewrite the group without them.
+
+     Additive only, and only when it still makes sense: the group must exist,
+     be the same category, and still contain the device the approval was
+     anchored on (group ids follow export order, so a reordered export must
+     not attach a device to the wrong group). Anything else is reported, not
+     guessed. With no ledger file this step does nothing at all. */
+  const ledgerFile = path.join(__dirname, '..', 'data', 'raw', 'approved-compatibilities.json');
+  if (fs.existsSync(ledgerFile)) {
+    const overlay = applyApprovedOverlay(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')), groups, models, modelGroups);
+    report.approvedCompatibilityOverlay = overlay;
+    console.log(`\n  approved Instagram fitments: ${overlay.applied} added, ${overlay.alreadyInBuild} already in the export, ` +
+                `${overlay.unapplied.length} NOT applied (see report.json), ${overlay.pendingNewGroup} awaiting a new group`);
+  }
+
   report.anomalies.unresolvedMembers = unresolved;
   report.counts.groups = groups.length;
   report.counts.modelGroupDocs = modelGroups.size;
@@ -499,4 +520,35 @@ function build() {
               groups.filter(g => !g.oemPartNo).length + ' groups)\n');
 }
 
-build();
+/* The approved-fitment overlay (step 2a). Mutates `groups` and `modelGroups`
+   in place, additively, and returns what it did. Exported for its test. */
+function applyApprovedOverlay(ledger, groups, models, modelGroups) {
+  const byId = new Map(groups.map(g => [g.id, g]));
+  const overlay = { applied: 0, alreadyInBuild: 0, pendingNewGroup: 0, unapplied: [] };
+  (ledger.entries || []).forEach(e => {
+    if (e.status === 'approved_pending_build') { overlay.pendingNewGroup++; return; }
+    if (e.status !== 'applied' || !e.appliedChange) return;
+    const ch = e.appliedChange;
+    const g = byId.get(ch.groupId);
+    const refuse = reason => overlay.unapplied.push({ relKey: e.relKey, groupId: ch.groupId, addedModelId: ch.addedModelId, reason });
+    if (!g) return refuse('group not in this build');
+    if (g.categoryId !== e.categoryId) return refuse(`group is ${g.categoryId}, approval is ${e.categoryId}`);
+    if (!models.has(ch.addedModelId)) return refuse('device not in the catalogue');
+    if (g.memberIds.indexOf(ch.anchorModelId) < 0) return refuse(`group no longer contains ${ch.anchorModelId}`);
+    if (g.memberIds.indexOf(ch.addedModelId) > -1) { overlay.alreadyInBuild++; return; }
+    g.memberIds.push(ch.addedModelId);
+    g.memberNames.push(models.get(ch.addedModelId).name);
+    g.memberCount = g.memberIds.length;
+    if (!modelGroups.has(ch.addedModelId)) modelGroups.set(ch.addedModelId, {});
+    const byCat = modelGroups.get(ch.addedModelId);
+    byCat[g.categoryId] = byCat[g.categoryId] || [];
+    if (byCat[g.categoryId].indexOf(g.id) < 0) byCat[g.categoryId].push(g.id);
+    overlay.applied++;
+  });
+  return overlay;
+}
+
+/* Run as a script; required (by its test) it only exports the overlay. */
+if (require.main === module) build();
+
+module.exports = { applyApprovedOverlay };

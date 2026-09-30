@@ -217,6 +217,14 @@ src/data/analytics.js  NEW  the client collector
 | `missingModelRequests/{key}` | server | **closed both ways** |
 | `aiTasks/{id}` | server | **closed both ways** |
 | `rateLimits/{bucket}` | server | **closed both ways** |
+| `instagramSources`, `instagramImportJobs` (+ `items`), `instagramContent`, `instagramExtractions` | server | **closed both ways** |
+| `compatibilityCandidates`, `compatibilityEvidence`, `approvedCompatibilities` | server | **closed both ways** |
+| `instagramMediaCache`, `instagramUsageDaily` | server | **closed both ways** |
+
+The Instagram collections belong to the compatibility importer — see
+`docs/INSTAGRAM-IMPORTER.md`. Its approval step is the only code outside the
+importer scripts that writes `groupDetails` / `groups` / `modelGroups`, and it
+only ever adds a member.
 
 "Closed both ways" means `allow read, write: if false`. **Including for
 administrators** — an admin's browser holds an ordinary Firebase ID token, so

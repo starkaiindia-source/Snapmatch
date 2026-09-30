@@ -107,7 +107,12 @@
     audit: function (params) { return request('/api/admin/audit' + qs(params)); },
 
     ai: function (params) { return request('/api/admin/ai' + qs(params)); },
-    aiAction: function (body) { return request('/api/admin/ai', { method: 'POST', body: body }); }
+    aiAction: function (body) { return request('/api/admin/ai', { method: 'POST', body: body }); },
+
+    /* Instagram compatibility intelligence. Reads take a `view`; writes an
+       `action`. The server checks the permission for each one. */
+    instagram: function (params) { return request('/api/admin/instagram' + qs(params)); },
+    instagramAction: function (body) { return request('/api/admin/instagram', { method: 'POST', body: body }); }
   };
 
   ADM.request = request;

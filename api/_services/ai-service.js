@@ -124,7 +124,12 @@ const CAPABILITIES = [
   { id: 'propose_missing_model', description: 'Draft a record for a handset the catalogue lacks' },
   { id: 'seo_content_draft', description: 'Draft meta titles, descriptions and page copy' },
   { id: 'marketing_content_draft', description: 'Draft campaign and social copy' },
-  { id: 'business_insight', description: 'Summarise aggregated metrics into observations' }
+  { id: 'business_insight', description: 'Summarise aggregated metrics into observations' },
+  /* Instagram compatibility intelligence. Each returns data the backend
+     validates before it is stored — see api/_services/instagram/. */
+  { id: 'extract_compatibility', description: 'Extract compatibility claims from source text, as validated JSON' },
+  { id: 'media_ocr', description: 'Read the text in one image' },
+  { id: 'video_analyze', description: 'Key frames by scene/text change, their text, and the audio transcript' }
 ];
 
 /* --------------------------------------------------------------- invocation */

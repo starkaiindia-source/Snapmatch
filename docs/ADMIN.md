@@ -245,6 +245,15 @@ publish**. Applying a catalogue change is a separate step.
 With no gateway configured the page names the environment variables that are
 missing. It does not demo anything.
 
+### Instagram data
+
+Six pages under one heading — **Instagram Data Importer**, **Instagram
+Sources**, **Import Jobs**, **Extraction Results**, **Compatibility Review**
+and **Import History**. They read compatibility claims from Instagram through
+the official Graph API, match every model to the catalogue, and queue them for
+review; only an approval in Compatibility Review writes production fitments,
+and only additively. Full detail: [`docs/INSTAGRAM-IMPORTER.md`](INSTAGRAM-IMPORTER.md).
+
 ### Settings
 
 Administrator accounts and the audit trail. The trail is append-only and closed

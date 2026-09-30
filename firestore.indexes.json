@@ -37,7 +37,16 @@
     "",
     "An aggregation query (count, sum) needs the same index an ordinary query",
     "would. Without these the dashboard tiles report themselves unavailable",
-    "rather than failing — see api/_services/metrics-service.js countOf()."
+    "rather than failing — see api/_services/metrics-service.js countOf().",
+    "",
+    "INSTAGRAM COMPATIBILITY INTELLIGENCE — equality + order pairs only; every",
+    "equality-only query (relKey, contentKey+status, reviewSection+status+jobId,",
+    "sourceKey+status, and the review-section count()) is served by the automatic",
+    "single-field indexes.",
+    "  instagramImportJobs:     sourceKey/status + createdAt (history filters)",
+    "  items (subcollection):   status + order (the resumable work queue)",
+    "  instagramExtractions:    jobId/sourceKey + extractedAt",
+    "  compatibilityCandidates: jobId/sourceKey/reviewSection/status + createdAt"
   ],
   "indexes": [
     {
@@ -634,6 +643,132 @@
         },
         {
           "fieldPath": "at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "instagramImportJobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "sourceKey",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "instagramImportJobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "order",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "instagramExtractions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "jobId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "extractedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "instagramExtractions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "sourceKey",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "extractedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "compatibilityCandidates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "jobId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "compatibilityCandidates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "sourceKey",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "compatibilityCandidates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "reviewSection",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "compatibilityCandidates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
           "order": "DESCENDING"
         }
       ]
