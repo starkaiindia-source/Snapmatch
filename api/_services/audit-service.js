@@ -54,7 +54,26 @@ const ACTIONS = {
   AI_TASK_CREATED: 'ai_task.created',
   AI_TASK_APPROVED: 'ai_task.approved',
   AI_TASK_REJECTED: 'ai_task.rejected',
-  EXPORT_REQUESTED: 'export.requested'
+  EXPORT_REQUESTED: 'export.requested',
+
+  /* Instagram compatibility intelligence. Every change a person makes to a
+     candidate is here with its previous and new value, and the candidate
+     carries its own full history as well — so "why does this fitment exist"
+     has an answer in two places that must agree. */
+  INSTAGRAM_IMPORT_STARTED: 'instagram.import_started',
+  INSTAGRAM_JOB_RESUMED: 'instagram.job_resumed',
+  INSTAGRAM_JOB_RETRIED: 'instagram.job_retried',
+  INSTAGRAM_JOB_CANCELLED: 'instagram.job_cancelled',
+  INSTAGRAM_SOURCE_IGNORED: 'instagram.source_ignored',
+  INSTAGRAM_SOURCE_UNIGNORED: 'instagram.source_unignored',
+  COMPAT_APPROVED: 'compat.approved',
+  COMPAT_REJECTED: 'compat.rejected',
+  COMPAT_MATCH_EDITED: 'compat.match_edited',
+  COMPAT_CATEGORY_CHANGED: 'compat.category_changed',
+  COMPAT_MARKED_DUPLICATE: 'compat.marked_duplicate',
+  COMPAT_REOPENED: 'compat.reopened',
+  COMPAT_ALIAS_LEARNED: 'compat.alias_learned',
+  COMPAT_SENT_TO_MISSING: 'compat.sent_to_missing_models'
 };
 
 const ACTION_LIST = Object.values(ACTIONS);

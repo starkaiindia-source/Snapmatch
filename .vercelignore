@@ -39,6 +39,7 @@
 # statically by vercel.json's allowlist, so a test file left there would be a
 # publicly downloadable file that no page loads.
 /api/_lib/*.test.js
+/api/_lib/testing/
 /src/data/*.test.js
 
 # Generated SEO output IS deployed (finder/, models/, categories/, the landing

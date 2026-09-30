@@ -25,6 +25,9 @@
      --category <id>  one part category: its groups + groupDetails, only its own
                       key on each device's modelGroups doc, and catalog/meta
      --concurrency N  parallel batches, default 4
+     --allow-dropping-approved
+                      import even if the build lacks a fitment an admin
+                      approved from Instagram (see guardApprovedFitments)
 
    Writes (see firestore.rules for who may read what)
      /catalog/meta            dataset version + counts
@@ -119,6 +122,47 @@ async function writeAll(collection, rows, shape) {
   return done;
 }
 
+/* ------------------------------------------------- approved fitments guard
+
+   An administrator can approve an Instagram compatibility claim into an
+   existing group (api/_services/instagram/review-service.js), which writes
+   that group's groupDetails directly. This importer would overwrite it from
+   the build. So before any group is written, every `applied` approval is
+   checked against the build being imported; if the build would drop one, the
+   import stops and says which, unless --allow-dropping-approved is given.
+
+   The fix is almost always: export the ledger and rebuild —
+     node scripts/export-approved-compatibilities.js --project <id>
+     node scripts/build-dataset.js && node scripts/build-runtime-bundle.js */
+async function guardApprovedFitments() {
+  const snap = await db.collection('approvedCompatibilities').where('status', '==', 'applied').get();
+  if (snap.empty) return;
+  const groups = new Map(readNdjson('groups.ndjson').map(g => [g.id, g]));
+  const dropped = [];
+  snap.docs.forEach(d => {
+    const e = d.data();
+    if (CATEGORY && e.categoryId !== CATEGORY) return;
+    const ch = e.appliedChange || {};
+    const g = groups.get(ch.groupId);
+    if (!g || (g.memberIds || []).indexOf(ch.addedModelId) < 0) {
+      dropped.push(`${e.categoryId}: ${ch.addedModelId} in ${ch.groupId} (approved ${new Date(e.approvedAt).toISOString().slice(0, 10)})`);
+    }
+  });
+  console.log(`  approved fitments: ${snap.size} applied, ${dropped.length} missing from this build`);
+  if (!dropped.length) return;
+  dropped.slice(0, 30).forEach(line => console.log('    - ' + line));
+  if (has('allow-dropping-approved')) {
+    console.log('  --allow-dropping-approved given: importing anyway. These approvals will no longer be live.');
+    return;
+  }
+  console.error('\n  Refusing to import: this build would remove approved fitments from production.' +
+    '\n  Export the ledger and rebuild first:' +
+    '\n    node scripts/export-approved-compatibilities.js --project ' + PROJECT +
+    '\n    node scripts/build-dataset.js && node scripts/build-runtime-bundle.js' +
+    '\n  or pass --allow-dropping-approved if dropping them is intended.\n');
+  process.exit(1);
+}
+
 /* ------------------------------------------------------------------- run */
 async function main() {
   console.log('\n  Mobile Parts Finder — Firestore import');
@@ -147,6 +191,8 @@ async function main() {
          bundle, so indexing ~40k token entries would cost writes for nothing */
     }));
   }
+
+  if (want('groups') && !DRY) await guardApprovedFitments();
 
   if (want('groups')) {
     const groups = readNdjson('groups.ndjson').filter(g => !CATEGORY || g.categoryId === CATEGORY);

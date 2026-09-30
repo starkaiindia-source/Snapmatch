@@ -55,7 +55,8 @@ const SECTIONS = {
   'missing-models': require('./_admin/missing-models'),
   admins: require('./_admin/admins'),
   audit: require('./_admin/audit'),
-  ai: require('./_admin/ai')
+  ai: require('./_admin/ai'),
+  instagram: require('./_admin/instagram')
 };
 
 /**

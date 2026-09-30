@@ -173,6 +173,15 @@ const PERMISSIONS = {
   AI_RUN: 'ai.run',                         /* ask the gateway for a draft */
   AI_APPROVE: 'ai.approve',                 /* accept a draft into production */
 
+  /* Instagram compatibility intelligence. Four permissions, split along the
+     same line as missing models: reading the evidence, spending API/AI budget
+     on an import, triaging candidates, and the one act that writes to the
+     production compatibility data. */
+  INSTAGRAM_READ: 'instagram.read',         /* sources, jobs, extractions, history, review */
+  INSTAGRAM_IMPORT: 'instagram.import',     /* add a source, start, resume, retry, cancel */
+  COMPAT_REVIEW: 'compat.review',           /* reject, edit a match, change category, mark duplicate */
+  COMPAT_APPROVE: 'compat.approve',         /* approve: the one that writes production fitments */
+
   /* operations */
   AUDIT_READ: 'audit.read',
   ADMINS_READ: 'admins.read',
@@ -202,6 +211,8 @@ const ROLE_PERMISSIONS = {
     PERMISSIONS.MISSING_MODELS_READ, PERMISSIONS.MISSING_MODELS_WRITE,
     PERMISSIONS.MISSING_MODELS_PUBLISH,
     PERMISSIONS.AI_READ, PERMISSIONS.AI_RUN, PERMISSIONS.AI_APPROVE,
+    PERMISSIONS.INSTAGRAM_READ, PERMISSIONS.INSTAGRAM_IMPORT,
+    PERMISSIONS.COMPAT_REVIEW, PERMISSIONS.COMPAT_APPROVE,
     PERMISSIONS.AUDIT_READ, PERMISSIONS.ADMINS_READ
   ],
 

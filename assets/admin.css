@@ -443,9 +443,116 @@
 .adm__gate .adm__btn { width: 100%; padding: 11px; font-size: 14px; }
 .adm__gate .adm__btn + .adm__btn { margin-top: 9px; }
 
+/* ---------------------------------------------------------- instagram data
+
+   The importer, job progress and the compatibility review cards. Built from
+   the same tokens as everything above, so light and dark themes follow. */
+
+.adm__navgroup {
+  margin: 12px 0 2px;
+  padding: 0 11px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--hdr-accent);
+}
+
+.ig__jobhead { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 12px; }
+.ig__jobhead h2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ig__actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ig__actions a.adm__btn { text-decoration: none; display: inline-block; }
+
+.ig__progress { height: 8px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.ig__progress > div { height: 100%; background: var(--grad-brand); transition: width .3s; }
+.ig__progressline { margin: 6px 0 14px; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+
+.adm [hidden] { display: none !important; }
+.ig__form { display: grid; gap: 12px; max-width: 720px; }
+.ig__form label { display: grid; gap: 5px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.ig__form input[type="url"], .ig__form input[type="number"], .ig__form input[type="search"],
+.ig__form input:not([type]), .ig__form textarea, .ig__form select,
+.ig__picker input[type="search"], .ig__picker select {
+  font: inherit; font-size: 14px; font-weight: 500;
+  padding: 8px 11px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  width: 100%; box-sizing: border-box;
+}
+.ig__form textarea { font-family: var(--f-mono); font-size: 13px; resize: vertical; }
+.ig__form input[type="number"] { max-width: 140px; }
+.ig__mode { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 12px; margin: 0; display: flex; gap: 18px; flex-wrap: wrap; }
+.ig__mode legend { font-size: 12px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.ig__mode label { display: inline-flex; gap: 6px; align-items: center; font-weight: 500; }
+.ig__form--inline { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; max-width: none; margin-top: 12px; }
+.ig__form--inline label { min-width: 200px; }
+
+.ig__tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.ig__tab {
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 7px 11px; border-radius: var(--r-pill);
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer;
+}
+.ig__tab:hover { background: var(--surface-2); }
+.ig__tab.is-on { background: var(--teal-700); border-color: var(--teal-700); color: #fff; }
+.ig__count { font-family: var(--f-mono); font-size: 11px; opacity: .8; margin-left: 3px; }
+
+.ig__card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  box-shadow: var(--sh-1); padding: 14px 18px; margin-top: 14px;
+}
+.ig__cardhead { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.ig__cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px 20px; }
+.ig__card h4, .ig__h3 {
+  font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--ink-3); margin: 0 0 6px;
+}
+.ig__h3 { margin-top: 12px; }
+.ig__card section p { margin: 0; font-size: 13px; }
+.ig__quote {
+  margin: 0; padding: 8px 11px; border-left: 3px solid var(--teal-500);
+  background: var(--surface-2); border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  font-family: var(--f-mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+}
+pre.ig__quote { margin-bottom: 6px; }
+.ig__dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 13px; }
+.ig__dl dt { color: var(--ink-3); font-size: 12px; }
+.ig__dl dd { margin: 0; word-break: break-word; }
+.ig__match { border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--r-xs); padding: 7px 10px; margin-bottom: 8px; font-size: 13px; }
+.ig__match--ok { border-left-color: var(--ok); }
+.ig__match--warn { border-left-color: var(--warn); }
+.ig__match--bad { border-left-color: var(--bad); }
+.ig__warn { margin-top: 4px; font-size: 12px; color: var(--warn); font-weight: 600; }
+.ig__alts, .ig__results { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.ig__alt {
+  font: inherit; font-size: 12px; padding: 3px 9px; border-radius: var(--r-pill);
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink); cursor: pointer;
+}
+.ig__alt:hover { border-color: var(--teal-600); background: var(--teal-050); }
+.ig__evidence { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 13px; }
+.ig__evidence ul { margin: 0; padding-left: 18px; }
+.ig__evidence .adm__banner { margin: 8px 0 0; }
+.ig__card .ig__actions { margin-top: 12px; }
+.ig__link { font: inherit; font-size: 12px; font-weight: 600; background: none; border: 0; padding: 0; margin-top: 6px; color: var(--teal-700); cursor: pointer; text-decoration: underline; }
+.ig__picker { display: grid; gap: 8px; margin-top: 12px; max-width: 640px; }
+.ig__picker label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.ig__check { display: flex !important; align-items: center; gap: 7px; font-weight: 500 !important; }
+.ig__detail h4 { margin-top: 14px; }
+.ig__media { display: flex; gap: 10px; flex-wrap: wrap; }
+.ig__media figure { margin: 0; width: 180px; font-size: 11px; color: var(--ink-3); }
+.ig__media img { width: 180px; height: 180px; object-fit: cover; border-radius: var(--r-xs); border: 1px solid var(--line); background: var(--surface-3); display: block; }
+.ig__chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.ig__chip { font-size: 12px; padding: 3px 9px; border-radius: var(--r-pill); background: var(--surface-3); color: var(--ink); }
+.ig__chip--ok { background: var(--ok-bg); }
+.ig__chip--warn { background: var(--warn-bg); }
+.ig__chip--bad { background: var(--bad-bg); }
+.ig__rels { margin: 0; padding-left: 18px; font-size: 13px; }
+.ig__rels li { margin-bottom: 3px; }
+
 /* ---------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {
+  .adm__navgroup { flex: 1 1 100%; margin: 6px 0 0; padding: 0; }
   .adm { grid-template-columns: 1fr; }
   .adm__rail {
     position: static;

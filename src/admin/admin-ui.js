@@ -110,7 +110,15 @@
     not_a_valid_model: 'bad', rejected: 'bad',
     pending: 'warn', profile_incomplete: 'warn', cancelling: 'warn',
     under_review: 'warn', researching: 'warn', draft: 'warn', pending_review: 'warn',
-    new: 'info', draft_found: 'info', subscription_inactive: '', none: '', free: ''
+    new: 'info', draft_found: 'info', subscription_inactive: '', none: '', free: '',
+
+    /* Instagram import jobs, items, sources and review candidates */
+    completed: 'ok', done: 'ok', collectable: 'ok', resolved: 'ok', ready: 'ok', high: 'ok', applied: 'ok',
+    completed_with_errors: 'warn', paused: 'warn', rate_limited: 'warn', quota_exhausted: 'warn',
+    review: 'warn', ambiguous: 'warn', medium: 'warn', pending_build: 'warn',
+    unable_to_collect: 'bad', unmatched: 'bad', conflicts: 'bad', low: 'bad', ignored: 'bad',
+    queued: 'info', discovering: 'info', processing: 'info', explicit: 'info', already_existing: 'info',
+    duplicate: '', duplicates: '', superseded: '', skipped_unchanged: '', implied: '', same_chassis: ''
   };
 
   function pill(value, label) {

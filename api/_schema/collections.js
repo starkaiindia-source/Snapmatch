@@ -61,6 +61,49 @@ const MISSING_MODEL_REQUESTS = 'missingModelRequests';
 /** aiTasks/{taskId} — proposed changes awaiting human approval. internal. */
 const AI_TASKS = 'aiTasks';
 
+/* ------------------------------------------ instagram compatibility intelligence
+
+   Instagram is a SOURCE of compatibility claims, never an authority. Nothing
+   in these collections is read by the customer site; a claim reaches the
+   production fitment data (groupDetails / groups / modelGroups) only through an
+   administrator's approval in review-service.js. All internal. */
+
+/** instagramSources/{ig_<username>} — a page/profile and its access verdict. */
+const INSTAGRAM_SOURCES = 'instagramSources';
+
+/** instagramImportJobs/{jobId} — one import; items/{itemKey} under it is the
+    resumable work queue. */
+const INSTAGRAM_IMPORT_JOBS = 'instagramImportJobs';
+const INSTAGRAM_JOB_ITEMS = 'items';
+
+/** instagramContent/{contentKey} — one post/reel as collected, with hashes. */
+const INSTAGRAM_CONTENT = 'instagramContent';
+
+/** instagramExtractions/{contentKey}__v{n} — one processing VERSION of a
+    content item. A changed post gets a new version; the old one is kept. */
+const INSTAGRAM_EXTRACTIONS = 'instagramExtractions';
+
+/** compatibilityCandidates/{candidateId} — the admin review queue. Model
+    match candidates live on each document (sourceMatch / compatibleMatch),
+    so there is one queue, not two that can disagree. */
+const COMPATIBILITY_CANDIDATES = 'compatibilityCandidates';
+
+/** compatibilityEvidence/{evidenceId} — every source statement, including the
+    ones that turned out to be duplicates or conflicts. */
+const COMPATIBILITY_EVIDENCE = 'compatibilityEvidence';
+
+/** approvedCompatibilities/{relKey} — the approved ledger: why a production
+    fitment exists, who approved it, and what exactly was written. */
+const APPROVED_COMPATIBILITIES = 'approvedCompatibilities';
+
+/** instagramMediaCache/{hash} — OCR / video / AI results by content hash, so
+    the same media is never sent to a paid service twice. */
+const INSTAGRAM_MEDIA_CACHE = 'instagramMediaCache';
+
+/** instagramUsageDaily/{YYYY-MM-DD} — API, OCR and AI call counters, the
+    input to the daily caps. */
+const INSTAGRAM_USAGE_DAILY = 'instagramUsageDaily';
+
 /* --------------------------------------------------------------- operations */
 
 /** adminAuditLog/{entryId} — who did what in the admin area. internal. */
@@ -86,6 +129,9 @@ module.exports = {
   SUBSCRIPTIONS, PAYMENTS,
   ANALYTICS_EVENTS, ANALYTICS_DAILY, VISITOR_SESSIONS,
   MISSING_MODEL_REQUESTS, AI_TASKS,
+  INSTAGRAM_SOURCES, INSTAGRAM_IMPORT_JOBS, INSTAGRAM_JOB_ITEMS, INSTAGRAM_CONTENT,
+  INSTAGRAM_EXTRACTIONS, COMPATIBILITY_CANDIDATES, COMPATIBILITY_EVIDENCE,
+  APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
   ADMIN_AUDIT_LOG, RATE_LIMITS,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG
