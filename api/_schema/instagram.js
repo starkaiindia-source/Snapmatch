@@ -41,7 +41,17 @@ const crypto = require('crypto');
    the catalogue recognises, so "Realme c65 no baseband problem" is the Realme
    C65 and not an unmatched five-word "model". Content read by ig-extract-1 is
    reprocessed on its next import, as a new version. */
-const PROCESSING_VERSION = 'ig-extract-2';
+/* ig-extract-3 (2026-10-01): every content item is CLASSIFIED before anything
+   is queued — a repair or jumper post that happens to name a phone is ignored,
+   not turned into "unmatched model" cards — and a compatibility LIST becomes
+   one group proposal compared against the existing groups, instead of sixty
+   pairwise claims. */
+/* ig-extract-4 (2026-10-01): the cost pipeline. A weighted cheap filter
+   decides how much is spent on each post; Gemini screens and reads media
+   (including the video itself); Claude is asked only where matching left
+   doubt. Prompts and the vision schema changed, so cached readings from
+   ig-extract-3 are not reused. */
+const PROCESSING_VERSION = 'ig-extract-4';
 
 /* ================================================================== URLs */
 
@@ -243,7 +253,7 @@ const COMPAT_TYPES = [
 const IMPORTABLE_TYPES = ['explicit', 'implied', 'same_chassis'];
 const POLARITIES = ['positive', 'negative'];
 
-const CANDIDATE_KINDS = ['relationship', 'model_reference'];
+const CANDIDATE_KINDS = ['relationship', 'model_reference', 'group_proposal'];
 
 const CANDIDATE_STATUSES = ['pending', 'approved', 'rejected', 'duplicate', 'ignored', 'superseded', 'resolved'];
 
@@ -272,6 +282,8 @@ const REJECT_REASONS = [
 
 /** The review queue's sections, in the order the UI shows them. */
 const REVIEW_SECTIONS = [
+  { id: 'group_updates', label: 'Existing group — proposed update' },
+  { id: 'new_groups', label: 'New group proposals' },
   { id: 'ready', label: 'High confidence — ready for approval' },
   { id: 'review', label: 'Medium / low confidence — review required' },
   { id: 'unmatched', label: 'Unmatched models' },
@@ -287,13 +299,25 @@ const REVIEW_SECTION_IDS = REVIEW_SECTIONS.map(s => s.id).concat(['closed']);
 const JOB_STATUSES = [
   'queued', 'discovering', 'processing', 'paused',
   'rate_limited', 'quota_exhausted',
+  /* this sync's AI budget is spent; the items that still need a model wait */
+  'budget_reached',
   'completed', 'completed_with_errors', 'failed', 'cancelled', 'unable_to_collect'
 ];
 /** A job in one of these can be resumed where it stopped. */
-const RESUMABLE = ['paused', 'rate_limited', 'quota_exhausted', 'failed', 'discovering', 'processing', 'queued'];
+const RESUMABLE = ['paused', 'rate_limited', 'quota_exhausted', 'budget_reached', 'failed', 'discovering', 'processing', 'queued'];
 const TERMINAL = ['completed', 'completed_with_errors', 'cancelled', 'unable_to_collect'];
 
-const ITEM_STATUSES = ['queued', 'processing', 'done', 'failed', 'skipped_unchanged', 'skipped_duplicate', 'cancelled'];
+const ITEM_STATUSES = ['queued', 'processing', 'done', 'failed', 'skipped_unchanged', 'skipped_duplicate', 'cancelled',
+  /* set aside because the sync's AI budget ran out; back in the queue on resume */
+  'deferred_ai'];
+
+/** Where one content item stands in the pipeline. Stored on the item and its
+    extraction, with the stages it passed — a failure is a state, never a gap. */
+const PIPELINE_STATES = [
+  'INGESTED', 'CHEAP_FILTERED', 'SCREENED', 'QUEUED_FOR_AI', 'AI_PROCESSING', 'AI_EXTRACTED',
+  'MODEL_MATCHING', 'GROUP_MATCHING', 'CONFLICT_DETECTED', 'READY_FOR_REVIEW', 'APPROVED', 'REJECTED',
+  'IGNORED', 'FAILED', 'RETRY_REQUIRED', 'VIDEO_UNAVAILABLE', 'API_KEY_MISSING', 'RATE_LIMITED', 'VALIDATION_FAILED'
+];
 
 /* =========================================================== confidence
 
@@ -386,6 +410,9 @@ function evidenceStrength(e) {
     return 'weak';
   }
   if (e.source === 'transcript') return 'good';
+  /* AI vision reads what OCR missed, and can also read what is not there:
+     never better than "good", and only when OCR agreed with it. */
+  if (e.source === 'vision') return Number(e.confidence) >= 0.85 ? 'good' : 'weak';
   return 'weak';
 }
 
@@ -400,6 +427,16 @@ function reviewSectionFor(c) {
   if (c.status === 'duplicate') return 'duplicates';
   if (c.conflict && c.conflict.active) return 'conflicts';
 
+  if (c.kind === 'group_proposal') {
+    switch (c.proposedAction) {
+      case 'UPDATE_EXISTING_GROUP': return 'group_updates';
+      case 'CREATE_NEW_GROUP': return 'new_groups';
+      case 'MERGE_REQUIRED': case 'CONFLICT_REVIEW': return 'conflicts';
+      case 'NO_CHANGE': return 'duplicates';
+      default: return 'review';
+    }
+  }
+
   if (c.kind === 'model_reference') {
     return c.referenceMatch && c.referenceMatch.status === 'ambiguous' ? 'ambiguous' : 'unmatched';
   }
@@ -413,6 +450,199 @@ function reviewSectionFor(c) {
     return 'ready';
   }
   return 'review';
+}
+
+/* ============================================================ relevance
+
+   What a content item IS, decided before anything is queued for a person.
+   A repair tutorial names phones too; naming a phone is not a compatibility
+   claim. Only the first three reach the actionable lists. The rest are kept —
+   with the reason — for audit, behind the "Ignored" filter. */
+
+const RELEVANCE = [
+  'RELEVANT_COMPATIBILITY',   /* a compatibility statement or list, and its product */
+  'PARTIALLY_RELEVANT',       /* compatibility evidence, but the product is unclear or only implied */
+  'NEEDS_REVIEW',             /* compatibility and repair signals both, or nothing matched */
+  'INSUFFICIENT_EVIDENCE',    /* the media could not be read, so it cannot be judged */
+  'IRRELEVANT_REPAIR',        /* jumper, bypass, fault diagnosis, board-level repair */
+  'IRRELEVANT_GENERAL',       /* greetings, promotions, anything else */
+  'DUPLICATE_SOURCE'          /* the same content as another post already processed */
+];
+const ACTIONABLE_RELEVANCE = ['RELEVANT_COMPATIBILITY', 'PARTIALLY_RELEVANT', 'NEEDS_REVIEW'];
+const IGNORED_RELEVANCE = ['IRRELEVANT_REPAIR', 'IRRELEVANT_GENERAL', 'DUPLICATE_SOURCE'];
+
+function isActionableRelevance(r) { return ACTIONABLE_RELEVANCE.indexOf(r) > -1; }
+
+/** The source page's counters: one bucket per content item, moved (never
+    double counted) when a re-import classifies it differently. */
+function relevanceBucket(r) {
+  if (r === 'RELEVANT_COMPATIBILITY' || r === 'PARTIALLY_RELEVANT') return 'relevant';
+  if (r === 'NEEDS_REVIEW' || r === 'INSUFFICIENT_EVIDENCE') return 'needsReview';
+  if (IGNORED_RELEVANCE.indexOf(r) > -1) return 'ignored';
+  return null;
+}
+
+/* ====================================================== group proposals
+
+   A compatibility LIST is one claim about one part: "these models take this
+   display". It is compared with the existing groups as a set, and becomes ONE
+   proposal — never sixty pairwise candidates. */
+
+const PROPOSED_ACTIONS = [
+  'NO_CHANGE',               /* an existing group already says all of it */
+  'UPDATE_EXISTING_GROUP',   /* an existing group, plus models it does not hold yet */
+  'CREATE_NEW_GROUP',        /* no listed model has a group in this category */
+  'MERGE_REQUIRED',          /* the list spans groups the catalogue keeps apart */
+  'CONFLICT_REVIEW',         /* a listed model already belongs to another group */
+  'MODEL_REVIEW',            /* too few models resolved to catalogue records */
+  'PRODUCT_CATEGORY_REVIEW', /* the product is not one of the catalogue's categories */
+  'REJECT'
+];
+
+/** How one list entry stands against the target group. */
+const MEMBER_STATES = ['existing', 'add', 'conflict', 'needs_review', 'unmatched', 'excluded'];
+
+/** What an admin may decide about one entry. `reassign_request` is recorded
+    for the master catalogue; this tool never moves a model between groups. */
+const MEMBER_DECISIONS = ['include', 'exclude', 'reassign_request'];
+
+/** A matcher result in the words the review card uses. */
+function matchStatusFor(m) {
+  if (!m || m.status === 'unmatched') return 'Unknown / Not Found';
+  if (m.status === 'ambiguous' || m.requiresVariantConfirmation) return 'Needs Review';
+  switch (m.method) {
+    case 'exact': return 'Exact Match';
+    case 'alias': return 'Alias Match';
+    case 'admin_selected': return 'Selected by admin';
+    case 'similarity': case 'taxonomy': return 'Similarity Match';
+    case 'ai_classification': return 'Needs Review';
+    default: return 'Normalized Match';   /* official name, synonym, word order, spacing, series word, known misspelling */
+  }
+}
+
+/** A list entry may be written to production only on a deterministic match
+    with nothing left to confirm. */
+function memberIsCertain(m) {
+  return !!(m && m.status === 'matched' && m.modelId && !m.requiresVariantConfirmation &&
+    (m.strength === 'strong' || m.strength === 'good'));
+}
+
+/**
+ * The key two proposals share when they make the same claim: the category,
+ * the group they target, and the resolved models. Stored in `relKey`, so the
+ * existing index and duplicate lookup serve proposals too.
+ */
+function setKeyFor(categoryId, targetGroupId, modelIds) {
+  const ids = Array.from(new Set((modelIds || []).filter(Boolean).map(String))).sort();
+  if (!categoryId || ids.length < 2) return null;
+  return `grp__${categoryId}__${targetGroupId || 'new'}__${sha256(ids.join('|')).slice(0, 24)}`;
+}
+
+function proposalIdFor(extractionId, memberTexts) {
+  const basis = (memberTexts || []).map(t => normaliseCaption(t).toLowerCase()).sort().join('|');
+  return `${extractionId}__grp_${sha256(basis).slice(0, 16)}`;
+}
+
+/**
+ * Confidence of a list as a whole. Same rule as a pairwise claim: named
+ * factors, and an AI-read list can never be "high".
+ *
+ * @param {object} p
+ * @param {{categoryId:string|null, strength:string}|null} p.category
+ * @param {boolean} p.explicit          a compatibility heading or statement introduces the list
+ * @param {{source:string, confidence:number|null}} p.evidence
+ * @param {number} p.matched            entries resolved with certainty
+ * @param {number} p.total              entries read
+ * @param {number} [p.supportingRefs]   distinct images / frames the list was read from
+ * @param {boolean} [p.readByAi]        the list came from AI vision, not OCR or text
+ * @param {string}  [p.validation]      'confirmed' | 'disputed' | 'failed' — the second opinion, if one was asked
+ */
+function evaluateSetConfidence(p) {
+  const reasons = [];
+  const share = p.total ? p.matched / p.total : 0;
+  const factors = {
+    category: p.category && p.category.categoryId ? (p.category.strength || 'good') : 'none',
+    statement: p.explicit ? 'strong' : 'weak',
+    evidence: evidenceStrength(p.evidence),
+    models: share >= 0.9 ? 'strong' : share >= 0.6 ? 'good' : share > 0 ? 'weak' : 'none'
+  };
+  if (factors.category === 'none') reasons.push('product category could not be mapped to the catalogue');
+  else if (factors.category !== 'strong') reasons.push('category inferred from a generic word or from the picture');
+  if (!p.explicit) reasons.push('the list has no compatibility heading or statement');
+  if (factors.evidence !== 'strong') reasons.push(`evidence is ${(p.evidence && p.evidence.source) || 'weak'} of ${factors.evidence} quality`);
+  if (factors.models !== 'strong') reasons.push(`${p.matched} of ${p.total} listed models resolved to a catalogue record with certainty`);
+  if (p.readByAi) reasons.push('the list was read by AI vision, not confirmed by OCR');
+  if ((p.supportingRefs || 0) > 1) reasons.push(`seen in ${p.supportingRefs} images or frames`);
+  if (p.validation === 'confirmed') reasons.push('checked by a second model, which agreed');
+  if (p.validation === 'disputed') reasons.push('a second model disputed part of this reading');
+  if (p.validation === 'failed') reasons.push('a second opinion was wanted but could not be obtained');
+
+  const rank = k => STRENGTH_RANK[factors[k]];
+  let band;
+  if (rank('category') === 3 && rank('statement') === 3 && rank('evidence') === 3 && rank('models') === 3 && !p.readByAi) band = 'high';
+  else if (rank('category') >= 2 && rank('statement') === 3 && rank('evidence') >= 2 && rank('models') >= 2) band = 'medium';
+  else band = 'low';
+  /* a disputed reading goes to a person as low confidence, whatever else is true */
+  if (p.validation === 'disputed') band = 'low';
+  const score = Math.round((rank('category') + rank('statement') + rank('evidence') + rank('models')) / 12 * 100) / 100;
+  return { band, score, factors, reasons };
+}
+
+/* ====================================================== extraction filters
+
+   The tabs on Extraction Results. Stored on the extraction as tags, so each
+   tab is one indexed query and no page ever loads everything to filter it. */
+
+const EXTRACTION_FILTERS = [
+  { id: 'relevant', label: 'Relevant' },
+  { id: 'all', label: 'All' },
+  { id: 'group_updates', label: 'Existing Group Updates' },
+  { id: 'new_groups', label: 'New Groups' },
+  { id: 'needs_review', label: 'Needs Review' },
+  { id: 'conflicts', label: 'Conflicts' },
+  { id: 'ignored', label: 'Ignored' },
+  { id: 'errors', label: 'Errors' }
+];
+
+/**
+ * @param {object} x
+ * @param {string} x.relevance
+ * @param {boolean} [x.compatSignal]   the content talks about compatibility at all
+ * @param {object[]} [x.candidates]    every candidate built from it (proposals and pairs)
+ * @param {object[]} [x.mediaItems]
+ */
+function extractionFiltersFor(x) {
+  /* "all" is a tag too: the current version of every post carries it, and a
+     version a newer one replaced carries none — so no tab lists stale rows. */
+  const tags = new Set(['all']);
+  const candidates = x.candidates || [];
+  if (x.relevance === 'RELEVANT_COMPATIBILITY' || x.relevance === 'PARTIALLY_RELEVANT') tags.add('relevant');
+  if (IGNORED_RELEVANCE.indexOf(x.relevance) > -1) tags.add('ignored');
+  if (x.relevance === 'NEEDS_REVIEW') tags.add('needs_review');
+  /* Unreadable media is worth a person's time only when the post talks about
+     compatibility; otherwise it is a reading failure, listed under Errors. */
+  if (x.relevance === 'INSUFFICIENT_EVIDENCE') tags.add(x.compatSignal ? 'needs_review' : 'errors');
+  candidates.forEach(c => {
+    if (c.status !== 'pending') return;
+    if (c.reviewSection === 'group_updates') tags.add('group_updates');
+    if (c.reviewSection === 'new_groups') tags.add('new_groups');
+    if (c.reviewSection === 'conflicts') tags.add('conflicts');
+    if (['review', 'unmatched', 'ambiguous'].indexOf(c.reviewSection) > -1) tags.add('needs_review');
+    if (c.kind === 'group_proposal' && c.counts && (c.counts.unmatched || c.counts.needsReview)) tags.add('needs_review');
+  });
+  if ((x.mediaItems || []).some(m => m.ocrStatus === 'failed')) tags.add('errors');
+  return Array.from(tags);
+}
+
+/** One proposal as an Extraction Results row shows it. */
+function proposalSummary(p) {
+  return {
+    candidateId: p.candidateId, status: p.status, proposedAction: p.proposedAction, categoryId: p.categoryId || null,
+    productName: p.productName || null,
+    targetGroupId: p.target && p.target.groupId || null, targetGroupNo: p.target && p.target.groupNo || null,
+    masterModelName: p.proposedMaster ? p.proposedMaster.modelName : null, masterReviewRequired: !!p.masterReviewRequired,
+    counts: p.counts || {}, confidence: p.confidence ? p.confidence.band : null
+  };
 }
 
 /* ================================================================ hashtags */
@@ -437,7 +667,11 @@ module.exports = {
   CONTENT_TYPES, COMPAT_TYPES, IMPORTABLE_TYPES, POLARITIES,
   CANDIDATE_KINDS, CANDIDATE_STATUSES, CANDIDATE_TRANSITIONS, canTransitionCandidate,
   REJECT_REASONS, REVIEW_SECTIONS, REVIEW_SECTION_IDS,
-  JOB_STATUSES, RESUMABLE, TERMINAL, ITEM_STATUSES,
+  JOB_STATUSES, RESUMABLE, TERMINAL, ITEM_STATUSES, PIPELINE_STATES,
   evaluateConfidence, evidenceStrength, reviewSectionFor,
+  RELEVANCE, ACTIONABLE_RELEVANCE, IGNORED_RELEVANCE, isActionableRelevance, relevanceBucket,
+  PROPOSED_ACTIONS, MEMBER_STATES, MEMBER_DECISIONS, matchStatusFor, memberIsCertain,
+  setKeyFor, proposalIdFor, evaluateSetConfidence,
+  EXTRACTION_FILTERS, extractionFiltersFor, proposalSummary,
   hashtagsIn, usageDay
 };

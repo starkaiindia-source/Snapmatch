@@ -45,10 +45,14 @@ const EXPLICIT_RE = new RegExp('\\b(' + [
   'same\\s+(?:as|glass|guard|display|combo|folder|battery|frame|cover|case|board|part|flex|tray)',
   'also\\s+fits', 'fits', 'fit\\s+for', 'fitting\\s+for', 'suitable\\s+for', 'suits',
   'works?\\s+(?:with|on|for)', 'use(?:d|able)?\\s+(?:for|in|on)', 'common\\s+(?:for|in|glass|part|models?)',
-  'interchangeable', 'supported\\s+models?', 'support\\s+models?',
-  'lagega', 'lag\\s+jayega', 'lagta\\s+hai', 'chalega', 'chal\\s+jayega', 'fit\\s+hoga', 'aayega', 'ayega',
+  'interchangeable', 'supported\\s+models?', 'support\\s+models?', 'applicable\\s+(?:models?|for)',
+  'lagega', 'lag\\s+jayega', 'lag\\s+jaega', 'lagta\\s+hai', 'chalega', 'chal\\s+jayega', 'fit\\s+hoga', 'aayega', 'ayega',
   'same\\s+hai', 'same\\s+he'
 ].join('|') + ')\\b', 'i');
+
+/* The same statement in Devanagari and Tamil — "यह Display लग जाएगा 68 models
+   में". No \b: a JS word boundary does not exist inside these scripts. */
+const EXPLICIT_INDIC_RE = /(?:लग\s*जा[एय]े?गा|लग\s*जाएगी|लगेगा|लगेगी|चलेगा|பொருந்தும்|பொருந்தக்கூடிய)/u;
 
 const NEGATIVE_RE = new RegExp('\\b(' + [
   'not\\s+(?:compatible|same|suitable|fit|fitting|working|interchangeable)', 'incompatible',
@@ -60,8 +64,14 @@ const NEGATIVE_RE = new RegExp('\\b(' + [
 
 const CHASSIS_RE = /\bsame\s+(?:body|chassis|size|dimensions?|design|cutout|camera\s+cutout)\b/i;
 
-/* A line that is only a heading for the list below it. */
-const HEADER_RE = /^\s*(?:compatible(?:\s+(?:models?|with|for|devices?|list))?|also\s+(?:fits|compatible\s+with)|fits|suitable\s+for|supported\s+models?|same\s+(?:glass|display|combo|folder|battery|part)(?:\s+(?:for|models?))?)\s*[:\-–]*\s*$/i;
+/* A line that is only a heading for the list below it. Reels print it with a
+   count or a brand in brackets — "COMPATIBLE WITH (68)", "COMPATIBLE MODELS
+   (VIVO)" — which is captured: a brand there is the brand of the list. */
+const HEADER_RE = /^\s*(?:compatible(?:\s+(?:models?|with|for|devices?|list))?|also\s+(?:fits|compatible\s+with)|fits|suitable\s+for|supported\s+models?|applicable\s+models?|same\s+(?:glass|display|combo|folder|battery|part)(?:\s+(?:for|models?))?)\s*(?:\(([^)]{0,40})\))?\s*[:\-–]*\s*$/i;
+
+/* How many lines without a model a list survives before it is over: a
+   watermark or a page number between two OCR columns must not end it. */
+const LIST_GAP = 2;
 
 /* List separators, including the Hinglish the trade writes in: "A15 me A15
    5G ka glass lagega" is "A15 / A15 5G glass fits". */
@@ -82,7 +92,14 @@ const NOT_A_MODEL_NUMBER = /^(?:\d+(?:d|h|pcs|pc|mah|gb|tb|mm|w|x|k|rs|inr|%)|\d
  * @param {Array<{source:'caption'|'ocr'|'frame'|'transcript'|'manual', ref:string|null,
  *                text:string, confidence:number|null}>} segments
  * @returns {{category:object, brandHint:string|null, references:Array,
- *            relationships:Array, hashtags:string[], warnings:string[]}}
+ *            relationships:Array, sets:Array, productTitles:Array,
+ *            hashtags:string[], warnings:string[]}}
+ *          `sets` holds each explicit positive statement WHOLE — its product
+ *          title (when one line names one model and a product), every model
+ *          it lists and the line each was read from. `relationships` is the
+ *          same statements as master-to-each pairs. `productTitles` are the
+ *          title lines found anywhere, so a list on one carousel image can be
+ *          joined to the product named on another.
  */
 function extractDeterministic(segments) {
   const all = (segments || []).filter(s => s && typeof s.text === 'string' && s.text.trim());
@@ -92,8 +109,16 @@ function extractDeterministic(segments) {
 
   const references = [];
   const relationships = [];
+  const sets = [];
+  const productTitles = [];
   const warnings = [];
   const seenRefs = new Map();
+
+  /* A product title: one line naming ONE model and a product ("Vivo Y20
+     Combo"). Only that may stand as the headline of a list — never simply
+     whichever model happened to be written first. */
+  const headlineOf = (items, line) => items && items.length === 1 && taxonomy.resolveCategory(line).categoryId
+    ? { text: items[0].text, brandHint: items[0].brandHint, line } : null;
 
   all.forEach(seg => {
     const segBrand = firstBrand(seg.text) || contentBrand;
@@ -112,45 +137,88 @@ function extractDeterministic(segments) {
       }
     };
 
-    const emit = (master, others, polarity, type, evidenceLines, category) => {
+    const emit = (master, others, polarity, type, evidenceLines, category, headline) => {
+      const resolved = category && category.categoryId ? category
+        : (segCategory.categoryId ? segCategory : contentCategory);
+      const evidence = { source: seg.source, ref: seg.ref, confidence: seg.confidence == null ? null : seg.confidence };
       others.forEach(other => {
         if (!master || !other || master.text.toLowerCase() === other.text.toLowerCase()) return;
+        /* A long list is quoted by its heading and the entry's own line, not
+           by all sixty-eight lines sixty-seven times over. */
+        const quoted = evidenceLines.length > 6
+          ? evidenceLines.slice(0, 2).concat(other.line && evidenceLines.indexOf(other.line) > 1 ? [other.line] : [])
+          : evidenceLines;
         relationships.push({
           sourceText: master.text, sourceBrandHint: master.brandHint,
           compatibleText: other.text, compatibleBrandHint: other.brandHint,
           polarity, compatibilityType: type,
-          evidenceText: evidenceLines.join(' / '),
-          evidenceLines: evidenceLines.slice(),
-          evidence: { source: seg.source, ref: seg.ref, confidence: seg.confidence == null ? null : seg.confidence },
-          category: category && category.categoryId ? category
-            : (segCategory.categoryId ? segCategory : contentCategory),
+          evidenceText: quoted.join(' / '),
+          evidenceLines: quoted.slice(),
+          evidence, category: resolved,
           extractedBy: 'rules'
         });
       });
+
+      if (polarity !== 'positive' || type !== 'explicit' || !master) return;
+      const seen = new Set();
+      const members = [master].concat(others).filter(m => {
+        const k = m && m.text.toLowerCase();
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      }).map(m => ({ text: m.text, brandHint: m.brandHint, line: m.line || null }));
+      if (members.length < 2) return;
+      sets.push({
+        headline: headline || null,
+        members,
+        evidenceLines: evidenceLines.slice(0, 120).map(l => String(l).slice(0, 200)),
+        evidence, category: resolved
+      });
     };
+
+    const tag = (items, line) => items.forEach(it => { it.line = line; addRef(it, line); });
 
     lines.forEach((line, i) => {
       /* A heading on its own line opens a list. */
-      if (HEADER_RE.test(line)) {
-        collecting = { header: line, title: lastTitle, items: [], lines: [line] };
+      const header = HEADER_RE.exec(line);
+      if (header) {
+        const inBrackets = header[1] ? firstBrand(header[1]) : null;
+        if (inBrackets) brand = inBrackets;
+        /* Under a statement that has listed nothing yet — "…लग जाएगा 68
+           models में" then "COMPATIBLE MODELS (VIVO)" — it is the same list,
+           and the statement stays part of its evidence. */
+        const carried = collecting && !collecting.items.length ? collecting.lines : [];
+        if (collecting && collecting.items.length) flush();
+        collecting = { header: line, title: lastTitle, items: [], lines: carried.concat(line), gap: 0 };
         return;
       }
 
       const lineCategory = taxonomy.resolveCategory(line);
       const neg = NEGATIVE_RE.exec(line);
-      const pos = neg ? null : EXPLICIT_RE.exec(line);
+      const pos = neg ? null : (EXPLICIT_RE.exec(line) || EXPLICIT_INDIC_RE.exec(line));
       const chassis = !neg && !pos ? CHASSIS_RE.exec(line) : null;
       const marker = neg || pos || chassis;
 
       if (collecting && !marker) {
         const parsed = parseItems(line, brand);
-        if (parsed.items.length) {
+        /* One model and a product on a line inside a list is the NEXT
+           product's title, not an entry of this list. */
+        const nextTitle = parsed.items.length === 1 && collecting.items.length &&
+          lineCategory.categoryId && lineCategory.strength === 'strong';
+        if (parsed.items.length && !nextTitle) {
           brand = parsed.brand || brand;
+          tag(parsed.items, line);
           collecting.items.push(...parsed.items);
           collecting.lines.push(line);
-          parsed.items.forEach(it => addRef(it, line));
-          /* the list ends at the last line of the segment or at a line with no models */
+          collecting.gap = 0;
           if (i === lines.length - 1) flush();
+          return;
+        }
+        if (!parsed.items.length) {
+          /* a watermark or a page number between two OCR columns */
+          collecting.gap++;
+          if (collecting.gap <= LIST_GAP && collecting.items.length && i < lines.length - 1) return;
+          flush();
           return;
         }
         flush();
@@ -165,22 +233,31 @@ function extractDeterministic(segments) {
         const b = parseItems(before, brand);
         const a = parseItems(after, b.brand || brand);
         brand = a.brand || b.brand || brand;
-        b.items.concat(a.items).forEach(it => addRef(it, line));
+        tag(b.items.concat(a.items), line);
 
         const polarity = neg ? 'negative' : 'positive';
         const type = chassis ? 'same_chassis' : 'explicit';
         let title = b.items;
         let evidence = [line];
-        if (!title.length && lastTitle) { title = lastTitle.items; evidence = [lastTitle.line, line]; }
+        let headline = headlineOf(b.items, before);
+        if (!title.length && lastTitle) {
+          title = lastTitle.items;
+          evidence = [lastTitle.line, line];
+          headline = headlineOf(lastTitle.items, lastTitle.line);
+        }
 
-        if (!a.items.length && !b.items.length && /[:\-–]\s*$/.test(line)) {
-          /* "Samsung A15 glass — compatible:" with the list on the next lines */
-          collecting = { header: line, title: lastTitle, items: [], lines: [line], polarity, type };
+        /* A statement naming no model introduces the list below it:
+           "Same glass fits:", "यह एक Display लग जाएगा 68 models में". A
+           negative or a "same size" needs the colon — nothing is read into
+           the lines after a bare "not compatible". */
+        if (!a.items.length && !b.items.length &&
+            ((polarity === 'positive' && type === 'explicit') || /[:\-–]\s*$/.test(line))) {
+          collecting = { header: line, title: lastTitle, items: [], lines: [line], polarity, type, gap: 0 };
           return;
         }
         const master = title[0] || a.items[0];
         const others = title.slice(1).concat(a.items).filter(it => it !== master);
-        emit(master, others, polarity, type, evidence, lineCategory);
+        emit(master, others, polarity, type, evidence, lineCategory, headline);
         return;
       }
 
@@ -188,11 +265,15 @@ function extractDeterministic(segments) {
          a listing, recorded as implied at most. */
       const parsed = parseItems(line, brand);
       brand = parsed.brand || brand;
-      parsed.items.forEach(it => addRef(it, line));
+      tag(parsed.items, line);
       if (!parsed.items.length) return;
       if (parsed.items.length >= 2 && parsed.listSeparated &&
           (lineCategory.categoryId || segCategory.categoryId)) {
-        emit(parsed.items[0], parsed.items.slice(1), 'positive', 'implied', [line], lineCategory);
+        emit(parsed.items[0], parsed.items.slice(1), 'positive', 'implied', [line], lineCategory, null);
+      }
+      const asTitle = headlineOf(parsed.items, line);
+      if (asTitle) {
+        productTitles.push(Object.assign(asTitle, { source: seg.source, ref: seg.ref, categoryId: lineCategory.categoryId }));
       }
       lastTitle = { items: parsed.items, line };
     });
@@ -208,7 +289,7 @@ function extractDeterministic(segments) {
       const others = title.slice(1).concat(c.items).filter(it => it !== master);
       const evidence = (c.title ? [c.title.line] : []).concat(c.lines);
       emit(master, others, c.polarity || 'positive', c.type || 'explicit', evidence,
-        taxonomy.resolveCategory(evidence.join(' ')));
+        taxonomy.resolveCategory(evidence.join(' ')), c.title ? headlineOf(c.title.items, c.title.line) : null);
     }
   });
 
@@ -234,9 +315,49 @@ function extractDeterministic(segments) {
     brandHint: contentBrand,
     references,
     relationships: dedupeRelationships(relationships),
+    sets,
+    productTitles,
     hashtags,
     warnings
   };
+}
+
+/**
+ * A list as a reel or a poster prints it, made splittable.
+ *
+ *   "1. Vivo Y20   35. Vivo Y12s"   numbered entries, two OCR columns on a line
+ *   "12 Vivo Y12s"                  the dot lost by OCR
+ *   "Vivo Y21 Vivo Y36"             two columns read as one line
+ *   "COMPATIBLE WITH (68)"          a count that is not a model
+ *   "लग जाएगा 68 models में"          the same count in words
+ *
+ * Entries are separated with ";" — a separator that, unlike "/", is never
+ * read as "a product listing joined these models".
+ */
+function normaliseListLine(fragment) {
+  let s = String(fragment || '');
+  s = s.replace(/\(\s*\d{1,3}\s*\)/g, ' ');
+  s = s.replace(/(^|[^A-Za-z0-9])\d{1,3}\s*\+?\s*models?(?![A-Za-z])/gi, '$1 ');
+  const words = s.split(/\s+/).filter(Boolean);
+  const out = [];
+  let digitInRun = false;
+  words.forEach((w, i) => {
+    const next = words[i + 1] || '';
+    const bare = w.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const isBrand = !!taxonomy.brandForToken(bare);
+    /* "12." or "12)" before a word, at the start or after a finished model */
+    if (/^\(?\d{1,3}[.)]$/.test(w) && /^[A-Za-z]/.test(next) && (i === 0 || digitInRun)) {
+      out.push(';'); digitInRun = false; return;
+    }
+    /* a bare index before a brand: "12 Vivo Y12s" */
+    if (/^\d{1,3}$/.test(w) && i === 0 && taxonomy.brandForToken(next.toLowerCase().replace(/[^a-z0-9]/g, ''))) return;
+    /* a brand word after a finished model starts the next one */
+    if (isBrand && digitInRun) { out.push(';'); digitInRun = false; }
+    out.push(w);
+    if (/[,;\/|]/.test(w)) digitInRun = false;
+    else if (/\d/.test(w)) digitInRun = true;
+  });
+  return out.join(' ');
 }
 
 /* ------------------------------------------------------------ list items */
@@ -247,7 +368,7 @@ function extractDeterministic(segments) {
  * variant word ("iPhone 13 / Pro / Pro Max") from the item before.
  */
 function parseItems(fragment, brandHint) {
-  const cleaned = cleanFragment(fragment);
+  const cleaned = cleanFragment(normaliseListLine(fragment));
   const parts = cleaned.split(SEPARATOR_RE).map(s => s.trim()).filter(Boolean);
   const items = [];
   let brand = brandHint || null;
@@ -364,7 +485,7 @@ function cleanFragment(fragment) {
   s = s.replace(/\+?\b\d{10,}\b/g, ' ');
   s = s.replace(/[\p{Extended_Pictographic}‍️]/gu, ' ');
   s = s.replace(/[()[\]{}"“”'‘’!?*_=]/g, ' ');
-  s = s.replace(EXPLICIT_RE, ' ').replace(NEGATIVE_RE, ' ').replace(CHASSIS_RE, ' ');
+  s = s.replace(EXPLICIT_RE, ' ').replace(EXPLICIT_INDIC_RE, ' ').replace(NEGATIVE_RE, ' ').replace(CHASSIS_RE, ' ');
   s = s.replace(/\b(?:with|for|models?|devices?|list|available|now|in\s+stock)\b\s*:?/gi, ' ');
   s = stripCategoryTerms(s);
   return s.replace(/\s*:\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -539,7 +660,7 @@ function validateAiExtraction(raw, ctx) {
 }
 
 module.exports = {
-  EXPLICIT_RE, NEGATIVE_RE, CHASSIS_RE, HEADER_RE,
-  extractDeterministic, parseItems, cleanFragment,
+  EXPLICIT_RE, EXPLICIT_INDIC_RE, NEGATIVE_RE, CHASSIS_RE, HEADER_RE,
+  extractDeterministic, parseItems, cleanFragment, normaliseListLine,
   AI_SYSTEM_PROMPT, shouldAskAi, buildAiInput, inputHash, unwrapAiOutput, validateAiExtraction
 };

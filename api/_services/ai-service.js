@@ -129,6 +129,7 @@ const CAPABILITIES = [
      validates before it is stored — see api/_services/instagram/. */
   { id: 'extract_compatibility', description: 'Extract compatibility claims from source text, as validated JSON' },
   { id: 'media_ocr', description: 'Read the text in one image' },
+  { id: 'vision_understand', description: 'What one image shows: compatibility list, product, or repair content — and the models printed on it' },
   { id: 'video_analyze', description: 'Key frames by scene/text change, their text, and the audio transcript' }
 ];
 

@@ -72,7 +72,7 @@ Declared in `ai-service.js`, listed in the admin UI, and the only values
 `answer_user_question` · `normalise_model_name` · `explain_compatibility` ·
 `assist_zero_result` · `propose_missing_model` · `seo_content_draft` ·
 `marketing_content_draft` · `business_insight` · `extract_compatibility` ·
-`media_ocr` · `video_analyze`
+`media_ocr` · `vision_understand` · `video_analyze`
 
 ---
 
@@ -291,10 +291,26 @@ thin pages overnight and the site losing its rankings.
 
 **Built: compatibility intelligence.** Reading parts-compatibility claims from
 Instagram posts through the official Graph API, with the gateway capabilities
-`media_ocr`, `video_analyze` and `extract_compatibility`. AI output there is
-validated (fixed enums, catalogue ids only, and every quote must appear verbatim
-in the source) and never goes beyond a review candidate. See
-`docs/INSTAGRAM-IMPORTER.md`.
+`media_ocr`, `vision_understand`, `video_analyze` and `extract_compatibility`.
+AI output there is validated (fixed enums, catalogue ids only, and every quote
+must appear verbatim in the source) and never goes beyond a review candidate.
+See `docs/INSTAGRAM-IMPORTER.md`.
+
+Reading the media in that feature does not have to go through the gateway. Two
+hosted models are called directly, because reading a public poster or reel
+needs no private data and no GPU of yours:
+
+- **Gemini** (`GEMINI_API_KEY`) is the primary media reader — a cheap screen,
+  then one deep read of an image, each carousel image, or the video itself.
+- **Claude** (`ANTHROPIC_API_KEY`) is a second opinion on the few lists that
+  are still doubtful. It is never a second pass over everything.
+
+The rule above still holds for both — the answer is forced into a schema,
+validated, turned back into text for the deterministic extractor and matcher,
+and capped below "high" confidence when a model alone read it. A model
+proposes; matching, the group comparison, the one-group-per-category rule and
+every write are code. Calls are budgeted per import, cached by content, and
+their tokens and estimated cost are recorded.
 
 **Still prepared, not built:** the inbox and marketing side below.
 

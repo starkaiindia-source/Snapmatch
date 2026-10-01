@@ -549,6 +549,60 @@ pre.ig__quote { margin-bottom: 6px; }
 .ig__rels { margin: 0; padding-left: 18px; font-size: 13px; }
 .ig__rels li { margin-bottom: 3px; }
 
+/* A group proposal: the existing group beside what the post lists, and the
+   difference. ADD / REMOVE / EXISTING / CONFLICT / NEEDS REVIEW / UNMATCHED
+   are six cells of one grid so the whole decision is on one screen. */
+.ig__card--proposal { border-left: 3px solid var(--teal-500); }
+.ig__ptitle { font-size: 12px; letter-spacing: .06em; color: var(--ink); margin-right: 4px; }
+.ig__chip--plain { background: var(--surface-3); }
+.ig__chip .adm__none { font-size: 11px; }
+.ig__details { margin-top: 8px; font-size: 13px; }
+.ig__details > summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--teal-700); }
+.ig__details[open] > summary { margin-bottom: 6px; }
+.ig__changes { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.ig__reason { margin: 0 0 6px; font-size: 13px; color: var(--ink-2); }
+.ig__diff { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-top: 10px; }
+.ig__diff > div { border: 1px solid var(--line); border-radius: var(--r-xs); padding: 9px 11px; background: var(--surface); min-width: 0; }
+.ig__diff h5 { margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .05em; color: var(--ink-3); }
+.ig__diff p { margin: 0; font-size: 12px; }
+.ig__members { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; }
+.ig__member { padding-left: 9px; border-left: 3px solid var(--line); }
+.ig__member--conflict { border-left-color: var(--bad); }
+.ig__member--review { border-left-color: var(--warn); }
+.ig__member--unmatched { border-left-color: var(--bad); }
+.ig__blocked { font-size: 11px; font-weight: 700; letter-spacing: .03em; color: var(--bad); white-space: nowrap; }
+.ig__sub { font-size: 12px; color: var(--ink-3); }
+.ig__minis { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; align-items: center; }
+.ig__mini {
+  font: inherit; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: var(--r-pill);
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer;
+}
+.ig__mini:hover { border-color: var(--teal-600); background: var(--teal-050); }
+.ig__x {
+  font: inherit; font-size: 14px; line-height: 1; padding: 0 2px; margin-left: 3px;
+  border: 0; background: none; color: var(--ink-3); cursor: pointer;
+}
+.ig__x:hover { color: var(--bad); }
+.ig__sel {
+  font: inherit; font-size: 13px; padding: 5px 8px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); max-width: 100%;
+}
+.ig__actionlabel { font-size: 12px; letter-spacing: .04em; color: var(--ink-3); margin-right: 4px; }
+.ig__actionlabel b { color: var(--ink); }
+.ig__groupbox { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-xs); background: var(--surface-2); }
+.ig__groupbox h4 { margin-bottom: 4px; }
+.ig__evtable td { font-size: 12px; vertical-align: top; }
+.ig__ignored { opacity: .92; }
+.ig__ignored .ig__jobhead { margin-bottom: 4px; }
+.ig__evidencebox { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.ig__evidencebox .ig__form { margin-top: 8px; }
+.ig__form input[type="file"] { font: inherit; font-size: 13px; }
+/* the cost funnel and one post's path through the pipeline */
+.ig__funnel { margin: 0 0 12px; font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+.ig__funnel b { color: var(--ink); font-family: var(--f-mono); }
+.ig__pipeline { margin: 0 0 6px; font-size: 12px; color: var(--ink-2); line-height: 1.8; }
+.ig__suggest { color: var(--teal-700); }
+
 /* ---------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {

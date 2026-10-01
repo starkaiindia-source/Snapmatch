@@ -271,9 +271,42 @@ async function afterDecision(c, jobInc, decision, now) {
       }, { merge: true });
     }
     await db.collection(C.COMPATIBILITY_EVIDENCE).doc(c.candidateId).set({ candidateStatus: decision, updatedAt: now }, { merge: true });
+    if (c.kind === 'group_proposal' && c.extractionId) {
+      await db.collection(C.INSTAGRAM_EXTRACTIONS).doc(c.extractionId)
+        .set({ proposalStatus: { [c.candidateId]: decision }, updatedAt: now }, { merge: true });
+    }
+    await syncExtraction(c.extractionId, now);
   } catch (err) {
     console.warn('[instagram] counters not updated', err && err.message);
   }
+}
+
+/**
+ * Extraction Results is filtered by tags stored on each extraction. A tag
+ * says what is true NOW — "existing group update pending", "conflict open" —
+ * so every decision and every edit recomputes them from the extraction's own
+ * candidates: one read of the extraction and one indexed query, never a scan.
+ */
+async function syncExtraction(extractionId, now) {
+  if (!extractionId) return;
+  const db = fsx.db();
+  const ref = db.collection(C.INSTAGRAM_EXTRACTIONS).doc(extractionId);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  const x = snap.data();
+  if (x.supersededBy) return;                     /* a replaced version carries no tags */
+  const list = await candidates().where('extractionId', '==', extractionId).limit(150).get();
+  const rows = list.docs.map(d => d.data());
+  const patch = {
+    filters: S.extractionFiltersFor({ relevance: x.relevance, compatSignal: !!x.compatSignal, candidates: rows, mediaItems: x.mediaItems || [] }),
+    updatedAt: now
+  };
+  const proposals = rows.filter(r => r.kind === 'group_proposal');
+  if (proposals.length) {
+    const order = (x.proposals || []).map(p => p.candidateId);
+    patch.proposals = proposals.sort((a, b) => order.indexOf(a.candidateId) - order.indexOf(b.candidateId)).map(S.proposalSummary);
+  }
+  await ref.set(patch, { merge: true });
 }
 
 /* ================================================================ reject */
@@ -354,6 +387,10 @@ async function selectModel({ candidateId, side, modelId, rememberAlias = false, 
 async function learnAlias({ c, side, record, admin, now }) {
   const text = side === 'source' ? c.sourceText : side === 'compatible' ? c.compatibleText : c.referenceText;
   if (!text) return { learned: false, reason: 'no extracted text on this side' };
+  return learnAliasFor(text, record, now);
+}
+
+async function learnAliasFor(text, record, now) {
   const tax = taxonomy.taxonomy();
   const brand = tax.brands.get(record.brandId);
   const clean = taxonomy.basicTokens(text).join(' ');
@@ -468,6 +505,8 @@ async function reopen({ candidateId, admin, now }) {
   });
   await afterDecision(c, { pendingReview: 1 }, 'reopened', now);
   if (c.kind === 'relationship') await recheck(candidateId, now);
+  /* production may have moved on while it was closed */
+  if (c.kind === 'group_proposal') await proposalRefresh({ candidateId, admin, now: now + 1 });
   return { ok: true, candidateId, previousStatus: c.status };
 }
 
@@ -524,6 +563,431 @@ async function setSourceIgnored({ sourceKey, ignored, reason, admin, now }) {
     if (page.size < 400) break;
   }
   return { ok: true, sourceKey, ignored, candidatesMoved: moved };
+}
+
+/* ======================================================= group proposals
+
+   A LIST AGAINST A GROUP
+
+   A group proposal (group-proposals.js) is edited and approved here. Two
+   things hold for every function below:
+
+     · After any edit the proposal is recomputed against production as it is
+       NOW (groupProposals.refresh), so the card never shows a plan made
+       from stale membership.
+     · Approval recomputes it once more INSIDE the transaction, from
+       modelGroups documents read in that transaction. That is where
+       "one category + one model = one group" is enforced: whatever the card
+       said, a model that has a group in the category by the time of the
+       write is BLOCKED, the whole approval is refused, and nothing is
+       written.
+
+   What approval writes is still additive only: models that have no group in
+   the category join the target group. Moving a model out of a group, merging
+   two groups and creating a group (which needs a part code and a serial) are
+   changes to the master catalogue; an approved request for one is recorded
+   in the ledger for it, never performed here. */
+
+const groupProposals = require('./group-proposals');
+
+function assertProposal(cur, { pending = true } = {}) {
+  if (!cur || cur.kind !== 'group_proposal') throw new ReviewError(400, 'not-a-proposal', 'This candidate is not a group proposal.');
+  if (pending && cur.status !== 'pending') throw new ReviewError(409, 'wrong-status', 'Only a pending proposal can be edited. Reopen it first.');
+}
+
+/** Read, edit in memory, recompute against production, write. */
+async function editProposal(candidateId, admin, now, action, note, edit) {
+  const db = fsx.db();
+  const FV = fsx.FieldValue();
+  const ref = candidates().doc(candidateId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new ReviewError(404, 'not-found', 'No such candidate.');
+  const cur = snap.data();
+  assertProposal(cur);
+  const next = JSON.parse(JSON.stringify(cur));
+  const extra = edit(next) || {};
+  const recomputed = await groupProposals.refresh(next);
+  const patch = Object.assign({}, extra, recomputed, {
+    updatedAt: now,
+    history: FV.arrayUnion(hist(now, admin, action, note))
+  });
+  await db.runTransaction(async tx => {
+    const fresh = await tx.get(ref);
+    if (!fresh.exists || fresh.data().status !== 'pending' || fresh.data().updatedAt !== cur.updatedAt) {
+      throw new ReviewError(409, 'stale', 'The proposal changed while you were editing it. Reload and try again.');
+    }
+    tx.set(ref, patch, { merge: true });
+  });
+  try { await syncExtraction(cur.extractionId, now); }
+  catch (err) { console.warn('[instagram] extraction tags not updated', err && err.message); }
+  return { before: cur, after: Object.assign({}, next, recomputed) };
+}
+
+function findMember(p, memberKey) {
+  const m = (p.members || []).find(x => x.key === memberKey);
+  if (!m) throw new ReviewError(400, 'unknown-member', 'That entry is not in this proposal.');
+  return m;
+}
+
+function summary(p) {
+  return {
+    proposedAction: p.proposedAction, reviewSection: p.reviewSection, counts: p.counts,
+    targetGroupId: p.target && p.target.groupId || null, masterReviewRequired: !!p.masterReviewRequired
+  };
+}
+
+/** The admin picks the catalogue record for one list entry. */
+async function proposalSelectModel({ candidateId, memberKey, modelId, rememberAlias = false, admin, now }) {
+  const record = taxonomy.modelById(modelId);
+  if (!record) throw new ReviewError(400, 'unknown-model', 'That model id is not in the catalogue. The importer never creates models.');
+  let previous = null, text = null;
+  const out = await editProposal(candidateId, admin, now, 'match_edited', `${memberKey} -> ${record.modelId}`, p => {
+    const m = findMember(p, memberKey);
+    if (p.members.some(x => x !== m && x.match && x.match.modelId === record.modelId && x.decision !== 'exclude')) {
+      throw new ReviewError(409, 'same-model', `${record.modelName} is already an entry of this list.`);
+    }
+    previous = m.match && m.match.modelId || null;
+    text = m.text;
+    m.match = {
+      status: 'matched', modelId: record.modelId, modelName: record.modelName, brandId: record.brandId,
+      method: 'admin_selected', strength: 'strong', normalizedText: m.match ? m.match.normalizedText || null : null,
+      requiresVariantConfirmation: false, variantNote: null,
+      notes: [`selected by ${admin.email || admin.uid}; previously ${previous || (m.match ? m.match.status : 'none')}`],
+      alternatives: m.match ? m.match.alternatives || [] : [], siblings: [],
+      selectedBy: admin.uid, selectedAt: now
+    };
+    m.key = 'm:' + record.modelId;
+  });
+  const alias = rememberAlias && text ? await learnAliasFor(text, record, now) : null;
+  return Object.assign({ ok: true, candidateId, memberKey: 'm:' + record.modelId, previousModelId: previous, newModelId: record.modelId, alias }, summary(out.after));
+}
+
+/** Include, exclude, or request a reassignment for one entry. */
+async function proposalMemberDecision({ candidateId, memberKey, decision, admin, now }) {
+  if (decision !== null && S.MEMBER_DECISIONS.indexOf(decision) < 0) {
+    throw new ReviewError(400, 'bad-decision', 'decision must be one of: ' + S.MEMBER_DECISIONS.join(', ') + ', or null to clear it.');
+  }
+  let previous = null;
+  const out = await editProposal(candidateId, admin, now, 'entry_decision', `${memberKey}: ${decision || 'cleared'}`, p => {
+    const m = findMember(p, memberKey);
+    if (decision === 'reassign_request' && m.state !== 'conflict') {
+      throw new ReviewError(409, 'not-a-conflict', 'A reassignment can be requested only for a model that already belongs to another group.');
+    }
+    previous = m.decision || null;
+    m.decision = decision === 'include' ? null : decision;
+    m.decidedBy = decision ? admin.uid : null;
+    m.decidedAt = decision ? now : null;
+  });
+  return Object.assign({ ok: true, candidateId, memberKey, previousDecision: previous, decision }, summary(out.after));
+}
+
+/** "Add models": a catalogue record the post did not list, added by a person. */
+async function proposalAddModel({ candidateId, modelId, admin, now }) {
+  const record = taxonomy.modelById(modelId);
+  if (!record) throw new ReviewError(400, 'unknown-model', 'That model id is not in the catalogue. The importer never creates models.');
+  const out = await editProposal(candidateId, admin, now, 'entry_added', record.modelId, p => {
+    if (p.members.some(x => x.match && x.match.modelId === record.modelId)) {
+      throw new ReviewError(409, 'same-model', `${record.modelName} is already an entry of this list.`);
+    }
+    if (p.members.length >= 150) throw new ReviewError(409, 'too-many', 'A proposal holds at most 150 entries.');
+    p.members.push({
+      key: 'm:' + record.modelId, text: record.modelName, texts: [record.modelName],
+      match: { status: 'matched', modelId: record.modelId, modelName: record.modelName, brandId: record.brandId,
+               method: 'admin_selected', strength: 'strong', normalizedText: null, requiresVariantConfirmation: false,
+               variantNote: null, notes: [`added by ${admin.email || admin.uid}; not in the Instagram post`], alternatives: [], siblings: [] },
+      evidence: [{ source: 'manual', ref: null, line: 'added by an admin', confidence: null }],
+      occurrences: 0, decision: null, addedBy: admin.uid
+    });
+  });
+  return Object.assign({ ok: true, candidateId, modelId: record.modelId }, summary(out.after));
+}
+
+/** The master of a NEW group. An existing group keeps the master it has. */
+async function proposalSetMaster({ candidateId, modelId, admin, now }) {
+  let previous = null;
+  const out = await editProposal(candidateId, admin, now, 'master_selected', modelId, p => {
+    if (!p.target || p.target.mode !== 'new') {
+      throw new ReviewError(409, 'existing-group', 'An existing group keeps its master model. Changing it is a change to the master catalogue.');
+    }
+    const m = (p.members || []).find(x => x.match && x.match.modelId === modelId && x.state === 'add');
+    if (!m) throw new ReviewError(400, 'not-a-member', 'The master must be one of the models this proposal would put in the group.');
+    previous = p.masterOverride || (p.proposedMaster && p.proposedMaster.modelId) || null;
+    p.masterOverride = modelId;
+    return { masterOverride: modelId };
+  });
+  return Object.assign({ ok: true, candidateId, previousMasterId: previous, masterModelId: modelId }, summary(out.after));
+}
+
+/** Which group the list describes: one it already overlaps, or a new one. */
+async function proposalSetTarget({ candidateId, groupId, admin, now }) {
+  let previous = null;
+  const out = await editProposal(candidateId, admin, now, 'target_selected', groupId || 'automatic', p => {
+    const allowed = new Set((p.otherGroups || []).map(g => g.groupId));
+    if (p.target && p.target.groupId) allowed.add(p.target.groupId);
+    (p.target && p.target.candidates || []).forEach(g => allowed.add(g));
+    if (groupId && groupId !== 'new' && !allowed.has(groupId)) {
+      throw new ReviewError(400, 'unknown-group', 'Choose one of the groups this list overlaps, or a new group.');
+    }
+    previous = p.targetOverride || null;
+    p.targetOverride = groupId || null;
+    p.masterOverride = null;
+    return { targetOverride: groupId || null, masterOverride: null };
+  });
+  return Object.assign({ ok: true, candidateId, previousTarget: previous, target: groupId || null }, summary(out.after));
+}
+
+async function proposalChangeCategory({ candidateId, categoryId, admin, now }) {
+  if (!taxonomy.isKnownCategory(categoryId)) throw new ReviewError(400, 'unknown-category', 'Not one of the catalogue\'s categories. The importer never creates categories.');
+  let previous = null;
+  const out = await editProposal(candidateId, admin, now, 'category_changed', categoryId, p => {
+    previous = p.categoryId || null;
+    Object.assign(p, { categoryId, categoryMethod: 'admin_selected', categoryStrength: 'strong', unmappedCategoryText: null,
+                       targetOverride: null, masterOverride: null });
+    return { categoryId, categoryMethod: 'admin_selected', categoryStrength: 'strong', unmappedCategoryText: null,
+             targetOverride: null, masterOverride: null };
+  });
+  return Object.assign({ ok: true, candidateId, previousCategoryId: previous, newCategoryId: categoryId }, summary(out.after));
+}
+
+/** Recompute against production without changing anything else. */
+async function proposalRefresh({ candidateId, admin, now }) {
+  const out = await editProposal(candidateId, admin, now, 'refreshed', 'recomputed against production', () => ({}));
+  return Object.assign({ ok: true, candidateId }, summary(out.after));
+}
+
+/**
+ * Approve a group proposal.
+ *
+ * @param {object} args
+ * @param {number} [args.expectedAdd]   how many models the admin was shown as "ADD";
+ *                                      a different number now is refused as stale
+ * @throws {ReviewError} 'category-conflict' when any model is already assigned
+ */
+async function approveProposal({ candidateId, admin, acknowledgeLowConfidence = false, expectedAdd = null, now }) {
+  const db = fsx.db();
+  const FV = fsx.FieldValue();
+  const ref = candidates().doc(candidateId);
+
+  const result = await db.runTransaction(async tx => {
+    /* ---------------- every read first (Firestore requires it) ---------------- */
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new ReviewError(404, 'not-found', 'No such candidate.');
+    const p = snap.data();
+    assertProposal(p, { pending: false });
+    if (!S.canTransitionCandidate(p.status, 'approved')) throw new ReviewError(409, 'wrong-status', `A ${p.status} proposal cannot be approved.`);
+    if (!taxonomy.isKnownCategory(p.categoryId)) throw new ReviewError(409, 'unknown-category', 'Choose the catalogue category first.');
+    if (p.confidence && p.confidence.band === 'low' && !acknowledgeLowConfidence) {
+      throw new ReviewError(409, 'low-confidence', 'Low-confidence proposal: approving it needs an explicit acknowledgement.');
+    }
+
+    const members = (p.members || []).map(m => Object.assign({}, m));
+    const ids = Array.from(new Set(members.map(m => m.match && m.match.modelId).filter(Boolean)));
+    /* foreign keys, against the catalogue itself */
+    ids.forEach(id => { if (!taxonomy.modelById(id)) throw new ReviewError(409, 'unknown-model', `${id} is not in the catalogue.`); });
+
+    const metaSnap = await tx.get(db.collection(C.CATALOG).doc('meta'));
+    if (!metaSnap.exists) throw new ReviewError(409, 'catalogue-not-imported', 'The production catalogue is not in Firestore, so the one-group-per-category rule cannot be checked. Nothing was written.');
+    const mgSnaps = await Promise.all(ids.map(id => tx.get(db.collection(C.MODEL_GROUPS).doc(id))));
+    const membership = new Map(ids.map((id, i) => [id, groupProposals.groupsIn(mgSnaps[i].exists ? mgSnaps[i].data() : null, p.categoryId)]));
+
+    /* the target, decided from the membership just read */
+    const first = groupProposals.plan({ categoryId: p.categoryId, headline: p.headline, members, imported: true, membership,
+                                        groups: new Map(), targetOverride: p.targetOverride, masterOverride: p.masterOverride });
+    const groups = new Map();
+    let gdSnap = null, gSnap = null;
+    if (first.target.groupId) {
+      gSnap = await tx.get(db.collection(C.GROUPS).doc(first.target.groupId));
+      gdSnap = await tx.get(db.collection(C.GROUP_DETAILS).doc(first.target.groupId));
+      if (!gdSnap.exists) throw new ReviewError(409, 'group-missing', `${first.target.groupId} has no groupDetails document. Nothing was written.`);
+      groups.set(first.target.groupId, groupProposals.summariseGroup(first.target.groupId, gSnap.exists ? gSnap.data() : null, gdSnap.data()));
+    }
+    const planned = groupProposals.plan({ categoryId: p.categoryId, headline: p.headline, members, imported: true, membership, groups,
+                                          targetOverride: p.targetOverride, masterOverride: p.masterOverride });
+    const state = Object.assign({}, planned, { members: members.map(groupProposals.slimMember) });
+    const stateNext = Object.assign({}, p, state);
+
+    /* ---------------------------- decide, then write ---------------------------- */
+
+    /* THE RULE. Any listed model that belongs to another group in this
+       category blocks the whole approval, until a person has dealt with it. */
+    const blocked = members.filter(m => m.state === 'conflict' && !m.decision);
+    if (blocked.length || planned.target.mode === 'undecided') {
+      tx.set(ref, Object.assign({}, state, {
+        reviewSection: S.reviewSectionFor(stateNext), updatedAt: now,
+        history: FV.arrayUnion(hist(now, admin, 'approval_refused',
+          blocked.length ? `BLOCKED — ${blocked.length} model(s) already assigned to another group in this category` : 'no target group chosen'))
+      }), { merge: true });
+      return { outcome: 'blocked', p, blocked: blocked.map(m => ({
+        modelId: m.match.modelId, modelName: m.match.modelName, existingGroupId: m.currentGroupId || (m.currentGroupIds || [])[0] || null,
+        existingGroupMaster: m.currentGroupMaster || null, proposedGroupId: planned.target.groupId || 'new'
+      })), reason: planned.target.mode === 'undecided' ? planned.target.reason : null };
+    }
+    if (['UPDATE_EXISTING_GROUP', 'CREATE_NEW_GROUP', 'NO_CHANGE'].indexOf(planned.proposedAction) < 0) {
+      throw new ReviewError(409, 'not-approvable', planned.actionReasons[0] || 'This proposal cannot be approved as it stands.');
+    }
+    const add = members.filter(m => m.state === 'add');
+    if (expectedAdd != null && Number(expectedAdd) !== add.length) {
+      tx.set(ref, Object.assign({}, state, { reviewSection: S.reviewSectionFor(stateNext), updatedAt: now }), { merge: true });
+      return { outcome: 'stale', p, now: add.length };
+    }
+
+    const evidenceEntry = {
+      candidateId, sourceKey: p.sourceKey, sourceUsername: p.sourceUsername || null,
+      permalink: p.sourcePost && p.sourcePost.permalink || null,
+      evidenceText: String(p.extractedText || '').slice(0, 500), approvedAt: now
+    };
+    const approval = {
+      reviewer: admin.uid, reviewedAt: now, approvedBy: admin.uid, approvedByEmail: admin.email || null,
+      approvedAt: now, updatedAt: now, reviewSection: 'closed', conflict: null
+    };
+    const requests = members.filter(m => m.state === 'conflict' && m.decision === 'reassign_request').map(m => ({
+      type: 'reassign', modelId: m.match.modelId, modelName: m.match.modelName,
+      fromGroupId: m.currentGroupId || (m.currentGroupIds || [])[0] || null, toGroupId: planned.target.groupId || 'new'
+    }));
+    const requestRef = requests.length ? db.collection(C.APPROVED_COMPATIBILITIES).doc('req__' + S.sha256(candidateId).slice(0, 32)) : null;
+    if (requestRef) {
+      tx.set(requestRef, {
+        relKey: requestRef.id, kind: 'master_change_request', status: 'approved_pending_master', productionOutcome: 'pending_master',
+        categoryId: p.categoryId, requests, proposalId: candidateId,
+        productionNote: 'Moving a model between groups is a change to the master catalogue. Recorded for it; nothing was moved here.',
+        approvedBy: admin.uid, approvedByEmail: admin.email || null, approvedAt: now,
+        candidateIds: [candidateId], evidence: [evidenceEntry], sources: [p.sourceKey], createdAt: now, updatedAt: now
+      });
+    }
+
+    /* ---- nothing to add: it was all there already ---- */
+    if (planned.target.mode === 'existing' && !add.length) {
+      tx.set(ref, Object.assign({}, state, approval, {
+        status: requests.length ? 'approved' : 'duplicate',
+        duplicateReason: requests.length ? null : 'already_existing',
+        reviewSection: requests.length ? 'closed' : 'duplicates',
+        productionOutcome: requests.length ? 'pending_master' : 'already_existing',
+        history: FV.arrayUnion(hist(now, admin, requests.length ? 'approved' : 'duplicate',
+          requests.length ? `${requests.length} reassignment request(s) recorded for the master catalogue` : 'Already Existing in production; kept as evidence'))
+      }), { merge: true });
+      return { outcome: requests.length ? 'pending_master' : 'already_existing', p, requests };
+    }
+
+    /* ---- a new group: recorded for the catalogue build, never invented here ---- */
+    if (planned.target.mode === 'new') {
+      if (planned.masterReviewRequired || !planned.proposedMaster) {
+        throw new ReviewError(409, 'master-review-required', 'MASTER MODEL REVIEW REQUIRED: choose the master model of the new group first.');
+      }
+      const ledgerRef = db.collection(C.APPROVED_COMPATIBILITIES).doc(planned.relKey);
+      const note = 'A new group needs a part code and a serial, which only the catalogue build issues. Create it in Compatibility Management; it is in the exported worklist.';
+      tx.set(ledgerRef, {
+        relKey: planned.relKey, kind: 'new_group', status: 'approved_pending_build', productionOutcome: 'pending_build',
+        categoryId: p.categoryId, masterModelId: planned.proposedMaster.modelId, masterModelName: planned.proposedMaster.modelName,
+        memberIds: add.map(m => m.match.modelId), memberNames: add.map(m => m.match.modelName),
+        productionNote: note, proposalId: candidateId, confidenceAtApproval: p.confidence ? p.confidence.band : null,
+        approvedBy: admin.uid, approvedByEmail: admin.email || null, approvedAt: now,
+        candidateIds: [candidateId], evidence: [evidenceEntry], sources: [p.sourceKey],
+        processingVersion: p.processingVersion || null, createdAt: now, updatedAt: now
+      });
+      tx.set(ref, Object.assign({}, state, approval, {
+        status: 'approved', productionOutcome: 'pending_build', productionNote: note, ledgerId: planned.relKey,
+        history: FV.arrayUnion(hist(now, admin, 'approved', `new group of ${add.length} models, master ${planned.proposedMaster.modelName}; pending the catalogue build`))
+      }), { merge: true });
+      return { outcome: 'pending_build', p, note, requests, master: planned.proposedMaster, memberCount: add.length };
+    }
+
+    /* ---- an existing group gains the models that have no group yet ---- */
+    const groupId = planned.target.groupId;
+    const gd = gdSnap.data() || {};
+    if (gd.categoryId && gd.categoryId !== p.categoryId) {
+      throw new ReviewError(409, 'category-mismatch', `Group ${groupId} is ${gd.categoryId}, not ${p.categoryId}. Nothing was written.`);
+    }
+    const oldIds = Array.isArray(gd.memberIds) ? gd.memberIds.map(String) : [];
+    const oldNames = Array.isArray(gd.memberNames) ? gd.memberNames.slice() : [];
+    const clash = add.find(m => oldIds.indexOf(m.match.modelId) > -1);
+    if (clash) {
+      throw new ReviewError(409, 'inconsistent-production', `${clash.match.modelName} is already a member of ${groupId} but its modelGroups entry does not say so. Fix the catalogue import; nothing was written.`);
+    }
+    const records = add.map(m => taxonomy.modelById(m.match.modelId));
+    const newIds = oldIds.concat(records.map(r => r.modelId));
+    const newNames = oldNames.concat(records.map(r => r.modelName));
+    const previousCount = Number(gd.memberCount) || oldIds.length;
+    const masterId = gSnap && gSnap.exists ? gSnap.data().masterModelId : null;
+    const anchorId = masterId && oldIds.indexOf(masterId) > -1 ? masterId : oldIds[0];
+    const anchor = anchorId ? taxonomy.modelById(anchorId) : null;
+    if (!anchor) throw new ReviewError(409, 'group-empty', `Group ${groupId} has no member the approval can be anchored on. Nothing was written.`);
+
+    const change = {
+      groupId, groupNo: planned.target.groupNo || null,
+      addedModelIds: records.map(r => r.modelId), addedModelNames: records.map(r => r.modelName),
+      anchorModelId: anchor.modelId, anchorModelName: anchor.modelName,
+      previousMemberCount: previousCount, newMemberCount: newIds.length,
+      previousMemberIds: oldIds.slice(0, 1000)
+    };
+    tx.set(db.collection(C.GROUP_DETAILS).doc(groupId), {
+      memberIds: newIds, memberNames: newNames, memberCount: newIds.length,
+      lastChange: { source: 'instagram-proposal', candidateId, addedModelIds: change.addedModelIds, by: admin.uid, at: now }
+    }, { merge: true });
+    if (gSnap && gSnap.exists) tx.set(db.collection(C.GROUPS).doc(groupId), { memberCount: newIds.length }, { merge: true });
+    records.forEach((r, i) => {
+      tx.set(db.collection(C.MODEL_GROUPS).doc(r.modelId), { id: r.modelId, byCategory: { [p.categoryId]: FV.arrayUnion(groupId) } }, { merge: true });
+      /* One ledger entry per added model, in the shape the pairwise approval
+         writes — so the build overlay and the import guard cover it as is. */
+      const relKey = S.relKeyFor(p.categoryId, anchor.modelId, r.modelId);
+      tx.set(db.collection(C.APPROVED_COMPATIBILITIES).doc(relKey), {
+        relKey, kind: S.RELATION_KIND, categoryId: p.categoryId,
+        modelA: [anchor.modelId, r.modelId].sort()[0], modelB: [anchor.modelId, r.modelId].sort()[1],
+        sourceModelId: anchor.modelId, sourceModelName: anchor.modelName,
+        compatibleModelId: r.modelId, compatibleModelName: r.modelName,
+        compatibilityType: 'explicit', status: 'applied', productionOutcome: 'applied', appliedAt: now,
+        appliedChange: { groupId, addedModelId: r.modelId, addedModelName: r.modelName,
+                         anchorModelId: anchor.modelId, anchorModelName: anchor.modelName,
+                         previousMemberCount: previousCount + i, newMemberCount: previousCount + i + 1 },
+        proposalId: candidateId, approvedBy: admin.uid, approvedByEmail: admin.email || null, approvedAt: now,
+        candidateIds: FV.arrayUnion(candidateId), evidence: FV.arrayUnion(evidenceEntry), sources: FV.arrayUnion(p.sourceKey),
+        confidenceAtApproval: p.confidence ? p.confidence.band : null,
+        matchMethods: { source: 'group_master', compatible: add[i].match.method || null },
+        processingVersion: p.processingVersion || null, createdAt: now, updatedAt: now
+      }, { merge: true });
+    });
+    tx.set(ref, Object.assign({}, state, approval, {
+      status: 'approved', productionOutcome: 'applied', appliedChange: change,
+      history: FV.arrayUnion(hist(now, admin, 'approved',
+        `${records.length} model(s) added to ${groupId} (${previousCount} -> ${newIds.length} members)` +
+        (requests.length ? `; ${requests.length} reassignment request(s) recorded` : '')))
+    }), { merge: true });
+    return { outcome: 'applied', p, change, requests };
+  });
+
+  if (result.outcome === 'blocked') {
+    throw new ReviewError(409, 'category-conflict', result.blocked.length
+      ? 'BLOCKED — MODEL ALREADY ASSIGNED. ' + result.blocked.slice(0, 5).map(b => `${b.modelName} is in ${b.existingGroupId}`).join('; ') +
+        (result.blocked.length > 5 ? `; and ${result.blocked.length - 5} more` : '') +
+        '. A model may belong to only one group per category. Nothing was written.'
+      : 'CATEGORY CONFLICT — ' + result.reason + '. Nothing was written.', { blocked: result.blocked });
+  }
+  if (result.outcome === 'stale') {
+    throw new ReviewError(409, 'stale', `Production changed since this proposal was shown: it would now add ${result.now} model(s). Review it again; nothing was written.`);
+  }
+
+  const added = result.change ? result.change.addedModelIds.length : 0;
+  await afterDecision(result.p, {
+    approved: ['applied', 'pending_build', 'pending_master'].indexOf(result.outcome) > -1 ? 1 : 0,
+    appliedToProduction: added,
+    duplicates: result.outcome === 'already_existing' ? 1 : 0,
+    pendingReview: -1
+  }, 'approved', now);
+
+  return {
+    ok: true, outcome: result.outcome, candidateId, change: result.change || null, requests: result.requests || [],
+    note: {
+      applied: `Approved: ${added} model(s) added to ${result.change ? result.change.groupId : ''} in the production compatibility data.`,
+      pending_build: 'Approved into the ledger. Not live yet: ' + (result.note || ''),
+      pending_master: 'Approved: the reassignment request(s) are recorded for the master catalogue. Nothing was moved.',
+      already_existing: 'Already Existing in production. Kept as additional evidence; nothing written.'
+    }[result.outcome]
+  };
+}
+
+/** One group as production has it — for "Open existing group". */
+async function getGroup(groupId) {
+  const map = await groupProposals.readGroups([groupId], groupId, new Map());
+  return map.get(groupId) || null;
 }
 
 /* ================================================== approve all valid */
@@ -621,7 +1085,13 @@ async function getCandidate(candidateId) {
   return { candidate: c, evidence, conflicts, ledger, content: content ? {
     contentKey: content.contentKey, permalink: content.permalink, contentType: content.contentType,
     publishedAt: content.publishedAt, caption: content.caption, mediaItems: content.mediaItems || [],
-    duplicateStatus: content.duplicateStatus, latestVersion: content.latestVersion, versions: content.versions || []
+    duplicateStatus: content.duplicateStatus, latestVersion: content.latestVersion, versions: content.versions || [],
+    relevance: content.relevance || null, relevanceReason: content.relevanceReason || null,
+    manualEvidence: (content.manualEvidence || []).map(e => ({
+      id: e.id, kind: e.kind, status: e.status, readBy: e.readBy || null, reason: e.reason || null,
+      hasPreview: !!e.hasPreview, addedByEmail: e.addedByEmail || null, addedAt: e.addedAt || null,
+      text: String(e.text || '').slice(0, 1500)
+    }))
   } : null };
 }
 
@@ -629,5 +1099,7 @@ module.exports = {
   ReviewError,
   approve, reject, selectModel, changeCategory, markDuplicate, reopen, sendToMissingModels,
   setSourceIgnored, approveAllValid,
+  approveProposal, proposalSelectModel, proposalMemberDecision, proposalAddModel, proposalSetMaster,
+  proposalSetTarget, proposalChangeCategory, proposalRefresh, getGroup,
   listCandidates, sectionCounts, getCandidate
 };

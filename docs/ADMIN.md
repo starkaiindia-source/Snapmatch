@@ -254,6 +254,33 @@ the official Graph API, match every model to the catalogue, and queue them for
 review; only an approval in Compatibility Review writes production fitments,
 and only additively. Full detail: [`docs/INSTAGRAM-IMPORTER.md`](INSTAGRAM-IMPORTER.md).
 
+What to expect on them:
+
+- **Extraction Results** opens on *Relevant* — posts that make a compatibility
+  claim. Repair and jumper posts are classified and kept under *Ignored*, with
+  the words that decided it. A reel whose video Instagram withheld is under
+  *Needs Review*, with **Add evidence** to attach screenshots or type its list.
+- **Compatibility Review** shows a compatibility *list* as one card: the
+  existing group beside what the post lists, and ADD / REMOVE (always none) /
+  CONFLICT / NEEDS REVIEW / UNMATCHED. A model already in another group of the
+  same category is **BLOCKED — MODEL ALREADY ASSIGNED**; the server refuses the
+  approval until each is kept where it is or a reassignment is requested.
+- **Instagram Sources** counts each post once: Relevant, Ignored, Needs review —
+  and what reading the page has cost (AI calls, cache hits, estimated cost).
+- **The importer page** says which model reads the media, which gives the
+  second opinion, and the AI budget of one import. **Verify the providers with
+  a real call** tells you whether each key actually works — a key being set is
+  not that.
+- **A job** shows the funnel (collected → rejected by the free filter →
+  screened → deep analysis → extracted → ready for review), the calls and
+  tokens per provider and the estimated cost. A job that ends as **AI budget
+  reached** has queued the rest; *Resume* spends another budget, and asks first.
+- **An ignored post** shows the free filter's score and the words behind it.
+  **Analyse anyway** sends that one post to the model regardless.
+- **A proposal card** says when a second opinion was asked and why, what it
+  suggested, and **VALIDATION FAILED** when it could not be obtained (the
+  extraction is kept as it was). A suggestion is applied only by your click.
+
 ### Settings
 
 Administrator accounts and the audit trail. The trail is append-only and closed

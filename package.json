@@ -12,6 +12,7 @@
     "test": "node --test api/_lib/*.test.js src/data/*.test.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "firebase-admin": "^13.0.2",
     "razorpay": "^2.9.5"
   },
