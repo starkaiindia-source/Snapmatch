@@ -279,6 +279,8 @@ function parseItems(fragment, brandHint) {
     if (!hasNumber && !(hasBrandWord && tokens.length >= 2)) return;
     if (pureNumberOnly && !hasBrandWord && !brand) return;
 
+    tokens = boundModelSpan(tokens, brand);
+
     const text = tokens.join(' ');
     const firstNum = tokens.findIndex(t => /\d/.test(t) && !/^[345]g$/.test(t));
     items.push({ text: displayText(text), brandHint: brand });
@@ -298,6 +300,51 @@ function parseItems(fragment, brandHint) {
 function isKeepBrand(t) {
   const b = taxonomy.BRAND_TERMS[t];
   return !!(b && b.keep);
+}
+
+const QUALIFIER_RE = /^(?:[345]g|lte|(?:19|20)\d{2})$/;
+
+/**
+ * Where the model name ends inside a caption fragment.
+ *
+ * Shops write the model and keep going: "Samsung galaxy A14 5g display light
+ * jumper", "Realme c65 no baseband problem". Taking the whole fragment made
+ * every one of those "unmatched" on the first live import. The model name is
+ * the LONGEST leading span the catalogue itself recognises — by the
+ * deterministic rungs only, never a fuzzy one.
+ *
+ * What is never cut: the variant words and qualifiers that directly follow
+ * the model number. "A15 Prime" is not trimmed to "A15", and "A15 5G" is not
+ * trimmed to "A15" — dropping one to force a match would merge two phones.
+ * If no span is in the catalogue, the reference is the number plus those
+ * words, and it goes to review as unmatched.
+ */
+function boundModelSpan(tokens, brand) {
+  const firstNum = tokens.findIndex(t => /\d/.test(t) && !QUALIFIER_RE.test(t) && !NOT_A_MODEL_NUMBER.test(t));
+  const brandIdx = tokens.findIndex(t => taxonomy.brandForToken(t));
+
+  /* the shortest acceptable end: the number, then every variant / qualifier
+     word that immediately follows it */
+  let minEnd = firstNum > -1 ? firstNum + 1 : Math.min(2, tokens.length);
+  while (minEnd < tokens.length && (VARIANT_WORDS.has(tokens[minEnd]) || QUALIFIER_RE.test(tokens[minEnd]))) minEnd++;
+  const maxEnd = Math.min(tokens.length, minEnd + 4);
+
+  /* where it may start: at the brand word when one precedes the number,
+     otherwise at the start, then closer to the number ("solution a15 5g") */
+  const anchor = firstNum > -1 ? firstNum : 0;
+  const starts = brandIdx > -1 && brandIdx <= anchor ? [brandIdx]
+    : Array.from({ length: anchor + 1 }, (_, i) => i);
+
+  for (const start of starts) {
+    for (let end = maxEnd; end >= minEnd; end--) {
+      if (end - start < 1) continue;
+      const span = tokens.slice(start, end);
+      const m = taxonomy.matchModel(span.join(' '), { brandHint: brand || undefined, ladderOnly: true });
+      if (m.status === 'matched') return span;
+    }
+  }
+  const start = brandIdx > -1 && brandIdx <= anchor ? brandIdx : Math.max(0, anchor - 1);
+  return tokens.slice(start, minEnd);
 }
 
 /** Title-cased back from tokens, so a reference reads like a model name. */

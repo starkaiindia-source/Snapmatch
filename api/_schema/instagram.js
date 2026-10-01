@@ -37,7 +37,11 @@ const crypto = require('crypto');
 /** Bump when extraction or matching logic changes in a way that should make
     already-processed content eligible for reprocessing. Stored on every
     extraction, so "which logic produced this" is always answerable. */
-const PROCESSING_VERSION = 'ig-extract-1';
+/* ig-extract-2 (2026-10-01): a model reference is bounded to the longest span
+   the catalogue recognises, so "Realme c65 no baseband problem" is the Realme
+   C65 and not an unmatched five-word "model". Content read by ig-extract-1 is
+   reprocessed on its next import, as a new version. */
+const PROCESSING_VERSION = 'ig-extract-2';
 
 /* ================================================================== URLs */
 

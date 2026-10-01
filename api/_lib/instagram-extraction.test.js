@@ -61,6 +61,52 @@ test('a list under a heading, the trade\'s Hinglish, and a series carried across
   assert.deepEqual(out.relationships.map(r => r.compatibleText), ['Redmi Note 13 Pro', 'Redmi Note 13 Pro Plus']);
 });
 
+test('a model name ends where the catalogue says it does — real captions keep talking after it', () => {
+  /* Captions from the first live import (2026-10-01). Taking the whole
+     fragment as the model made every one of them "unmatched". */
+  const taxonomy = require('../_services/taxonomy-service');
+  const refOf = caption => {
+    const out = x.extractDeterministic([seg(caption)]);
+    const r = out.references.filter(a => !a.fromHashtag);
+    assert.equal(r.length, 1, caption);
+    return { text: r[0].text, match: taxonomy.matchModel(r[0].text, { brandHint: r[0].brandHint }) };
+  };
+  [
+    ['Samsung galaxy A14 5g display light Jumper\n#mobile #mobilerepair #repair', 'samsung-galaxy-a14-5g'],
+    ['Realme c65 no baseband problem\n\n#mobilerepair #repair #mobile', 'realme-c65'],
+    ['Vivo y16 charging ovp ic bypas\n#mobilerepair #repair #mobile', 'vivo-y16'],
+    ['Infinix Hot 11 charging Jumper solution', 'infinix-hot-11'],
+    ['iphone xs max display price', 'apple-iphone-xs-max']
+  ].forEach(([caption, id]) => {
+    const r = refOf(caption);
+    assert.equal(r.match.modelId, id, `${caption} -> ${r.text}`);
+  });
+  assert.equal(x.extractDeterministic([seg('Charging error solution')]).references.length, 0, 'no model, no reference');
+});
+
+test('bounding a model name never drops a variant or a network to force a match', () => {
+  const taxonomy = require('../_services/taxonomy-service');
+  const first = caption => x.extractDeterministic([seg(caption)]).references[0];
+
+  /* "A15 Prime" is not in the catalogue. It must stay "A15 Prime", unmatched —
+     trimming it to the A15 would merge two phones. */
+  const prime = first('Samsung Galaxy A15 Prime glass in stock');
+  assert.equal(prime.text, 'Samsung Galaxy A15 Prime');
+  assert.equal(taxonomy.matchModel(prime.text).status, 'unmatched');
+
+  /* the 5G stays with the model: this is the A15 5G, not the A15 */
+  assert.equal(taxonomy.matchModel(first('Samsung A15 5G dead solution').text).modelId, 'samsung-galaxy-a15-5g');
+  /* and a 4G the record's name lacks still needs a person */
+  const g4 = first('Samsung A15 4G network problem');
+  assert.equal(g4.text, 'Samsung A15 4G');
+  assert.equal(taxonomy.matchModel(g4.text).requiresVariantConfirmation, true);
+
+  /* the "s" is part of the number: A15s is its own record */
+  assert.equal(taxonomy.matchModel(first('oppo a15s dead solution').text).modelId, 'oppo-a15s');
+  /* no brand, two candidates: still ambiguous, not guessed */
+  assert.equal(taxonomy.matchModel(first('c65 no baseband').text).status, 'ambiguous');
+});
+
 test('hashtags are references, never relationships; prices and emoji are not models', () => {
   const out = x.extractDeterministic([seg('Redmi 13C combo same as POCO C65 ✅ Price ₹450 #redmi13c #combo #a15glass')]);
   assert.deepEqual(rels(out), ['Redmi 13C <-> POCO C65 [positive/explicit]']);
@@ -313,6 +359,31 @@ test('Business Discovery reads a professional account\'s media, normalised, with
   assert.equal(page.media[1].mediaUrlOmitted, true, 'a reel without media_url (copyrighted audio) is flagged, not guessed');
   assert.equal(page.media[0].shortcode, 'AAAAA1');
   assert.equal(page.media[2].children[0].mediaId, '31');
+});
+
+test('Business Discovery pages by cursors alone — Meta sends no `next` link there', async () => {
+  /* The shape the live API returned on 2026-09-30: `paging.cursors.after`
+     and nothing else, and a reel with no media_url. Requiring `next` stopped
+     every import after its first page. */
+  const page = (n, after) => ({ business_discovery: { id: '1', username: 'shop_x', media: {
+    data: Array.from({ length: n }, (_, i) => i === 1
+      ? { id: 'r' + i, media_type: 'VIDEO', media_product_type: 'REELS', permalink: 'https://www.instagram.com/reel/RRRRR' + i + '/', timestamp: '2026-09-30T01:56:03+0000', caption: 'reel' }
+      : { id: 'm' + i, media_type: 'IMAGE', media_product_type: 'FEED', media_url: 'https://cdn/x.heic?stp=dst-jpg', permalink: 'https://www.instagram.com/p/PPPPP' + i + '/', timestamp: '2026-09-30T01:58:34+0000', caption: 'post' }),
+    paging: after ? { cursors: { after } } : { cursors: {} }
+  } } });
+  let calls = 0;
+  const g = createGraphClient({ token: 't', igUserId: '1', fetchImpl: graphFetch(url => {
+    calls++;
+    const after = /\.after\(([^)]+)\)/.exec(url.searchParams.get('fields'));
+    return { body: !after ? page(3, 'C2') : page(2, 'C3') };
+  }) });
+  const first = await g.discoverPage('shop_x', { limit: 3 });
+  assert.equal(first.nextCursor, 'C2', 'a full page with an after cursor means there may be more');
+  assert.equal(first.media[1].mediaUrlOmitted, true);
+  assert.equal(first.media[0].timestamp, Date.UTC(2026, 8, 30, 1, 58, 34), 'the +0000 timestamp parses');
+  const second = await g.discoverPage('shop_x', { limit: 3, after: 'C2' });
+  assert.equal(second.nextCursor, null, 'a short page is the last one, whatever cursor comes with it');
+  assert.equal(calls, 2);
 });
 
 test('a personal or private account is "not collectable", and a rate limit pauses rather than retries', async () => {

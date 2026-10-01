@@ -256,7 +256,7 @@
         '<p class="adm__hint">Only content the configured Instagram API is permitted to return is collected — public professional (Business/Creator) accounts, or your own. Private and personal accounts are reported as unable to collect.</p>' +
         (ctx.can('instagram.import') ? formHTML(i, params) : ui.banner('info', 'Your role can read imports but not start them.')) +
         '</div><div id="igActive"></div>' +
-        '<div class="adm__card"><h2>Recent imports</h2>' + jobsTable(data.recentJobs, true) + '</div>';
+        '<div class="adm__card"><h2>Recent imports</h2><div id="igRecent">' + jobsTable(data.recentJobs, true) + '</div></div>';
       host.innerHTML = html;
       wireForm(host, ctx);
       var jobId = params.get('job');
@@ -321,6 +321,7 @@
         button.textContent = 'Analyze Source';
         history.replaceState(null, '', '/admin/instagram?job=' + encodeURIComponent(r.job.jobId));
         paintJob(host, r.job, ctx);
+        refreshRecent(host);
       }, function (err) {
         button.disabled = false;
         button.textContent = 'Analyze Source';
@@ -330,6 +331,15 @@
   }
 
   var stopDriving = null;
+
+  /* The list was drawn once, when the page loaded, so a job started on this
+     page was missing from it until a manual refresh. */
+  function refreshRecent(host) {
+    api({ view: 'jobs', limit: 5 }).then(function (d) {
+      var box = host.querySelector('#igRecent');
+      if (box) box.innerHTML = jobsTable(d.jobs, true);
+    }, function () { /* the job panel above is still correct */ });
+  }
 
   function showJob(host, jobId, ctx) {
     api({ view: 'job', jobId: jobId, itemLimit: 1 }).then(function (r) { paintJob(host, r.job, ctx); },
@@ -348,7 +358,10 @@
         var open = document.getElementById('igErrors') && !document.getElementById('igErrors').hidden;
         if (b) b.innerHTML = progressHTML(next);
         if (open) document.getElementById('igErrors').hidden = false;
-        if (RUNNING.indexOf(next.status) < 0) ctx.toast('Import ' + statusLabel(next.status).toLowerCase(), next.status === 'completed' ? '' : 'warn');
+        if (RUNNING.indexOf(next.status) < 0) {
+          ctx.toast('Import ' + statusLabel(next.status).toLowerCase(), next.status === 'completed' ? '' : 'warn');
+          refreshRecent(host);
+        }
       });
     }
   }
