@@ -73,7 +73,15 @@ const ACTIONS = {
   COMPAT_MARKED_DUPLICATE: 'compat.marked_duplicate',
   COMPAT_REOPENED: 'compat.reopened',
   COMPAT_ALIAS_LEARNED: 'compat.alias_learned',
-  COMPAT_SENT_TO_MISSING: 'compat.sent_to_missing_models'
+  COMPAT_SENT_TO_MISSING: 'compat.sent_to_missing_models',
+  /* Group proposals: a list compared with an existing group. An approval that
+     the one-group-per-category rule refused is recorded too — a blocked
+     write is as much a part of the history as one that went through. */
+  COMPAT_PROPOSAL_EDITED: 'compat.proposal_edited',
+  COMPAT_PROPOSAL_APPROVED: 'compat.proposal_approved',
+  COMPAT_PROPOSAL_BLOCKED: 'compat.proposal_blocked',
+  INSTAGRAM_EVIDENCE_ADDED: 'instagram.evidence_added',
+  INSTAGRAM_PROVIDERS_VERIFIED: 'instagram.providers_verified'
 };
 
 const ACTION_LIST = Object.values(ACTIONS);

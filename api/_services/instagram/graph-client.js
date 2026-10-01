@@ -47,8 +47,15 @@ const { shortcodeFromPermalink } = require('../../_schema/instagram');
 
 const MEDIA_FIELDS = 'id,caption,media_type,media_product_type,media_url,permalink,timestamp,' +
   'children{id,media_type,media_url}';
+/* A reel's cover. Meta withholds a reel's media_url whenever its audio is
+   copyrighted — three of three on the first live import — and the cover is
+   then the only frame the API will give. Business Discovery's documented
+   field list does not include it, so it is ASKED FOR and, if Meta rejects the
+   field, dropped: one extra call, once per job, never a different route. */
+const MEDIA_FIELDS_WITH_COVER = 'id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,timestamp,' +
+  'children{id,media_type,media_url,thumbnail_url}';
 /* The own-account edge can also return thumbnail_url (a video's cover) and
-   shortcode; Business Discovery does not offer them. */
+   shortcode. */
 const OWN_MEDIA_FIELDS = 'id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,' +
   'shortcode,timestamp,children{id,media_type,media_url,thumbnail_url}';
 
@@ -83,6 +90,9 @@ function createGraphClient(opts = {}) {
   const onCall = typeof opts.onCall === 'function' ? opts.onCall : () => {};
   const proof = opts.appSecret
     ? crypto.createHmac('sha256', opts.appSecret).update(token).digest('hex') : null;
+  /* Whether Business Discovery is asked for reel covers; switched off for the
+     rest of this client's life the first time Meta rejects the field. */
+  let coverField = opts.coverField !== false;
 
   function configured() { return !!(token && igUserId); }
 
@@ -131,9 +141,21 @@ function createGraphClient(opts = {}) {
    * @returns {Promise<{profile:object, media:object[], nextCursor:string|null}>}
    */
   async function discoverPage(username, { after = null, limit = 25 } = {}) {
-    const mediaEdge = `media${after ? `.after(${after})` : ''}.limit(${limit}){${MEDIA_FIELDS}}`;
-    const fields = `business_discovery.username(${username}){id,username,name,followers_count,media_count,${mediaEdge}}`;
-    const body = await call(igUserId, { fields });
+    const fieldsFor = mediaFields => {
+      const mediaEdge = `media${after ? `.after(${after})` : ''}.limit(${limit}){${mediaFields}}`;
+      return `business_discovery.username(${username}){id,username,name,followers_count,media_count,${mediaEdge}}`;
+    };
+    let body;
+    if (coverField) {
+      try {
+        body = await call(igUserId, { fields: fieldsFor(MEDIA_FIELDS_WITH_COVER) });
+      } catch (err) {
+        /* "(#100) Tried accessing nonexisting field (thumbnail_url)" */
+        if (!(err instanceof GraphError) || err.kind !== 'graph_error' || err.code !== 100 || !/thumbnail_url/i.test(err.message)) throw err;
+        coverField = false;
+      }
+    }
+    if (!body) body = await call(igUserId, { fields: fieldsFor(MEDIA_FIELDS) });
     const bd = body.business_discovery;
     if (!bd) {
       throw new GraphError('not_collectable',
@@ -160,7 +182,7 @@ function createGraphClient(opts = {}) {
     return { media: media.map(normaliseMedia), nextCursor: cursor };
   }
 
-  return { configured, ownProfile, discoverPage, ownMediaPage };
+  return { configured, ownProfile, discoverPage, ownMediaPage, coverFieldSupported: () => coverField };
 }
 
 /**

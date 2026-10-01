@@ -22,6 +22,8 @@ process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID = '17841400000000000';
 process.env.AI_GATEWAY_URL = 'https://ai.example.internal';
 process.env.AI_GATEWAY_TOKEN = 'gateway-secret-token-value';
 process.env.GOOGLE_VISION_API_KEY = 'test-only-vision-key-not-real';
+process.env.ANTHROPIC_API_KEY = 'test-only-anthropic-key-not-real';
+process.env.GEMINI_API_KEY = 'test-only-gemini-key-not-real';
 
 const { createFakeFirestore } = require('./testing/fake-firestore');
 const fake = createFakeFirestore();
@@ -87,8 +89,11 @@ test('a signed-in customer cannot read the queue, start an import or approve any
   const before = fake.snapshotAll();
   for (const token of ['shop-token', 'shop-claims-admin', 'owner-unverified']) {
     assert.equal((await call({ token })).status, 403, `${token} read`);
-    for (const action of ['analyze', 'tick', 'approve', 'approve_all_valid', 'reject', 'select_model', 'ignore_source']) {
-      const r = await call({ method: 'POST', token, body: { action, profileUrl: 'https://www.instagram.com/x_y/', candidateId: 'abc', jobId: 'abc', modelId: 'samsung-galaxy-a15', sourceKey: 'ig_x' } });
+    for (const action of ['analyze', 'tick', 'approve', 'approve_all_valid', 'reject', 'select_model', 'ignore_source',
+      'add_evidence', 'verify_providers', 'approve_proposal', 'proposal_select_model', 'proposal_member_decision', 'proposal_add_model',
+      'proposal_set_master', 'proposal_set_target', 'proposal_refresh']) {
+      const r = await call({ method: 'POST', token, body: { action, profileUrl: 'https://www.instagram.com/x_y/', candidateId: 'abc', jobId: 'abc',
+        modelId: 'samsung-galaxy-a15', sourceKey: 'ig_x', contentKey: 'igm_1', memberKey: 'm:samsung-galaxy-a15', text: 'Vivo Y20 Combo' } });
       assert.equal(r.status, 403, `${token} ${action}`);
       assert.equal(r.body.error.indexOf('not authorised'), 0, 'the same refusal whatever the reason');
     }
@@ -113,7 +118,7 @@ test('the owner is allowed, and every write is audited with who did it', async (
 });
 
 test('no credential ever reaches the browser: not in overview, not in a job, not in an error', async () => {
-  const secrets = [process.env.INSTAGRAM_GRAPH_ACCESS_TOKEN, process.env.AI_GATEWAY_TOKEN, process.env.GOOGLE_VISION_API_KEY];
+  const secrets = [process.env.INSTAGRAM_GRAPH_ACCESS_TOKEN, process.env.AI_GATEWAY_TOKEN, process.env.GOOGLE_VISION_API_KEY, process.env.ANTHROPIC_API_KEY, process.env.GEMINI_API_KEY];
   const responses = [
     await call({ token: 'owner-token' }),
     await call({ token: 'owner-token', query: { view: 'jobs' } }),
@@ -129,6 +134,20 @@ test('bad input is refused before it reaches a service', async () => {
   assert.equal(unknown.status, 400);
   const badModel = await call({ method: 'POST', token: 'owner-token', body: { action: 'select_model', candidateId: '../../etc', modelId: 'x' } });
   assert.equal(badModel.status, 400);
+
+  /* the group-proposal and evidence actions */
+  const post = body => call({ method: 'POST', token: 'owner-token', body });
+  assert.equal((await post({ action: 'proposal_member_decision', candidateId: 'abc', memberKey: 'm:../../groups/sg-0001', decision: 'exclude' })).status, 400, 'a member key is never a path');
+  assert.equal((await post({ action: 'proposal_select_model', candidateId: 'abc', memberKey: 't:vivo y21' })).status, 400, 'a model id is required');
+  assert.equal((await post({ action: 'proposal_member_decision', candidateId: 'abc', memberKey: 'm:vivo-y20', decision: 'delete_group' })).status, 400, 'only the listed decisions');
+  assert.equal((await post({ action: 'approve_proposal', candidateId: 'no-such-proposal' })).status, 404);
+  const notAnImage = await post({ action: 'add_evidence', contentKey: 'igm_1', images: [{ data: Buffer.from('<script>alert(1)</script>').toString('base64') }] });
+  assert.equal(notAnImage.status, 400, 'an attachment must BE an image, whatever it is called');
+  assert.match(notAnImage.body.error, /JPEG, PNG or WebP/);
+  assert.equal((await post({ action: 'add_evidence', contentKey: 'igm_1', images: [{ data: '%%%not base64%%%' }] })).status, 400);
+  assert.equal((await post({ action: 'add_evidence', contentKey: 'igm_missing', text: 'Vivo Y20 Combo' })).status, 404, 'evidence attaches to a post that exists');
+  assert.equal((await call({ token: 'owner-token', query: { view: 'evidence_preview', id: '../../../etc/passwd' } })).status, 400);
+  assert.equal((await call({ token: 'owner-token', query: { view: 'group', groupId: 'cd-9999' } })).status, 404);
 });
 
 test('the permission table: approval is its own permission, and support/analyst hold none of it', () => {
@@ -156,11 +175,48 @@ test('no Instagram request parameter collides with the dispatcher\'s own `sectio
   assert.equal(r.body.section, 'review');
 });
 
-test('the admin UI never talks to Instagram, Google Vision or the AI gateway directly', () => {
+test('Extraction Results opens on "relevant": an ignored post is listed only when asked for', async () => {
+  fake.seed('instagramExtractions/igm_a__v1', { extractionId: 'igm_a__v1', contentKey: 'igm_a', relevance: 'RELEVANT_COMPATIBILITY', filters: ['all', 'relevant'], extractedAt: 3 });
+  fake.seed('instagramExtractions/igm_b__v1', { extractionId: 'igm_b__v1', contentKey: 'igm_b', relevance: 'IRRELEVANT_REPAIR', filters: ['all', 'ignored'], extractedAt: 2 });
+  fake.seed('instagramExtractions/igm_c__v1', { extractionId: 'igm_c__v1', contentKey: 'igm_c', relevance: 'RELEVANT_COMPATIBILITY', filters: [], supersededBy: 'igm_c__v2', extractedAt: 1 });
+  const ids = async filter => (await call({ token: 'owner-token', query: Object.assign({ view: 'extractions' }, filter ? { filter } : {}) })).body.extractions.map(x => x.extractionId);
+  assert.deepEqual(await ids(), ['igm_a__v1'], 'the default tab is Relevant');
+  assert.deepEqual(await ids('ignored'), ['igm_b__v1']);
+  assert.deepEqual(await ids('all'), ['igm_a__v1', 'igm_b__v1'], 'a replaced version is in no tab');
+  assert.deepEqual(await ids('drop table'), ['igm_a__v1'], 'an unknown filter is the default, not an error');
+  const overview = await call({ token: 'owner-token' });
+  assert.deepEqual(overview.body.extractionFilters.map(f => f.label),
+    ['Relevant', 'All', 'Existing Group Updates', 'New Groups', 'Needs Review', 'Conflicts', 'Ignored', 'Errors']);
+  assert.equal(overview.body.integration.vision.configured, true);
+  assert.equal(overview.body.integration.vision.provider, 'gemini', 'Gemini is the primary media reader');
+  assert.equal(overview.body.integration.validator.provider, 'anthropic', 'and Claude the second opinion');
+  assert.equal(overview.body.integration.video.native, true);
+
+  /* before the tab index is deployed Firestore refuses the query; the page
+     still answers, from the recent extractions, and says so */
+  const collection = fake.db.collection;
+  fake.db.collection = name => {
+    const col = collection(name);
+    if (name !== 'instagramExtractions') return col;
+    return Object.assign({}, col, { where: () => ({ orderBy: () => ({ limit: () => ({ get: async () => {
+      const e = new Error('9 FAILED_PRECONDITION: The query requires an index.'); e.code = 9; throw e;
+    } }) }) }) });
+  };
+  try {
+    const r = await call({ token: 'owner-token', query: { view: 'extractions', filter: 'ignored' } });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.indexMissing, true);
+    assert.deepEqual(r.body.extractions.map(x => x.extractionId), ['igm_b__v1']);
+  } finally {
+    fake.db.collection = collection;
+  }
+});
+
+test('the admin UI never talks to Instagram, Google Vision, Anthropic or the AI gateway directly', () => {
   const dir = path.join(__dirname, '..', '..', 'src', 'admin');
   const files = [path.join(dir, 'admin-api.js')].concat(fs.readdirSync(path.join(dir, 'pages')).map(f => path.join(dir, 'pages', f)));
   files.forEach(f => {
     const src = fs.readFileSync(f, 'utf8');
-    assert.equal(/graph\.facebook\.com|vision\.googleapis\.com|access_token|AI_GATEWAY_TOKEN\s*=/.test(src), false, path.basename(f));
+    assert.equal(/graph\.facebook\.com|vision\.googleapis\.com|api\.anthropic\.com|x-api-key|access_token|AI_GATEWAY_TOKEN\s*=/.test(src), false, path.basename(f));
   });
 });

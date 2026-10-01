@@ -45,7 +45,7 @@
     "single-field indexes.",
     "  instagramImportJobs:     sourceKey/status + createdAt (history filters)",
     "  items (subcollection):   status + order (the resumable work queue)",
-    "  instagramExtractions:    jobId/sourceKey + extractedAt",
+    "  instagramExtractions:    jobId/sourceKey + extractedAt; filters (array-contains) + extractedAt (the Extraction Results tabs)",
     "  compatibilityCandidates: jobId/sourceKey/reviewSection/status + createdAt"
   ],
   "indexes": [
@@ -710,6 +710,20 @@
         {
           "fieldPath": "sourceKey",
           "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "extractedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "instagramExtractions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "filters",
+          "arrayConfig": "CONTAINS"
         },
         {
           "fieldPath": "extractedAt",

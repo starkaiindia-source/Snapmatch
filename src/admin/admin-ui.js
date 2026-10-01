@@ -118,7 +118,14 @@
     review: 'warn', ambiguous: 'warn', medium: 'warn', pending_build: 'warn',
     unable_to_collect: 'bad', unmatched: 'bad', conflicts: 'bad', low: 'bad', ignored: 'bad',
     queued: 'info', discovering: 'info', processing: 'info', explicit: 'info', already_existing: 'info',
-    duplicate: '', duplicates: '', superseded: '', skipped_unchanged: '', implied: '', same_chassis: ''
+    duplicate: '', duplicates: '', superseded: '', skipped_unchanged: '', implied: '', same_chassis: '',
+
+    /* how a post was classified, group proposals, and the entries of a list */
+    RELEVANT_COMPATIBILITY: 'ok', PARTIALLY_RELEVANT: 'warn', NEEDS_REVIEW: 'warn', INSUFFICIENT_EVIDENCE: 'warn',
+    IRRELEVANT_REPAIR: '', IRRELEVANT_GENERAL: '', DUPLICATE_SOURCE: '',
+    group_updates: 'info', new_groups: 'info', add: 'ok', existing: '', conflict: 'bad', needs_review: 'warn',
+    excluded: '', skipped: '', pending_master: 'warn',
+    budget_reached: 'warn', deferred_ai: 'warn', VERIFIED: 'ok', NOT_VERIFIED: 'bad', NOT_CONFIGURED: '', NOT_CALLED: ''
   };
 
   function pill(value, label) {

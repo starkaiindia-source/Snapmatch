@@ -48,8 +48,18 @@ async function main() {
 
   const snap = await db.collection('approvedCompatibilities').get();
   const entries = snap.docs.map(d => d.data()).map(e => ({
-    relKey: e.relKey, status: e.status, categoryId: e.categoryId,
+    relKey: e.relKey, kind: e.kind || 'same_part', status: e.status, categoryId: e.categoryId,
     sourceModelId: e.sourceModelId, compatibleModelId: e.compatibleModelId,
+    /* a NEW GROUP an admin approved from a compatibility list: the master and
+       every member, by id and by the catalogue's own name — what to enter in
+       Compatibility Management */
+    newGroup: e.kind === 'new_group' ? {
+      masterModelId: e.masterModelId, masterModelName: e.masterModelName,
+      memberIds: e.memberIds || [], memberNames: e.memberNames || []
+    } : null,
+    /* a model an admin asked to MOVE between groups: recorded, never done */
+    requests: e.kind === 'master_change_request' ? (e.requests || []) : null,
+    proposalId: e.proposalId || null,
     appliedChange: e.appliedChange ? {
       groupId: e.appliedChange.groupId, addedModelId: e.appliedChange.addedModelId,
       anchorModelId: e.appliedChange.anchorModelId,
@@ -69,7 +79,13 @@ async function main() {
   console.log('  pending a new group (worklist)      :', by('approved_pending_build').length);
   console.log('  already true in production          :', by('pre_existing').length);
   console.log('  written to                          :', path.relative(process.cwd(), OUT));
-  by('approved_pending_build').forEach(e => console.log(`    ${e.categoryId}: ${e.sourceModelId} <-> ${e.compatibleModelId}`));
+  by('approved_pending_build').forEach(e => console.log(e.newGroup
+    ? `    ${e.categoryId}: NEW GROUP, master ${e.newGroup.masterModelName} — ${e.newGroup.memberNames.join(', ')}`
+    : `    ${e.categoryId}: ${e.sourceModelId} <-> ${e.compatibleModelId}`));
+  const moves = by('approved_pending_master');
+  console.log('  reassignments requested (master)    :', moves.reduce((n, e) => n + (e.requests || []).length, 0));
+  moves.forEach(e => (e.requests || []).forEach(r =>
+    console.log(`    ${e.categoryId}: move ${r.modelName} from ${r.fromGroupId} to ${r.toGroupId}`)));
   console.log();
 }
 

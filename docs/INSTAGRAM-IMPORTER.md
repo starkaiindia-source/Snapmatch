@@ -15,6 +15,22 @@ an administrator approves reaches the production fitment data.
 A lower level never overrides a higher one. Nothing in this feature creates a
 model, a brand or a category, merges two variants, or removes a fitment.
 
+Three things it is built around:
+
+- **Most of a technician's page is not compatibility.** A repair or jumper post
+  names a phone too. Every post is *classified* first (§5a); only a post that
+  makes a compatibility claim reaches an administrator.
+- **A compatibility list is one claim.** "This display fits these 68 models" is
+  compared with the existing groups as a set and becomes one *group proposal*
+  (§5b) — not sixty-seven pairwise cards.
+- **One category + one model = at most one group.** Enforced on the server, in
+  the approval transaction and in the catalogue import (§6a).
+- **Cheap first, expensive only when necessary.** A free caption filter, then a
+  low-cost visual screen, then one deep read by Gemini, then a second opinion
+  from Claude for the few lists that are still doubtful (§3). Everything that
+  decides production — model matching, group matching, the one-group rule, the
+  writes — is deterministic code, not a model.
+
 ---
 
 ## 1. The pipeline
@@ -29,29 +45,47 @@ instagramImportJobs/{jobId}           status: queued | unable_to_collect
 discover   Graph API page -> items/{mediaId}, cursor saved     graph-client.js
    │
    ▼  one item at a time, under a lease
-change?    same caption + media + processing version -> skip (no OCR, no AI)
+change?    same caption + media + processing version + same readers -> skip (no OCR, no AI)
+   │
+   ▼       FREE
+filter     a weighted score from the caption: HIGH · MEDIUM · LOW · REJECT   relevance.scoreCandidate
+   │                                   └─ REJECT: no media is read (kept, "Analyse anyway" overrules)
+   ▼       CHEAP                                                         media-processor.js
+screen     Gemini screen model, low resolution, one word of an answer:
+           LIKELY_COMPATIBILITY · UNCERTAIN · LIKELY_IRRELEVANT
+   │                                   └─ LIKELY_IRRELEVANT: stops here
+   ▼       THE ONE DEEP CALL
+read       Gemini: an image, each carousel image, or the video itself
+           (two passes: a cheap look, then the full read) -> lists, product, confidence
+   │                                   └─ this sync's AI budget spent: the post is QUEUED, not failed
+   ▼
+extract    rules first; statements AND whole lists                      extractor.js
    │
    ▼
-text       caption · OCR per image · key frames + transcript per video   media-processor.js
-   │
-   ▼
-extract    rules first; AI only if the rules left something            extractor.js
-   │
+classify   RELEVANT / PARTIALLY / NEEDS_REVIEW / INSUFFICIENT /
+           IRRELEVANT_REPAIR / IRRELEVANT_GENERAL / DUPLICATE_SOURCE    relevance.classify
+   │                                   └─ ignored: stored, tagged, nothing queued, no reads spent
    ▼
 match      every model -> an EXISTING catalogue record, or review      taxonomy-service.js
    │
-   ▼
-candidate  evidence, match method, category, confidence factors         candidate-builder.js
+   ├─ a list (3+ models) ─► compared with the existing groups ─► ONE group proposal
+   │                                                                    group-proposals.js
+   └─ a pair            ─► candidate: evidence, match method, confidence candidate-builder.js
+   │
+   ▼       ONLY WHEN IN DOUBT
+validate   Claude checks the doubtful entries of a proposal against the image    validation.js
+           and may only pick from catalogue records it is offered
    │
    ▼
 dedupe     same claim earlier? already true in production?  -> duplicate (kept as evidence)
-conflict   opposite claim, or production disagrees          -> Compatibility Conflict
+conflict   opposite claim, production disagrees, or a listed model already
+           belongs to another group in the category          -> Compatibility Conflict
    │
    ▼
-compatibilityCandidates  ── Admin: Compatibility Review ──  approve / reject / edit match / …
+compatibilityCandidates  ── Admin: Compatibility Review ──  approve / reject / edit / …
    │
-   ▼  approve (compat.approve), one Firestore transaction      review-service.approve
-production groupDetails / groups / modelGroups — ADDITIVE ONLY
+   ▼  approve (compat.approve), one Firestore transaction      review-service.approve / approveProposal
+production groupDetails / groups / modelGroups — ADDITIVE ONLY, one group per category
 approvedCompatibilities/{relKey} — the ledger: who, when, why, previous and new value
 ```
 
@@ -62,17 +96,24 @@ approvedCompatibilities/{relKey} — the ledger: who, when, why, previous and ne
 | `api/_schema/instagram.js` | URL validation, keys, hashes, state machines, confidence rules, review sections. Pure. |
 | `api/_services/taxonomy-service.js` | The model and category matcher (see §4). |
 | `api/_services/instagram/graph-client.js` | The only Instagram access: Meta's Graph API. |
-| `api/_services/instagram/media-processor.js` | OCR, video key frames, transcripts, caching by content hash. |
-| `api/_services/instagram/extractor.js` | Rule-based extraction, the AI prompt, AI output validation. |
+| `api/_services/instagram/ai-providers.js` | The two hosted models: Gemini (Interactions API + Files API) and Claude (the official SDK). Error mapping, token usage, cost estimation. |
+| `api/_services/instagram/media-processor.js` | OCR, the visual screen, the deep image and video reads, the second opinion; caching by content hash; budgets and retries. |
+| `api/_services/instagram/validation.js` | When a proposal needs a second opinion, what is asked, and how the answer is applied. Pure. |
+| `api/_services/instagram/provider-check.js` | "Is it working?" — real calls with the configured keys. |
+| `api/_services/instagram/relevance.js` | Is the post about compatibility at all? The repair and compatibility vocabularies, the cheap-filter score, the classifier. Pure. |
+| `api/_services/instagram/extractor.js` | Rule-based extraction of statements and whole lists, the AI prompt, AI output validation. |
+| `api/_services/instagram/group-proposals.js` | A list against the existing groups: target group, master, ADD / CONFLICT / UNMATCHED, the proposed action. |
 | `api/_services/instagram/candidate-builder.js` | Relationships → review candidates + evidence. Pure. |
-| `api/_services/instagram/job-service.js` | Jobs: create, tick, resume, retry, cancel; dedupe and conflicts. |
-| `api/_services/instagram/review-service.js` | Review actions and the approval transaction. |
+| `api/_services/instagram/job-service.js` | Jobs: create, tick, resume, retry, cancel; dedupe and conflicts; evidence an admin adds. |
+| `api/_services/instagram/review-service.js` | Review actions, proposal edits, and the two approval transactions. |
 | `api/_services/instagram/production.js` | Reads what production already says about two models. |
 | `api/_services/instagram/config.js` | Every knob, clamped. |
 | `api/_admin/instagram.js` | `/api/admin/instagram` — a section of the one admin function. |
 | `src/admin/pages/instagram.js` | Importer, Sources, Import Jobs, Extraction Results, Import History. |
 | `src/admin/pages/compat-review.js` | Compatibility Review. |
 | `scripts/instagram-worker.js` | Runs jobs without a browser. |
+| `scripts/instagram-verify-providers.js` | Calls each provider for real and prints VERIFIED / NOT VERIFIED. |
+| `scripts/instagram-ai-smoke.js` | Runs the real AI pipeline on local image / video files against the built catalogue (nothing is written to production). |
 | `scripts/export-approved-compatibilities.js` | Ledger → `data/raw/` for the catalogue build. |
 
 ---
@@ -88,7 +129,7 @@ The importer reads Instagram **only** through Meta's official Graph API
 | Another **public professional** (Business/Creator) account | Business Discovery | captions, media URLs, carousel children |
 | A personal account, a private account, an age-gated account | — | **Unable to collect**, with Meta's reason |
 | Stories, highlights, hashtag pages | — | refused at URL validation |
-| A reel with copyrighted audio | Meta omits `media_url` | read from its caption only, and the item says so |
+| A reel with copyrighted audio | Meta omits `media_url` | its cover if Meta gives one; otherwise **Insufficient evidence** until an admin adds screenshots (below) |
 
 `instagram.com` itself is never fetched: `backend/sources.js` registers
 `instagram-web` as `allowed: false`, and `fetchAllowed()` throws for it. There
@@ -104,6 +145,22 @@ A post older than that is reported as not found — not guessed.
 **Manual entry** is the other route: an administrator pastes text they read
 themselves. It is labelled `manual_admin_entry` everywhere, never "collected".
 
+**Reel covers.** Business Discovery's documented field list has no
+`thumbnail_url`. The first discovery call of a job asks for it anyway; if Meta
+answers `(#100) nonexisting field`, the field is dropped for the rest of the
+job (one extra call, remembered in `discovery.coverField`). It is the same
+official endpoint either way — not a different route.
+
+**Evidence an admin adds.** Most reels carry licensed audio, so the API hands
+over neither the video nor (often) a cover, and the compatibility list is on a
+screen nothing here can read. An administrator who has watched the reel can
+attach screenshots of it — or type the list — under *Extraction Results → Add
+evidence*. The screenshots are shrunk in the browser, read by the same OCR and
+vision, stored on the post as `manualEvidence` (who, when, which reader), and
+the post is analysed again as a new version. Every model read that way carries
+the reference `evidence:<id>`, shown as "a screenshot added by an admin". This
+fetches nothing from Instagram; it records what a person saw.
+
 ### Meta app setup
 
 1. A Meta app with Facebook Login for Business.
@@ -117,51 +174,173 @@ themselves. It is labelled `manual_admin_entry` everywhere, never "collected".
 
 ---
 
-## 3. Reading the media
+## 3. Reading the media — cheap first, expensive only when necessary
 
-The work runs on hardware you control — the Local AI service from
-`docs/AI-ARCHITECTURE.md` — never inside a Vercel function (no GPU, no ffmpeg,
-a hard time limit). Three gateway capabilities, each validated before use:
+Reading a page costs money per post, and most posts are not compatibility
+content. So a post climbs a ladder and stops at the first rung that can decide
+it. Each rung is more expensive than the one before.
 
-```
-POST {AI_GATEWAY_URL}/v1/task   Authorization: Bearer {AI_GATEWAY_TOKEN}
+| # | Stage | Costs | Decides |
+| --- | --- | --- | --- |
+| 0 | **Unchanged?** Same caption, media, processing version and readers as last time | nothing | skipped outright |
+| 1 | **Cheap filter** — a weighted score from the caption | nothing | `REJECT` stops here; `HIGH` goes straight to the deep read |
+| 2 | **OCR** (optional) — plain text off an image | one OCR call | text that is clearly repair, or clearly not a list, stops here |
+| 3 | **Visual screen** — Gemini's small model, low resolution | a few hundred tokens | `LIKELY_IRRELEVANT` stops here |
+| 4 | **Deep read** — Gemini's main model, the image at full resolution or the video itself | the one real cost | lists, product, the reader's confidence |
+| 5 | **Second opinion** — Claude, on the doubtful entries of one proposal | only when in doubt | suggestions and disputes for a person |
+| 6 | **The backend** — matching, group comparison, one-group rule, writes | Firestore reads | everything that reaches production |
 
-capability "media_ocr"
-  input  { imageBase64 | mediaUrl, mimeType, languageHints: ["en","hi"] }
-  output { text, lines?: [{text, confidence}], confidence?, engine? }
+### Stage 1 — the cheap filter (`relevance.scoreCandidate`)
 
-capability "video_analyze"
-  input  { mediaUrl, maxSampledFrames, sceneThreshold, transcribe, languageHints }
-  output { frames: [{timeMs, text, confidence?, sceneScore?}],
-           transcript?: {text, language}, engine? }
+A score, not a keyword list:
 
-capability "extract_compatibility"
-  systemHint  the strict instruction (extractor.js AI_SYSTEM_PROMPT)
-  input       { sourceText, candidateModels: [{id,name}], categories: [{id,name}] }
-  output      { relationships: [{sourceModelText, sourceModelId|"UNMATCHED",
-                  compatibleModelText, compatibleModelId|"UNMATCHED",
-                  categoryText, categoryId|"UNMATCHED"|null,
-                  compatibilityType, polarity, evidenceText}], modelMentions: [...] }
-```
+| Signal | Weight |
+| --- | --- |
+| compatibility wording (the vocabulary in `relevance.js`) | +4 per term, two terms counted |
+| a count of models ("68 models") | +3 |
+| three or more short lines that look like model names | +3 |
+| a product is named | +2 |
+| a model-looking name ("Y20", "Redmi 9") | +1 per distinct name, two counted |
+| strong repair or fault wording | −3 per term, to −9 |
+| problem / solution wording | −1 per term, to −3 |
+| the page's own record: ≥ 30 % of 20+ posts were relevant / ≤ 2 % of 50+ | +1 / −1 |
 
-Images can use Google Cloud Vision instead (`INSTAGRAM_OCR_PROVIDER=google_vision`,
-`GOOGLE_VISION_API_KEY`; the Cloud project needs billing).
+The exact vocabularies and weights are `WEIGHTS`, `TIER` and the word lists in
+`relevance.js`; the score and the signals behind it are stored on every post.
 
-**Key frames.** The gateway samples on scene change; `selectKeyFrames()` then
-keeps only frames whose on-screen text changed (under 60% token overlap), keeps
-the clearest read of repeated text, and caps at `INSTAGRAM_MAX_FRAMES_PER_VIDEO`,
-preferring frames that add new words.
+`HIGH` (≥ 4) · `MEDIUM` (≥ 1) · `LOW` · `REJECT` (≤ −2 **and** strong repair
+wording **and** no compatibility wording).
 
-**Without a provider** an image is recorded as "OCR unavailable" and the post
-is read from its caption; a video without a processor is read from its caption
-and cover image. Nothing is filled in to look processed.
+- **Repair words lower the score; they are not a veto.** "Charging jumper —
+  same flex fits A12 / A13 / M12" scores as a candidate, and is read.
+- **A model name beside repair wording earns nothing** — every repair post
+  names a phone.
+- **Uncertain is not rejected.** `LOW` and `MEDIUM` go to the visual screen;
+  only `REJECT` skips the media, and it is never discarded: it is stored under
+  *Ignored* with the score and the words that decided it, and **Analyse anyway**
+  on that card sends that one post to the deep read regardless.
+- **A page is never blacklisted.** Its history moves the score by one point.
 
-**Cost control.** OCR results are cached by the SHA-256 of the image bytes
-(a repost costs nothing), a video by its media id, an AI extraction by the hash
-of its input. Unchanged content is skipped *before* any paid call. Each call
-kind has a daily cap (`INSTAGRAM_DAILY_*`); at the cap the item is deferred and
-the job pauses as `quota_exhausted` — it is not failed and not skipped. Usage is
-counted per job and per day in `instagramUsageDaily`.
+### Stages 3–4 — Gemini, the primary media reader
+
+`GEMINI_API_KEY`, through the Interactions API (`ai-providers.js`). Requests are
+sent with `store: false`, so Google does not retain them as a conversation.
+
+| | Model | Input | Output |
+| --- | --- | --- | --- |
+| Screen | `INSTAGRAM_GEMINI_SCREEN_MODEL` (default `gemini-3.1-flash-lite`) | the image at **low** resolution; a video at low resolution, one frame every two seconds | `LIKELY_COMPATIBILITY` / `UNCERTAIN` / `LIKELY_IRRELEVANT`, a kind, a reason |
+| Deep read | `INSTAGRAM_GEMINI_MODEL` (default `gemini-3.8-flash`) | the image at **high** resolution; a video at high resolution, `INSTAGRAM_VIDEO_FPS` frames a second | `contentClass`, `product`, `confidence`, and **every list** with its heading, its models as printed and (video) the second it is on screen |
+
+- **Carousels:** each image is screened and read on its own; the same list on
+  two images is merged by the backend, not by the model.
+- **Video is read as video**, not as a thumbnail: the file Instagram returns is
+  sent whole (inline up to 14 MB, through the Files API above that and deleted
+  afterwards; `INSTAGRAM_MAX_VIDEO_BYTES` is the ceiling). Two passes — the
+  screen over the whole clip, then the deep read only if the screen does not
+  say no. A `HIGH` caption skips the screen.
+- **A cover is not a video.** When Instagram returns no `media_url` the item is
+  marked `VIDEO_MEDIA_UNAVAILABLE`; the cover, if there is one, is read *as a
+  cover* and the reel stays "partly read". Nothing reports a video as analysed
+  that was not.
+- **The model's answer is text, not truth.** It is forced into a JSON schema,
+  validated, and handed to the same extractor and catalogue matcher as a
+  caption. A name the catalogue lacks is `unmatched`; it never becomes a model.
+
+### Stage 5 — Claude, the second opinion (`validation.js`)
+
+`ANTHROPIC_API_KEY`, model `INSTAGRAM_CLAUDE_MODEL` (default `claude-opus-5-5`),
+effort `INSTAGRAM_CLAUDE_EFFORT` (default `medium`), structured output. Asked
+**per proposal, and only when**:
+
+- the reader's confidence is below `INSTAGRAM_VALIDATE_BELOW` (default 0.70);
+- an entry fits several catalogue records, or none but there are near ones;
+- the product category could not be told;
+- a machine-read entry collides with an existing group (worth checking the
+  entry was read correctly before a person is asked to resolve a conflict).
+
+It receives the doubtful entries (at most 25), up to six catalogue records for
+each, and the image. It may **suggest** one of the offered records, say an
+entry was misread or is not in the image, and suggest a category. It cannot
+resolve an entry, add one, name a record it was not offered, or touch the group
+comparison. A suggestion appears on the review card for one-click confirmation;
+a disputed entry moves to *needs review*. If the call fails the extraction is
+kept untouched and the proposal says **VALIDATION FAILED**; with no key it says
+a second opinion was wanted and none is configured.
+
+Confidence routing: **≥ 0.90** straight to database matching · **0.70 – 0.89**
+matched, validated only if matching turns up doubt · **< 0.70** validated, and
+never better than *medium* in the review queue.
+
+### Budgets, caching, cost
+
+| Per import (resettable by *Resume*) | Default | Variable |
+| --- | --- | --- |
+| posts that may use AI | 40 | `INSTAGRAM_MAX_AI_ITEMS_PER_SYNC` |
+| Gemini calls | 60 | `INSTAGRAM_MAX_GEMINI_CALLS_PER_SYNC` |
+| Claude calls | 10 | `INSTAGRAM_MAX_CLAUDE_VALIDATION_CALLS_PER_SYNC` |
+| minutes of video | 20 | `INSTAGRAM_MAX_VIDEO_MINUTES_PER_SYNC` |
+
+When a budget is spent the post is **queued** (`deferred_ai`, state
+`QUEUED_FOR_AI`), the rest of the page is still classified for free, and the
+job ends as **AI processing budget reached — remaining items queued**. *Resume*
+starts a new budget. The daily caps (`INSTAGRAM_DAILY_*`) sit above these and
+pause the job as `quota_exhausted`; a provider's own rate limit pauses it as
+`rate_limited`.
+
+Everything is cached in `instagramMediaCache`: OCR, screen and deep read by the
+SHA-256 of the image bytes, a video by its media id, a validation by the hash
+of the question, the image and the model. A repost, a re-import and a second
+scan of the same page cost nothing.
+
+Every call records provider, model, input / output tokens and an **estimated**
+cost (list prices in `ai-providers.js`, dated `PRICES_AS_OF`; override with
+`INSTAGRAM_AI_PRICES`). A model with no known price is counted as "unpriced",
+not as free. The totals are kept per job, per day and per source, and shown on
+the job, the source list and the review card.
+
+In the tests, a 150-post page of a repair channel spends 59 Gemini calls (40
+screens, 19 deep reads) and a second scan spends none. Those are fixture
+numbers; a real page's are on its job page.
+
+### Is it actually working?
+
+`node scripts/instagram-verify-providers.js`, or **Verify the providers with a
+real call** on the importer page, calls each provider with the configured key:
+a model listing and a one-pixel image for Gemini (both models), a model lookup
+and a tiny structured answer for Claude, the account's own profile for the
+Graph API. Each is reported `VERIFIED` or `NOT_VERIFIED` with the reason
+(`API_KEY_MISSING`, `API_KEY_INVALID`, `MODEL_NOT_FOUND`, `RATE_LIMITED`,
+`ERROR`). Nothing reports success without a successful call, and the check says
+what it does not prove (video understanding needs a real reel).
+
+`node scripts/instagram-ai-smoke.js --image <file> [--video <file>]` runs the
+real pipeline on local files against the built catalogue, in memory.
+
+There is no stand-in model in a production path. A missing or rejected key
+makes the item `INSUFFICIENT_EVIDENCE` with the code `API_KEY_MISSING` /
+`API_KEY_INVALID`, and it is read again once a working key exists.
+
+### Other providers
+
+| Key | Role |
+| --- | --- |
+| `GOOGLE_VISION_API_KEY` | **Optional OCR** (`DOCUMENT_TEXT_DETECTION`). Lets stage 2 stop a repair diagram before any model is asked, and cross-checks a deep read: the share of the model's entries OCR also saw sets the evidence confidence. |
+| `AI_GATEWAY_URL` / `AI_GATEWAY_TOKEN` | The self-hosted route (`docs/AI-ARCHITECTURE.md`): `media_ocr`, `vision_understand`, `video_analyze` (key frames + transcript), `extract_compatibility`. Used when chosen with `INSTAGRAM_VISION_PROVIDER` / `INSTAGRAM_VIDEO_PROVIDER` / `INSTAGRAM_OCR_PROVIDER`, or when it is the only thing configured. |
+| `ANTHROPIC_API_KEY` alone | Claude reads the images itself (no screen stage, no second opinion — a model does not validate itself). |
+
+**Without any reader** an image is recorded as unread and a video as
+unavailable; a post whose caption decides nothing is **Insufficient evidence**,
+not "irrelevant", and is read again on the next import once a reader exists.
+
+### Pipeline states
+
+Every item and extraction carries one: `INGESTED` · `CHEAP_FILTERED` ·
+`SCREENED` · `QUEUED_FOR_AI` · `AI_PROCESSING` · `AI_EXTRACTED` ·
+`MODEL_MATCHING` · `GROUP_MATCHING` · `CONFLICT_DETECTED` · `READY_FOR_REVIEW` ·
+`APPROVED` · `REJECTED` · `FAILED` · `RETRY_REQUIRED` · `VIDEO_UNAVAILABLE` ·
+`API_KEY_MISSING` · `RATE_LIMITED`. The extraction also keeps the trace — which
+rungs the post climbed, the cheap-filter score with its signals, and the
+reader's confidence — shown on its card.
 
 ---
 
@@ -211,6 +390,92 @@ Three rules make it safe:
 
 ---
 
+## 5a. Is the post about compatibility at all?
+
+`relevance.js` decides, from two vocabularies and from what the extractor
+found:
+
+| Class | Meaning | Where it shows |
+| --- | --- | --- |
+| `RELEVANT_COMPATIBILITY` | a compatibility statement or list, for a catalogue product | Relevant |
+| `PARTIALLY_RELEVANT` | a statement with no mapped product, or only an implied listing | Relevant |
+| `NEEDS_REVIEW` | compatibility and repair wording both; or a list whose models did not resolve | Needs Review |
+| `INSUFFICIENT_EVIDENCE` | the media could not be read, so it cannot be judged | Needs Review (if the caption talks about compatibility), else Errors |
+| `IRRELEVANT_REPAIR` | jumper, bypass, IC, dead / shorting, baseband, charging or temperature error, board-level repair | Ignored |
+| `IRRELEVANT_GENERAL` | no statement and no list — stock announcements, greetings | Ignored |
+| `DUPLICATE_SOURCE` | the same page posting the same caption and the same text again | Ignored |
+
+Rules that decide the hard cases:
+
+- **A list wins over a repair caption.** A reel captioned with a jumper tip that
+  shows a headed model list is compatibility content; only the list is used.
+- **A statement tied together by repair wording is not a list.** *"Samsung A14
+  5G display light jumper same as A15"* joins two phones — by a repair route.
+  It is dropped, and "display" there is not the product Display.
+- **A generic caption decides nothing** (see §3).
+- **Nothing is deleted.** An ignored post keeps its class, the words that
+  decided it and its text, behind the *Ignored* tab. An ignored post costs no
+  alias read, no production read and no AI call.
+
+Extraction Results has one tab per tag — **Relevant** (the default), All,
+Existing Group Updates, New Groups, Needs Review, Conflicts, Ignored, Errors.
+The tags are stored on the extraction and recomputed on every decision and
+edit, so a tab is one indexed query and lists what is true *now*. A version a
+newer one replaced carries no tags.
+
+---
+
+## 5b. Lists and group proposals
+
+The extractor returns each explicit statement whole: its product title (a line
+naming **one** model and a product — "Vivo Y20 Combo"), every model it lists,
+and the line each was read from. It reads lists as posters and reels print
+them: a heading with a count or a brand in brackets ("COMPATIBLE WITH (68)",
+"COMPATIBLE MODELS (VIVO)"), numbering ("1. Vivo Y20", "5 Vivo Y12s"), two OCR
+columns on one line ("Vivo Y15a Vivo Y15c"), a watermark between columns, a
+brand written once ("Realme 5, 5s, 5i"), and a Hindi or Tamil sentence above
+an English heading ("यह एक Display लग जाएगा 68 models में").
+
+`group-proposals.js` then:
+
+1. **Resolves and merges entries on the catalogue record.** "Y20 A", "vivo y
+   20a" and "Vivo Y20a" are one entry with three spellings as evidence. The
+   same list in another frame or carousel image is merged into it; a list with
+   no title of its own takes the one product title the post gives elsewhere.
+2. **Reads production**: one `modelGroups` document per distinct model, one
+   `groups` document per group touched, the target group's `groupDetails` —
+   each once per tick. Never a collection.
+3. **Chooses the target group**: the group of the product the post names; else
+   the group most of the list is already in; a tie chooses none.
+4. **Chooses the master**: an existing group keeps its master. A new group's
+   master is the product the post names; with no such line it is **MASTER MODEL
+   REVIEW REQUIRED** and approval waits. It is never "the first model listed".
+5. **Places every entry**: `existing` · `add` (no group in the category) ·
+   `conflict` (already in another group) · `needs_review` (ambiguous, a
+   variant to confirm, or a weak match) · `unmatched` · `excluded`.
+
+| Proposed action | When |
+| --- | --- |
+| `NO_CHANGE` | the group already holds every resolved model — kept as evidence |
+| `UPDATE_EXISTING_GROUP` | an existing group, plus models that have no group yet |
+| `CREATE_NEW_GROUP` | no listed model has a group in the category |
+| `CONFLICT_REVIEW` | a listed model already belongs to another group, or two groups tie |
+| `MERGE_REQUIRED` | the list holds most (≥ half, ≥ 2) of another group — the post treats two groups as one part |
+| `MODEL_REVIEW` | fewer than two models resolved with certainty |
+| `PRODUCT_CATEGORY_REVIEW` | the product is not one of the catalogue's categories |
+
+Each entry's match is shown in plain words — Exact Match, Normalized Match,
+Alias Match, Similarity Match, Needs Review, Unknown / Not Found — with the
+frame or image, the OCR line and the OCR confidence it came from.
+
+**Editing a proposal** (each is a server call; the proposal is recomputed
+against production before the card is redrawn): pick the catalogue record for
+an entry · exclude an entry / put it back · add a catalogue model the post did
+not list · choose the master of a new group · choose the target group or "a
+new group" · change the category · re-check production.
+
+---
+
 ## 5. Candidates, confidence and the review queue
 
 Statements are classified as **explicit** ("compatible", "same glass", "fits",
@@ -228,11 +493,13 @@ says it is not a probability. Follower counts are stored as metadata and are
 
 | Section | What lands there |
 | --- | --- |
+| Existing group — proposed update | a list that matches a group and names models it lacks |
+| New group proposals | a list none of whose models has a group in the category |
 | High confidence — ready | exact matches, clear category, explicit, strong evidence, no variant question, no conflict |
 | Medium / low — review required | everything else that is matched, with the reasons named |
 | Unmatched models | a side, or a reference, with no catalogue record |
 | Ambiguous models | a side that fits several records |
-| Compatibility conflicts | sources disagree, or a source disagrees with production |
+| Compatibility conflicts | sources disagree, a source disagrees with production, or a list names a model already assigned to another group |
 | Duplicate relationships | already in production, already approved, or the same claim pending elsewhere |
 | Invalid / rejected | rejected by a person, or AI output that failed validation |
 
@@ -269,13 +536,47 @@ A negative claim cannot be approved (acting on it would delete data). A
 low-confidence candidate needs an explicit acknowledgement. An unconfirmed
 variant, an unmatched side or an active conflict is refused.
 
+### 6a. One category + one model = one group
+
+A search for "Samsung A14 · tempered glass" must return one part. So:
+
+- **Approving a group proposal** re-reads the `modelGroups` document of every
+  listed model *inside the transaction* and plans again from that. Any model
+  that has a group in the category other than the target is **BLOCKED — MODEL
+  ALREADY ASSIGNED**; the whole approval is refused (`category-conflict`, with
+  the model, its existing group and the proposed group), nothing is written,
+  the refusal is audited, and the card is updated to show the conflict. It makes
+  no difference what the card said when it was drawn.
+- **What a blocked model needs** is a person: *Keep it where it is* (excluded
+  from this proposal) or *Request reassignment*. A request is recorded with the
+  approval as `approved_pending_master` — the model is **not** moved here.
+- **What approval writes** is additive: models with no group in the category
+  join the target group, and one ledger entry is written per added model in the
+  same shape a pairwise approval writes — so the build overlay and the import
+  guard below cover it unchanged. A **new group** is recorded as
+  `approved_pending_build` with its master and members; it needs a part code
+  and a serial, which only the catalogue build issues.
+- **The catalogue import** (`scripts/import-firestore.js`) refuses to publish a
+  build in which any device sits in two groups of one category
+  (`--allow-duplicate-assignments` overrides, deliberately awkward);
+  `build-dataset.js` lists them in `report.json`.
+- **The pairwise approval** already refused "different groups" and a model in
+  several groups.
+
+Moving a model between groups, merging two groups, changing an existing
+group's master and removing a member are changes to the **master catalogue**
+(Compatibility Management, which the build is exported from). They are
+requested and recorded here, exported in the worklist, and performed there.
+
 ### Keeping approvals through the next import
 
 `scripts/import-firestore.js` rewrites groups from the build, which would undo
 an approval. So:
 
 1. `node scripts/export-approved-compatibilities.js --project <id>` →
-   `data/raw/approved-compatibilities.json`
+   `data/raw/approved-compatibilities.json`. It also prints the worklist for
+   the master catalogue: new groups to create (master and members by name) and
+   reassignments requested.
 2. `node scripts/build-dataset.js` folds every `applied` entry back into its
    group — additively, and only if the group still holds the model the approval
    was anchored on; anything else is listed in `report.json`.
@@ -297,7 +598,12 @@ its position and releases. The importer page drives ticks while it is open;
 service account.
 
 - **Resume** — from the next unprocessed item; an item left mid-processing by a
-  crash goes back to the queue. Done items are never redone.
+  crash goes back to the queue. Done items are never redone. On a job that
+  ended as `budget_reached`, Resume starts a **new AI budget** and re-queues
+  the posts that were waiting for a model (the page asks first).
+- **Analyse anyway** — a one-post job with `forceDeep`: the cheap filter and
+  the "unchanged" skip are bypassed for that post only, and it is stored as a
+  new version. Only ever with a single post URL.
 - **Retry failed** — an item is retried up to `INSTAGRAM_MAX_ATTEMPTS`, then
   marked failed; this re-queues the failed ones.
 - **Cancel** — stops the job and cancels its queued items; processed items stay.
@@ -310,19 +616,19 @@ service account.
 
 ## 8. Data
 
-All server-only (`allow read, write: if false` in `firestore.rules`).
+All server-only (`allow read, write: if false` in `firestore.rules`). No collection was added for classification, lists or proposals: they extend the ones below.
 
 | Collection | Key | Holds |
 | --- | --- | --- |
-| `instagramSources` | `ig_<username>` | access verdict + reason, account type, followers (metadata), reputation, ignored |
-| `instagramImportJobs` (+ `/items`) | auto / media id | status, cursor, counters, usage, errors, lease; the work queue |
-| `instagramContent` | `igm_<mediaId>` / `man_<hash>` | caption, hashes, per-media OCR status, versions, duplicate status |
-| `instagramExtractions` | `<contentKey>__v<n>` | texts, category, references with matches, relationships, AI use |
-| `compatibilityCandidates` | deterministic | the review queue, with the whole evidence chain and history |
+| `instagramSources` | `ig_<username>` | access verdict + reason, account type, followers (metadata), reputation, ignored; `stats` (content / relevant / ignored / needsReview / errors — one bucket per post, moved on re-classification), last scan, last successful scan |
+| `instagramImportJobs` (+ `/items`) | auto / media id | status, cursor, counters (the funnel: cheap-rejected, screened, deep-analysed, validated, queued for AI…), `usage` (calls, tokens, video seconds, estimated cost in micro-USD), `budget` spent, errors, lease; the work queue, each item with its `pipelineState` |
+| `instagramContent` | `igm_<mediaId>` / `man_<hash>` | caption, hashes, per-media OCR / vision status, versions, duplicate status, relevance + reason, what could read media when it was processed, `manualEvidence` |
+| `instagramExtractions` | `<contentKey>__v<n>` | texts (caption, OCR, vision, frames, admin-entered), relevance + reason + the signals that decided it, `filters` (the tabs), proposal summaries, references, relationships, AI use |
+| `compatibilityCandidates` | deterministic | the review queue, with the whole evidence chain and history — pairs, unmatched references and **group proposals** (`kind: group_proposal`) |
 | `compatibilityEvidence` | = candidate id | every statement, linked by `relKey` |
-| `approvedCompatibilities` | `relKey` | the ledger: status, applied change, evidence, approver |
-| `instagramMediaCache` | content hash | OCR / video / AI results |
-| `instagramUsageDaily` | `YYYY-MM-DD` | call counters for the caps |
+| `approvedCompatibilities` | `relKey` | the ledger: status, applied change, evidence, approver; also `new_group` and `master_change_request` entries |
+| `instagramMediaCache` | content hash | OCR / screen / deep read / video / validation / AI results; previews of admin screenshots |
+| `instagramUsageDaily` | `YYYY-MM-DD` | call counters for the caps, tokens and estimated cost per provider |
 
 Reused, not duplicated: `adminAuditLog` (every action, with previous and new
 value), `aliases` (learned spellings), `missingModelRequests` (unmatched models
@@ -338,10 +644,18 @@ Four permissions in `api/_schema/roles.js`: `instagram.read`,
 true only the owner's Google account passes the gate at all. Every route
 checks its permission server-side on every request.
 
-The Graph token, app secret, Vision key and AI gateway token are read from the
-environment by the services and never sent to the browser; the overview reports
-only whether each is set. A test asserts no secret appears in any response and
-that the admin UI makes no call to Instagram, Vision or the gateway.
+The Graph token, app secret, Gemini key, Anthropic key, Vision key and AI
+gateway token are read from the environment by the services and never sent to
+the browser; the overview reports only whether each is set, and the provider
+check reports only whether each was accepted. A provider's error message is
+never passed through with a key in it. A test asserts no secret appears in any
+response and that the admin UI makes no call to Instagram, Gemini, Anthropic,
+Vision or the gateway.
+
+Images and videos of public posts are sent to Google (Gemini) for reading, and
+the doubtful ones to Anthropic (Claude). Gemini requests are sent with
+`store: false`; a video uploaded through the Files API is deleted after the
+read.
 
 ---
 
@@ -352,10 +666,12 @@ firebase deploy --only firestore:rules,firestore:indexes
 ```
 
 Then set the environment in Vercel (see `.env.example`): at minimum
-`INSTAGRAM_GRAPH_ACCESS_TOKEN` and `INSTAGRAM_BUSINESS_ACCOUNT_ID`; for OCR,
-video and AI, `AI_GATEWAY_URL` / `AI_GATEWAY_TOKEN` with a gateway that
-implements the three capabilities above (or `GOOGLE_VISION_API_KEY` for images).
-Redeploy. No new serverless function is added — the project stays at 12.
+`INSTAGRAM_GRAPH_ACCESS_TOKEN` and `INSTAGRAM_BUSINESS_ACCOUNT_ID`; to read
+images and video, `GEMINI_API_KEY`; for the second opinion, `ANTHROPIC_API_KEY`
+(optional — without it doubtful lists simply go to manual review);
+`GOOGLE_VISION_API_KEY` for OCR is optional. Redeploy, then press **Verify the
+providers with a real call** on the importer page: a key that is set is not a
+key that works. No new serverless function is added — the project stays at 12.
 
 The production catalogue must be imported into Firestore (`catalog/meta`,
 `groupDetails`, `modelGroups`) for approvals to reach production; until it is,
@@ -371,13 +687,33 @@ approvals are recorded as `approved_pending_build`.
   app user); a large page is imported over several runs.
 - **No post lookup by URL** for other accounts: a specific post is found by
   paging the account's recent media.
-- **Copyrighted reels** come without `media_url`; only their captions are read.
+- **Copyrighted reels** come without `media_url` — most reels. Their lists are
+  read from the cover if Meta provides one, or from screenshots an admin adds.
+- **Full-video analysis needs a video reader** (Gemini, or the gateway's
+  `video_analyze`) *and* the video itself. Having a key does not get the video:
+  Meta decides per reel. Without both, a reel is its caption, its cover and
+  whatever an admin attaches, and it is marked `VIDEO_MEDIA_UNAVAILABLE`.
+- **Gemini video is sent whole.** The documented clipping offsets have no
+  stated unit, so they are not used; pass 2 re-reads the clip rather than only
+  the seconds pass 1 pointed at. Audio is read by Gemini with the video; there
+  is no separate transcript.
+- **Costs are estimates** from the tokens each provider reports and a price
+  table with a date on it. The provider's invoice is the truth.
+- **The real provider calls are only as verified as the last check.** The unit
+  tests use injected providers; `instagram-verify-providers.js` is what proves
+  a key, a model and image input.
+- **The master catalogue is elsewhere.** Compatibility Management (and All
+  Brands & Models) live in the DashBoard project; this site's catalogue is
+  built from its exports. Approvals here change the live site additively and
+  are folded into the next build; group creation, merges, reassignments and
+  master changes are recorded for the master, not performed here — and the
+  one-group-per-category rule is enforced here, not yet in the master editor.
 - **Stories are not available** through Business Discovery.
 - **Media URLs expire**: previews in the review card work for a while; the
   permalink is the lasting reference. Media is not stored.
-- **OCR, frames and speech need a provider**; without one, content is read from
-  captions and covers, and the job says so.
+- **OCR, vision, frames and speech need a provider**; without one, an image
+  post is "Insufficient evidence" and the job says so.
 - **Model-number codes** (e.g. SM-A155F) match only once an admin teaches the
   alias; the catalogue holds no model codes.
-- **New groups are not created here**: an approved pair with no existing group
-  waits for the catalogue build.
+- **New groups are not created here**: an approved pair or list with no
+  existing group waits for the catalogue build.

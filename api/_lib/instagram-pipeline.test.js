@@ -12,6 +12,9 @@
    ========================================================================== */
 'use strict';
 
+/* hermetic: whatever keys this machine has, these tests use none of them */
+['GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_VISION_API_KEY', 'AI_GATEWAY_URL', 'AI_GATEWAY_TOKEN'].forEach(k => { delete process.env[k]; });
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -417,7 +420,11 @@ test('a 4G reference needs a person to confirm the record; the choice is audited
 
 test('an unmatched reference can be pointed at the right record, or sent to Missing models', async () => {
   const fake = world();
-  const post = { id: 'u1', media_type: 'IMAGE', media_url: 'https://cdn/u1.jpg', permalink: 'https://www.instagram.com/p/UUUUU1/', caption: 'New: Galaxy A15 Prime glass, also XYZ 999 in stock' };
+  /* A compatibility post that also names a model the catalogue lacks. (A
+     post that only LISTS stock makes no claim and is ignored outright —
+     see instagram-intelligence.test.js.) */
+  const post = { id: 'u1', media_type: 'IMAGE', media_url: 'https://cdn/u1.jpg', permalink: 'https://www.instagram.com/p/UUUUU1/',
+    caption: 'Samsung A15 Tempered Glass\nCompatible: Samsung A15 / Samsung A15 5G\nAlso new: XYZ 999 glass in stock' };
   await runJob('https://www.instagram.com/mobile_parts_hub/', { cfg: cfg(), graph: fakeGraph({ mobile_parts_hub: [[post]] }), media: fakeMedia(), ai: noAi });
   const refs = candidatesOf(fake).filter(c => c.kind === 'model_reference');
   assert.ok(refs.length >= 1);

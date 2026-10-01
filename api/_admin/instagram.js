@@ -1,13 +1,19 @@
 /* ============================================================================
    GET  /api/admin/instagram?view=…     read: overview, sources, jobs, job,
                                         extractions, content, review, candidate,
-                                        history, models
+                                        history, models, group, evidence_preview
    POST /api/admin/instagram {action}   write: analyze, tick, resume,
-                                        retry_failed, cancel, approve,
-                                        approve_all_valid, reject, select_model,
-                                        change_category, mark_duplicate, reopen,
-                                        ignore_source, unignore_source,
-                                        send_to_missing_models
+                                        retry_failed, cancel, add_evidence,
+                                        verify_providers,
+                                        approve, approve_all_valid, reject,
+                                        select_model, change_category,
+                                        mark_duplicate, reopen, ignore_source,
+                                        unignore_source, send_to_missing_models,
+                                        and the group-proposal actions:
+                                        approve_proposal, proposal_select_model,
+                                        proposal_member_decision,
+                                        proposal_add_model, proposal_set_master,
+                                        proposal_set_target, proposal_refresh
    ----------------------------------------------------------------------------
    The Instagram Compatibility Data Intelligence API. A section of the one
    admin function (api/admin.js), not a function of its own — the project is
@@ -17,11 +23,13 @@
    PERMISSIONS, PER ACTION
 
      instagram.read     every GET
-     instagram.import   analyze, tick, resume, retry_failed, cancel
+     instagram.import   analyze, tick, resume, retry_failed, cancel, add_evidence,
+                        verify_providers (it spends a few tokens on real calls)
      compat.review      reject, select_model, change_category, mark_duplicate,
-                        reopen, ignore_source, unignore_source, send_to_missing
-     compat.approve     approve, approve_all_valid — the only actions that can
-                        write production compatibility data
+                        reopen, ignore_source, unignore_source, send_to_missing,
+                        and every proposal_* edit
+     compat.approve     approve, approve_all_valid, approve_proposal — the only
+                        actions that can write production compatibility data
 
    Each is checked here, server-side, on every request, through the same
    requirePermission() every other admin route uses. While OWNER_ONLY is true
@@ -45,6 +53,8 @@ const configMod = require('../_services/instagram/config');
 const jobService = require('../_services/instagram/job-service');
 const review = require('../_services/instagram/review-service');
 const taxonomy = require('../_services/taxonomy-service');
+const providerCheck = require('../_services/instagram/provider-check');
+const { PRICES_AS_OF } = require('../_services/instagram/ai-providers');
 
 const READ = PERMISSIONS.INSTAGRAM_READ;
 const IMPORT = PERMISSIONS.INSTAGRAM_IMPORT;
@@ -52,11 +62,45 @@ const REVIEW = PERMISSIONS.COMPAT_REVIEW;
 const APPROVE = PERMISSIONS.COMPAT_APPROVE;
 
 const ACTION_PERMISSION = {
-  analyze: IMPORT, tick: IMPORT, resume: IMPORT, retry_failed: IMPORT, cancel: IMPORT,
-  approve: APPROVE, approve_all_valid: APPROVE,
+  analyze: IMPORT, tick: IMPORT, resume: IMPORT, retry_failed: IMPORT, cancel: IMPORT, add_evidence: IMPORT,
+  verify_providers: IMPORT,
+  approve: APPROVE, approve_all_valid: APPROVE, approve_proposal: APPROVE,
   reject: REVIEW, select_model: REVIEW, change_category: REVIEW, mark_duplicate: REVIEW,
-  reopen: REVIEW, ignore_source: REVIEW, unignore_source: REVIEW, send_to_missing_models: REVIEW
+  reopen: REVIEW, ignore_source: REVIEW, unignore_source: REVIEW, send_to_missing_models: REVIEW,
+  proposal_select_model: REVIEW, proposal_member_decision: REVIEW, proposal_add_model: REVIEW,
+  proposal_set_master: REVIEW, proposal_set_target: REVIEW, proposal_refresh: REVIEW
 };
+
+/* A list entry's key: "m:<model id>" once resolved, "t:<normalised text>"
+   while it is not. Never a path, never interpolated. */
+function memberKey(value) {
+  const s = v.string(value, 200);
+  return /^[mt]:[A-Za-z0-9 ._+()-]{1,180}$/.test(s) ? s : '';
+}
+
+const EVIDENCE_MAX_BYTES = 3 * 1024 * 1024;
+const EVIDENCE_PREVIEW_MAX = 220 * 1024;
+
+/* Screenshots an admin attaches. The bytes must BE an image of a type the
+   readers accept — the declared type is not taken on trust. */
+function evidenceImages(list) {
+  if (!Array.isArray(list)) return { images: [] };
+  const images = [];
+  for (const raw of list.slice(0, 4)) {
+    if (!raw || typeof raw.data !== 'string' || !/^[A-Za-z0-9+/=\r\n]+$/.test(raw.data)) return { error: 'An attached image is not valid base64.' };
+    const bytes = Buffer.from(raw.data, 'base64');
+    if (!bytes.length || bytes.length > EVIDENCE_MAX_BYTES) return { error: 'An attached image is empty or larger than 3 MB.' };
+    const mimeType = bytes[0] === 0xFF && bytes[1] === 0xD8 ? 'image/jpeg'
+      : bytes.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) ? 'image/png'
+      : bytes.slice(0, 4).toString('latin1') === 'RIFF' && bytes.slice(8, 12).toString('latin1') === 'WEBP' ? 'image/webp'
+      : null;
+    if (!mimeType) return { error: 'Attach JPEG, PNG or WebP screenshots.' };
+    const preview = typeof raw.preview === 'string' && raw.preview.length <= EVIDENCE_PREVIEW_MAX &&
+      /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(raw.preview) ? raw.preview : null;
+    images.push({ bytes, mimeType, preview, note: v.string(raw.note, 200) });
+  }
+  return { images };
+}
 
 module.exports = async function handler(req, res) {
   try {
@@ -65,7 +109,7 @@ module.exports = async function handler(req, res) {
     return notAllowed(res);
   } catch (err) {
     if (err instanceof review.ReviewError) {
-      return json(res, err.status || 409, { error: err.message, code: err.code, groupsA: err.groupsA, groupsB: err.groupsB });
+      return json(res, err.status || 409, { error: err.message, code: err.code, groupsA: err.groupsA, groupsB: err.groupsB, blocked: err.blocked });
     }
     return fail(res, err, 'admin-instagram');
   }
@@ -77,7 +121,7 @@ async function read(req, res) {
   const admin = await requirePermission(req, res, READ);
   if (!admin) return;
   const q = req.query || {};
-  const view = v.oneOf(q.view, ['overview', 'sources', 'jobs', 'job', 'extractions', 'content', 'review', 'candidate', 'history', 'models'], 'overview');
+  const view = v.oneOf(q.view, ['overview', 'sources', 'jobs', 'job', 'extractions', 'content', 'review', 'candidate', 'history', 'models', 'group', 'evidence_preview'], 'overview');
   const db = fsx.db();
 
   if (view === 'overview') {
@@ -90,6 +134,7 @@ async function read(req, res) {
       integration: configMod.status(),
       catalogue: { models: tax.entries.length, categories: Array.from(tax.categories.values()).map(c => ({ id: c.id, name: c.name })) },
       recentJobs: jobs.jobs, sectionCounts: counts, sections: S.REVIEW_SECTIONS,
+      extractionFilters: S.EXTRACTION_FILTERS, pricesAsOf: PRICES_AS_OF,
       rejectReasons: S.REJECT_REASONS, serverTime: Date.now()
     });
   }
@@ -134,13 +179,59 @@ async function read(req, res) {
   }
 
   if (view === 'extractions') {
+    /* `filter`, one of the tabs. "relevant" is the default: an ignored
+       repair post is kept, and shown only when someone asks for it. Each tab
+       is ONE indexed query on the tags stored with the extraction; with a
+       job or a source selected the tab narrows that job's rows in memory. */
+    const filter = v.oneOf(q.filter, S.EXTRACTION_FILTERS.map(f => f.id), 'relevant');
+    const limit = v.integer(q.limit, { min: 1, max: 100, fallback: 30 });
     let query = db.collection(C.INSTAGRAM_EXTRACTIONS);
     const jobId = q.jobId ? v.docId(q.jobId, 80) : '';
     const sourceKey = q.sourceKey ? v.docId(q.sourceKey, 60) : '';
+    const scoped = !!(jobId || sourceKey);
     if (jobId) query = query.where('jobId', '==', jobId);
     else if (sourceKey) query = query.where('sourceKey', '==', sourceKey);
-    const snap = await query.orderBy('extractedAt', 'desc').limit(v.integer(q.limit, { min: 1, max: 100, fallback: 30 })).get();
-    return ok(res, { extractions: snap.docs.map(d => d.data()), serverTime: Date.now() });
+    else query = query.where('filters', 'array-contains', filter);
+    let snap;
+    let indexMissing = false;
+    try {
+      snap = await query.orderBy('extractedAt', 'desc').limit(scoped ? 300 : limit).get();
+    } catch (err) {
+      /* The tab index (filters + extractedAt) is not deployed yet. The page
+         still works: the most recent extractions, narrowed in memory, and a
+         note saying why older matches may be missing. */
+      if (scoped || !(err && (err.code === 9 || /index/i.test(String(err.message))))) throw err;
+      indexMissing = true;
+      snap = await db.collection(C.INSTAGRAM_EXTRACTIONS).orderBy('extractedAt', 'desc').limit(300).get();
+    }
+    let rows = snap.docs.map(d => d.data());
+    if (indexMissing) rows = rows.filter(r => (r.filters || []).indexOf(filter) > -1);
+    const counts = {};
+    if (scoped) {
+      S.EXTRACTION_FILTERS.forEach(f => { counts[f.id] = rows.filter(r => (r.filters || []).indexOf(f.id) > -1).length; });
+      rows = rows.filter(r => (r.filters || []).indexOf(filter) > -1);
+    }
+    return ok(res, {
+      extractions: rows.slice(0, limit), filter, filters: S.EXTRACTION_FILTERS,
+      counts: scoped ? counts : null, approximate: (scoped || indexMissing) && snap.size >= 300,
+      indexMissing, serverTime: Date.now()
+    });
+  }
+
+  if (view === 'group') {
+    const groupId = v.docId(q.groupId, 60);
+    if (!groupId) return bad(res, 'groupId is required');
+    const group = await review.getGroup(groupId);
+    if (!group) return json(res, 404, { error: 'no such group' });
+    return ok(res, { group });
+  }
+
+  if (view === 'evidence_preview') {
+    const id = v.string(q.id, 40);
+    if (!/^[a-f0-9]{8,32}$/.test(id)) return bad(res, 'id is required');
+    const preview = await jobService.evidencePreview(id);
+    if (!preview) return json(res, 404, { error: 'no preview stored for that evidence' });
+    return ok(res, { preview });
   }
 
   if (view === 'content') {
@@ -206,12 +297,14 @@ async function write(req, res) {
       maxItems: v.integer(body.maxItems, { min: 1, max: 500, fallback: null }),
       mode: v.oneOf(body.mode, ['api', 'manual'], 'api'),
       manualText: typeof body.manualText === 'string' ? body.manualText.slice(0, 5000) : '',
+      /* "Analyse anyway": only together with ONE post URL */
+      force: body.force === true,
       now
     });
     if (!result.ok) return json(res, result.status, { error: result.error });
     rec(audit.ACTIONS.INSTAGRAM_IMPORT_STARTED, 'instagram_job', result.job.jobId, {
       sourceUrl: result.job.postUrl || result.job.profileUrl, mode: result.job.mode,
-      status: result.job.status, maxItems: result.job.maxItems
+      status: result.job.status, maxItems: result.job.maxItems, forceDeep: result.job.forceDeep
     });
     return ok(res, { job: jobService.publicJob(result.job) });
   }
@@ -232,6 +325,101 @@ async function write(req, res) {
     if (!out.ok) return json(res, out.status || 409, { error: out.error });
     rec({ resume: audit.ACTIONS.INSTAGRAM_JOB_RESUMED, retry_failed: audit.ACTIONS.INSTAGRAM_JOB_RETRIED, cancel: audit.ACTIONS.INSTAGRAM_JOB_CANCELLED }[action],
       'instagram_job', jobId, { requeued: out.requeued || 0, cancelledItems: out.cancelledItems || 0 });
+    return ok(res, out);
+  }
+
+  if (action === 'verify_providers') {
+    /* Real calls with the configured keys — the only honest answer to "is it
+       working?". The report says which key is set and whether its provider
+       accepted it, and never anything about the key itself. */
+    const report = await providerCheck.verifyProviders();
+    rec(audit.ACTIONS.INSTAGRAM_PROVIDERS_VERIFIED, 'instagram_integration', 'providers', {
+      gemini: report.providers.gemini.status, claude: report.providers.claude.status,
+      instagram: report.providers.instagram.status, ready: report.ready
+    });
+    return ok(res, report);
+  }
+
+  if (action === 'add_evidence') {
+    const contentKey = v.docId(body.contentKey, 120);
+    if (!contentKey) return bad(res, 'contentKey is required');
+    const parsed = evidenceImages(body.images);
+    if (parsed.error) return bad(res, parsed.error);
+    const out = await jobService.addEvidence({
+      contentKey, admin, images: parsed.images,
+      text: typeof body.text === 'string' ? body.text.slice(0, 8000) : '', now
+    });
+    if (!out.ok) return json(res, out.status || 409, { error: out.error });
+    rec(audit.ACTIONS.INSTAGRAM_EVIDENCE_ADDED, 'instagram_content', contentKey, {
+      jobId: out.jobId, images: out.added.filter(a => a.kind === 'image').length,
+      text: out.added.some(a => a.kind === 'text'), unread: out.added.filter(a => a.status !== 'read').length,
+      relevance: out.relevance || '', proposals: out.proposals
+    });
+    return ok(res, out);
+  }
+
+  if (action === 'approve_proposal') {
+    const candidateId = v.docId(body.candidateId, 200);
+    if (!candidateId) return bad(res, 'candidateId is required');
+    let out;
+    try {
+      out = await review.approveProposal({
+        candidateId, admin, acknowledgeLowConfidence: body.acknowledgeLowConfidence === true,
+        expectedAdd: body.expectedAdd == null ? null : v.integer(body.expectedAdd, { min: 0, max: 500, fallback: null }), now
+      });
+    } catch (err) {
+      if (err instanceof review.ReviewError && err.code === 'category-conflict') {
+        rec(audit.ACTIONS.COMPAT_PROPOSAL_BLOCKED, 'compat_candidate', candidateId, {
+          reason: 'model already assigned to another group in this category',
+          blocked: (err.blocked || []).length,
+          models: (err.blocked || []).slice(0, 5).map(b => b.modelId + '@' + b.existingGroupId).join(' ')
+        });
+      }
+      throw err;
+    }
+    rec(audit.ACTIONS.COMPAT_PROPOSAL_APPROVED, 'compat_candidate', candidateId, {
+      outcome: out.outcome, groupId: out.change ? out.change.groupId : '',
+      added: out.change ? out.change.addedModelIds.length : 0,
+      previousMemberCount: out.change ? out.change.previousMemberCount : null,
+      newMemberCount: out.change ? out.change.newMemberCount : null,
+      reassignRequests: (out.requests || []).length
+    });
+    return ok(res, out);
+  }
+
+  if (action.indexOf('proposal_') === 0) {
+    const candidateId = v.docId(body.candidateId, 200);
+    if (!candidateId) return bad(res, 'candidateId is required');
+    let out;
+    if (action === 'proposal_select_model') {
+      const key = memberKey(body.memberKey), modelId = v.docId(body.modelId, 120);
+      if (!key || !modelId) return bad(res, 'memberKey and modelId are required');
+      out = await review.proposalSelectModel({ candidateId, memberKey: key, modelId, rememberAlias: body.rememberAlias === true, admin, now });
+      if (out.alias && out.alias.learned) rec(audit.ACTIONS.COMPAT_ALIAS_LEARNED, 'alias', out.alias.key, { canonicalId: out.newModelId, candidateId });
+    } else if (action === 'proposal_member_decision') {
+      const key = memberKey(body.memberKey);
+      if (!key) return bad(res, 'memberKey is required');
+      out = await review.proposalMemberDecision({ candidateId, memberKey: key,
+        decision: body.decision === null ? null : v.oneOf(body.decision, S.MEMBER_DECISIONS, 'invalid'), admin, now });
+    } else if (action === 'proposal_add_model') {
+      const modelId = v.docId(body.modelId, 120);
+      if (!modelId) return bad(res, 'modelId is required');
+      out = await review.proposalAddModel({ candidateId, modelId, admin, now });
+    } else if (action === 'proposal_set_master') {
+      const modelId = v.docId(body.modelId, 120);
+      if (!modelId) return bad(res, 'modelId is required');
+      out = await review.proposalSetMaster({ candidateId, modelId, admin, now });
+    } else if (action === 'proposal_set_target') {
+      out = await review.proposalSetTarget({ candidateId,
+        groupId: body.groupId === 'new' ? 'new' : (body.groupId ? v.docId(body.groupId, 60) || null : null), admin, now });
+    } else {
+      out = await review.proposalRefresh({ candidateId, admin, now });
+    }
+    rec(audit.ACTIONS.COMPAT_PROPOSAL_EDITED, 'compat_candidate', candidateId, {
+      edit: action.replace('proposal_', ''), memberKey: v.string(body.memberKey, 120),
+      newValue: v.string(body.modelId || body.groupId || body.decision || '', 120),
+      proposedAction: out.proposedAction, targetGroupId: out.targetGroupId || ''
+    });
     return ok(res, out);
   }
 
@@ -281,7 +469,8 @@ async function write(req, res) {
   if (action === 'change_category') {
     const candidateId = v.docId(body.candidateId, 200);
     if (!candidateId) return bad(res, 'candidateId is required');
-    const out = await review.changeCategory({ candidateId, categoryId: v.docId(body.categoryId, 60), admin, now });
+    const change = body.kind === 'group_proposal' ? review.proposalChangeCategory : review.changeCategory;
+    const out = await change({ candidateId, categoryId: v.docId(body.categoryId, 60), admin, now });
     rec(audit.ACTIONS.COMPAT_CATEGORY_CHANGED, 'compat_candidate', candidateId, { previousValue: out.previousCategoryId || '', newValue: out.newCategoryId });
     return ok(res, out);
   }

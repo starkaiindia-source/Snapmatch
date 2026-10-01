@@ -69,6 +69,7 @@
     return {
       queued: 'Queued', discovering: 'Discovering content', processing: 'Processing',
       paused: 'Paused', rate_limited: 'Rate limited (paused)', quota_exhausted: 'Daily cap reached (paused)',
+      budget_reached: 'AI budget reached (paused)',
       completed: 'Completed', completed_with_errors: 'Completed with errors', failed: 'Failed',
       cancelled: 'Cancelled', unable_to_collect: 'Unable to collect'
     }[s] || s;
@@ -82,6 +83,11 @@
     }[m] || (m ? m.replace(/_/g, ' ') : '—');
   }
 
+  /** An "evidence" job is an admin attaching screenshots or text to one post. */
+  function jobKind(job) {
+    return job.mode === 'evidence' ? 'Evidence added by an admin' : methodLabel(job.collectionMethod);
+  }
+
   /* ========================================================= integration */
 
   function integrationBanners(i) {
@@ -92,14 +98,48 @@
         ' in the Vercel environment. Until then an import reports <b>Unable to collect</b> — nothing is scraped, ' +
         'nothing is invented. Manual entry of text you have read yourself still works.');
     }
+    var vision = i.vision || {}, validator = i.validator || {}, video = i.video || {}, budget = i.budget || {};
+    var who = function (p) { return { gemini: 'Gemini', anthropic: 'Claude', gateway: 'AI gateway', google_vision: 'Google Vision' }[p] || p; };
     var parts = [];
     parts.push('Graph API ' + (i.graph.configured ? '<b>connected</b> (' + ui.esc(i.graph.version) + (i.graph.appSecretProof ? ', appsecret_proof on' : '') + ')' : '<b>off</b>'));
-    parts.push('OCR ' + (i.ocr.configured ? '<b>' + ui.esc(i.ocr.provider.replace(/_/g, ' ')) + '</b>' : '<b>off</b> — images are read from their captions only'));
-    parts.push('Video frames &amp; speech ' + (i.video.configured ? '<b>on</b>' : '<b>off</b> — reels are read from captions and cover images'));
-    parts.push('AI extraction ' + (i.ai.configured ? '<b>' + ui.esc(i.ai.mode) + '</b>' : '<b>off</b> — rules only'));
-    out += ui.banner('info', parts.join(' · ') + '. Limits: ' + i.limits.maxItemsPerJob + ' posts per job, ' +
-      i.limits.dailyGraphCalls + ' API / ' + i.limits.dailyOcrCalls + ' OCR / ' + i.limits.dailyAiCalls + ' AI calls a day.');
+    parts.push('Media reader ' + (vision.configured ? '<b>' + ui.esc(who(vision.provider)) + '</b> <span class="mono">' + ui.esc(vision.model || '') + '</span>' +
+      (vision.screenModel ? ', screening with <span class="mono">' + ui.esc(vision.screenModel) + '</span>' : '') : '<b>off</b>'));
+    parts.push('Video ' + (video.configured ? (video.native ? '<b>read natively by Gemini</b>' : '<b>frames via the gateway</b>') : '<b>off</b>'));
+    parts.push('Second opinion ' + (validator.configured ? '<b>' + ui.esc(who(validator.provider)) + '</b> <span class="mono">' + ui.esc(validator.model || '') + '</span>, only for doubtful lists' : '<b>off</b> — doubtful lists go to manual review'));
+    parts.push('OCR ' + (i.ocr.configured ? '<b>' + ui.esc(who(i.ocr.provider)) + '</b>' : '<b>off</b> (optional)'));
+    if (!vision.configured && !i.ocr.configured) {
+      out += ui.banner('warn', '<b>Nothing can read an image or a reel yet.</b> Set <code>GEMINI_API_KEY</code> in the Vercel environment (the primary media reader). ' +
+        'Until then a post whose caption decides nothing is listed as <b>Insufficient evidence</b>, never guessed at — or attach screenshots to it under Extraction Results.');
+    }
+    out += ui.banner('info', parts.join(' · ') + '.<br>Cheap first: the caption filter and a low-cost visual screen decide which posts get a deep read. ' +
+      'Budget per import: <b>' + ui.count(budget.maxAiItemsPerSync) + '</b> posts with AI, <b>' + ui.count(budget.maxGeminiCallsPerSync) + '</b> Gemini calls, <b>' +
+      ui.count(budget.maxClaudeCallsPerSync) + '</b> Claude calls, <b>' + ui.count(budget.maxVideoMinutesPerSync) + '</b> video minutes; ' +
+      i.limits.maxItemsPerJob + ' posts per job, ' + i.limits.dailyAiCalls + ' AI calls a day. ' +
+      '<button type="button" class="ig__link" data-verify="1">Verify the providers with a real call</button><div id="igVerify"></div>');
     return out;
+  }
+
+  function usd(micro) {
+    return micro === null || micro === undefined ? ui.DASH : '$' + (Number(micro) / 1e6).toFixed(Number(micro) < 10000 ? 4 : 2);
+  }
+
+  /** The real-call provider check, drawn where it was asked for. */
+  function verifyProviders(box, ctx) {
+    box.innerHTML = '<div class="adm__skel" style="height:40px;margin-top:8px"></div>';
+    act({ action: 'verify_providers' }).then(function (r) {
+      var names = { gemini: 'Gemini', claude: 'Claude', instagram: 'Instagram Graph API', ocr: 'OCR' };
+      box.innerHTML = '<div class="adm__scroll" style="margin-top:8px"><table class="adm__table"><thead><tr><th>Provider</th><th>Result of a real call</th><th>Detail</th></tr></thead><tbody>' +
+        Object.keys(r.providers).map(function (k) {
+          var pr = r.providers[k];
+          return '<tr style="cursor:default"><td><b>' + ui.esc(names[k] || k) + '</b><div class="adm__none" style="font-size:11px">' + ui.esc(pr.role || '') + '</div></td>' +
+            '<td>' + ui.pill(pr.status, String(pr.status).replace(/_/g, ' ')) + (pr.code ? ' <span class="mono adm__none">' + ui.esc(pr.code) + '</span>' : '') + '</td>' +
+            '<td style="font-size:12px">' + ui.esc(pr.detail || '') +
+            (pr.calls || []).map(function (c) { return '<br><span class="mono">' + ui.esc(c.model) + '</span>: ' + ui.count(c.inputTokens) + ' in / ' + ui.count(c.outputTokens) + ' out tokens, ' + usd(c.costMicroUsd); }).join('') +
+            (pr.available ? '<br>This key can use: ' + pr.available.map(ui.esc).join(', ') : '') +
+            (pr.notProven ? '<br><span class="adm__none">Not proven: ' + ui.esc(pr.notProven) + '</span>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      ctx.toast(r.ready ? 'Gemini and Instagram answered real calls' : 'Not verified — see the table', r.ready ? '' : 'warn');
+    }, function (err) { box.innerHTML = ui.banner('bad', ui.esc(err.message || 'The check could not run')); });
   }
 
   /* ============================================================ progress */
@@ -125,7 +165,7 @@
 
     var out = '<div class="adm__card" id="igJob" data-job="' + ui.esc(job.jobId) + '">' +
       '<div class="ig__jobhead"><div><h2>' + username(job.username) + ' ' + ui.pill(job.status, statusLabel(job.status)) + '</h2>' +
-      '<p class="adm__hint" style="margin:2px 0 0">' + ui.esc(methodLabel(job.collectionMethod)) + ' · started ' + ui.dateTime(job.createdAt) +
+      '<p class="adm__hint" style="margin:2px 0 0">' + ui.esc(jobKind(job)) + ' · started ' + ui.dateTime(job.createdAt) +
       (job.postUrl ? ' · post ' + link(job.postUrl, job.postUrl.replace('https://www.instagram.com', '')) : '') +
       ' · job <span class="mono">' + ui.esc(job.jobId) + '</span></p></div>' +
       '<div class="ig__actions">' + jobButtons(job) + '</div></div>';
@@ -138,13 +178,33 @@
       '<div style="width:' + pct + '%"></div></div>' +
       '<p class="ig__progressline">' + ui.esc(line) + (running && job.leaseActive ? ' <span class="adm__none">· a worker is on it</span>' : '') + '</p>';
 
+    /* the cost funnel: what each stage let through */
+    out += '<p class="ig__funnel">' + [
+      '<b>' + ui.count(c.postsFound) + '</b> collected',
+      '<b>' + ui.count(c.cheapRejected) + '</b> rejected by the free filter',
+      '<b>' + ui.count(c.screened) + '</b> screened',
+      '<b>' + ui.count(c.deepAnalysed) + '</b> deep analysis',
+      '<b>' + ui.count(c.extracted) + '</b> extracted',
+      '<b>' + ui.count(c.pendingReview) + '</b> ready for review'
+    ].join(' <span class="adm__none">→</span> ') + (c.aiDeferred ? ' · <b style="color:var(--warn)">' + ui.count(c.aiDeferred) + ' queued for AI</b>' : '') + '</p>';
+
     out += '<dl class="adm__tiles">' +
       tile('Posts found', c.postsFound, (job.discovery ? ui.count(job.discovery.pages) + ' API pages' : '')) +
       tile('Reels / videos', c.videosFound) +
       tile('Images', c.imagesFound) +
       tile('Carousels', c.carouselsFound) +
+      tile('Relevant — compatibility', c.relevant, 'the only posts that reach review') +
+      tile('Ignored', c.ignored, 'repair and general posts, kept for audit') +
+      tile('Could not be judged', c.insufficient, ui.count(c.videoUnavailable) + ' reel(s) with no video from Instagram') +
+      tile('Stopped by the free filter', c.cheapRejected, 'repair captions — no call made') +
+      tile('Visual screening', c.screened, ui.count(c.screenRejected) + ' stopped there') +
+      tile('Deep analysis', c.deepAnalysed, ui.count(c.videosUnderstood) + ' video(s) read natively') +
+      tile('Second opinions', c.validated, ui.count(c.validationFailed) + ' could not be obtained') +
+      '<div class="adm__tile"><dt>Estimated AI cost</dt><dd>' + usd(u.costMicroUsd || 0) + '</dd><small>' +
+        (u.costUnknownCalls ? ui.count(u.costUnknownCalls) + ' call(s) at an unknown price' : 'list prices, from reported tokens') + '</small></div>' +
+      tile('Group proposals', c.groupProposals, ui.count(c.groupUpdates) + ' updates · ' + ui.count(c.newGroups) + ' new') +
       tile('Captions processed', c.captionsProcessed) +
-      tile('Images OCR\'d', c.imagesOcrd) +
+      tile('Images OCR\'d', c.imagesOcrd, ui.count(c.imagesUnderstood) + ' read by AI vision') +
       tile('Frames processed', c.framesProcessed, ui.count(c.transcripts) + ' transcripts') +
       tile('Model references', c.modelReferences) +
       tile('Matched to catalogue', c.matched, ui.count(c.unmatched) + ' unmatched · ' + ui.count(c.ambiguous) + ' ambiguous') +
@@ -158,8 +218,13 @@
       tile('Failed', c.failed) +
       '</dl>';
 
-    out += '<p class="adm__hint" style="margin:12px 0 0">Usage: ' + ui.count(u.graphCalls) + ' API · ' + ui.count(u.ocrCalls) + ' OCR · ' +
-      ui.count(u.videoCalls) + ' video · ' + ui.count(u.aiCalls) + ' AI calls · ' + ui.count(u.cacheHits) + ' cache hits</p>';
+    var b = job.budget || {};
+    out += '<p class="adm__hint" style="margin:12px 0 0">Usage: ' + ui.count(u.graphCalls) + ' Instagram API · ' + ui.count(u.ocrCalls) + ' OCR · ' +
+      '<b>Gemini</b> ' + ui.count(u.geminiCalls) + ' calls (' + ui.count(u.screenCalls) + ' screening), ' + ui.count(u.geminiInputTokens) + ' in / ' + ui.count(u.geminiOutputTokens) + ' out tokens · ' +
+      '<b>Claude</b> ' + ui.count(u.claudeCalls) + ' calls, ' + ui.count(u.claudeInputTokens) + ' in / ' + ui.count(u.claudeOutputTokens) + ' out tokens · ' +
+      ui.count(u.videoSeconds) + ' s of video · ' + ui.count(u.cacheHits) + ' cache hits</p>' +
+      '<p class="adm__hint" style="margin:4px 0 0">This import\'s AI budget so far: ' + ui.count(b.aiItems) + ' posts · ' + ui.count(b.geminiCalls) + ' Gemini · ' +
+      ui.count(b.claudeCalls) + ' Claude · ' + ui.count(Math.round((b.videoSeconds || 0) / 60)) + ' video min' + (job.forceDeep ? ' · <b>analysis requested by an admin</b>' : '') + '</p>';
 
     out += '<div id="igErrors" hidden>' + errorsHTML(job) + '</div></div>';
     return out;
@@ -169,9 +234,9 @@
     var b = [];
     var can = ADM.currentCan || function () { return true; };
     if (can('instagram.import')) {
-      if (['paused', 'rate_limited', 'quota_exhausted', 'failed'].indexOf(job.status) > -1 ||
+      if (['paused', 'rate_limited', 'quota_exhausted', 'budget_reached', 'failed'].indexOf(job.status) > -1 ||
           (RUNNING.indexOf(job.status) > -1 && !job.leaseActive)) {
-        b.push('<button class="adm__btn adm__btn--primary" data-job-act="resume">Resume job</button>');
+        b.push('<button class="adm__btn adm__btn--primary" data-job-act="resume">' + (job.status === 'budget_reached' ? 'Resume — spend another AI budget' : 'Resume job') + '</button>');
       }
       if ((job.counts && job.counts.failed) || job.status === 'completed_with_errors') {
         b.push('<button class="adm__btn" data-job-act="retry_failed">Retry failed</button>');
@@ -181,6 +246,7 @@
       }
     }
     b.push('<button class="adm__btn" data-job-act="errors">View errors (' + (job.errorCount || 0) + ')</button>');
+    b.push('<a class="adm__btn" href="/admin/instagram/extractions?job=' + encodeURIComponent(job.jobId) + '">Extraction results</a>');
     b.push('<a class="adm__btn" href="/admin/instagram/review?job=' + encodeURIComponent(job.jobId) + '">Review candidates</a>');
     return b.join('');
   }
@@ -202,6 +268,10 @@
       return Promise.resolve(false);
     }
     if (action === 'cancel' && !global.confirm('Cancel this import? Items already processed are kept; queued items are cancelled.')) {
+      return Promise.resolve(false);
+    }
+    if (action === 'resume' && /budget/i.test((document.querySelector('#igJob .adm__banner') || {}).textContent || '') &&
+        !global.confirm('The AI budget of this import is spent.\n\nResuming starts a new budget and sends the queued posts to the model. Continue?')) {
       return Promise.resolve(false);
     }
     return act({ action: action, jobId: jobId }).then(function (r) {
@@ -266,6 +336,10 @@
     });
 
     host.addEventListener('click', function (e) {
+      if (e.target.closest('[data-verify]')) {
+        if (!ctx.can('instagram.import')) return ctx.toast('Your role cannot run the provider check', 'warn');
+        return verifyProviders(host.querySelector('#igVerify'), ctx);
+      }
       var row = e.target.closest('tr[data-job-row]');
       if (row && !e.target.closest('a,button')) ctx.go('/admin/instagram/jobs/' + encodeURIComponent(row.getAttribute('data-job-row')));
       var btn = e.target.closest('[data-job-act]');
@@ -370,27 +444,40 @@
 
   function renderSources(host, ctx) {
     host = mount(host);
-    host.innerHTML = head('Instagram Sources', 'Every page an import has touched, with what Instagram allowed us to read.') +
+    host.innerHTML = head('Instagram Sources', 'Every page an import has touched: what Instagram allowed us to read, and what its content turned out to be.') +
       '<div class="adm__card" id="igSrc">' + skel() + '</div>';
     load();
     function load() {
       api({ view: 'sources' }).then(function (d) {
         var card = host.querySelector('#igSrc');
         if (!d.sources.length) { card.innerHTML = ui.emptyState('No sources yet', 'A source is added when an import is started for it.'); return; }
-        card.innerHTML = '<p class="adm__hint">Follower counts are stored as metadata only. They never raise the confidence of a claim — evidence does. Reputation is the count of this page\'s claims that people approved or rejected.</p>' +
-          '<div class="adm__scroll"><table class="adm__table"><thead><tr><th>Source</th><th>Account</th><th>Access</th>' +
-          '<th class="num">Followers</th><th class="num">Approved</th><th class="num">Rejected</th><th>Last import</th><th></th></tr></thead><tbody>' +
+        card.innerHTML = '<p class="adm__hint">Each post is counted once, in one column: <b>Relevant</b> makes a compatibility claim, <b>Ignored</b> is repair or general content (kept, under Extraction Results → Ignored), ' +
+          '<b>Needs review</b> could not be read or decided. Follower counts are metadata only — they never raise the confidence of a claim.</p>' +
+          '<div class="adm__scroll"><table class="adm__table"><thead><tr><th>Source</th><th>Status</th><th>Last scan</th><th>Last successful scan</th>' +
+          '<th class="num">Content processed</th><th class="num">Relevant</th><th class="num">Ignored</th><th class="num">Needs review</th><th class="num">Errors</th>' +
+          '<th class="num">AI calls</th><th class="num">Est. AI cost</th><th class="num">Approved</th><th class="num">Rejected</th><th></th></tr></thead><tbody>' +
           d.sources.map(function (s) {
             var rep = s.reputation || {};
-            return '<tr style="cursor:default"><td><b>' + username(s.username) + '</b>' + (s.displayName ? '<div class="adm__none" style="font-size:12px">' + ui.esc(s.displayName) + '</div>' : '') + '</td>' +
-              '<td>' + ui.text(s.accountType) + '</td>' +
-              '<td>' + ui.pill(s.accessStatus || 'unknown', String(s.accessStatus || 'unknown').replace(/_/g, ' ')) +
-                (s.accessReason ? '<div class="adm__none" style="font-size:11px;max-width:320px">' + ui.esc(s.accessReason) + '</div>' : '') + '</td>' +
-              '<td class="num">' + ui.count(s.followersCount) + '</td>' +
+            var use = s.usage || null;
+            var st = s.stats || null;
+            var n = function (k) { return '<td class="num">' + (st ? ui.count(Math.max(0, st[k] || 0)) : ui.text(null)) + '</td>'; };
+            var filter = function (id, k) {
+              var v = st ? Math.max(0, st[k] || 0) : 0;
+              return '<td class="num">' + (st ? (v ? '<a href="/admin/instagram/extractions?source=' + encodeURIComponent(s.sourceKey) + '&filter=' + id + '">' + ui.count(v) + '</a>' : ui.count(0)) : ui.text(null)) + '</td>';
+            };
+            return '<tr style="cursor:default"><td><b>' + username(s.username) + '</b>' +
+                (s.displayName ? '<div class="adm__none" style="font-size:12px">' + ui.esc(s.displayName) + '</div>' : '') +
+                '<div class="adm__none" style="font-size:11px">' + ui.esc(s.accountType || '') + (s.followersCount != null ? ' · ' + ui.count(s.followersCount) + ' followers' : '') + '</div></td>' +
+              '<td>' + (s.ignored ? ui.pill('ignored', 'ignored') + ' ' : '') + ui.pill(s.accessStatus || 'unknown', String(s.accessStatus || 'unknown').replace(/_/g, ' ')) +
+                (s.accessReason ? '<div class="adm__none" style="font-size:11px;max-width:260px">' + ui.esc(s.accessReason) + '</div>' : '') + '</td>' +
+              '<td>' + ui.ago(s.lastScanAt || s.lastImportAt) + (s.lastScanStatus ? '<div class="adm__none" style="font-size:11px">' + ui.esc(statusLabel(s.lastScanStatus)) + '</div>' : '') + '</td>' +
+              '<td>' + ui.ago(s.lastSuccessfulScanAt) + '</td>' +
+              n('content') + filter('relevant', 'relevant') + filter('ignored', 'ignored') + filter('needs_review', 'needsReview') + n('errors') +
+              '<td class="num">' + (use ? ui.count((use.geminiCalls || 0) + (use.claudeCalls || 0)) +
+                '<div class="adm__none" style="font-size:11px">' + ui.count(use.geminiCalls || 0) + ' Gemini · ' + ui.count(use.claudeCalls || 0) + ' Claude · ' + ui.count(use.cacheHits || 0) + ' cached</div>' : ui.text(null)) + '</td>' +
+              '<td class="num">' + (use ? usd(use.costMicroUsd || 0) + (use.costUnknownCalls ? '<div class="adm__none" style="font-size:11px">+' + ui.count(use.costUnknownCalls) + ' unpriced</div>' : '') : ui.text(null)) + '</td>' +
               '<td class="num">' + ui.count(rep.approved || 0) + '</td><td class="num">' + ui.count(rep.rejected || 0) + '</td>' +
-              '<td>' + ui.ago(s.lastImportAt) + '</td>' +
               '<td style="white-space:nowrap">' +
-                (s.ignored ? ui.pill('ignored', 'ignored') + ' ' : '') +
                 (ctx.can('instagram.import') && !s.ignored ? '<a class="adm__btn" href="/admin/instagram?profile=' + encodeURIComponent(s.profileUrl || '') + '">Import again</a> ' : '') +
                 (ctx.can('compat.review') ? (s.ignored
                   ? '<button class="adm__btn" data-src="' + ui.esc(s.sourceKey) + '" data-ignore="0">Un-ignore</button>'
@@ -416,20 +503,21 @@
   function jobsTable(jobs, compact) {
     if (!jobs || !jobs.length) return ui.emptyState('No imports yet', 'Start one from the Instagram Data Importer.');
     return '<div class="adm__scroll"><table class="adm__table"><thead><tr><th>Source</th><th>Date</th><th>Status</th>' +
-      '<th class="num">Content</th><th class="num">Models extracted</th><th class="num">Matched</th>' +
+      '<th class="num">Content</th><th class="num">Relevant</th><th class="num">Ignored</th><th class="num">Models extracted</th><th class="num">Matched</th>' +
       '<th class="num">Review required</th><th class="num">Approved</th><th class="num">Rejected</th><th class="num">Duplicates</th>' +
       (compact ? '' : '<th>Method</th>') + '</tr></thead><tbody>' +
       jobs.map(function (j) {
         var c = j.counts || {};
         return '<tr data-job-row="' + ui.esc(j.jobId) + '"><td><b>@' + ui.esc(j.username) + '</b>' +
-          (j.postUrl ? '<div class="adm__none" style="font-size:11px">one post</div>' : '') + '</td>' +
+          (j.mode === 'evidence' ? '<div class="adm__none" style="font-size:11px">evidence added</div>' : j.postUrl ? '<div class="adm__none" style="font-size:11px">one post</div>' : '') + '</td>' +
           '<td>' + ui.dateTime(j.createdAt) + '</td>' +
           '<td>' + ui.pill(j.status, statusLabel(j.status)) + '</td>' +
-          '<td class="num">' + ui.count(c.postsFound) + '</td><td class="num">' + ui.count(c.modelReferences) + '</td>' +
+          '<td class="num">' + ui.count(c.postsFound) + '</td><td class="num">' + ui.count(c.relevant) + '</td><td class="num">' + ui.count(c.ignored) + '</td>' +
+          '<td class="num">' + ui.count(c.modelReferences) + '</td>' +
           '<td class="num">' + ui.count(c.matched) + '</td><td class="num">' + ui.count(c.pendingReview) + '</td>' +
           '<td class="num">' + ui.count(c.approved) + '</td><td class="num">' + ui.count(c.rejected) + '</td>' +
           '<td class="num">' + ui.count(c.duplicates) + '</td>' +
-          (compact ? '' : '<td>' + ui.esc(methodLabel(j.collectionMethod)) + '</td>') + '</tr>';
+          (compact ? '' : '<td>' + ui.esc(jobKind(j)) + '</td>') + '</tr>';
       }).join('') + '</tbody></table></div>';
   }
 
@@ -451,28 +539,36 @@
     ADM.currentCan = ctx.can;
     host.innerHTML = head('Import job') + '<div id="igActive"><div class="adm__card"><div class="adm__skel" style="height:80px"></div></div></div>' +
       '<div class="adm__card" id="igItems"></div>';
+    var showIgnored = false;
     function load() {
       api({ view: 'job', jobId: jobId, itemLimit: 200 }).then(function (d) {
         paintJob(host, d.job, ctx);
+        var isIgnored = function (i) { return ['IRRELEVANT_REPAIR', 'IRRELEVANT_GENERAL', 'DUPLICATE_SOURCE'].indexOf((i.result || {}).relevance) > -1; };
+        var hidden = d.items.filter(isIgnored).length;
+        var rows = showIgnored ? d.items : d.items.filter(function (i) { return !isIgnored(i); });
         host.querySelector('#igItems').innerHTML = '<h2>Content items</h2>' +
-          '<p class="adm__hint">In discovery order. A done item is never processed again; a failed one is retried up to the limit, then "Retry failed" re-queues it.</p>' +
-          (d.items.length ? '<div class="adm__scroll"><table class="adm__table"><thead><tr><th class="num">#</th><th>Content</th><th>Type</th><th>Status</th>' +
+          '<p class="adm__hint">In discovery order. A done item is never processed again; a failed one is retried up to the limit, then "Retry failed" re-queues it.' +
+          (hidden ? ' <b>' + hidden + '</b> repair or general post(s) were classified and set aside. <button type="button" class="ig__link" data-toggle-ignored="1">' +
+            (showIgnored ? 'Hide them' : 'Show them') + '</button>' : '') + '</p>' +
+          (rows.length ? '<div class="adm__scroll"><table class="adm__table"><thead><tr><th class="num">#</th><th>Content</th><th>Type</th><th>Status</th><th>Classified as</th>' +
             '<th class="num">Attempts</th><th>Result</th></tr></thead><tbody>' +
-            d.items.map(function (i) {
+            rows.map(function (i) {
               var r = i.result || {};
               return '<tr style="cursor:default"><td class="num">' + (i.order + 1) + '</td>' +
                 '<td>' + link(i.permalink, i.permalink ? i.permalink.replace('https://www.instagram.com', '') : 'manual entry') +
                   '<div class="adm__none" style="font-size:12px;max-width:420px">' + ui.esc(i.captionPreview || '') + '</div>' +
                   (i.mediaUrlOmitted ? '<div class="adm__none" style="font-size:11px">Instagram withheld the media (copyright); read from the caption only</div>' : '') + '</td>' +
                 '<td>' + ui.text(i.contentType) + '</td><td>' + ui.pill(i.status, String(i.status).replace(/_/g, ' ')) + '</td>' +
+                '<td>' + (r.relevance ? relevancePill(r.relevance) + (r.relevanceReason ? '<div class="adm__none" style="font-size:11px;max-width:300px">' + ui.esc(r.relevanceReason) + '</div>' : '') : ui.text(null)) + '</td>' +
                 '<td class="num">' + ui.count(i.attempts) + '</td>' +
                 '<td style="font-size:12px">' + (i.lastError ? '<span style="color:var(--bad)">' + ui.esc(i.lastError) + '</span>'
-                  : r.extractionId ? ui.count(r.relationships) + ' relationships · ' + ui.count(r.references) + ' refs · v' + ui.esc(r.version) + (r.aiUsed ? ' · AI' : '')
+                  : r.extractionId ? (r.proposals ? ui.count(r.proposals) + ' group proposal(s) · ' : '') + ui.count(r.relationships) + ' relationships · ' + ui.count(r.references) + ' refs · v' + ui.esc(r.version) + (r.aiUsed ? ' · AI' : '')
                   : r.note ? ui.esc(r.note) : ui.text(null)) + '</td></tr>';
-            }).join('') + '</tbody></table></div>' : ui.emptyState('No items', 'Nothing has been discovered for this job.'));
+            }).join('') + '</tbody></table></div>' : ui.emptyState(hidden ? 'Nothing actionable' : 'No items', hidden ? 'Every post of this job was classified as repair or general content.' : 'Nothing has been discovered for this job.'));
       }, function (err) { host.querySelector('#igActive').innerHTML = failBanner(err, 'the job'); });
     }
     host.addEventListener('click', function (e) {
+      if (e.target.closest('[data-toggle-ignored]')) { showIgnored = !showIgnored; load(); return; }
       var btn = e.target.closest('[data-job-act]');
       if (!btn) return;
       jobAction(jobId, btn.getAttribute('data-job-act'), ctx).then(function (changed) { if (changed) load(); });
@@ -480,7 +576,29 @@
     load();
   }
 
-  /* ========================================================= extractions */
+  /* ========================================================= extractions
+
+     ONLY WHAT IS ACTIONABLE, BY DEFAULT
+
+     The first tab is "Relevant": posts that make a compatibility claim. A
+     repair or jumper post is still here — classified, with the words that
+     decided it — but under "Ignored", where nobody has to wade through it.
+     Each tab is one query on the tags the server stored with the extraction. */
+
+  var RELEVANCE_LABEL = {
+    RELEVANT_COMPATIBILITY: 'Relevant — compatibility', PARTIALLY_RELEVANT: 'Partially relevant', NEEDS_REVIEW: 'Needs review',
+    INSUFFICIENT_EVIDENCE: 'Insufficient evidence', IRRELEVANT_REPAIR: 'Ignored — repair / technical',
+    IRRELEVANT_GENERAL: 'Ignored — no compatibility claim', DUPLICATE_SOURCE: 'Ignored — duplicate post'
+  };
+  var PROPOSAL_ACTION = {
+    NO_CHANGE: 'No change', UPDATE_EXISTING_GROUP: 'Update existing group', CREATE_NEW_GROUP: 'Create new group',
+    MERGE_REQUIRED: 'Merge required', CONFLICT_REVIEW: 'Conflict review', MODEL_REVIEW: 'Model review',
+    PRODUCT_CATEGORY_REVIEW: 'Product category review', REJECT: 'Reject'
+  };
+
+  function relevancePill(r) {
+    return r ? ui.pill(r, RELEVANCE_LABEL[r] || r) : '<span class="adm__pill">not classified</span>';
+  }
 
   function matchChip(r) {
     var m = r.match || {};
@@ -490,50 +608,252 @@
         : '<b>' + ui.esc(m.status || 'unmatched') + '</b>') + (r.fromHashtag ? ' <span class="adm__none">#</span>' : '') + '</span>';
   }
 
+  function textsHTML(x) {
+    var t = x.texts || {};
+    var block = function (title, list) {
+      return (list || []).length ? '<h3 class="ig__h3">' + title + '</h3>' + list.map(function (o) {
+        var manual = String(o.ref || '').indexOf('evidence:') === 0;
+        return '<pre class="ig__quote">' + ui.esc(o.text) + '</pre><div class="adm__none" style="font-size:11px">' +
+          (manual ? 'added by an admin' : ui.esc(o.ref || '')) +
+          (o.confidence != null ? ' · confidence ' + Math.round(o.confidence * 100) + '%' : '') + '</div>'; }).join('') : '';
+    };
+    var unread = (x.mediaItems || []).filter(function (m) { return m.ocrStatus !== 'ok'; });
+    return '<h3 class="ig__h3">Caption</h3><pre class="ig__quote">' + ui.esc(t.caption || '—') + '</pre>' +
+      block('Text in images (OCR)', t.ocr) + block('Read by AI vision', t.vision) + block('Key frames', t.frames) + block('Entered by an admin', t.manual) +
+      (t.transcript ? '<h3 class="ig__h3">Transcript</h3><pre class="ig__quote">' + ui.esc(t.transcript) + '</pre>' : '') +
+      (unread.length ? '<p class="adm__none" style="font-size:12px">' + unread.map(function (m) {
+        return ui.esc((m.kind || 'media') + ' ' + m.mediaId + ': ' + (m.code ? '[' + m.code + '] ' : '') + (m.reason || m.ocrStatus)); }).join('<br>') + '</p>' : '') +
+      (function () {
+        var lines = (x.mediaItems || []).map(mediaReadLine).filter(Boolean);
+        return lines.length ? '<p class="adm__none" style="font-size:11px">' + lines.join('<br>') + '</p>' : '';
+      })();
+  }
+
+  /** Which rungs one medium climbed: the screen's verdict, who read it, how surely. */
+  function mediaReadLine(m) {
+    var v = m.vision || {};
+    var engine = v.engine || (m.readBy === 'vision' ? m.engine : null);
+    var parts = [];
+    if (m.screen && m.screen.verdict) {
+      parts.push('screened ' + ui.esc(String(m.screen.verdict).replace(/_/g, ' ').toLowerCase()) + (m.screen.reason ? ' (' + ui.esc(m.screen.reason) + ')' : ''));
+    }
+    if (engine && !v.screenedOnly) {
+      parts.push((m.kind === 'video' ? 'video read by ' : 'read by ') + ui.esc(engine) + (v.confidence != null ? ' at ' + Math.round(v.confidence * 100) + '%' : '') +
+        (m.passes ? ', ' + m.passes + (m.passes === 1 ? ' pass' : ' passes') : '') + (m.seconds ? ', ' + ui.count(m.seconds) + ' s' : ''));
+    }
+    return parts.length ? ui.esc(m.mediaId) + ': ' + parts.join(' · ') : '';
+  }
+
+  function proposalsTable(x) {
+    var status = x.proposalStatus || {};
+    return '<div class="adm__scroll"><table class="adm__table"><thead><tr><th>Product</th><th>Proposed action</th><th>Group</th><th>Master</th>' +
+      '<th class="num">Listed</th><th class="num">Matched</th><th class="num">Add</th><th class="num">Conflict</th><th class="num">Unmatched</th><th>Confidence</th><th>Status</th></tr></thead><tbody>' +
+      x.proposals.map(function (p) {
+        var c = p.counts || {};
+        var st = status[p.candidateId] || p.status;
+        return '<tr style="cursor:default"><td>' + ui.esc(p.productName || p.categoryId || 'not named') + '</td>' +
+          '<td><b>' + ui.esc(PROPOSAL_ACTION[p.proposedAction] || p.proposedAction) + '</b></td>' +
+          '<td>' + (p.targetGroupNo ? ui.esc(p.targetGroupNo) : '<span class="adm__none">new</span>') + '</td>' +
+          '<td>' + (p.masterModelName ? ui.esc(p.masterModelName) : p.masterReviewRequired ? '<span style="color:var(--warn)">review required</span>' : ui.text(null)) + '</td>' +
+          '<td class="num">' + ui.count(c.extracted) + '</td><td class="num">' + ui.count(c.matched) + '</td><td class="num">' + ui.count(c.add) + '</td>' +
+          '<td class="num">' + ui.count(c.conflict) + '</td><td class="num">' + ui.count((c.unmatched || 0) + (c.needsReview || 0)) + '</td>' +
+          '<td>' + ui.pill(p.confidence, p.confidence) + '</td><td>' + ui.pill(st, String(st).replace(/_/g, ' ')) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function evidenceForm(x) {
+    return '<details class="ig__details ig__evidencebox"' + (x.relevance === 'INSUFFICIENT_EVIDENCE' ? ' open' : '') + '><summary>Add evidence — screenshots of the post, or its text</summary>' +
+      '<form class="ig__form" data-evidence="' + ui.esc(x.contentKey) + '">' +
+      '<p class="adm__hint" style="margin:0">For a reel Instagram would not hand over: open it, screenshot the frames that show the list, and attach them. ' +
+      'They are read by the same OCR and vision, stored as <b>added by an admin</b>, and the post is analysed again. Nothing reaches production without approval.</p>' +
+      '<label>Screenshots (JPEG / PNG, up to 4)<input type="file" name="shots" accept="image/jpeg,image/png,image/webp" multiple></label>' +
+      '<label>…or type the text shown in the post<textarea name="text" rows="4" maxlength="8000" placeholder="Vivo Y20 Combo&#10;Compatible with:&#10;Vivo Y20&#10;Vivo Y20a"></textarea></label>' +
+      '<div><button class="adm__btn adm__btn--primary" type="submit">Add and analyse again</button></div></form></details>';
+  }
+
+  function extractionCard(x, ctx) {
+    var ignored = (x.filters || []).indexOf('ignored') > -1;
+    var sig = x.signals || {};
+    var h = '<div class="adm__card' + (ignored ? ' ig__ignored' : '') + '"><div class="ig__jobhead"><div><h2>' + username(x.username) + ' · ' + ui.esc(x.contentType || '') +
+      ' · v' + ui.esc(x.version) + ' ' + relevancePill(x.relevance) + '</h2>' +
+      '<p class="adm__hint" style="margin:2px 0 0">' + link(x.permalink, 'open post') + ' · ' + ui.dateTime(x.extractedAt) +
+      ' · <span class="mono">' + ui.esc(x.processingVersion) + '</span></p></div>' +
+      ((x.candidateIds || []).length ? '<a class="adm__btn" href="/admin/instagram/review?job=' + encodeURIComponent(x.jobId) + '&section=' +
+        ((x.filters || []).indexOf('conflicts') > -1 ? 'conflicts' : (x.filters || []).indexOf('group_updates') > -1 ? 'group_updates' : (x.filters || []).indexOf('new_groups') > -1 ? 'new_groups' : 'review') + '">Review</a>' : '') + '</div>';
+
+    var pl = x.pipeline || null;
+    if (pl) {
+      var cand = pl.candidate || {};
+      h += '<p class="ig__pipeline"><span class="adm__pill">' + ui.esc(String(pl.state || '').replace(/_/g, ' ')) + '</span> ' +
+        (pl.trace || []).map(function (t) { return '<span title="' + ui.esc(t.detail || '') + '">' + ui.esc(String(t.stage).replace(/_/g, ' ').toLowerCase()) + '</span>'; }).join(' <span class="adm__none">›</span> ') +
+        (cand.tier ? ' <span class="adm__none">· free filter: ' + ui.esc(cand.tier) + ' (' + ui.esc(cand.score) + ')' +
+          ((cand.reasons || []).length ? ' — ' + cand.reasons.map(function (r) { return ui.esc(r.signal) + ' ' + (r.weight > 0 ? '+' : '') + r.weight; }).join(', ') : '') + '</span>' : '') +
+        (pl.aiConfidence != null ? ' <span class="adm__none">· reader confidence ' + Math.round(pl.aiConfidence * 100) + '%</span>' : '') + '</p>';
+    }
+    if (x.relevanceReason) {
+      h += '<p class="ig__reason">' + ui.esc(x.relevanceReason) +
+        ((sig.repairTerms || []).length ? ' <span class="adm__none">repair words: ' + ui.esc(sig.repairTerms.slice(0, 5).join(', ')) + '</span>' : '') +
+        ((sig.compatTerms || []).length ? ' <span class="adm__none">compatibility words: ' + ui.esc(sig.compatTerms.slice(0, 5).join(', ')) + '</span>' : '') + '</p>';
+    }
+
+    if (ignored) {
+      /* kept for audit, and deliberately small */
+      h += '<details class="ig__details"><summary>' + ui.esc(String((x.texts || {}).caption || '').slice(0, 140) || 'no caption') + '</summary>' + textsHTML(x) + '</details>';
+      /* the safety net: a person can overrule the free filter for one post */
+      if (ctx.can('instagram.import') && x.permalink && /^https:\/\/www\.instagram\.com\//.test(x.permalink)) {
+        h += '<div class="ig__minis"><button type="button" class="ig__mini" data-force="' + ui.esc(x.permalink) + '" data-user="' + ui.esc(x.username || '') + '">Analyse anyway — send this post to the model</button></div>';
+      }
+      if (ctx.can('instagram.import')) h += evidenceForm(x);
+      return h + '</div>';
+    }
+
+    if ((x.proposals || []).length) h += '<h3 class="ig__h3">Compatibility lists compared with existing groups</h3>' + proposalsTable(x);
+
+    var cat = x.category || {};
+    h += '<div class="adm__grid2" style="margin-top:12px"><div>' + textsHTML(x) + '</div><div>' +
+      '<h3 class="ig__h3">Category</h3><p>' + (cat.categoryId ? '<b>' + ui.esc(cat.categoryId) + '</b> from “' + ui.esc(cat.term) + '” (' + ui.esc(cat.method) + ')'
+        : cat.unmappedTerm ? '<span style="color:var(--bad)">“' + ui.esc(cat.unmappedTerm) + '” has no category in the catalogue</span>' : '<span class="adm__none">none named</span>') + '</p>' +
+      '<h3 class="ig__h3">Model references (' + (x.references || []).length + ')</h3><div class="ig__chips">' +
+        ((x.references || []).map(matchChip).join('') || '<span class="adm__none">none</span>') + '</div>' +
+      ((x.relationships || []).length && !(x.proposals || []).length ? '<h3 class="ig__h3">Relationships (' + x.relationships.length + ')</h3><ul class="ig__rels">' + x.relationships.map(function (r) {
+        return '<li>' + ui.esc(r.sourceText) + ' <b>' + (r.polarity === 'negative' ? '≠' : '↔') + '</b> ' + ui.esc(r.compatibleText) +
+          ' ' + ui.pill(r.compatibilityType, r.compatibilityType) + (r.extractedBy === 'ai' ? ' ' + ui.pill('draft', 'AI') : '') +
+          (r.aiAgrees ? ' <span class="adm__none" style="font-size:11px">AI agrees</span>' : '') + '</li>';
+      }).join('') + '</ul>' : '') +
+      '<h3 class="ig__h3">AI</h3><p style="font-size:12px">' + (x.ai && x.ai.used
+        ? 'Used' + (x.ai.model ? ' (' + ui.esc(x.ai.model) + ')' : '') + (x.ai.cached ? ', from cache' : '') + ': ' + ui.count(x.ai.valid) + ' valid, ' + ui.count(x.ai.rejected) + ' refused by validation'
+        : ui.esc((x.ai && x.ai.reason) || 'not used')) + '</p>' +
+      ((x.warnings || []).length ? '<p class="adm__none" style="font-size:12px">' + x.warnings.map(ui.esc).join('<br>') + '</p>' : '') +
+      '</div></div>';
+    if (ctx.can('instagram.import')) h += evidenceForm(x);
+    return h + '</div>';
+  }
+
+  /** A screenshot, shrunk in the browser before it travels: the server reads
+      text, and a 12-megapixel phone screenshot is a 4 MB request for nothing. */
+  function shrink(file, maxSide, quality) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('“' + file.name + '” is not an image this browser can read')); };
+      img.src = url;
+    });
+  }
+
+  function submitEvidence(form, ctx, reload) {
+    var contentKey = form.getAttribute('data-evidence');
+    var files = Array.prototype.slice.call(form.querySelector('input[name="shots"]').files || [], 0, 4);
+    var text = form.querySelector('textarea[name="text"]').value.trim();
+    var button = form.querySelector('button[type="submit"]');
+    if (!files.length && text.length < 3) { ctx.toast('Attach a screenshot or type the text first', 'warn'); return; }
+    button.disabled = true;
+    button.textContent = 'Reading…';
+    /* one image per request: each stays far below the request size limit */
+    var steps = files.map(function (f) { return { file: f }; });
+    if (!steps.length) steps.push({ file: null });
+    var summary = { read: 0, unread: 0, last: null };
+    var next = function (i) {
+      if (i >= steps.length) return Promise.resolve();
+      var f = steps[i].file;
+      var prep = f ? Promise.all([shrink(f, 1800, 0.88), shrink(f, 420, 0.6)]) : Promise.resolve(null);
+      return prep.then(function (r) {
+        return act({ action: 'add_evidence', contentKey: contentKey,
+          images: r ? [{ data: r[0].split(',')[1], preview: r[1] }] : [],
+          text: i === steps.length - 1 ? text : '' });
+      }).then(function (out) {
+        (out.added || []).forEach(function (a) { summary[a.status === 'read' ? 'read' : 'unread']++; if (a.status !== 'read' && a.reason) summary.reason = a.reason; });
+        summary.last = out;
+        return next(i + 1);
+      });
+    };
+    next(0).then(function () {
+      var o = summary.last || {};
+      ctx.toast(summary.read + ' piece(s) of evidence read' + (summary.unread ? ', ' + summary.unread + ' could not be read' + (summary.reason ? ' (' + summary.reason + ')' : '') : '') +
+        (o.analysed ? ' · now ' + (RELEVANCE_LABEL[o.relevance] || o.relevance) + ', ' + (o.proposals || 0) + ' group proposal(s)' : ''),
+        summary.unread && !summary.read ? 'warn' : '');
+      reload();
+    }, function (err) {
+      button.disabled = false;
+      button.textContent = 'Add and analyse again';
+      ctx.toast(err.message || 'Could not add the evidence', 'bad');
+    });
+  }
+
   function renderExtractions(host, ctx) {
     host = mount(host);
     var params = new URLSearchParams(location.search);
-    host.innerHTML = head('Extraction Results', 'What each post said, what the rules and the AI read out of it, and how every model reference matched the catalogue.') +
+    var state = { filter: params.get('filter') || 'relevant', jobId: params.get('job') || '', sourceKey: params.get('source') || '' };
+    host.innerHTML = head('Extraction Results', 'What each post said and what was read out of it. Only posts that make a compatibility claim are listed by default; repair and general posts are kept under Ignored.') +
+      '<div class="adm__card">' +
+      (state.jobId ? '<span class="adm__pill adm__pill--info">job ' + ui.esc(state.jobId) + '</span> ' : '') +
+      (state.sourceKey ? '<span class="adm__pill adm__pill--info">' + ui.esc(state.sourceKey.replace(/^ig_/, '@')) + '</span> ' : '') +
+      (state.jobId || state.sourceKey ? '<a href="/admin/instagram/extractions" class="adm__btn">Show every source</a>' : '') +
+      '<div class="ig__tabs" role="tablist" id="igExTabs" style="margin-top:' + (state.jobId || state.sourceKey ? '10px' : '0') + '"></div></div>' +
       '<div id="igEx"><div class="adm__card">' + skel() + '</div></div>';
-    api({ view: 'extractions', jobId: params.get('job') || undefined, limit: 40 }).then(function (d) {
-      var box = host.querySelector('#igEx');
-      if (!d.extractions.length) { box.innerHTML = '<div class="adm__card">' + ui.emptyState('No extractions yet', 'They appear as an import processes content.') + '</div>'; return; }
-      box.innerHTML = d.extractions.map(function (x) {
-        var t = x.texts || {};
-        var cat = x.category || {};
-        return '<div class="adm__card"><div class="ig__jobhead"><div><h2>' + username(x.username) + ' · ' + ui.esc(x.contentType || '') +
-          ' · v' + ui.esc(x.version) + '</h2><p class="adm__hint" style="margin:2px 0 0">' + link(x.permalink, 'open post') + ' · ' + ui.dateTime(x.extractedAt) +
-          ' · <span class="mono">' + ui.esc(x.processingVersion) + '</span></p></div>' +
-          '<a class="adm__btn" href="/admin/instagram/review?job=' + encodeURIComponent(x.jobId) + '">Review</a></div>' +
-          '<div class="adm__grid2" style="margin-top:12px"><div>' +
-            '<h3 class="ig__h3">Caption</h3><pre class="ig__quote">' + ui.esc(t.caption || '—') + '</pre>' +
-            ((t.ocr || []).length ? '<h3 class="ig__h3">Text in images (OCR)</h3>' + t.ocr.map(function (o) {
-              return '<pre class="ig__quote">' + ui.esc(o.text) + '</pre><div class="adm__none" style="font-size:11px">' + ui.esc(o.ref) +
-                (o.confidence != null ? ' · OCR confidence ' + Math.round(o.confidence * 100) + '%' : '') + '</div>'; }).join('') : '') +
-            ((t.frames || []).length ? '<h3 class="ig__h3">Key frames</h3>' + t.frames.map(function (f) {
-              return '<pre class="ig__quote">' + ui.esc(f.text) + '</pre><div class="adm__none" style="font-size:11px">' + ui.esc(f.ref) + '</div>'; }).join('') : '') +
-            (t.transcript ? '<h3 class="ig__h3">Transcript</h3><pre class="ig__quote">' + ui.esc(t.transcript) + '</pre>' : '') +
-            ((x.mediaItems || []).some(function (m) { return m.ocrStatus !== 'ok'; })
-              ? '<p class="adm__none" style="font-size:12px">' + x.mediaItems.filter(function (m) { return m.ocrStatus !== 'ok'; })
-                  .map(function (m) { return ui.esc(m.mediaId + ': ' + (m.reason || m.ocrStatus)); }).join('<br>') + '</p>' : '') +
-          '</div><div>' +
-            '<h3 class="ig__h3">Category</h3><p>' + (cat.categoryId ? '<b>' + ui.esc(cat.categoryId) + '</b> from “' + ui.esc(cat.term) + '” (' + ui.esc(cat.method) + ')'
-              : cat.unmappedTerm ? '<span style="color:var(--bad)">“' + ui.esc(cat.unmappedTerm) + '” has no category in the catalogue</span>' : '<span class="adm__none">none named</span>') + '</p>' +
-            '<h3 class="ig__h3">Model references (' + (x.references || []).length + ')</h3><div class="ig__chips">' +
-              ((x.references || []).map(matchChip).join('') || '<span class="adm__none">none</span>') + '</div>' +
-            '<h3 class="ig__h3">Relationships (' + (x.relationships || []).length + ')</h3>' +
-              ((x.relationships || []).length ? '<ul class="ig__rels">' + x.relationships.map(function (r) {
-                return '<li>' + ui.esc(r.sourceText) + ' <b>' + (r.polarity === 'negative' ? '≠' : '↔') + '</b> ' + ui.esc(r.compatibleText) +
-                  ' ' + ui.pill(r.compatibilityType, r.compatibilityType) + (r.extractedBy === 'ai' ? ' ' + ui.pill('draft', 'AI') : '') +
-                  (r.aiAgrees ? ' <span class="adm__none" style="font-size:11px">AI agrees</span>' : '') + '</li>';
-              }).join('') + '</ul>' : '<p class="adm__none">none</p>') +
-            '<h3 class="ig__h3">AI</h3><p style="font-size:12px">' + (x.ai && x.ai.used
-              ? 'Used' + (x.ai.model ? ' (' + ui.esc(x.ai.model) + ')' : '') + (x.ai.cached ? ', from cache' : '') + ': ' + ui.count(x.ai.valid) + ' valid, ' + ui.count(x.ai.rejected) + ' refused by validation'
-              : ui.esc((x.ai && x.ai.reason) || 'not used')) + '</p>' +
-            ((x.warnings || []).length ? '<p class="adm__none" style="font-size:12px">' + x.warnings.map(ui.esc).join('<br>') + '</p>' : '') +
-          '</div></div></div>';
-      }).join('');
-    }, function (err) { host.querySelector('#igEx').innerHTML = failBanner(err, 'extractions'); });
+
+    function load() {
+      var q = { view: 'extractions', filter: state.filter, limit: 40 };
+      if (state.jobId) q.jobId = state.jobId;
+      if (state.sourceKey) q.sourceKey = state.sourceKey;
+      api(q).then(function (d) {
+        if (!host.isConnected) return;
+        host.querySelector('#igExTabs').innerHTML = (d.filters || []).map(function (f) {
+          var n = d.counts ? d.counts[f.id] : null;
+          return '<button type="button" role="tab" class="ig__tab' + (f.id === d.filter ? ' is-on' : '') + '" data-filter="' + f.id + '" aria-selected="' + (f.id === d.filter) + '">' +
+            ui.esc(f.label) + (n === null || n === undefined ? '' : ' <span class="ig__count">' + n + '</span>') + '</button>';
+        }).join('');
+        var box = host.querySelector('#igEx');
+        if (!d.extractions.length) {
+          box.innerHTML = '<div class="adm__card">' + ui.emptyState('Nothing under “' + ((d.filters || []).filter(function (f) { return f.id === d.filter; })[0] || {}).label + '”', {
+            relevant: 'Posts that make a compatibility claim appear here as an import processes them. Repair and general posts are under Ignored.',
+            ignored: 'Repair, jumper and general posts are kept here with the reason each was set aside.',
+            needs_review: 'Posts that talk about compatibility but whose list could not be read, and lists with unresolved models.',
+            errors: 'Posts whose media could not be read at all.'
+          }[d.filter] || 'No extraction carries this tag yet.') + '</div>';
+          return;
+        }
+        box.innerHTML = (d.indexMissing ? ui.banner('warn', '<b>The Firestore index for these tabs is not deployed yet.</b> Showing matches among the 300 most recent extractions. ' +
+            'Run <code>firebase deploy --only firestore:indexes</code> to make every tab a single indexed query.') : '') +
+          d.extractions.map(function (x) { return extractionCard(x, ctx); }).join('') +
+          (d.approximate ? '<p class="adm__hint">Showing matches among this source\'s 300 most recent extractions.</p>' : '');
+      }, function (err) { host.querySelector('#igEx').innerHTML = failBanner(err, 'extractions'); });
+    }
+
+    host.addEventListener('click', function (e) {
+      var tab = e.target.closest('[data-filter]');
+      if (!tab) return;
+      state.filter = tab.getAttribute('data-filter');
+      var qs = new URLSearchParams();
+      qs.set('filter', state.filter);
+      if (state.jobId) qs.set('job', state.jobId);
+      if (state.sourceKey) qs.set('source', state.sourceKey);
+      history.replaceState(null, '', '/admin/instagram/extractions?' + qs.toString());
+      load();
+    });
+    host.addEventListener('click', function (e) {
+      var f = e.target.closest('[data-force]');
+      if (!f) return;
+      if (!global.confirm('Send this post to the model even though the free filter set it aside?\n\nIt costs one deep read (and counts against the AI budget). Only this post is read.')) return;
+      act({ action: 'analyze', profileUrl: 'https://www.instagram.com/' + f.getAttribute('data-user') + '/', postUrl: f.getAttribute('data-force'), force: true })
+        .then(function (r) { ctx.go('/admin/instagram?job=' + encodeURIComponent(r.job.jobId)); },
+              function (err) { ctx.toast(err.message || 'Could not start the analysis', 'bad'); });
+    });
+    host.addEventListener('submit', function (e) {
+      var form = e.target.closest('form[data-evidence]');
+      if (!form) return;
+      e.preventDefault();
+      submitEvidence(form, ctx, load);
+    });
+    load();
   }
 
   /* ============================================================= history */
@@ -604,5 +924,5 @@
   ADM.pages.igJob = { render: renderJob };
   ADM.pages.igExtractions = { render: renderExtractions };
   ADM.pages.igHistory = { render: renderHistory };
-  ADM.ig = { statusLabel: statusLabel, username: username, link: link, head: head, failBanner: failBanner };
+  ADM.ig = { statusLabel: statusLabel, username: username, link: link, head: head, failBanner: failBanner, relevancePill: relevancePill };
 })(window);

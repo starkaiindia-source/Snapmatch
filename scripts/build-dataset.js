@@ -366,6 +366,15 @@ function build() {
                 `${overlay.unapplied.length} NOT applied (see report.json), ${overlay.pendingNewGroup} awaiting a new group`);
   }
 
+  /* ---- 2a-bis. one category + one model = one group ----
+
+     A search for "Samsung A14 · tempered glass" must return ONE part. A
+     device listed in two groups of the same category returns two, so every
+     such assignment is reported by name here — and scripts/import-firestore.js
+     refuses to publish a build that has any. The fix belongs in the master
+     compatibility data, not in this build. */
+  report.anomalies.duplicateCategoryAssignments = findDuplicateAssignments(modelGroups);
+
   report.anomalies.unresolvedMembers = unresolved;
   report.counts.groups = groups.length;
   report.counts.modelGroupDocs = modelGroups.size;
@@ -506,6 +515,8 @@ function build() {
               '(' + report.anomalies.rejectedSourcePartNos.length + ' distinct source values rejected as placeholder)');
   console.log('  models + screen type         :', report.counts.modelsWithScreenType);
   console.log('  models + battery part number :', report.counts.modelsWithBatteryPartNo);
+  console.log('  models in >1 group / category:', report.anomalies.duplicateCategoryAssignments.length,
+              report.anomalies.duplicateCategoryAssignments.length ? '  <-- import-firestore.js will refuse this build (see report.json)' : '');
   console.log('  unresolved member rows       :', unresolved.length);
   console.log('  unresolved masters           :', (report.anomalies.unresolvedMasters || []).length);
   console.log('  groups with no members       :', (report.anomalies.emptyGroups || []).length);
@@ -548,7 +559,25 @@ function applyApprovedOverlay(ledger, groups, models, modelGroups) {
   return overlay;
 }
 
-/* Run as a script; required (by its test) it only exports the overlay. */
+/**
+ * Every device that sits in more than one group of one category.
+ *
+ * @param {Map<string, Object<string,string[]>>|Array<{id:string, byCategory:object}>} modelGroups
+ * @returns {Array<{modelId:string, categoryId:string, groupIds:string[]}>}
+ */
+function findDuplicateAssignments(modelGroups) {
+  const rows = modelGroups instanceof Map
+    ? Array.from(modelGroups.entries()).map(([id, byCategory]) => ({ id, byCategory }))
+    : modelGroups || [];
+  const out = [];
+  rows.forEach(r => Object.keys(r.byCategory || {}).forEach(categoryId => {
+    const groupIds = Array.from(new Set(r.byCategory[categoryId] || []));
+    if (groupIds.length > 1) out.push({ modelId: r.id, categoryId, groupIds });
+  }));
+  return out;
+}
+
+/* Run as a script; required (by its tests) it only exports these. */
 if (require.main === module) build();
 
-module.exports = { applyApprovedOverlay };
+module.exports = { applyApprovedOverlay, findDuplicateAssignments };

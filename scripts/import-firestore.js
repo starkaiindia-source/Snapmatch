@@ -163,6 +163,32 @@ async function guardApprovedFitments() {
   process.exit(1);
 }
 
+/* -------------------------------------------- one group per category guard
+
+   One category + one model = one group. The Instagram review queue enforces
+   it on every approval; this enforces it on the other way compatibility data
+   reaches production — the build. A device in two groups of one category
+   would make a single search return two parts, so such a build is not
+   published. Fix the master compatibility data and rebuild, or pass
+   --allow-duplicate-assignments to publish it knowingly. No network: it
+   reads the build on disk. */
+function guardOneGroupPerCategory() {
+  const { findDuplicateAssignments } = require('./build-dataset');
+  const dups = findDuplicateAssignments(readNdjson('modelGroups.ndjson'))
+    .filter(d => !CATEGORY || d.categoryId === CATEGORY);
+  console.log(`  one group per category: ${dups.length} device(s) assigned to more than one group`);
+  if (!dups.length) return;
+  dups.slice(0, 30).forEach(d => console.log(`    - ${d.categoryId}: ${d.modelId} in ${d.groupIds.join(' and ')}`));
+  if (has('allow-duplicate-assignments')) {
+    console.log('  --allow-duplicate-assignments given: importing anyway. Those devices will return more than one part.');
+    return;
+  }
+  console.error('\n  Refusing to import: a device may belong to only ONE group per category.' +
+    '\n  Remove the duplicate assignments in the master compatibility data and rebuild,' +
+    '\n  or pass --allow-duplicate-assignments to publish them knowingly.\n');
+  process.exit(1);
+}
+
 /* ------------------------------------------------------------------- run */
 async function main() {
   console.log('\n  Mobile Parts Finder — Firestore import');
@@ -192,6 +218,7 @@ async function main() {
     }));
   }
 
+  if (want('groups') || want('modelGroups')) guardOneGroupPerCategory();
   if (want('groups') && !DRY) await guardApprovedFitments();
 
   if (want('groups')) {
