@@ -140,8 +140,7 @@ function createGraphClient(opts = {}) {
         `@${username} is not visible to Business Discovery (it is not a public professional account).`);
     }
     const media = (bd.media && bd.media.data) || [];
-    const cursor = bd.media && bd.media.paging && bd.media.paging.cursors && bd.media.paging.next
-      ? bd.media.paging.cursors.after : null;
+    const cursor = nextCursor(bd.media && bd.media.paging, media.length, limit);
     return {
       profile: {
         igUserId: bd.id || null, username: bd.username ? String(bd.username).toLowerCase() : username,
@@ -157,11 +156,28 @@ function createGraphClient(opts = {}) {
   async function ownMediaPage({ after = null, limit = 25 } = {}) {
     const body = await call(`${igUserId}/media`, { fields: OWN_MEDIA_FIELDS, limit, after });
     const media = body.data || [];
-    const cursor = body.paging && body.paging.next && body.paging.cursors ? body.paging.cursors.after : null;
+    const cursor = nextCursor(body.paging, media.length, limit);
     return { media: media.map(normaliseMedia), nextCursor: cursor };
   }
 
   return { configured, ownProfile, discoverPage, ownMediaPage };
+}
+
+/**
+ * The cursor for the next page, or null when there is none.
+ *
+ * Business Discovery's nested media edge pages by `cursors` ONLY — Meta does
+ * not send a `next` link there (confirmed against the live API on
+ * 2026-09-30). Requiring `next` stopped every Business Discovery import after
+ * its first page. So: an `after` cursor with either a `next` link or a FULL
+ * page means there may be more; a short page is the end. A last page that
+ * happens to be exactly full costs one extra, empty call — and the job's
+ * maxDiscoveryPages bounds it regardless.
+ */
+function nextCursor(paging, count, limit) {
+  const after = paging && paging.cursors && paging.cursors.after;
+  if (!after) return null;
+  return paging.next || count >= limit ? after : null;
 }
 
 /** Graph's error envelope -> one of a small set of kinds a job can act on. */
@@ -243,4 +259,4 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-module.exports = { createGraphClient, GraphError, normaliseMedia, mapError, MEDIA_FIELDS };
+module.exports = { createGraphClient, GraphError, normaliseMedia, mapError, nextCursor, MEDIA_FIELDS };

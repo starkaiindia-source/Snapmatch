@@ -397,6 +397,11 @@ function matchModel(text, opts = {}) {
   const relaxedPass = runLadder(tax, tokens0, opts, true);
   if (relaxedPass) return finish(tax, relaxedPass, normalizedText, tokens0);
 
+  /* `ladderOnly`: the caller wants a yes/no from the deterministic rungs and
+     nothing fuzzy — the extractor uses it to find where a model name ENDS in a
+     caption, where a fuzzy "close enough" would swallow the words after it. */
+  if (opts.ladderOnly) return unmatched(normalizedText, ['no deterministic rung matched']);
+
   const sim = similarity(tax, tokens0, opts);
   if (sim) return finish(tax, sim, normalizedText, tokens0);
 
