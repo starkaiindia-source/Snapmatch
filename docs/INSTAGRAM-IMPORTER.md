@@ -242,6 +242,11 @@ sent with `store: false`, so Google does not retain them as a conversation.
   marked `VIDEO_MEDIA_UNAVAILABLE`; the cover, if there is one, is read *as a
   cover* and the reel stays "partly read". Nothing reports a video as analysed
   that was not.
+- **Thinking is kept as low as the model allows.** The screen asks for
+  `minimal`, the deep read for `low`. Models differ in the levels they have
+  (`gemini-3.8-flash` has no `minimal`); a level a model refuses is stepped up
+  by one, remembered, and the level actually used is shown by the provider
+  check.
 - **The model's answer is text, not truth.** It is forced into a JSON schema,
   validated, and handed to the same extractor and catalogue matcher as a
   caption. A name the catalogue lacks is `unmatched`; it never becomes a model.

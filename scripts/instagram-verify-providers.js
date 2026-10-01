@@ -28,7 +28,7 @@ const usd = micro => (micro == null ? 'price unknown' : '$' + (micro / 1e6).toFi
     console.log(`  ${name.padEnd(10)} ${String(p.status).padEnd(14)} ${p.code ? '[' + p.code + '] ' : ''}${p.detail || ''}`);
     console.log(`  ${' '.repeat(10)} ${p.role}`);
     (p.calls || []).forEach(c => console.log(`  ${' '.repeat(10)} called ${c.model}: ${c.inputTokens} in / ${c.outputTokens} out tokens, ${usd(c.costMicroUsd)}` +
-      (c.imageInput ? ', image input accepted' : '')));
+      (c.imageInput ? ', image input accepted' : '') + (c.thinkingLevel ? ', thinking ' + c.thinkingLevel : '')));
     if (p.available) console.log(`  ${' '.repeat(10)} models this key can use: ${p.available.join(', ')}`);
     if (p.notProven) console.log(`  ${' '.repeat(10)} not proven: ${p.notProven}`);
   });

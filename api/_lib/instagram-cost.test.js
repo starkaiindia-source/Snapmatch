@@ -262,6 +262,55 @@ test('Gemini is called through the Interactions API with a schema, store:false a
   assert.equal(body.input[0].resolution, 'high');
 });
 
+test('a thinking level a model does not have is stepped up, once, and remembered', async () => {
+  /* the first live provider check: gemini-3.8-flash has no "minimal" */
+  aiProviders._internal.refusedLevels.clear();
+  const sent = [];
+  const supports = { 'gemini-3.8-flash': ['low', 'medium', 'high'], 'gemini-3.1-flash-lite': ['minimal', 'high'], 'no-levels-model': [] };
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body);
+    const level = (body.generation_config || {}).thinking_level;
+    sent.push({ model: body.model, level: level || null });
+    if (level && supports[body.model].indexOf(level) < 0) {
+      return { ok: false, status: 400, headers: { get: () => null }, json: async () => ({ error: { code: 400, status: 'INVALID_ARGUMENT',
+        message: 'Thinking level THINKING_LEVEL_' + level.toUpperCase() + ' is not supported for this model. Please retry with other thinking level.' } }) };
+    }
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ model: body.model, status: 'completed',
+      steps: [{ type: 'model_output', content: [{ type: 'text', text: '{"saw_image":true}' }] }], usage: { total_input_tokens: 260, total_output_tokens: 8 } }) };
+  };
+  const gemini = aiProviders.createGemini({ key: 'test-only-gemini-key-not-real', fetchImpl });
+  const ask = (model, thinkingLevel) => gemini.interact({ model, thinkingLevel, schema: { type: 'object' }, maxOutputTokens: 64, input: [{ type: 'text', text: 'x' }] });
+
+  const first = await ask('gemini-3.8-flash', 'minimal');
+  assert.equal(first.ok, true, 'the refusal is not the answer');
+  assert.equal(first.thinkingLevel, 'low', 'the next level up, not a jump to the most expensive');
+  assert.deepEqual(sent.map(s => s.level), ['minimal', 'low']);
+
+  await ask('gemini-3.8-flash', 'minimal');
+  assert.deepEqual(sent.map(s => s.level), ['minimal', 'low', 'low'], 'the refused level is not tried again');
+
+  const lite = await ask('gemini-3.1-flash-lite', 'minimal');
+  assert.equal(lite.thinkingLevel, 'minimal', 'a model that has the level keeps it — what one model refused says nothing about another');
+
+  /* a model that refuses every level is asked with none: its own default */
+  const none = await ask('no-levels-model', 'low');
+  assert.equal(none.ok, true);
+  assert.equal(none.thinkingLevel, null);
+  assert.deepEqual(sent.filter(s => s.model === 'no-levels-model').map(s => s.level), ['low', 'medium', 'high', null]);
+
+  /* and the provider check, the call that failed live, now passes on both models */
+  aiProviders._internal.refusedLevels.clear();
+  const report = await verifyProviders({
+    cfg: cfg({ validator: 'none', anthropicKey: '' }),
+    gemini: Object.assign({}, gemini, { listModels: async () => ({ ok: true, models: ['gemini-3.8-flash', 'gemini-3.1-flash-lite'] }) }),
+    graph: { ownProfile: async () => ({ username: 'mpf_official' }) }
+  });
+  assert.equal(report.providers.gemini.status, 'VERIFIED');
+  assert.deepEqual(report.providers.gemini.calls.map(c => [c.model, c.thinkingLevel]),
+    [['gemini-3.8-flash', 'low'], ['gemini-3.1-flash-lite', 'minimal']], 'each model is checked at the level the pipeline asks of it');
+  aiProviders._internal.refusedLevels.clear();
+});
+
 test('a provider failure is named for what it is, and never carries the key', async () => {
   const answer = (status, body) => async () => ({ ok: false, status, headers: { get: () => null }, json: async () => body });
   const call = async fetchImpl => aiProviders.createGemini({ key: 'test-only-gemini-key-not-real', fetchImpl })

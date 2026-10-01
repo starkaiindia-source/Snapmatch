@@ -317,7 +317,7 @@ function createMediaProcessor({ cfg, ai, fetchImpl, cache, usage, providers }) {
     }
     const res = await guarded('gemini', 'screen', () => gemini.interact({
       model: cfg.geminiScreenModel, system: SCREEN_SYSTEM_PROMPT, schema: SCREEN_SCHEMA,
-      thinkingLevel: 'minimal', maxOutputTokens: 300,
+      thinkingLevel: 'minimal', maxOutputTokens: 1024,
       input: [
         { type: 'image', data: bytes.toString('base64'), mime_type: mimeType, resolution: 'low' },
         { type: 'text', text: 'Screen this image.' }
@@ -473,7 +473,7 @@ function createMediaProcessor({ cfg, ai, fetchImpl, cache, usage, providers }) {
       if (tier !== 'HIGH') {
         const p1 = await guarded('gemini', 'video_screen', () => gemini.interact({
           model: cfg.geminiScreenModel, system: SCREEN_SYSTEM_PROMPT, schema: SCREEN_SCHEMA,
-          thinkingLevel: 'minimal', maxOutputTokens: 300, timeoutMs: 60000,
+          thinkingLevel: 'minimal', maxOutputTokens: 1024, timeoutMs: 60000,
           input: [Object.assign({}, part, { resolution: 'low', processing: { type: 'static', fps: 0.5 } }),
                   { type: 'text', text: 'Screen this video. ' + VIDEO_NOTE }]
         }));

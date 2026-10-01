@@ -83,6 +83,26 @@ function fail(kind, reason, extra) {
 
 /* ================================================================= Gemini */
 
+/* Not every Gemini model accepts every thinking level — gemini-3.8-flash has
+   no "minimal", and says so with HTTP 400 (seen on the first live provider
+   check, 2026-10-01). The caller asks for the cheapest level that suits the
+   job; a level a model refuses is remembered for as long as this instance
+   lives and the next one up is used instead. A refusal costs no tokens. */
+const THINKING_LEVELS = ['minimal', 'low', 'medium', 'high'];
+const refusedLevels = new Map();          /* model -> Set of levels it refused */
+
+/** The cheapest level at or above `wanted` the model has not refused; null
+    when it refused them all (the field is then left out: the model's default). */
+function thinkingLevelFor(model, wanted) {
+  const from = THINKING_LEVELS.indexOf(wanted);
+  if (from < 0) return null;
+  const refused = refusedLevels.get(model);
+  for (let i = from; i < THINKING_LEVELS.length; i++) {
+    if (!refused || !refused.has(THINKING_LEVELS[i])) return THINKING_LEVELS[i];
+  }
+  return null;
+}
+
 /**
  * @param {object} opts
  * @param {string} opts.key
@@ -129,13 +149,22 @@ function createGemini({ key, fetchImpl } = {}) {
   async function interact({ model, input, system, schema, maxOutputTokens, thinkingLevel, timeoutMs }) {
     const body = { model, input, store: false };
     if (system) body.system_instruction = system;
-    const gen = {};
-    if (maxOutputTokens) gen.max_output_tokens = maxOutputTokens;
-    if (thinkingLevel) gen.thinking_level = thinkingLevel;
-    if (Object.keys(gen).length) body.generation_config = gen;
     if (schema) body.response_format = { type: 'text', mime_type: 'application/json', schema };
 
-    const res = await request('/v1beta/interactions', { method: 'POST', body, timeoutMs: timeoutMs || 45000 });
+    let res;
+    let level;
+    /* at most one attempt per level, then one with the model's own default */
+    for (let attempt = 0; attempt <= THINKING_LEVELS.length; attempt++) {
+      level = thinkingLevel ? thinkingLevelFor(model, thinkingLevel) : null;
+      const gen = {};
+      if (maxOutputTokens) gen.max_output_tokens = maxOutputTokens;
+      if (level) gen.thinking_level = level;
+      if (Object.keys(gen).length) body.generation_config = gen; else delete body.generation_config;
+      res = await request('/v1beta/interactions', { method: 'POST', body, timeoutMs: timeoutMs || 45000 });
+      if (res.ok || res.code !== 'THINKING_LEVEL_UNSUPPORTED' || !level) break;
+      if (!refusedLevels.has(model)) refusedLevels.set(model, new Set());
+      refusedLevels.get(model).add(level);
+    }
     if (!res.ok) return res;
     const j = res.json || {};
     if (j.status && j.status !== 'completed') {
@@ -156,7 +185,7 @@ function createGemini({ key, fetchImpl } = {}) {
       try { output = JSON.parse(text); }
       catch { return fail('bad_output', 'Gemini did not return the JSON it was asked for.', { usage, model: j.model || model }); }
     }
-    return { ok: true, output, text, model: String(j.model || model).replace(/^models\//, ''), usage };
+    return { ok: true, output, text, model: String(j.model || model).replace(/^models\//, ''), usage, thinkingLevel: level || null };
   }
 
   /**
@@ -218,6 +247,9 @@ function mapGeminiError(status, json) {
   if (status === 401 || status === 403 || /api key not valid|api_key_invalid|permission/i.test(message)) {
     return fail('auth', 'Gemini rejected the API key' + (/not valid/i.test(message) ? ' (it is not a valid key).' : '.'),
       Object.assign(extra, { code: 'API_KEY_INVALID' }));
+  }
+  if (status === 400 && /thinking.?level/i.test(message) && /not supported/i.test(message)) {
+    return fail('error', 'Gemini refused the request (HTTP 400): ' + message, Object.assign(extra, { code: 'THINKING_LEVEL_UNSUPPORTED' }));
   }
   if (status === 404) return fail('error', 'Gemini does not know that model or endpoint: ' + message, extra);
   if (status >= 500) return fail('error', 'Gemini is unavailable (HTTP ' + status + ').', Object.assign(extra, { retryable: true }));
@@ -316,4 +348,7 @@ function createClaude({ key, client } = {}) {
   return { configured, structured, retrieveModel };
 }
 
-module.exports = { createGemini, createClaude, estimateCost, priceFor, DEFAULT_PRICES, PRICES_AS_OF, mapGeminiError };
+module.exports = {
+  createGemini, createClaude, estimateCost, priceFor, DEFAULT_PRICES, PRICES_AS_OF, mapGeminiError,
+  _internal: { refusedLevels, thinkingLevelFor }
+};
