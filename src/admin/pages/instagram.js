@@ -134,7 +134,7 @@
           return '<tr style="cursor:default"><td><b>' + ui.esc(names[k] || k) + '</b><div class="adm__none" style="font-size:11px">' + ui.esc(pr.role || '') + '</div></td>' +
             '<td>' + ui.pill(pr.status, String(pr.status).replace(/_/g, ' ')) + (pr.code ? ' <span class="mono adm__none">' + ui.esc(pr.code) + '</span>' : '') + '</td>' +
             '<td style="font-size:12px">' + ui.esc(pr.detail || '') +
-            (pr.calls || []).map(function (c) { return '<br><span class="mono">' + ui.esc(c.model) + '</span>: ' + ui.count(c.inputTokens) + ' in / ' + ui.count(c.outputTokens) + ' out tokens, ' + usd(c.costMicroUsd); }).join('') +
+            (pr.calls || []).map(function (c) { return '<br><span class="mono">' + ui.esc(c.model) + '</span>: ' + ui.count(c.inputTokens) + ' in / ' + ui.count(c.outputTokens) + ' out tokens, ' + usd(c.costMicroUsd) + (c.thinkingLevel ? ', thinking ' + ui.esc(c.thinkingLevel) : ''); }).join('') +
             (pr.available ? '<br>This key can use: ' + pr.available.map(ui.esc).join(', ') : '') +
             (pr.notProven ? '<br><span class="adm__none">Not proven: ' + ui.esc(pr.notProven) + '</span>' : '') + '</td></tr>';
         }).join('') + '</tbody></table></div>';

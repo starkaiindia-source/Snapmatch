@@ -46,14 +46,17 @@ async function checkGemini(cfg, gemini) {
   const calls = [];
   for (const model of Array.from(new Set(wanted))) {
     const r = await gemini.interact({
-      model, thinkingLevel: 'minimal', maxOutputTokens: 40,
+      /* each model at the thinking level the pipeline asks of it; a level the
+         model lacks is stepped up by the client, and the one used is reported */
+      model, thinkingLevel: model === cfg.geminiModel ? 'low' : 'minimal', maxOutputTokens: 1024,
       schema: { type: 'object', additionalProperties: false, properties: { saw_image: { type: 'boolean' } }, required: ['saw_image'] },
       input: [{ type: 'image', data: PIXEL, mime_type: 'image/png', resolution: 'low' },
               { type: 'text', text: 'Is an image attached to this message? Answer in the JSON asked for.' }]
     });
     if (!r.ok) return notVerified(codeFor(r), model + ': ' + r.reason, { calls });
     calls.push({ model: r.model, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens,
-                 costMicroUsd: aiProviders.estimateCost(r.model, r.usage, cfg.prices), imageInput: r.output && r.output.saw_image === true });
+                 costMicroUsd: aiProviders.estimateCost(r.model, r.usage, cfg.prices), imageInput: r.output && r.output.saw_image === true,
+                 thinkingLevel: r.thinkingLevel || null });
   }
   return {
     status: 'VERIFIED', model: cfg.geminiModel, screenModel: cfg.geminiScreenModel, calls,
