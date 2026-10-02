@@ -63,6 +63,8 @@
    ========================================================================== */
 'use strict';
 
+const { resolveEntitlement } = require('./entitlement');
+
 /**
  * The three business facts, in the field names the database uses.
  * `country` rides with the number — see the header.
@@ -102,46 +104,27 @@ function deriveAccountState(profile) {
 /**
  * What the subscription mirror says, checked against the SERVER clock.
  *
- * Both field names are read because both are written: activeSubscriptionStatus
- * is what the billing code has always used and subscriptionStatus is what the
- * app reads. Reading one and not the other is how a live subscription reads as
- * absent.
+ * One line over resolveEntitlement (api/_schema/entitlement.js), which is the
+ * single definition of who has access. This used to carry its own copy of the
+ * rule, and a second copy is how the admin table and the paywall end up
+ * disagreeing about the same account.
  *
  * @returns {'subscription_active'|'subscription_inactive'}
  */
 function deriveSubscriptionState(profile, now) {
-  if (!profile) return 'subscription_inactive';
-  const status = profile.activeSubscriptionStatus || profile.subscriptionStatus || 'none';
-  const expiresAt = Number(profile.subscriptionExpiresAt);
-  const running = Number.isFinite(expiresAt) && expiresAt > now;
-
-  /* A cancelled subscription still has access until the paid period runs out —
-     the shop paid for those days and must not lose them at the moment they
-     press Cancel. */
-  if ((status === 'active' || status === 'cancelling' || status === 'cancelled') && running) {
-    return 'subscription_active';
-  }
-  return 'subscription_inactive';
+  return resolveEntitlement(profile, now).isActive
+    ? 'subscription_active'
+    : 'subscription_inactive';
 }
 
 /**
  * The finer-grained plan status the admin table shows, for the cases where
  * "inactive" is not specific enough to act on.
  *
- * @returns {'none'|'active'|'expired'|'cancelling'|'cancelled'|'pending'}
+ * @returns {'none'|'active'|'expired'|'cancelling'|'cancelled'|'pending'|'revoked'}
  */
 function derivePlanStatus(profile, now) {
-  if (!profile) return 'none';
-  const status = profile.activeSubscriptionStatus || profile.subscriptionStatus || 'none';
-  if (!status || status === 'none') return 'none';
-
-  const expiresAt = Number(profile.subscriptionExpiresAt);
-  const running = Number.isFinite(expiresAt) && expiresAt > now;
-
-  if (status === 'pending') return 'pending';
-  if (status === 'cancelled' || status === 'cancelling') return running ? 'cancelling' : 'cancelled';
-  if (status === 'active') return running ? 'active' : 'expired';
-  return status;
+  return resolveEntitlement(profile, now).state;
 }
 
 /**
@@ -231,6 +214,7 @@ function toAdminUserView({ uid, profile, authRecord, billing, now }) {
 
   const value = v => (present(v) ? String(v) : null);
   const num = v => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : null);
+  const ent = resolveEntitlement(p, now);
 
   return {
     uid,
@@ -268,7 +252,7 @@ function toAdminUserView({ uid, profile, authRecord, billing, now }) {
     profileComplete: isProfileComplete(p),
     missingProfileFields: missingProfileFields(p),
     accountStatus: value(p.accountStatus) || (a.disabled ? 'disabled' : 'active'),
-    subscriptionState: deriveSubscriptionState(p, now),
+    subscriptionState: ent.isActive ? 'subscription_active' : 'subscription_inactive',
 
     /* ---- timestamps ---- */
     createdAt: num(p.createdAt) != null ? num(p.createdAt) : num(a.createdAt),
@@ -276,14 +260,26 @@ function toAdminUserView({ uid, profile, authRecord, billing, now }) {
     lastActiveAt: lastSeenAt(p, a),
     updatedAt: num(p.updatedAt),
 
-    /* ---- subscription mirror: server-written, read-only everywhere else ---- */
+    /* ---- subscription mirror: server-written, read-only everywhere else ----
+       Every value here is the resolver's. `source` is how the plan came to be
+       held — 'payment' or 'admin_manual' — and `expiresAt` is null for
+       Lifetime because there is no date, which the UI prints as "Never". */
     subscription: {
-      planId: value(p.currentPlanId) || value(p.subscriptionPlan),
-      status: derivePlanStatus(p, now),
-      startedAt: num(p.subscriptionStartedAt),
-      expiresAt: num(p.subscriptionExpiresAt),
-      subscriptionId: value(p.currentSubscriptionId),
-      lastVerifiedAt: num(p.lastVerifiedAt)
+      planId: ent.planType || value(p.currentPlanId) || value(p.subscriptionPlan),
+      planName: ent.planName,
+      price: ent.price,
+      billingPeriod: ent.billingPeriod,
+      status: ent.state,
+      isActive: ent.isActive,
+      isLifetime: ent.isLifetime,
+      source: ent.activationSource,
+      startedAt: ent.startedAt,
+      expiresAt: ent.expiresAt,
+      subscriptionId: ent.subscriptionId,
+      lastVerifiedAt: num(p.lastVerifiedAt),
+      /* Who assigned or revoked it by hand, when that is how it got here. */
+      assignedBy: value(p.subscriptionAssignedBy),
+      revokedAt: num(p.subscriptionRevokedAt)
     },
 
     /* ---- billing rollup: computed from payments, never stored on the user ---- */

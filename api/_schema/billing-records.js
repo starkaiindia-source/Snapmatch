@@ -60,16 +60,28 @@ function text(v) {
  */
 function toSubscriptionView(id, d) {
   const doc = d || {};
+  /* A plan an administrator assigned by hand. It has no order, no payment and
+     no amount, and it must not borrow Razorpay's name or its own document id
+     as an "order id" — that is how a manual grant ends up looking like a sale
+     in a table. */
+  const manual = doc.activationSource === 'admin_manual';
   return {
     subscriptionId: id,
     userId: text(doc.uid) || text(doc.userId),
     planId: text(doc.planId),
     planName: text(doc.planName),
     billingPeriod: text(doc.billingPeriod) || text(doc.billingInterval),
-    amountPaise: Number.isFinite(Number(doc.amount)) ? Number(doc.amount) : null,
+    /* `amount` is null on a manual assignment, and Number(null) is 0 — a
+       finite number, which would report a ₹0 charge where there was none. */
+    amountPaise: doc.amount != null && Number.isFinite(Number(doc.amount)) ? Number(doc.amount) : null,
     currency: text(doc.currency) || 'INR',
-    paymentProvider: 'razorpay',
-    providerOrderId: text(doc.razorpayOrderId) || id,
+    activationSource: manual ? 'admin_manual' : 'payment',
+    isLifetime: doc.isLifetime === true,
+    assignedBy: text(doc.assignedBy),
+    reason: text(doc.reason),
+    reference: text(doc.reference),
+    paymentProvider: manual ? null : 'razorpay',
+    providerOrderId: manual ? null : (text(doc.razorpayOrderId) || id),
     providerPaymentId: text(doc.razorpayPaymentId) || text(doc.paymentId),
     paymentStatus: text(doc.paymentStatus) || null,
     /* `status` on this document is the SUBSCRIPTION's status; the payment's own

@@ -121,8 +121,8 @@ dormant until `OWNER_ONLY` is set to `false`.
 | Role | Sees | Cannot |
 | --- | --- | --- |
 | `super_admin` | everything | — |
-| `admin` | all business data, all approvals | change roles |
-| `support` | users incl. contact details, subscriptions | revenue totals, edits |
+| `admin` | all business data, all approvals, assign or revoke a plan | change roles |
+| `support` | users incl. contact details, subscriptions | revenue totals, edits, **assigning or revoking a plan** |
 | `analyst` | aggregate analytics + revenue | any individual user record |
 | `user` | nothing | open the admin area |
 
@@ -186,7 +186,13 @@ answer is a search index (Algolia, Typesense), not a bigger download.
 
 **Filters:** all · new · active · inactive · profile incomplete · profile
 complete · free · active subscription · expired subscription · monthly ·
-yearly · country · joined date range · last-seen date range.
+yearly · lifetime · country · joined date range · last-seen date range.
+
+**Plan columns:** each row shows the plan and its status, when it **expires**
+("Never" for Lifetime) and its **source** — *Payment* or *Admin (manual)*. All
+four come from the one entitlement resolver the paywall uses
+(`resolveEntitlement` in `api/_schema/entitlement.js`), so this table and the
+site cannot disagree about the same shop.
 
 **Sorts:** newest · oldest · recently active · longest inactive · highest
 revenue · most payments.
@@ -223,6 +229,49 @@ of what they saw.
 
 Razorpay payment and order ids are shown as references. No card, UPI or bank
 detail is stored by this system or reachable from it.
+
+#### Assign / Change Plan
+
+The Subscription card shows the current plan, status, activation date, expiry
+and source, and — for `super_admin` and `admin` — an **Assign / Change Plan**
+button:
+
+| Option | What it grants |
+| --- | --- |
+| ₹99 — Monthly | one month from today |
+| ₹799 — Yearly | twelve months from today |
+| Lifetime — Admin Only | no expiry; ends only when an administrator revokes it |
+
+Lifetime is not for sale. It is not in the plan catalogue the site sells from,
+`/api/plans` does not list it, and `/api/create-order` answers "unknown plan" to
+a customer who asks for it. This form is the only way an account gets it.
+
+When the plan chosen is the one already running, **Starts** offers "add to the
+end of the period already running" instead of restarting it from today.
+
+**Revoke access** ends the entitlement on the account's next request, whatever
+the expiry date says. Nothing is deleted, and no refund is made — refund a
+payment in Razorpay.
+
+What to know before using it:
+
+- **No payment is recorded.** An assignment writes the entitlement, a
+  subscription record marked `admin_manual`, and an audit entry. Nothing is
+  written to `payments`, so revenue figures stay what Razorpay actually took.
+  The *Reference* field is your own note of what you checked (a UTR, a ticket);
+  this system does not verify it.
+- **It is the tool for "I paid and it did not switch on".** Look at the
+  account's Payment history first. If the payment is there and captured, the
+  plan is already active and the problem is elsewhere. If the money reached the
+  business some way this system never saw — a direct UPI transfer — confirm it
+  in the bank statement, then assign the plan it paid for.
+- **Every change is audited, atomically.** The entry is written in the same
+  transaction as the change, with the plan, status and expiry on both sides of
+  it, the administrator and the reason. "Plan changes by administrators" on
+  this page lists them; Settings → Audit trail has them too.
+- **The server decides who may do this**, on every request, from the verified
+  sign-in — `subscriptions.write`. `support` and `analyst` get a 403 from
+  `/api/admin/subscription` whether or not they can see the button.
 
 ### Missing models
 

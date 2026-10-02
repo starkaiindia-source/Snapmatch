@@ -73,16 +73,23 @@
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+  /* Absent BEFORE Number(). Number(null) is 0, which is finite, so an expiry
+     that does not exist — a Lifetime plan, an account that never subscribed —
+     was drawn as 1 Jan 1970 rather than as a dash. */
+  function absent(ms) {
+    return ms === null || ms === undefined || ms === '' || !Number.isFinite(Number(ms));
+  }
+
   /** "14 Mar 2026". An epoch that is not one renders as a dash. */
   function date(ms) {
-    if (!Number.isFinite(Number(ms))) return '<span class="adm__none">' + DASH + '</span>';
+    if (absent(ms)) return '<span class="adm__none">' + DASH + '</span>';
     var d = new Date(Number(ms));
     return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
   }
 
   /** "14 Mar 2026, 18:42" — for a timeline, where the hour matters. */
   function dateTime(ms) {
-    if (!Number.isFinite(Number(ms))) return '<span class="adm__none">' + DASH + '</span>';
+    if (absent(ms)) return '<span class="adm__none">' + DASH + '</span>';
     var d = new Date(Number(ms));
     var hh = String(d.getHours()).padStart(2, '0');
     var mm = String(d.getMinutes()).padStart(2, '0');
@@ -91,7 +98,7 @@
 
   /** "3 days ago". Relative time is what "last active" is actually read as. */
   function ago(ms) {
-    if (!Number.isFinite(Number(ms))) return '<span class="adm__none">' + DASH + '</span>';
+    if (absent(ms)) return '<span class="adm__none">' + DASH + '</span>';
     var seconds = Math.round((Date.now() - Number(ms)) / 1000);
     if (seconds < 60) return 'just now';
     if (seconds < 3600) return Math.floor(seconds / 60) + ' min ago';
@@ -108,6 +115,8 @@
     captured: 'ok', approved: 'ok', published: 'ok',
     expired: 'bad', failed: 'bad', cancelled: 'bad', disabled: 'bad',
     not_a_valid_model: 'bad', rejected: 'bad',
+    /* Entitlements: withdrawn by an administrator, and how a plan was got. */
+    revoked: 'bad', admin_manual: 'info', payment: '', not_applicable: '', not_applied: 'warn',
     pending: 'warn', profile_incomplete: 'warn', cancelling: 'warn',
     under_review: 'warn', researching: 'warn', draft: 'warn', pending_review: 'warn',
     new: 'info', draft_found: 'info', subscription_inactive: '', none: '', free: '',
@@ -136,6 +145,34 @@
     var tone = PILL_TONE[value];
     var cls = 'adm__pill' + (tone ? ' adm__pill--' + tone : '');
     return '<span class="' + cls + '">' + esc(label || String(value).replace(/_/g, ' ')) + '</span>';
+  }
+
+  /* ------------------------------------------------------------ entitlements
+
+     One wording for a plan, its expiry and where it came from, shared by the
+     user table and the user page so the two cannot describe the same account
+     differently. Every value comes from the server's resolver; nothing here
+     works out whether a plan is running. */
+
+  /** "₹799 Yearly", "₹99 Monthly", "Lifetime" — or a dash for no plan. */
+  function planLabel(sub) {
+    if (!sub || !sub.planId) return '<span class="adm__none">' + DASH + '</span>';
+    var name = sub.planName || (String(sub.planId).charAt(0).toUpperCase() + String(sub.planId).slice(1));
+    return esc((sub.price != null ? '₹' + sub.price + ' ' : '') + name);
+  }
+
+  /** A date, "Never" for Lifetime, or a dash when there is no plan at all. */
+  function expiryLabel(sub) {
+    if (!sub || !sub.planId) return '<span class="adm__none">' + DASH + '</span>';
+    if (sub.isLifetime || (sub.planId === 'lifetime' && sub.status === 'active')) return 'Never';
+    return date(sub.expiresAt);
+  }
+
+  /** "Payment" or "Admin (manual)". Never inferred here — the server says. */
+  function sourceLabel(source) {
+    if (source === 'payment') return 'Payment';
+    if (source === 'admin_manual') return 'Admin (manual)';
+    return '<span class="adm__none">' + DASH + '</span>';
   }
 
   /** Initials for an account with no picture. Never a generated avatar. */
@@ -208,6 +245,7 @@
     esc: esc, text: text, count: count, money: money,
     date: date, dateTime: dateTime, ago: ago,
     pill: pill, avatar: avatar,
+    planLabel: planLabel, expiryLabel: expiryLabel, sourceLabel: sourceLabel,
     emptyState: emptyState, banner: banner, skeletonRows: skeletonRows,
     barChart: barChart, rankList: rankList
   };

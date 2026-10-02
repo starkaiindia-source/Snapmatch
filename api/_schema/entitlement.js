@@ -7,11 +7,26 @@
    TWO TIERS, AND ONLY TWO
 
      free   signed in, no running subscription
-     paid   an active Monthly (₹99) or Yearly (₹799) subscription
+     paid   an active Monthly (₹99) or Yearly (₹799) subscription, or Lifetime
 
-   The two plans are deliberately identical in what they unlock. Yearly is
-   cheaper per month and that is the whole difference — any feature gap between
-   them would be a third tier wearing a discount.
+   The plans are deliberately identical in what they unlock. Yearly is cheaper
+   per month and that is the whole difference — any feature gap between them
+   would be a third tier wearing a discount. Lifetime is the same access with
+   no end date; it is never sold, only granted by an administrator.
+
+   ----------------------------------------------------------------------------
+   ONE RESOLVER, AND EVERYTHING ASKS IT
+
+   `resolveEntitlement(profile, now)` is the single answer to "does this
+   account have access, on which plan, until when, and how did it get it".
+   The search meter, the group routes, the assistant, the account screen's
+   /api/subscription, the admin table and its filters all read it — directly,
+   or through tierFor / deriveSubscriptionState, which are one line each.
+
+   It reads the server-written mirror on users/{uid}. Every field it reads is
+   closed to the browser in firestore.rules, and every one is written only by
+   api/_lib/store.js: by a verified payment, or by an administrator's
+   assignment. There is no second copy of this rule to fall out of step.
 
    A signed-out visitor is `free` as well. There is no separate anonymous tier:
    the caps are the same, and the only thing being signed out changes is that
@@ -58,9 +73,16 @@
    ========================================================================== */
 'use strict';
 
-const { deriveSubscriptionState } = require('./user-profile');
+const { describePlan, LIFETIME } = require('../_lib/plans');
 
 const TIERS = { FREE: 'free', PAID: 'paid' };
+
+/**
+ * How an entitlement came to exist. Recorded, never inferred from an amount:
+ * a plan an administrator assigned by hand is not a sale, and reporting it as
+ * one would put money on the dashboard that never arrived.
+ */
+const SOURCES = { PAYMENT: 'payment', ADMIN_MANUAL: 'admin_manual' };
 
 /** Header searches a free account may run per calendar day. */
 const FREE_DAILY_SEARCHES = 3;
@@ -103,19 +125,119 @@ function resetsAt(now) {
   return dayStart + 86400000 - IST_OFFSET_MS;
 }
 
+function finiteOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * THE ENTITLEMENT. What this account holds, checked against the SERVER clock.
+ *
+ * @param {object|null} profile  the users/{uid} document, or null
+ * @param {number} now           server time, epoch ms
+ * @returns {{
+ *   isActive: boolean,
+ *   state: 'none'|'pending'|'active'|'cancelling'|'cancelled'|'expired'|'revoked',
+ *   planType: string|null,
+ *   planName: string|null,
+ *   price: number|null,
+ *   amountPaise: number|null,
+ *   billingPeriod: string|null,
+ *   activationSource: 'payment'|'admin_manual'|null,
+ *   startedAt: number|null,
+ *   expiresAt: number|null,
+ *   isLifetime: boolean,
+ *   subscriptionId: string|null
+ * }}
+ *   planType is 'monthly', 'yearly' or 'lifetime'. price is in rupees — 99,
+ *   799, or null for Lifetime. expiresAt is null for Lifetime: there is no
+ *   date, rather than a distant one.
+ *
+ * THE STATES
+ *
+ *   none        never held a plan
+ *   pending     an order exists and no payment has been verified for it
+ *   active      inside the period — or Lifetime, which has no period
+ *   cancelling  renewal stopped, paid period still running: STILL HAS ACCESS.
+ *               The shop paid for those days and keeps them.
+ *   cancelled   renewal stopped and the period has run out
+ *   expired     the period ran out
+ *   revoked     an administrator withdrew it. No access, whatever the date —
+ *               this is the one state the calendar cannot argue with.
+ *
+ * Both status field names are read because both are written: see
+ * api/_lib/store.js. Reading one and not the other is how a live subscription
+ * reads as absent.
+ */
+function resolveEntitlement(profile, now) {
+  const p = profile || {};
+  const stored = p.activeSubscriptionStatus || p.subscriptionStatus || 'none';
+  const planId = (typeof p.currentPlanId === 'string' && p.currentPlanId) ||
+                 (typeof p.subscriptionPlan === 'string' && p.subscriptionPlan) || null;
+  const plan = describePlan(planId);
+
+  /* Lifetime is decided by the PLAN ID, which only the server can write.
+     `subscriptionLifetime` is stored beside it for anyone reading the document
+     by eye, and is deliberately not what grants anything. */
+  const lifetimePlan = planId === LIFETIME.id;
+  const expiresAt = lifetimePlan ? null : finiteOrNull(p.subscriptionExpiresAt);
+  const running = lifetimePlan || (expiresAt !== null && expiresAt > now);
+
+  let state;
+  if (!stored || stored === 'none') state = 'none';
+  else if (stored === 'revoked') state = 'revoked';
+  else if (stored === 'pending') state = 'pending';
+  else if (stored === 'active') state = running ? 'active' : 'expired';
+  else if (stored === 'cancelled' || stored === 'cancelling') {
+    /* Lifetime has no renewal to stop, so a cancelled one is simply over. */
+    state = running && !lifetimePlan ? 'cancelling' : 'cancelled';
+  } else state = String(stored);
+
+  const isActive = state === 'active' || state === 'cancelling';
+
+  /* Records written before the source was stored are all payments: until the
+     administrator's assignment existed, a verified payment was the only way a
+     plan could reach this document at all. */
+  let activationSource = null;
+  if (state !== 'none') {
+    activationSource = p.subscriptionSource === SOURCES.ADMIN_MANUAL ? SOURCES.ADMIN_MANUAL
+      : p.subscriptionSource === SOURCES.PAYMENT ? SOURCES.PAYMENT
+      : lifetimePlan ? SOURCES.ADMIN_MANUAL
+      : SOURCES.PAYMENT;
+  }
+
+  return {
+    isActive,
+    state,
+    planType: state === 'none' ? null : planId,
+    planName: state === 'none' || !plan ? null : plan.name,
+    price: state !== 'none' && plan && plan.amountPaise != null ? plan.amountPaise / 100 : null,
+    amountPaise: state !== 'none' && plan ? plan.amountPaise : null,
+    billingPeriod: state !== 'none' && plan ? plan.billingPeriod : null,
+    activationSource,
+    startedAt: finiteOrNull(p.subscriptionStartedAt),
+    expiresAt,
+    /* True only while it is actually held. A revoked Lifetime is not "lifetime
+       access with a caveat" — it is no access, and nothing should read it as
+       anything else. */
+    isLifetime: lifetimePlan && isActive,
+    subscriptionId: typeof p.currentSubscriptionId === 'string' && p.currentSubscriptionId
+      ? p.currentSubscriptionId : null
+  };
+}
+
 /**
  * The tier for a stored profile, checked against the SERVER clock.
  *
- * Delegates to deriveSubscriptionState so there is exactly one definition of
+ * One line over resolveEntitlement, so there is exactly one definition of
  * "is this subscription running" — the admin dashboard, the account screen and
  * this all agree by construction rather than by having been written to match.
  *
  * @returns {'free'|'paid'}
  */
 function tierFor(profile, now) {
-  return deriveSubscriptionState(profile, now) === 'subscription_active'
-    ? TIERS.PAID
-    : TIERS.FREE;
+  return resolveEntitlement(profile, now).isActive ? TIERS.PAID : TIERS.FREE;
 }
 
 /**
@@ -167,7 +289,8 @@ function describe(tier, searchesUsed, now) {
 }
 
 module.exports = {
-  TIERS,
+  TIERS, SOURCES,
+  resolveEntitlement,
   FREE_DAILY_SEARCHES,
   FREE_MEMBERS,
   SMALL_GROUP_MAX, MEDIUM_GROUP_MAX, FREE_MEMBERS_MEDIUM, FREE_MEMBERS_LARGE,

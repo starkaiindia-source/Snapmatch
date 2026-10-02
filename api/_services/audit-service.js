@@ -98,10 +98,46 @@ const ACTIONS = {
   COMPAT_CATEGORY_DELETED: 'compat.category_deleted',
   INSTAGRAM_JOB_CONTINUED: 'instagram.job_continued',
   INSTAGRAM_EVIDENCE_ADDED: 'instagram.evidence_added',
-  INSTAGRAM_PROVIDERS_VERIFIED: 'instagram.providers_verified'
+  INSTAGRAM_PROVIDERS_VERIFIED: 'instagram.providers_verified',
+
+  /* An administrator changing what an account is entitled to, by hand. Each
+     is written in the SAME transaction as the change it describes (see
+     api/_lib/store.js), so there is no entitlement an administrator granted or
+     withdrew that this log does not know about. The entry carries the plan,
+     status and expiry on BOTH sides of the change. */
+  SUBSCRIPTION_ASSIGN_MONTHLY: 'subscription.assign_monthly',
+  SUBSCRIPTION_ASSIGN_YEARLY: 'subscription.assign_yearly',
+  SUBSCRIPTION_ACTIVATE_LIFETIME: 'subscription.activate_lifetime',
+  SUBSCRIPTION_CHANGE_PLAN: 'subscription.change_plan',
+  SUBSCRIPTION_EXTEND_PLAN: 'subscription.extend_plan',
+  SUBSCRIPTION_REVOKE: 'subscription.revoke'
 };
 
 const ACTION_LIST = Object.values(ACTIONS);
+
+/** The entitlement changes, for filtering one account's history out of the log. */
+const SUBSCRIPTION_ACTIONS = ACTION_LIST.filter(a => a.indexOf('subscription.') === 0);
+
+/**
+ * One entry, as it is stored.
+ *
+ * Split out of record() so a caller that must write the entry atomically with
+ * something else — the entitlement change it describes — can put the same
+ * document into its own transaction. Returns null for an action outside the
+ * vocabulary, exactly as record() refuses one.
+ */
+function entry({ actorUid, actorRole, action, targetType, targetId, detail, now }) {
+  if (ACTION_LIST.indexOf(action) < 0) return null;
+  return {
+    actorUid: v.uid(actorUid) || null,
+    actorRole: v.string(actorRole, 40) || null,
+    action,
+    targetType: v.string(targetType, 40) || null,
+    targetId: v.string(targetId, 200) || null,
+    detail: sanitiseDetail(detail),
+    at: now
+  };
+}
 
 /**
  * Appends one entry.
@@ -121,21 +157,14 @@ const ACTION_LIST = Object.values(ACTIONS);
  * @param {number} args.now
  */
 async function record({ actorUid, actorRole, action, targetType, targetId, detail, now }) {
-  if (ACTION_LIST.indexOf(action) < 0) {
+  const doc = entry({ actorUid, actorRole, action, targetType, targetId, detail, now });
+  if (!doc) {
     console.warn('[audit] unknown action, not recorded', action);
     return;
   }
 
   try {
-    await db().collection(ADMIN_AUDIT_LOG).doc().set({
-      actorUid: v.uid(actorUid) || null,
-      actorRole: v.string(actorRole, 40) || null,
-      action,
-      targetType: v.string(targetType, 40) || null,
-      targetId: v.string(targetId, 200) || null,
-      detail: sanitiseDetail(detail),
-      at: now
-    });
+    await db().collection(ADMIN_AUDIT_LOG).doc().set(doc);
   } catch (err) {
     console.error('[audit] FAILED to record', { action, targetId, message: err && err.message });
   }
@@ -151,7 +180,9 @@ async function record({ actorUid, actorRole, action, targetType, targetId, detai
 function sanitiseDetail(detail) {
   if (!detail || typeof detail !== 'object') return {};
   const out = {};
-  Object.keys(detail).slice(0, 12).forEach(key => {
+  /* Sixteen: an entitlement change records plan, status and expiry on both
+     sides of it, plus who and why, and that is thirteen on its own. */
+  Object.keys(detail).slice(0, 16).forEach(key => {
     const value = detail[key];
     const name = v.string(key, 40);
     if (!name) return;
@@ -178,4 +209,4 @@ async function list({ action, actorUid, targetId, limit = 50 }) {
   }
 }
 
-module.exports = { ACTIONS, ACTION_LIST, record, list };
+module.exports = { ACTIONS, ACTION_LIST, SUBSCRIPTION_ACTIONS, entry, record, list };

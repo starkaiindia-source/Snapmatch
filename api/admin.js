@@ -51,6 +51,7 @@ const SECTIONS = {
   session: require('./_admin/session'),
   users: require('./_admin/users'),
   user: require('./_admin/user'),
+  subscription: require('./_admin/subscription'),
   metrics: require('./_admin/metrics'),
   'missing-models': require('./_admin/missing-models'),
   admins: require('./_admin/admins'),

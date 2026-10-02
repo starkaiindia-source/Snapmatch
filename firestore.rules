@@ -132,6 +132,21 @@ service cloud.firestore {
           'plan', 'status', 'role', 'accountStatus',
           'lastVerifiedAt', 'lastLoginAt', 'emailVerified',
 
+          /* How a plan came to be held, and by whose hand: 'payment' or
+             'admin_manual', the Lifetime marker, and who assigned or revoked
+             it. Written by /api/admin/subscription and by a verified payment.
+
+             None of these GRANTS anything on its own — access is decided from
+             the status, the plan id and the expiry above, which were already
+             closed — so a browser that wrote `subscriptionLifetime: true`
+             before this list named it got nothing for it. They are closed
+             anyway, because a record of who gave an account its plan is not
+             something the account should be able to rewrite. */
+          'subscriptionSource', 'subscriptionLifetime',
+          'subscriptionAssignedBy', 'subscriptionAssignedAt',
+          'subscriptionRevokedAt', 'subscriptionRevokedBy', 'subscriptionRevokeReason',
+          'cancelledAt',
+
           /* Search mirrors. Lower-cased copies of the shop's own fields,
              written by api/_lib/store.js so the admin table can search
              case-insensitively — Firestore cannot lower-case at query time.

@@ -29,6 +29,36 @@
    as somebody else does not inherit the previous account's counter or its
    tier. Nothing about entitlement is kept in localStorage for the same reason
    the server does not trust one: it is the thing being limited.
+
+   ----------------------------------------------------------------------------
+   AN ANSWER BELONGS TO WHOEVER ASKED
+
+   The server answers the caller it can see. A request with no ID token is a
+   signed-out visitor, and the truthful answer to that is "free" — so a request
+   sent one moment before Firebase finishes restoring a session comes back
+   free for a shop that has paid.
+
+   That is exactly what happened to a yearly subscriber on 2 October 2026. The
+   page asked as soon as the catalogue loaded, `SM.fb.user()` was still null
+   because the auth SDK was still reading IndexedDB, the request went out with
+   no Authorization header, and the signed-out answer was then kept as that
+   subscriber's tier for the rest of the page. Opening a group sent them to
+   the Plans page they had already paid on.
+
+   Three rules close it, and each holds without the other two:
+
+     1. A request WAITS for the session this browser expects. If the local
+        session says someone is signed in, nothing is sent until Firebase has
+        said who. A visitor with no session is not made to wait, and is not
+        made to download the sign-in SDK to be told they are a visitor.
+     2. An answer is kept only if the account that ASKED is still the account
+        on the page when it lands. Anything else is dropped and asked again.
+     3. A change of account — a session restored, a sign-in, a sign-out —
+        throws the held answer away and asks as the new one.
+
+   And a token the server could not verify (401) is not a verdict on the
+   account. It is refreshed once and retried; if that fails too the state
+   stays UNKNOWN, which gates nothing and unlocks nothing.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -43,6 +73,12 @@
   var listeners = [];
   /* modelId -> the in-flight or settled promise for its group list. */
   var deviceCache = Object.create(null);
+  /* Bumped by reset(). An answer that was asked for before the last reset is
+     an answer about the previous account, wherever it is in its round trip. */
+  var epoch = 0;
+  /* The uid the auth listener last acted on. `undefined` until it has heard
+     anything at all, so the first announcement — including "nobody" — counts. */
+  var watchedUid;
 
   function emit() {
     listeners.forEach(function (fn) {
@@ -50,15 +86,105 @@
     });
   }
 
-  /* Authorization header when signed in, plain when not. A signed-out visitor
-     is a legitimate caller here — they get the free view. */
-  function headers() {
-    var plain = { 'Content-Type': 'application/json' };
-    if (!SM.fb || !SM.fb.isConfigured() || !SM.fb.user()) return Promise.resolve(plain);
-    return SM.fb.idToken().then(function (token) {
-      if (!token) return plain;
-      return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
-    }, function () { return plain; });
+  var PLAIN = { 'Content-Type': 'application/json' };
+
+  /** The uid Firebase has on the page right now, or null. */
+  function currentUid() {
+    var u = SM.fb && SM.fb.user ? SM.fb.user() : null;
+    return u ? u.uid : null;
+  }
+
+  /* Does this browser remember being signed in? A HINT, read from the local
+     session, and it decides one thing only: whether to wait for Firebase
+     before asking. It grants nothing — what comes back is still decided by
+     the server from the token, or the absence of one. */
+  function sessionExpected() {
+    try { return !!(SM.session && SM.session.get().signedIn); }
+    catch (e) { return false; }
+  }
+
+  /**
+   * Who a request is about to be sent as, and the headers that say so.
+   *
+   * @param {boolean} [forceToken]  mint a new ID token rather than reuse the
+   *        cached one — the retry after the server refused the last one
+   * @returns {Promise<{uid:string|null, headers:object}>}
+   */
+  function caller(forceToken) {
+    var anonymous = { uid: null, headers: PLAIN };
+    if (!SM.fb) return Promise.resolve(anonymous);
+
+    var settled;
+    if (SM.fb.phase && SM.fb.phase() === 'loading') {
+      /* Firebase has not answered yet. With no remembered session this is
+         almost certainly a visitor, and they get the free view now; if a user
+         does turn up, the auth listener below asks again as them. */
+      if (!sessionExpected()) return Promise.resolve(anonymous);
+      settled = SM.fb.whenResolved();
+    } else {
+      settled = Promise.resolve(SM.fb.user ? SM.fb.user() : null);
+    }
+
+    return settled.then(function (user) {
+      if (!user) return anonymous;
+      return SM.fb.idToken(!!forceToken).then(function (token) {
+        /* Signed in but no token could be had. Sent as the account anyway, so
+           the answer is still filed against the right uid. */
+        if (!token) return { uid: user.uid, headers: PLAIN };
+        return {
+          uid: user.uid,
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
+        };
+      });
+    }, function () { return anonymous; });
+  }
+
+  /**
+   * One request to the entitlement API, sent as whoever is signed in.
+   *
+   * A 401 on a request that carried a token means the server could not verify
+   * it — expired between the cache and the wire, a clock that is out, a
+   * session revoked elsewhere. A new token is minted and the request repeated
+   * ONCE. It is never read as "this account is free".
+   *
+   * @returns {Promise<{res:Response, data:object|null, who:{uid:string|null}}>}
+   */
+  function call(path, init, retried) {
+    return caller(retried).then(function (who) {
+      var options = { headers: who.headers };
+      if (init && init.method) options.method = init.method;
+      if (init && init.body) options.body = init.body;
+
+      return fetch(path, options).then(function (res) {
+        if (res.status === 401 && who.uid && !retried) {
+          SM.debug.warn('access', 'token refused, refreshing it and retrying', { path: path });
+          return call(path, init, true);
+        }
+        return res.json().catch(function () { return null; }).then(function (data) {
+          return { res: res, data: data, who: who };
+        });
+      });
+    });
+  }
+
+  /**
+   * Keeps an answer, if it is an answer about the account on the page.
+   *
+   * @returns {boolean} whether it was kept
+   */
+  function accept(next, who, ticket) {
+    if (!next || typeof next.tier !== 'string') return false;
+    /* reset() ran while this was in flight: it describes the previous account. */
+    if (ticket !== epoch) return false;
+    /* The account changed while this was in flight — most often a session
+       restored a moment after an anonymous request left. */
+    if (who.uid !== currentUid()) return false;
+    /* A token went out and the server still answered as if nobody was there.
+       That is the server failing to recognise the caller, not a tier. */
+    if (who.uid && next.signedIn === false) return false;
+    state = next;
+    emit();
+    return true;
   }
 
   var access = {
@@ -105,21 +231,31 @@
      */
     refresh: function () {
       if (inFlight) return inFlight;
-      inFlight = headers().then(function (h) {
-        return fetch('/api/access', { headers: h });
-      }).then(function (r) {
-        return r.json().catch(function () { return null; });
-      }).then(function (data) {
-        inFlight = null;
-        if (data && typeof data.tier === 'string') { state = data; emit(); }
+      var ticket = epoch;
+
+      var mine = call('/api/access').then(function (r) {
+        if (inFlight === mine) inFlight = null;
+        if (ticket !== epoch) return state;            /* superseded by reset() */
+
+        if (r.who.uid !== currentUid()) {
+          /* Asked as one identity, answered for another. Ask again as the
+             account that is actually here. */
+          SM.debug.log('access', 'identity changed while asking — asking again');
+          return access.refresh();
+        }
+        if (!accept(r.data, r.who, ticket) && r.who.uid) {
+          SM.debug.warn('access', 'no usable answer for this account',
+                        { status: r.res.status });
+        }
         return state;
       }).catch(function (err) {
-        inFlight = null;
+        if (inFlight === mine) inFlight = null;
         /* Unreachable is not "free". Leaving the last known answer in place
            means a dropped request does not paywall a subscriber mid-session. */
         SM.debug.warn('access', 'refresh failed', { message: err && err.message });
         return state;
       });
+      inFlight = mine;
       return inFlight;
     },
 
@@ -140,18 +276,16 @@
          by the next thing it asked for. */
       if (access.isPaid()) return Promise.resolve({ allowed: true, access: state, limitReached: false });
 
-      return headers().then(function (h) {
-        return fetch('/api/access', { method: 'POST', headers: h, body: '{}' });
-      }).then(function (r) {
-        return r.json().catch(function () { return {}; }).then(function (data) {
-          if (data && data.access) { state = data.access; emit(); }
-          return {
-            allowed: r.ok,
-            access: state,
-            limitReached: r.status === 429,
-            needsSignIn: r.status === 401
-          };
-        });
+      var ticket = epoch;
+      return call('/api/access', { method: 'POST', body: '{}' }).then(function (r) {
+        var data = r.data || {};
+        accept(data.access, r.who, ticket);
+        return {
+          allowed: r.res.ok,
+          access: state,
+          limitReached: r.res.status === 429,
+          needsSignIn: r.res.status === 401
+        };
       }).catch(function (err) {
         /* FAILS CLOSED. The server could not be reached, so the search cannot
            be metered — and a search that cannot be metered must not run.
@@ -175,15 +309,11 @@
      *                    locked:boolean, partCode:string|null}|null>}
      */
     groupMembers: function (groupId) {
-      return headers().then(function (h) {
-        return fetch('/api/device-parts?groupId=' + encodeURIComponent(groupId), { headers: h });
-      }).then(function (r) {
-        if (!r.ok) return null;
-        return r.json();
-      }).then(function (data) {
-        if (!data) return null;
-        if (data.access) { state = data.access; emit(); }
-        return data.group || null;
+      var ticket = epoch;
+      return call('/api/device-parts?groupId=' + encodeURIComponent(groupId)).then(function (r) {
+        if (!r.res.ok || !r.data) return null;
+        accept(r.data.access, r.who, ticket);
+        return r.data.group || null;
       }).catch(function (err) {
         SM.debug.warn('access', 'group members unavailable', { groupId: groupId, message: err && err.message });
         return null;
@@ -215,24 +345,27 @@
       if (!modelId) return Promise.resolve(null);
       if (deviceCache[modelId]) return deviceCache[modelId];
 
-      var req = headers().then(function (h) {
-        return fetch('/api/device-parts?modelId=' + encodeURIComponent(modelId), { headers: h });
-      }).then(function (r) {
-        return r.json().catch(function () { return null; }).then(function (data) {
-          if (data && data.access) { state = data.access; emit(); }
-          if (r.status === 404) return null;
-          if (!r.ok) {
-            /* Forget it, so a retry after the outage is a real request rather
-               than the cached failure. */
-            delete deviceCache[modelId];
-            SM.debug.warn('access', 'device parts unavailable',
-                          { modelId: modelId, status: r.status, error: data && data.error });
-            return { unavailable: true, status: r.status };
-          }
-          return (data && data.device) || null;
-        });
+      var ticket = epoch;
+      var cache = deviceCache;
+      var req = call('/api/device-parts?modelId=' + encodeURIComponent(modelId)).then(function (r) {
+        var data = r.data;
+        accept(data && data.access, r.who, ticket);
+        /* Answered for an identity that is no longer the one on the page. The
+           member lists in it were cut to THAT caller's tier, so it must not
+           stay in the cache to be served to this one. */
+        if (r.who.uid !== currentUid() && cache[modelId] === req) delete cache[modelId];
+        if (r.res.status === 404) return null;
+        if (!r.res.ok) {
+          /* Forget it, so a retry after the outage is a real request rather
+             than the cached failure. */
+          if (cache[modelId] === req) delete cache[modelId];
+          SM.debug.warn('access', 'device parts unavailable',
+                        { modelId: modelId, status: r.res.status, error: data && data.error });
+          return { unavailable: true, status: r.res.status };
+        }
+        return (data && data.device) || null;
       }).catch(function (err) {
-        delete deviceCache[modelId];
+        if (cache[modelId] === req) delete cache[modelId];
         SM.debug.warn('access', 'device parts request failed',
                       { modelId: modelId, message: err && err.message });
         return { unavailable: true, status: 0 };
@@ -251,6 +384,8 @@
     reset: function () {
       state = null;
       inFlight = null;
+      /* Every request already on its way was asked as the previous account. */
+      epoch++;
       /* The per-device answers were cut to the PREVIOUS account's tier. Keeping
          them across a sign-out would leave a subscriber's member lists in
          memory for whoever signs in next on a shared counter machine. */
@@ -258,6 +393,42 @@
       emit();
     }
   };
+
+  /* ------------------------------------------------ the account, whoever it is
+
+     Rule 3 from the header. Firebase announces every change of account here —
+     a session restored after the page loaded, a sign-in, a sign-out — and the
+     answer this module holds is about whoever was there before.
+
+     Registering costs nothing: onChange only records the listener, it does not
+     load the SDK. A token refresh for the SAME account announces the same uid
+     and is ignored, so this fires once per change of person, not once an
+     hour. */
+  if (SM.fb && SM.fb.onChange) {
+    SM.fb.onChange(function (user) {
+      var uid = user ? user.uid : null;
+      if (uid === watchedUid) return;
+      var first = watchedUid === undefined;
+      watchedUid = uid;
+
+      if (first && state === null) {
+        /* Firebase's first word, and nothing is held yet. A request already in
+           flight either waited for this session and is about to be sent as it,
+           or left anonymously and will be refused by rule 2 when it lands —
+           there is nothing to throw away. All that is needed is that a
+           signed-in account has a question outstanding at all. */
+        if (uid && !inFlight) access.refresh();
+        return;
+      }
+      /* The first word being "nobody" changes nothing that was asked
+         anonymously — that answer is already the right one. */
+      if (first && !uid && !state.signedIn) return;
+
+      SM.debug.log('access', 'account changed — asking again', { signedIn: !!uid });
+      access.reset();
+      access.refresh();
+    });
+  }
 
   SM.access = access;
 })(window);

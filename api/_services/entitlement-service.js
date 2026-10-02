@@ -38,15 +38,36 @@
    ========================================================================== */
 'use strict';
 
-const { db, admin } = require('../_lib/firebase');
+const { db } = require('../_lib/firebase');
 const { USERS, GROUP_DETAILS, DEVICE_GROUPS, MODEL_GROUPS } = require('../_schema/collections');
 const {
-  TIERS, FREE_DAILY_SEARCHES, dayKeyFor, resetsAt,
-  tierFor, visibleMemberLimit, describe
+  TIERS, FREE_DAILY_SEARCHES, dayKeyFor,
+  resolveEntitlement, visibleMemberLimit, describe
 } = require('../_schema/entitlement');
 const search = require('./search-service');
 
-const FieldValue = admin.firestore.FieldValue;
+/**
+ * What the browser is told about the plan behind its tier.
+ *
+ * So the app can say "Yearly, to 2 Oct 2027" or "Lifetime" from the same
+ * answer that decided its access, rather than from a second request that can
+ * disagree with it. Nothing here unlocks anything — the tier beside it was
+ * decided on the server, and the member lists are cut before they are sent.
+ */
+function entitlementSummary(ent) {
+  return {
+    isActive: ent.isActive,
+    state: ent.state,
+    planType: ent.planType,
+    planName: ent.planName,
+    price: ent.price,
+    billingPeriod: ent.billingPeriod,
+    activationSource: ent.activationSource,
+    startedAt: ent.startedAt,
+    expiresAt: ent.expiresAt,
+    isLifetime: ent.isLifetime
+  };
+}
 
 /**
  * The tier and the current search state for one account.
@@ -69,7 +90,10 @@ async function readAccess(uid, now) {
 
   const snap = await db().collection(USERS).doc(uid).get();
   const profile = snap.exists ? snap.data() : null;
-  const tier = tierFor(profile, now);
+  /* THE entitlement — the same resolver the account screen, the admin table
+     and the payment path read. The tier is its one-bit summary. */
+  const ent = resolveEntitlement(profile, now);
+  const tier = ent.isActive ? TIERS.PAID : TIERS.FREE;
 
   const today = dayKeyFor(now);
   const storedDay = profile && profile.freeSearchDay;
@@ -78,7 +102,10 @@ async function readAccess(uid, now) {
      first search of the day rewrites the field. */
   const used = storedDay === today ? Number(profile.freeSearchCount) || 0 : 0;
 
-  return Object.assign(describe(tier, used, now), { signedIn: true });
+  return Object.assign(describe(tier, used, now), {
+    signedIn: true,
+    entitlement: entitlementSummary(ent)
+  });
 }
 
 /**
@@ -100,9 +127,10 @@ async function consumeSearch(uid, now) {
   const result = await db().runTransaction(async tx => {
     const snap = await tx.get(ref);
     const profile = snap.exists ? snap.data() : null;
-    const tier = tierFor(profile, now);
+    const ent = resolveEntitlement(profile, now);
+    const tier = ent.isActive ? TIERS.PAID : TIERS.FREE;
 
-    if (tier === TIERS.PAID) return { allowed: true, tier, used: null };
+    if (tier === TIERS.PAID) return { allowed: true, tier, used: null, ent };
 
     const today = dayKeyFor(now);
     const storedDay = profile && profile.freeSearchDay;
@@ -111,7 +139,7 @@ async function consumeSearch(uid, now) {
     if (used >= FREE_DAILY_SEARCHES) {
       /* Refused, and nothing is written. A blocked attempt must not extend the
          window or inflate a counter the user cannot see. */
-      return { allowed: false, tier, used };
+      return { allowed: false, tier, used, ent };
     }
 
     tx.set(ref, {
@@ -123,14 +151,27 @@ async function consumeSearch(uid, now) {
       freeSearchAt: now
     }, { merge: true });
 
-    return { allowed: true, tier, used: used + 1 };
+    return { allowed: true, tier, used: used + 1, ent };
   });
 
   const access = Object.assign(
     describe(result.tier, result.used == null ? 0 : result.used, now),
-    { signedIn: true }
+    { signedIn: true, entitlement: entitlementSummary(result.ent) }
   );
   return { allowed: result.allowed, access };
+}
+
+/**
+ * The full entitlement for one account — plan, source, dates and all.
+ *
+ * `getUserEntitlement(uid)` in the sense every protected feature means it:
+ * one read of users/{uid} and the one resolver. Anything that needs more than
+ * a tier asks here rather than reading the subscription fields for itself.
+ */
+async function getUserEntitlement(uid, now) {
+  if (!uid) return resolveEntitlement(null, now);
+  const snap = await db().collection(USERS).doc(uid).get();
+  return resolveEntitlement(snap.exists ? snap.data() : null, now);
 }
 
 /* ------------------------------------------------------------ group access */
@@ -333,4 +374,6 @@ async function deviceGroupsForUser(modelId, tier) {
   return { modelId, categories, tier };
 }
 
-module.exports = { readAccess, consumeSearch, groupForUser, deviceGroupsForUser };
+module.exports = {
+  readAccess, consumeSearch, getUserEntitlement, groupForUser, deviceGroupsForUser
+};

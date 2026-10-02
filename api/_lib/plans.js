@@ -54,6 +54,29 @@ const PLANS = {
   }
 };
 
+/* ------------------------------------------------------------ LIFETIME
+
+   NOT A PRODUCT. There is no price, no order and no payment, and it is kept
+   out of PLANS on purpose: everything that sells — getPlan, publicCatalogue,
+   /api/plans, /api/create-order — reads PLANS and nothing else, so a browser
+   that posts `{ planId: "lifetime" }` gets "unknown plan" exactly as it would
+   for any other string. There is no flag to forget to check.
+
+   It is an entitlement an administrator grants by hand, through
+   /api/admin/subscription, and the only way to end it is for an administrator
+   to revoke it. `periodMonths` is null because it has no period: an account
+   holding it has no expiry date at all, rather than a very distant one that
+   somebody would one day have to remember to push back. */
+const LIFETIME = {
+  id: 'lifetime',
+  name: 'Lifetime',
+  billingPeriod: 'lifetime',
+  amountPaise: null,
+  currency: 'INR',
+  periodMonths: null,
+  adminOnly: true
+};
+
 /**
  * Resolves a client-supplied plan id to a real plan.
  * Returns null rather than throwing so the caller decides the status code.
@@ -62,9 +85,53 @@ const PLANS = {
  */
 function getPlan(planId) {
   if (typeof planId !== 'string') return null;
+  /* Own properties only. `PLANS['constructor']` is a function, and a plan id
+     arrives from a request body. */
+  if (!Object.prototype.hasOwnProperty.call(PLANS, planId)) return null;
   const plan = PLANS[planId];
   if (!plan || !plan.active) return null;
   return plan;
+}
+
+/**
+ * A plan an ADMINISTRATOR may assign by hand: the two that are sold, and
+ * Lifetime. Never called on the purchase path.
+ * @param {unknown} planId
+ * @returns {Plan|typeof LIFETIME|null}
+ */
+function getAssignablePlan(planId) {
+  if (planId === LIFETIME.id) return LIFETIME;
+  return getPlan(planId);
+}
+
+/** What the admin "Assign / Change Plan" control offers, in display order. */
+function assignableCatalogue() {
+  return publicCatalogue()
+    .map(p => ({ ...p, adminOnly: false, label: `${p.amountDisplay} — ${p.name}` }))
+    .concat([{
+      id: LIFETIME.id,
+      name: LIFETIME.name,
+      billingPeriod: LIFETIME.billingPeriod,
+      currency: LIFETIME.currency,
+      amountPaise: null,
+      amountDisplay: null,
+      periodMonths: null,
+      adminOnly: true,
+      label: 'Lifetime — Admin Only'
+    }]);
+}
+
+/**
+ * The name and price of any plan id an account can HOLD, sold or not.
+ * For display and reporting; null for an id this catalogue has never had.
+ */
+function describePlan(planId) {
+  if (planId === LIFETIME.id) {
+    return { id: LIFETIME.id, name: LIFETIME.name, billingPeriod: 'lifetime', amountPaise: null };
+  }
+  if (typeof planId !== 'string' || !Object.prototype.hasOwnProperty.call(PLANS, planId)) return null;
+  const p = PLANS[planId];
+  return { id: p.id, name: p.name, billingPeriod: p.billingPeriod, amountPaise: p.amountPaise };
 }
 
 /**
@@ -102,4 +169,8 @@ function amountMatches(plan, amountPaise, currency) {
     String(currency).toUpperCase() === plan.currency;
 }
 
-module.exports = { PLANS, getPlan, publicCatalogue, amountMatches };
+module.exports = {
+  PLANS, LIFETIME,
+  getPlan, getAssignablePlan, publicCatalogue, assignableCatalogue, describePlan,
+  amountMatches
+};

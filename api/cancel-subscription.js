@@ -24,6 +24,11 @@ module.exports = async function handler(req, res) {
     const now = Date.now();
     const access = await readAccess(user.uid, now);
     if (access.state !== 'active') return bad(res, 'no active subscription');
+    /* Lifetime has no renewal to stop. Marking it cancelled would end it on
+       the spot — there is no paid period for it to run out to — and "Cancel"
+       is not how access anyone was given for good should be lost. Only an
+       administrator's revocation ends a Lifetime entitlement. */
+    if (access.isLifetime) return bad(res, 'lifetime access has no renewal to cancel');
 
     const firestore = db();
     await Promise.all([

@@ -481,11 +481,17 @@
      * it is close to expiring, so this is cheap to call before every request —
      * which is the point. Holding one token for the life of the page means a
      * long session starts failing with 401s an hour in.
+     *
+     * @param {boolean} [force]  mint a new token even though the cached one
+     *        has not expired. For the one retry after the server has refused a
+     *        token — asking for the same cached one again would be refused
+     *        again, and the caller would conclude something false about the
+     *        account.
      */
-    idToken: function () {
+    idToken: function (force) {
       return ready().then(function (fb) {
         var u = fb.auth().currentUser;
-        if (u) return u.getIdToken(false);
+        if (u) return u.getIdToken(!!force);
 
         /* currentUser is null until auth has resolved, and restoring a session
            from IndexedDB — or finishing a redirect — takes a moment. The local
@@ -494,7 +500,7 @@
            and a "could not start payment" for a session that is perfectly
            valid. Wait for the real answer instead of guessing. */
         return SM.fb.whenResolved().then(function (user) {
-          return user ? user.getIdToken(false) : null;
+          return user ? user.getIdToken(!!force) : null;
         });
       });
     },

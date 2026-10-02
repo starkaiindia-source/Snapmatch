@@ -386,6 +386,10 @@
       }).join('') + '</ul>' +
       (opts.current
         ? '<button class="btn btn--block ' + (hero ? 'btn--outline' : 'btn--soft') + '" disabled>' + icon('check') + 'Your current plan</button>'
+        : opts.owned
+        /* The account already holds everything this plan sells, for good.
+           The server refuses the order as well; this just does not offer it. */
+        ? '<button class="btn btn--block btn--soft" disabled>' + icon('check') + 'Included in your access</button>'
         : '<button class="btn btn--block ' + (hero ? 'btn--amber' : 'btn--primary') + '" data-act="subscribe" data-id="' + plan.id + '">' +
         icon('bolt') + 'Choose ' + esc(plan.name) + '</button>') +
       '</div></div>';
