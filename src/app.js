@@ -3037,8 +3037,35 @@
   /* ==========================================================================
      PAGE · PLANS
      ========================================================================== */
+  /* SAID FIRST, ABOVE THE PRICES: this account already has a plan.
+
+     The Plans page is where a subscriber lands when something sends them
+     there by mistake, and it used to greet them with two prices and two
+     "Choose" buttons and not one word about the plan they were already on.
+     A shop that had paid ₹799 that morning got as far as opening a second
+     payment for ₹99 from this screen.
+
+     Buying again is still allowed for Monthly and Yearly — it is how a plan
+     is renewed, and the new period is added to the end of the current one —
+     but nobody should do it without being told they do not have to. */
+  function activePlanNoticeHTML(s) {
+    if (s.status !== 'pro' || !s.subscription) return '';
+    var sub = s.subscription;
+    if (sub.lifetime) {
+      return '<div class="notice notice--brand" style="margin-bottom:16px">' + icon('checkCircle') +
+        '<span><b>You have lifetime access.</b> Every group and unlimited searches ' +
+        'are already included, with no expiry. There is nothing to buy.</span></div>';
+    }
+    var p = planById(sub.plan);
+    return '<div class="notice notice--brand" style="margin-bottom:16px">' + icon('checkCircle') +
+      '<span><b>Your ' + esc(p ? p.name : '') + ' plan is active until ' + esc(sub.endLabel) +
+      '.</b> You do not need to pay again. Choosing a plan below adds its period to ' +
+      'the end of the one you already have.</span></div>';
+  }
+
   function renderPlans(page) {
     var s = S.get();
+    var lifetime = !!(s.status === 'pro' && s.subscription && s.subscription.lifetime);
     page.innerHTML =
       '<section class="bench" style="padding-bottom:30px"><div class="shell bench__in">' +
       '<span class="bench__eyebrow">' + icon('shop') + 'Built for mobile shops, not for offices</span>' +
@@ -3048,10 +3075,17 @@
 
       '<div class="shell" style="margin-top:-18px;position:relative;z-index:2">' +
       (s.status === 'expired' ? '<div class="notice notice--amber" style="margin-bottom:16px">' + icon('alert') +
-        '<span><b>Your plan has expired.</b> Renew to carry on supporting the ' +
-        'catalogue — everything in the app keeps working either way.</span></div>' : '') +
+        '<span><b>Your plan has expired.</b> Renew to open compatibility groups ' +
+        'and search without a daily limit again.</span></div>' : '') +
+      activePlanNoticeHTML(s) +
       '<div class="plans">' + SM.PLANS.map(function (p) {
-        return C.planCard(p, { current: s.status === 'pro' && s.plan === p.id });
+        return C.planCard(p, {
+          current: s.status === 'pro' && s.plan === p.id,
+          /* Lifetime already includes everything either plan sells. The cards
+             stay as a description of what that is; the buttons do not offer to
+             charge for it. */
+          owned: lifetime
+        });
       }).join('') + '</div>' +
 
       /* THIS TABLE MUST BE TRUE. It is the page people are asked to pay on,
@@ -4428,20 +4462,30 @@
     'Group sheets you can show a customer'
   ];
 
-  function accessHTML() {
+  /* `included` is true for an account with a running plan.
+
+     This list used to draw a padlock and a "Plan" tag beside every paid
+     feature for EVERYONE, subscribers included — so the screen that says
+     "Current plan: Yearly" also said, a few lines down, that unlimited
+     searches and opening a group were locked. To a shop that has just paid,
+     that reads as the payment not having worked. A subscriber sees them
+     ticked, because for a subscriber they are. */
+  function accessHTML(included) {
     return '<span class="t-lab">What your account can do</span>' +
       '<ul class="acclist" style="margin-top:10px">' +
-      freeIncluded().map(function (t) {
-        return '<li class="acclist__on">' + icon('checkCircle') + '<span>' + esc(t) + '</span></li>';
-      }).join('') +
-      PRO_ONLY.map(function (t) {
+      (included ? [] : freeIncluded()).concat(included ? PRO_ONLY.concat(freeIncluded().slice(1)) : [])
+        .map(function (t) {
+          return '<li class="acclist__on">' + icon('checkCircle') + '<span>' + esc(t) + '</span></li>';
+        }).join('') +
+      (included ? '' : PRO_ONLY.map(function (t) {
         return '<li class="acclist__off">' + icon('lock') + '<span>' + esc(t) + '</span>' +
           '<span class="acclist__tag">Plan</span></li>';
-      }).join('') +
+      }).join('')) +
       '</ul>';
   }
 
   function profileHTML(s) {
+    if (s.status === 'pro' && s.subscription && s.subscription.lifetime) return lifetimeHTML(s);
     if (s.status === 'pro') return proHTML(s);
     if (s.status === 'expired') return expiredHTML(s);
     return freeHTML(s);
@@ -4507,7 +4551,44 @@
       '<button class="btn btn--ghost btn--sm" data-act="signout">' + icon('logout') + 'Sign out</button>' +
       '</div>' +
 
-      '<div class="card card--pad">' + accessHTML() + '</div></div>';
+      '<div class="card card--pad">' + accessHTML(true) + '</div></div>';
+  }
+
+  /* ------------------------------------------------------- LIFETIME ACCESS
+
+     Not a plan anyone bought, so there is nothing here to renew, change or
+     cancel — no term meter, no "Change plan", no price. The business granted
+     it and only the business can take it away, which is the one thing worth
+     saying. The same access as Monthly and Yearly; the only difference is
+     that it has no end date. */
+  function lifetimeHTML(s) {
+    var sub = s.subscription;
+    return '<div class="acct">' +
+      '<div class="card card--pad">' +
+      identityHTML(s) +
+      '<hr class="divider" style="margin:18px 0" />' +
+
+      '<span class="t-lab">Current plan</span>' +
+      '<div class="row" style="gap:10px;margin-top:8px;align-items:baseline;flex-wrap:wrap">' +
+      '<span class="t-h1">Lifetime</span>' +
+      '<span class="muted">no renewal, no expiry</span></div>' +
+
+      '<div class="idgrid" style="margin-top:14px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
+      '<div class="idcell"><span>Active since</span><b style="font-family:var(--f-ui);font-size:14px">' +
+        esc(sub.startLabel || '—') + '</b></div>' +
+      '<div class="idcell"><span>Expires</span>' +
+      '<b style="font-family:var(--f-ui);font-size:14px">Never</b></div>' +
+      '</div>' +
+
+      '<div class="notice notice--brand" style="margin-top:12px">' + icon('checkCircle') +
+      '<span><b>Lifetime access.</b> Every group, every part category and unlimited ' +
+      'searches, with nothing to pay and nothing to renew.</span></div>' +
+
+      '<hr class="divider" style="margin:18px 0" />' +
+      '<button class="btn btn--ghost btn--sm" data-act="signout">' + icon('logout') + 'Sign out</button>' +
+      '</div>' +
+
+      '<div class="card card--pad">' + accessHTML(true) + '</div></div>';
   }
 
   /* ------------------------------------------------------------- EXPIRED -- */
@@ -4520,8 +4601,9 @@
       '<hr class="divider" style="margin:18px 0" />' +
       '<div class="notice notice--amber">' + icon('alert') +
       '<span><b>Your ' + esc(p ? p.name.toLowerCase() : '') + ' plan expired on ' + esc(sub ? sub.endLabel : '') + '.</b> ' +
-      'Nothing has been taken away — the catalogue, the fitment lists and the ' +
-      'part codes are all still open. Renew whenever you want to.</span></div>' +
+      'Your account and its details are untouched, and browsing models and ' +
+      'groups still works. Opening a group to see the devices it fits, and ' +
+      'searching without a daily limit, need a plan again.</span></div>' +
 
       (sub ? '<div class="idgrid" style="margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
         '<div class="idcell"><span>Previous plan</span><b style="font-family:var(--f-ui);font-size:14px">' +
@@ -6719,6 +6801,12 @@
             if (st === 'cancelled') toast('Payment cancelled', 'alert');
             else if (st === 'verification-failed') {
               toast('Payment taken but not yet confirmed — it will activate shortly', 'alert');
+              /* "Shortly" has to be something that happens. The webhook is the
+                 other half of this payment and normally lands within seconds,
+                 so the server is asked again until it says the plan is on —
+                 rather than leaving a shop that has paid looking at a button
+                 that invites it to pay a second time. */
+              awaitActivation();
             } else if (st === 'signin-required') {
               toast('Sign in again to activate a plan', 'alert');
             } else if (st === 'unavailable') {
@@ -6817,6 +6905,7 @@
             msg === 'razorpay-refused'       ? 'Razorpay could not start this payment: ' +
                                                  (d.detail || 'it refused the order') +
                                                  ' — nothing was charged'
+          : msg === 'already-lifetime'       ? 'You already have lifetime access — there is nothing to pay'
           : msg === 'payments-unconfigured'  ? 'Payments are not switched on for this site yet'
           : msg === 'signin-required'        ? 'Sign in again to activate a plan'
           : msg === 'checkout-unavailable'   ? 'Razorpay Checkout did not load — check the connection and retry'
@@ -7752,6 +7841,142 @@
     }
   });
 
+  /* ------------------------------------------------- when the entitlement moves
+
+     THE SCREEN FOLLOWS THE SERVER'S ANSWER, WHENEVER IT ARRIVES.
+
+     SM.access asks again by itself when the account on the page changes — a
+     session Firebase restores a moment after load, a sign-in, a sign-out (see
+     src/data/access.js). What it cannot do is redraw anything. Until this
+     listener existed, nothing did: the answer changed underneath a page that
+     had already been painted for the previous one.
+
+     That is the visible half of the bug a yearly subscriber hit on 2 October
+     2026. Their paid answer could arrive after a group or a device had been
+     requested as a signed-out visitor, and the paywall drawn from that first
+     request simply stayed.
+
+     It acts on a CHANGE of tier or of signed-in state and on nothing else.
+     Every group and device response carries the access block and re-emits it,
+     so redrawing on every emit would have each reload trigger the next. */
+  var lastAccessKey = null;
+
+  function accessKey(a) {
+    return a ? (a.paid ? 'paid' : 'free') + ':' + (a.signedIn ? 'in' : 'out') : 'unknown';
+  }
+
+  /* Whatever on screen was cut to a tier is asked for again. Only two things
+     are: an open group's member list, and a device's matching groups. */
+  function reloadGatedContent() {
+    if (state.route.name !== 'finder') return;
+    if (state.finder.groupId) {
+      state.finder.groupMembers = null;
+      state.finder.groupLocked = false;
+      state.finder.groupLoadFailed = false;
+      loadGroupMembers(state.finder.groupId);
+      renderWorkspace();
+    } else if (state.finder.modelId) {
+      if (SM.access.forgetDevice) SM.access.forgetDevice(state.finder.modelId);
+      loadMatches();
+    }
+  }
+
+  /* THE ACCOUNT SCREEN AND THE PAYWALL MUST DESCRIBE THE SAME ACCOUNT.
+
+     They are fed by two requests. /api/access decides what the shop may open;
+     /api/subscription fills in the plan the account page shows, and a page
+     load within half an hour of the last answer reuses that one rather than
+     asking again. So a shop that paid by switching to its UPI app and came
+     back to a reloaded page could be let into every group by the first and
+     still be told "Free account — pick a plan" by the second.
+
+     When the two disagree about whether there is a plan, the session is
+     re-read from the server, once, with no reuse. */
+  var reconciling = false;
+  function reconcileSession() {
+    var a = SM.access && SM.access.get();
+    if (!a || !a.signedIn || !S.get().signedIn || reconciling) return;
+    if (!!a.paid === S.isPro()) return;
+    reconciling = true;
+    SM.debug.log('billing', 'account screen and entitlement disagree — re-reading the plan',
+                 { paid: !!a.paid, session: S.get().status });
+    var done = function () {
+      reconciling = false;
+      if (!document.getElementById('topEnd')) return;
+      renderShellBits();
+      rerenderAccountOrPlans();
+    };
+    S.syncFromServer().then(done, done);
+  }
+
+  function rerenderAccountOrPlans() {
+    var page = document.getElementById('page');
+    if (!page) return;
+    /* Not while a purchase is being started from this page. The button that
+       was pressed is disabled and showing its progress; redrawing the cards
+       would hand back a fresh, enabled one over a payment already under way,
+       which is an invitation to start a second. The purchase repaints the
+       page itself when it finishes. */
+    if (page.querySelector('[data-act="subscribe"][disabled]')) return;
+    if (state.route.name === 'account') renderAccount(page);
+    else if (state.route.name === 'plans') renderPlans(page);
+  }
+
+  /* A payment was taken and this page could not confirm it — the verify call
+     failed, or the browser was away in a UPI app when Checkout finished. The
+     webhook activates the plan regardless, so the server is asked a few more
+     times, and the first answer that says "paid" brings the session with it.
+
+     Bounded and quiet: six questions over about half a minute, then it stops.
+     If the plan is still not on by then the function log has the reason, and
+     hammering the server from a shop's phone will not change it. */
+  var ACTIVATION_POLL_MS = [2000, 3000, 5000, 5000, 8000, 10000];
+  var activationPoll = 0;
+  function awaitActivation() {
+    if (!SM.access) return;
+    var run = ++activationPoll;
+    var step = function (i) {
+      if (run !== activationPoll || i >= ACTIVATION_POLL_MS.length) return;
+      setTimeout(function () {
+        if (run !== activationPoll) return;
+        SM.access.refresh().then(function () {
+          if (run !== activationPoll) return;
+          if (!SM.access.isPaid()) { step(i + 1); return; }
+          S.syncFromServer().then(function () {
+            renderShellBits();
+            rerenderAccountOrPlans();
+            toast('Payment confirmed — plan active');
+          });
+        });
+      }, ACTIVATION_POLL_MS[i]);
+    };
+    step(0);
+  }
+
+  if (SM.access) {
+    SM.access.onChange(function (a) {
+      var key = accessKey(a);
+      if (key === lastAccessKey) return;
+      var first = lastAccessKey === null;
+      lastAccessKey = key;
+
+      /* Before the shell is mounted there is nothing to redraw, and mountShell
+         reads the current answer when it runs. */
+      if (!document.getElementById('topEnd')) return;
+      renderShellBits();
+      /* Dropped, not answered: the new account's answer is on its way and
+         brings its own change with it. */
+      if (!a) return;
+      /* The first answer of the page describes what was loaded alongside it.
+         Any later one replaces an answer something may have been drawn from. */
+      if (!first) reloadGatedContent();
+      /* The account and plans pages are drawn from the session, not from this
+         answer, so they are left alone here — reconcileSession repaints them
+         itself if it finds the session was out of date. */
+      reconcileSession();
+    });
+  }
+
   SM.dataset.load().then(function () {
     SM.__rebind.forEach(function (fn) { fn(); });
 
@@ -7775,7 +8000,11 @@
            cancelling always asks. */
         S.syncFromServer({ reuse: true }).then(function () {
           renderShellBits();
-          if (state.route.name === 'account') renderAccount(document.getElementById('page'));
+          rerenderAccountOrPlans();
+          /* The reused copy may predate a payment made in another app. If it
+             now contradicts what the server says this account may open, it is
+             thrown away and read again. */
+          reconcileSession();
         });
       }
     });

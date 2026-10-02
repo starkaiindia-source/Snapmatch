@@ -69,7 +69,24 @@ function sectionFrom(req) {
 }
 
 /**
- * The uid behind a request, or null.
+ * Who is asking.
+ *
+ * THREE ANSWERS, AND THE THIRD ONE MATTERS.
+ *
+ *   { uid: null }          no Authorization header: a signed-out visitor, who
+ *                          is entitled to the free view
+ *   { uid: '...' }         a token Firebase verified
+ *   { rejected: '...' }    a token was SENT and could not be verified
+ *
+ * The third used to be folded into the first. A subscriber whose token had
+ * expired between the browser's cache and this function, or whose device
+ * clock was out, was answered as an anonymous visitor: HTTP 200, `paid:
+ * false`, and a paywall drawn over a plan they had paid for — with nothing in
+ * the response to say the server had simply failed to recognise them.
+ *
+ * "I could not tell who you are" is not "you have not paid". It is a 401, the
+ * browser mints a new token and asks again, and nobody is told to buy a
+ * subscription they already have.
  *
  * checkRevoked is off: this route grants no money and moves nothing. The worst
  * a just-revoked token achieves is spending its own search credit.
@@ -77,13 +94,26 @@ function sectionFrom(req) {
 async function resolveUser(req) {
   const header = req.headers.authorization || req.headers.Authorization || '';
   const match = /^Bearer\s+(.+)$/i.exec(String(header).trim());
-  if (!match) return null;
+  if (!match) return { uid: null };
   try {
     const decoded = await auth().verifyIdToken(match[1], false);
-    return decoded.uid;
-  } catch {
-    return null;
+    return { uid: decoded.uid };
+  } catch (err) {
+    /* A configuration fault throws from inside this same try. Reporting THAT
+       as a bad token would have every signed-in shop refreshing a token that
+       was never the problem; it is re-thrown and answered as the 500/503 it
+       is. Only a genuine token failure becomes a 401. */
+    if (!err || !String(err.code || '').startsWith('auth/')) throw err;
+    if (err.code !== 'auth/id-token-expired') {
+      console.warn('[access:auth]', err.code, err.message);
+    }
+    return { rejected: err.code === 'auth/id-token-expired' ? 'token expired' : 'invalid token' };
   }
+}
+
+/** The 401 for a token that was sent and could not be verified. */
+function tokenRejected(res, who) {
+  return json(res, 401, { error: who.rejected, retry: 'refresh-token' });
 }
 
 /* ------------------------------------------------------------- GET /access */
@@ -92,8 +122,9 @@ async function currentAccess(req, res) {
   if (!adminConfigured()) {
     return unavailable(res, 'access-unconfigured', { missing: ['FIREBASE_SERVICE_ACCOUNT'] });
   }
-  const uid = await resolveUser(req);
-  const access = await entitlements.readAccess(uid, Date.now());
+  const who = await resolveUser(req);
+  if (who.rejected) return tokenRejected(res, who);
+  const access = await entitlements.readAccess(who.uid, Date.now());
   return ok(res, access);
 }
 
@@ -112,7 +143,9 @@ async function spendSearch(req, res) {
     return unavailable(res, 'access-unconfigured', { missing: ['FIREBASE_SERVICE_ACCOUNT'] });
   }
 
-  const uid = await resolveUser(req);
+  const who = await resolveUser(req);
+  if (who.rejected) return tokenRejected(res, who);
+  const uid = who.uid;
   if (!uid) {
     /* 401 rather than a silent allow. A search that cannot be metered must not
        be waved through — that is the bypass this whole route exists to close. */
@@ -153,8 +186,12 @@ async function deviceParts(req, res) {
   if (!groupId && !modelId) return bad(res, 'groupId or modelId is required');
 
   const now = Date.now();
-  const uid = await resolveUser(req);
-  const access = await entitlements.readAccess(uid, now);
+  const who = await resolveUser(req);
+  /* Refused, not downgraded. Answering a subscriber's unverifiable token with
+     the free slice would send them `requiresPlan: true` for a group they have
+     paid to open. */
+  if (who.rejected) return tokenRejected(res, who);
+  const access = await entitlements.readAccess(who.uid, now);
   const tier = access.paid ? TIERS.PAID : TIERS.FREE;
 
   if (groupId) {

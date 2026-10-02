@@ -81,9 +81,13 @@ function periodFor({ now, periodMonths, currentExpiresAt = null }) {
 }
 
 /**
- * The single definition of "does this account have access right now".
- * Used by the status endpoint and by the Firestore rules' mirror of it, so
- * there is one answer rather than one per caller.
+ * Is ONE billing period, taken by itself, still running?
+ *
+ * NOT the answer to "does this account have access" — that is
+ * resolveEntitlement in api/_schema/entitlement.js, which every route reads
+ * and which also knows about a cancelled-but-paid-for period, Lifetime and a
+ * revocation. This is the arithmetic on a single {status, expiresAt} pair and
+ * nothing more; no route decides access from it.
  *
  * @param {{status?:string, expiresAt?:number|null}|null} sub
  * @param {number} now

@@ -893,11 +893,19 @@
     return d.getDate() + ' ' + mo[d.getMonth()] + ' ' + d.getFullYear();
   }
 
-  /* the single source of truth for what state an account is in */
+  /* What the ACCOUNT SCREEN says about this account, from the copy of the
+     server's answer this browser holds. It draws a badge and a plan card; it
+     grants nothing — what the shop may open is decided per request, on the
+     server, by /api/access and /api/device-parts.
+
+     Lifetime has no expiry date, so "has an expiry in the future" is not the
+     test for it: the server says `lifetime`, and that is what is read. */
   function deriveStatus(profile) {
     if (!profile) return 'guest';
     var s = profile.subscription;
-    if (!s || !s.expiresAt) return 'free';
+    if (!s) return 'free';
+    if (s.lifetime) return 'pro';
+    if (!s.expiresAt) return 'free';
     return Date.now() < s.expiresAt ? 'pro' : 'expired';
   }
 
@@ -926,12 +934,30 @@
       since: profile.createdAt ? fmtDate(new Date(profile.createdAt)) : '',
       subscription: null, plan: null, renewsOn: null
     };
-    if (s && s.expiresAt) {
+    if (s && s.lifetime) {
+      /* No term, no meter, no renewal: there is no end date to count down to.
+         Granted by the business, never bought, and only it can withdraw it. */
+      view.plan = 'lifetime';
+      view.subscription = {
+        plan: 'lifetime',
+        lifetime: true,
+        source: s.source || 'admin_manual',
+        startedAt: s.startedAt || null, expiresAt: null,
+        cancelledAt: null,
+        startLabel: s.startedAt ? fmtDate(new Date(s.startedAt)) : '',
+        endLabel: 'Never',
+        daysLeft: null, daysTotal: null, pctLeft: 100,
+        active: true,
+        willRenew: false
+      };
+    } else if (s && s.expiresAt) {
       var total = Math.max(1, s.expiresAt - s.startedAt);
       var left = s.expiresAt - Date.now();
       view.plan = s.plan;
       view.subscription = {
         plan: s.plan,
+        lifetime: false,
+        source: s.source || 'payment',
         startedAt: s.startedAt, expiresAt: s.expiresAt,
         cancelledAt: s.cancelledAt || null,
         startLabel: fmtDate(new Date(s.startedAt)),
@@ -1548,11 +1574,19 @@
       return SM.billing.status().then(function (data) {
         markServerSync(uid);
         var a = data.access || {};
+        /* Is there a plan to show at all? Lifetime has no expiry, so the date
+           alone no longer answers that. And a plan an administrator REVOKED
+           still carries its old expiry: the server says it grants nothing, and
+           the account screen must not draw it as running. */
+        var lifetime = a.isLifetime === true;
+        var held = (lifetime || !!a.expiresAt) && a.state !== 'revoked' && a.state !== 'none';
         SM.auth.saveProfile(current.sub, {
-          subscription: a.expiresAt ? {
+          subscription: held ? {
             plan: a.plan,
             startedAt: a.startedAt,
-            expiresAt: a.expiresAt,
+            expiresAt: lifetime ? null : a.expiresAt,
+            lifetime: lifetime,
+            source: a.source || null,
             cancelledAt: a.state === 'cancelling' ? Date.now() : null,
             serverState: a.state
           } : null

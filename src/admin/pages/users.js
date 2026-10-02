@@ -40,7 +40,8 @@
     ['subscription_active', 'Active subscription'],
     ['subscription_expired', 'Expired subscription'],
     ['plan_monthly', 'Monthly plan'],
-    ['plan_yearly', 'Yearly plan']
+    ['plan_yearly', 'Yearly plan'],
+    ['plan_lifetime', 'Lifetime (admin only)']
   ];
 
   var SORTS = [
@@ -67,7 +68,7 @@
       'shop profile. Nothing here is sample data.</p>' +
       '</div></div>' +
       '<div class="adm__card">' + filtersHTML() + '<div id="admUsersBody">' +
-      tableShell(ui.skeletonRows(8, 7)) + '</div></div>';
+      tableShell(ui.skeletonRows(8, 9)) + '</div></div>';
 
     wire(host, ctx);
     load(ctx);
@@ -103,6 +104,7 @@
     return '<div class="adm__scroll"><table class="adm__table">' +
       '<thead><tr>' +
       '<th>Shop</th><th>Contact</th><th>Profile</th><th>Plan</th>' +
+      '<th>Expires</th><th>Source</th>' +
       '<th class="num">Paid</th><th>Joined</th><th>Last seen</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
@@ -144,7 +146,7 @@
   function load(ctx) {
     var body = document.getElementById('admUsersBody');
     if (!body) return;
-    body.innerHTML = tableShell(ui.skeletonRows(8, 7));
+    body.innerHTML = tableShell(ui.skeletonRows(8, 9));
 
     var params = {
       q: query.q,
@@ -222,10 +224,16 @@
       '<td>' + ui.pill(u.accountState) +
         (u.accountStatus === 'disabled' ? ' ' + ui.pill('disabled') : '') + '</td>' +
 
+      /* Plan, status, expiry and source — all four from the server's resolver,
+         so this row and the paywall cannot disagree about the same shop.
+         "Never" is a Lifetime plan; "Admin (manual)" is a plan nobody paid
+         for, which is why it is not in the Paid column either. */
       '<td>' + ui.pill(u.subscription.status) +
         (u.subscription.planId
-          ? ' <span class="adm__none" style="font-size:12px">' + ui.esc(u.subscription.planId) + '</span>'
+          ? ' <span style="font-size:12px;white-space:nowrap">' + ui.planLabel(u.subscription) + '</span>'
           : '') + '</td>' +
+      '<td style="white-space:nowrap">' + ui.expiryLabel(u.subscription) + '</td>' +
+      '<td style="white-space:nowrap">' + ui.sourceLabel(u.subscription.source) + '</td>' +
 
       '<td class="num">' +
         (u.billing.totalPaidPaise !== undefined

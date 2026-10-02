@@ -161,6 +161,13 @@ const PERMISSIONS = {
   /* money */
   BILLING_READ: 'billing.read',             /* subscriptions and payment history */
   REVENUE_READ: 'revenue.read',             /* totals, ARPU, revenue charts */
+  /* Assign, change, extend or revoke a plan by hand — including Lifetime,
+     which exists nowhere else. This is the permission that gives away the
+     product, so it is held by super_admin and admin and by NOBODY ELSE:
+     `support` can read a customer's subscription to answer a question about
+     it and cannot alter one, and `analyst` never sees an individual at all.
+     Being able to read billing is not being able to grant it. */
+  SUBSCRIPTIONS_WRITE: 'subscriptions.write',
 
   /* product */
   ANALYTICS_READ: 'analytics.read',
@@ -206,7 +213,7 @@ const ROLE_PERMISSIONS = {
 
   [ROLES.ADMIN]: [
     PERMISSIONS.USERS_READ, PERMISSIONS.USERS_READ_CONTACT, PERMISSIONS.USERS_WRITE,
-    PERMISSIONS.BILLING_READ, PERMISSIONS.REVENUE_READ,
+    PERMISSIONS.BILLING_READ, PERMISSIONS.REVENUE_READ, PERMISSIONS.SUBSCRIPTIONS_WRITE,
     PERMISSIONS.ANALYTICS_READ,
     PERMISSIONS.MISSING_MODELS_READ, PERMISSIONS.MISSING_MODELS_WRITE,
     PERMISSIONS.MISSING_MODELS_PUBLISH,

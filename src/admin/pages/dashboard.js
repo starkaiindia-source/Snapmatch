@@ -71,6 +71,7 @@
       ['Active now', ui.count(d.subscriptions.totalActive)],
       ['Monthly', ui.count(d.subscriptions.monthly)],
       ['Yearly', ui.count(d.subscriptions.yearly)],
+      ['Lifetime', ui.count(d.subscriptions.lifetime)],
       ['Free accounts', ui.count(d.subscriptions.free)],
       ['Expired', ui.count(d.subscriptions.expired)],
       ['Cancelled', ui.count(d.subscriptions.cancelled)],

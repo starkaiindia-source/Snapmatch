@@ -35,12 +35,15 @@ module.exports = async function handler(req, res) {
       serverTime: now,          /* lets the UI count down without trusting the device */
       access,
       history: history.map(h => ({
-        subscriptionId: h.razorpayOrderId,
+        subscriptionId: h.razorpayOrderId || null,
         planId: h.planId,
         billingPeriod: h.billingPeriod,
-        amount: h.amount,
+        /* Null for a plan an administrator assigned: nothing was charged, and
+           a zero would read as a free purchase rather than as no purchase. */
+        amount: h.amount ?? null,
         currency: h.currency,
         status: h.status,
+        source: h.activationSource || 'payment',
         paymentId: h.paymentId || null,
         startedAt: h.startedAt ?? null,
         expiresAt: h.expiresAt ?? null

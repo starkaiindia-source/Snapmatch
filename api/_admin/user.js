@@ -119,6 +119,23 @@ function buildTimeline(user, events, includeBilling) {
 
   if (includeBilling) {
     (user.subscriptions || []).forEach(s => {
+      /* A plan an administrator assigned is not an order and was not paid
+         for. It gets its own line, saying so, instead of the "Order created"
+         a purchase gets. */
+      if (s.activationSource === 'admin_manual') {
+        items.push({
+          at: s.createdAt || s.startDate, type: 'plan_assigned_by_admin',
+          label: `Plan assigned by admin (${s.planId || 'unknown plan'})`,
+          detail: {
+            source: 'admin_manual',
+            endDate: s.isLifetime ? 'never' : s.endDate,
+            status: s.subscriptionStatus,
+            reason: s.reason || null,
+            reference: s.reference || null
+          }
+        });
+        return;
+      }
       if (s.createdAt) {
         items.push({
           at: s.createdAt, type: 'order_created',

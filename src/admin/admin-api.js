@@ -90,6 +90,15 @@
     users: function (params) { return request('/api/admin/users' + qs(params)); },
     user: function (uid) { return request('/api/admin/user' + qs({ uid: uid })); },
 
+    /* One account's entitlement, the plans this administrator may assign, and
+       what has been done to it by hand. The POST assigns, changes, extends or
+       revokes — the server checks `subscriptions.write` on every call, so a
+       role without it gets a 403 here whatever the page chose to draw. */
+    subscription: function (uid) { return request('/api/admin/subscription' + qs({ uid: uid })); },
+    changeSubscription: function (body) {
+      return request('/api/admin/subscription', { method: 'POST', body: body });
+    },
+
     metrics: function (days) { return request('/api/admin/metrics' + qs({ days: days })); },
 
     missingModels: function (params) {

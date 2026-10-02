@@ -19,6 +19,7 @@ const Razorpay = require('razorpay');
 const { getPlan } = require('./_lib/plans');
 const { recordPendingOrder, readProfile, prefillFrom } = require('./_lib/store');
 const { paymentsConfigured, razorpayMode } = require('./_lib/config');
+const { resolveEntitlement } = require('./_schema/entitlement');
 const { ok, bad, json, fail, unavailable, requireMethod, requireUser, body } = require('./_lib/http');
 
 module.exports = async function handler(req, res) {
@@ -64,6 +65,24 @@ module.exports = async function handler(req, res) {
        response names the missing fields so the UI can open the right form and
        come straight back to this plan. */
     const profile = await readProfile(user.uid);
+
+    /* An account that holds Lifetime has nothing left to buy. Taking ₹99 from
+       it would be charging for access it already has for ever — and the
+       activation that followed would have to choose between ignoring the
+       payment and replacing "never expires" with "expires next month". So the
+       purchase is refused before Razorpay is asked for an order at all.
+
+       Monthly and Yearly are NOT refused for an account that already has one:
+       paying again is how a subscription is renewed, and periodFor adds the
+       new period to the end of the one still running. */
+    const held = resolveEntitlement(profile, now);
+    if (held.isActive && held.isLifetime) {
+      return json(res, 409, {
+        error: 'already-lifetime',
+        detail: 'This account has lifetime access. There is nothing to pay for.'
+      });
+    }
+
     const pre = prefillFrom(profile, user);
     if (!pre.complete) {
       return json(res, 409, {

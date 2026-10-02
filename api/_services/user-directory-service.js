@@ -89,7 +89,7 @@ const FILTERS = [
   'all', 'new', 'active', 'inactive',
   'profile_incomplete', 'profile_complete',
   'free', 'subscription_active', 'subscription_expired',
-  'plan_monthly', 'plan_yearly'
+  'plan_monthly', 'plan_yearly', 'plan_lifetime'
 ];
 
 const SORTS = [
@@ -270,6 +270,9 @@ function applyFilters(query, plan) {
       break;
     case 'plan_yearly':
       q = q.where('currentPlanId', '==', 'yearly');
+      break;
+    case 'plan_lifetime':
+      q = q.where('currentPlanId', '==', 'lifetime');
       break;
     case 'new':
       inMemory.push(row => Number(row.createdAt) >= plan.now - NEW_WINDOW_MS);

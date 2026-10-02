@@ -236,6 +236,72 @@
 }
 .adm__btn--primary:hover { background: var(--teal-600); border-color: var(--teal-600); }
 .adm__btn:disabled { opacity: .5; cursor: default; }
+/* The one button on a page that takes something away. */
+.adm__btn--danger { border-color: var(--bad); color: var(--bad); }
+.adm__btn--danger:hover { background: var(--bad-bg); }
+
+/* ---------------------------------------------------------- plan assignment
+   The "Assign / Change Plan" control on a user's Subscription card. Built from
+   the same field and button styles as the filters above it. */
+
+.adm__planbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.adm__planform {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+.adm__planform fieldset { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
+.adm__planform legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.adm__planopt {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.adm__planopt + .adm__planopt { margin-top: 6px; }
+.adm__planopt:hover { background: var(--surface-2); }
+.adm__planopt input { margin: 3px 0 0; flex: none; }
+.adm__planopt b { display: block; font-size: 13px; font-weight: 600; }
+.adm__planopt small { display: block; color: var(--ink-3); font-size: 12px; }
+.adm__planfield {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.adm__planfield input,
+.adm__planfield select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+.adm__planfield select:disabled { opacity: .55; }
+/* The hint rule above only reaches a card's direct children. */
+.adm__planform .adm__hint { color: var(--ink-3); font-size: 12px; line-height: 1.5; }
+.adm__planform .adm__hint b { color: var(--ink-2); }
 
 /* ---------------------------------------------------------- table */
 

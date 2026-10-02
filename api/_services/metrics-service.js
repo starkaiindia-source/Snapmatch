@@ -161,13 +161,17 @@ async function subscriptionMetrics(now) {
   const subs = store.collection(SUBSCRIPTIONS);
 
   const [
-    activeStatus, monthly, yearly, totalUsers, expired, cancelled, pending
+    activeStatus, monthly, yearly, lifetime, totalUsers, expired, cancelled, pending
   ] = await Promise.all([
     countOf(users.where('activeSubscriptionStatus', '==', 'active'), 'subs.active'),
     countOf(users.where('currentPlanId', '==', 'monthly')
       .where('activeSubscriptionStatus', '==', 'active'), 'subs.monthly'),
     countOf(users.where('currentPlanId', '==', 'yearly')
       .where('activeSubscriptionStatus', '==', 'active'), 'subs.yearly'),
+    /* Lifetime is granted by an administrator and never paid for, so it is
+       counted as access and appears nowhere in the revenue figures. */
+    countOf(users.where('currentPlanId', '==', 'lifetime')
+      .where('activeSubscriptionStatus', '==', 'active'), 'subs.lifetime'),
     countOf(users, 'subs.totalUsers'),
     countOf(users.where('activeSubscriptionStatus', '==', 'expired'), 'subs.expired'),
     countOf(subs.where('status', '==', 'cancelled'), 'subs.cancelled'),
@@ -194,11 +198,19 @@ async function subscriptionMetrics(now) {
     ? Math.max(0, totalUsers - activeStatus)
     : null;
 
+  /* `stillRunning` filters on an expiry in the future, and Lifetime has no
+     expiry at all — a null is not greater than now — so it would drop every
+     Lifetime account out of the active total. They are added back here. */
+  const running = stillRunning != null
+    ? stillRunning + (lifetime || 0)
+    : activeStatus;
+
   return {
-    totalActive: stillRunning != null ? stillRunning : activeStatus,
+    totalActive: running,
     flaggedActive: activeStatus,
     monthly,
     yearly,
+    lifetime,
     free,
     expired,
     cancelled,
