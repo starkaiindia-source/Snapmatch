@@ -90,7 +90,9 @@ test('a signed-in customer cannot read the queue, start an import or approve any
   for (const token of ['shop-token', 'shop-claims-admin', 'owner-unverified']) {
     assert.equal((await call({ token })).status, 403, `${token} read`);
     for (const action of ['analyze', 'tick', 'approve', 'approve_all_valid', 'reject', 'select_model', 'ignore_source',
-      'add_evidence', 'verify_providers', 'approve_proposal', 'proposal_select_model', 'proposal_member_decision', 'proposal_add_model',
+      'add_evidence', 'verify_providers', 'continue', 'undo_change', 'approve_proposal',
+      'group_add_model', 'group_remove_model', 'group_set_master', 'group_merge', 'group_create', 'group_delete',
+      'category_create', 'category_rename', 'category_delete', 'proposal_select_model', 'proposal_member_decision', 'proposal_add_model',
       'proposal_set_master', 'proposal_set_target', 'proposal_refresh']) {
       const r = await call({ method: 'POST', token, body: { action, profileUrl: 'https://www.instagram.com/x_y/', candidateId: 'abc', jobId: 'abc',
         modelId: 'samsung-galaxy-a15', sourceKey: 'ig_x', contentKey: 'igm_1', memberKey: 'm:samsung-galaxy-a15', text: 'Vivo Y20 Combo' } });
@@ -148,6 +150,30 @@ test('bad input is refused before it reaches a service', async () => {
   assert.equal((await post({ action: 'add_evidence', contentKey: 'igm_missing', text: 'Vivo Y20 Combo' })).status, 404, 'evidence attaches to a post that exists');
   assert.equal((await call({ token: 'owner-token', query: { view: 'evidence_preview', id: '../../../etc/passwd' } })).status, 400);
   assert.equal((await call({ token: 'owner-token', query: { view: 'group', groupId: 'cd-9999' } })).status, 404);
+
+  /* the final groups, the changes feed, Continue and Undo */
+  assert.equal((await call({ token: 'owner-token', query: { view: 'groups' } })).status, 400, 'a category, a model or "recently changed" is required');
+  const groups = await call({ token: 'owner-token', query: { view: 'groups', categoryId: 'battery' } });
+  assert.equal(groups.status, 200);
+  assert.deepEqual(groups.body.groups, []);
+  assert.equal((await call({ token: 'owner-token', query: { view: 'groups', categoryId: '../../users' } })).status, 400, 'a category id is never a path');
+  const changes = await call({ token: 'owner-token', query: { view: 'changes' } });
+  assert.equal(changes.status, 200);
+  assert.deepEqual([changes.body.recent, changes.body.queued, changes.body.attention], [[], [], []]);
+  assert.equal((await post({ action: 'continue', jobId: 'no-such-job' })).status, 404);
+  assert.equal((await post({ action: 'undo_change', candidateId: 'no-such-proposal' })).status, 404);
+  assert.equal((await post({ action: 'undo_change' })).status, 400);
+
+  /* Compatibility Management: ids are validated before anything is read */
+  assert.equal((await post({ action: 'group_add_model', groupId: '../../users/x', modelId: 'samsung-galaxy-a15' })).status, 400, 'a group id is never a path');
+  assert.equal((await post({ action: 'group_add_model', groupId: 'bt-0001', modelId: 'samsung-galaxy-a15' })).status, 404, 'no such group');
+  assert.equal((await post({ action: 'group_merge', intoGroupId: 'bt-0001' })).status, 400);
+  assert.equal((await post({ action: 'group_delete', groupId: 'bt-0001', confirm: 'bt-0002' })).status, 400, 'deleting needs the group number repeated');
+  assert.equal((await post({ action: 'category_rename', categoryId: 'battery', name: 'Batteries' })).status, 409, 'a site category is code');
+  assert.equal((await post({ action: 'category_delete', categoryId: 'battery' })).status, 409);
+  const cats = await call({ token: 'owner-token', query: { view: 'categories' } });
+  assert.equal(cats.status, 200);
+  assert.ok(cats.body.categories.some(c => c.id === 'battery' && c.kind === 'site' && c.onPublicSite));
 });
 
 test('the permission table: approval is its own permission, and support/analyst hold none of it', () => {

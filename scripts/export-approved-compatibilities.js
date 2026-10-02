@@ -57,6 +57,22 @@ async function main() {
       masterModelId: e.masterModelId, masterModelName: e.masterModelName,
       memberIds: e.memberIds || [], memberNames: e.memberNames || []
     } : null,
+    /* a group created at run time, with the number it was issued: the build
+       carries it under that number and never renumbers it */
+    createdGroup: e.kind === 'new_group' && e.createdGroup ? {
+      groupId: e.createdGroup.groupId, groupNo: e.createdGroup.groupNo, partCode: e.createdGroup.partCode,
+      masterModelId: e.createdGroup.masterModelId, memberIds: e.createdGroup.memberIds || [],
+      /* a category created at run time brings its own name and prefix */
+      categoryName: e.createdGroup.categoryName || null, categoryCode: e.createdGroup.categoryCode || null
+    } : null,
+    /* Compatibility Management: a device taken out, a master changed, a group deleted */
+    groupId: e.groupId || null, anchorModelId: e.anchorModelId || null,
+    removedModelId: e.removedModelId || null, masterModelId: e.kind === 'set_master' ? e.masterModelId : undefined,
+    /* two groups a list showed to be one part, each named by the device it
+       is anchored on — the build folds the absorbed one into the survivor */
+    survivor: e.kind === 'merge_groups' && e.survivor ? { groupId: e.survivor.groupId, anchorModelId: e.survivor.anchorModelId } : null,
+    absorbed: e.kind === 'merge_groups' && e.absorbed ? { groupId: e.absorbed.groupId, anchorModelId: e.absorbed.anchorModelId, memberCount: e.absorbed.memberCount || null } : null,
+    automatic: !!e.automatic,
     /* a model an admin asked to MOVE between groups: recorded, never done */
     requests: e.kind === 'master_change_request' ? (e.requests || []) : null,
     proposalId: e.proposalId || null,
@@ -75,11 +91,17 @@ async function main() {
   const by = s => entries.filter(e => e.status === s);
   console.log('\n  Approved compatibility ledger — ' + PROJECT);
   console.log('  ' + '-'.repeat(52));
+  const kinds = k => entries.filter(e => e.kind === k && e.status === 'applied').length;
   console.log('  applied (the build must keep these) :', by('applied').length);
+  console.log('    devices removed / masters changed / groups deleted :', kinds('remove_model'), '/', kinds('set_master'), '/', kinds('delete_group'));
+  console.log('  undone or cancelled (the build skips) :', by('reverted').length + by('cancelled').length);
+  console.log('    groups created at run time        :', entries.filter(e => e.createdGroup).length);
+  console.log('  merges the build will fold in       :', entries.filter(e => e.kind === 'merge_groups').length);
+  entries.filter(e => e.kind === 'merge_groups').forEach(e => console.log(`    ${e.categoryId}: ${e.absorbed.groupId} into ${e.survivor.groupId}`));
   console.log('  pending a new group (worklist)      :', by('approved_pending_build').length);
   console.log('  already true in production          :', by('pre_existing').length);
   console.log('  written to                          :', path.relative(process.cwd(), OUT));
-  by('approved_pending_build').forEach(e => console.log(e.newGroup
+  by('approved_pending_build').filter(e => e.kind !== 'merge_groups').forEach(e => console.log(e.newGroup
     ? `    ${e.categoryId}: NEW GROUP, master ${e.newGroup.masterModelName} — ${e.newGroup.memberNames.join(', ')}`
     : `    ${e.categoryId}: ${e.sourceModelId} <-> ${e.compatibleModelId}`));
   const moves = by('approved_pending_master');

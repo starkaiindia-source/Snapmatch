@@ -11,7 +11,18 @@
    A number on these pages is one the server counted, or an em dash. A job
    that could not reach Instagram says "Unable to collect" and why — it never
    shows zero posts as if the page were empty. An image nobody could OCR says
-   so. "Imported" means approved by a person, not extracted by a machine.
+   so. "Applied" means written to the compatibility data — by Instagram
+   Intelligence when a list passed every check, or by a person.
+
+   ----------------------------------------------------------------------------
+   THE FLOW A PERSON SEES
+
+     paste a page  →  SCAN SOURCE (free)  →  what was found  →  CONTINUE
+                   →  the lists are read, matched and applied  →  the result
+
+   Extraction results, jobs, history and the review queue are still there —
+   they are the technical record — but nobody has to visit them for the
+   compatibility data to change.
 
    ----------------------------------------------------------------------------
    LIVE PROGRESS IS THIS PAGE DRIVING THE JOB
@@ -67,7 +78,7 @@
 
   function statusLabel(s) {
     return {
-      queued: 'Queued', discovering: 'Discovering content', processing: 'Processing',
+      queued: 'Queued', discovering: 'Scanning the page', scanned: 'Scanned — waiting for Continue', processing: 'Analysing',
       paused: 'Paused', rate_limited: 'Rate limited (paused)', quota_exhausted: 'Daily cap reached (paused)',
       budget_reached: 'AI budget reached (paused)',
       completed: 'Completed', completed_with_errors: 'Completed with errors', failed: 'Failed',
@@ -116,6 +127,11 @@
       ui.count(budget.maxClaudeCallsPerSync) + '</b> Claude calls, <b>' + ui.count(budget.maxVideoMinutesPerSync) + '</b> video minutes; ' +
       i.limits.maxItemsPerJob + ' posts per job, ' + i.limits.dailyAiCalls + ' AI calls a day. ' +
       '<button type="button" class="ig__link" data-verify="1">Verify the providers with a real call</button><div id="igVerify"></div>');
+    out += i.autoApplyForMe
+      ? ui.banner('info', '<b>Instagram Intelligence is on.</b> A compatibility list that passes every check — a catalogue product, every model matched for certain, a clear reading — is applied to the compatibility groups as it is read. ' +
+          'A weak reading, or a product the site has no category for, is not applied: it waits under <b>Needs attention</b>.')
+      : ui.banner('warn', '<b>Lists are not applied automatically' + (i.autoApply ? ' for your role' : '') + '.</b> ' +
+          (i.autoApply ? 'A scan you start queues every list for a person with approval rights.' : 'INSTAGRAM_AUTO_APPLY is off: every list waits in the review queue.'));
     return out;
   }
 
@@ -149,6 +165,74 @@
       ui.count(value) + '</dd>' + (small ? '<small>' + small + '</small>' : '') + '</div>';
   }
 
+  var SCAN_CLASS = {
+    likely_relevant: ['Likely relevant', 'ok'], needs_visual_check: ['Needs a visual check', 'warn'],
+    likely_irrelevant: ['Likely irrelevant', ''], already_processed: ['Already processed', 'info']
+  };
+
+  /** After SCAN SOURCE: what the page holds, before anything is spent. */
+  function scanHTML(job) {
+    var c = job.counts || {};
+    var can = ADM.currentCan || function () { return true; };
+    var fresh = (c.scanLikely || 0) + (c.scanCheck || 0);
+    return '<div class="ig__scan">' +
+      '<dl class="adm__tiles">' +
+        tile('Posts found', c.postsFound, ui.count(c.videosFound) + ' reels · ' + ui.count(c.imagesFound) + ' images · ' + ui.count(c.carouselsFound) + ' carousels') +
+        tile('Likely relevant', c.scanLikely, 'the caption talks about compatibility') +
+        tile('Needs a visual check', c.scanCheck, 'the caption decides nothing — the picture will be looked at') +
+        tile('Likely irrelevant', c.scanIrrelevant, 'repair content — will not be read') +
+        tile('Already processed', c.scanSeen, 'unchanged since last time — costs nothing') +
+      '</dl>' +
+      '<p class="adm__hint" style="margin:10px 0">Nothing has been read by a model yet and nothing has changed. Continuing reads up to <b>' + ui.count(fresh) +
+        '</b> post(s), cheapest step first, within the AI budget above' +
+        (job.autoApply ? ' — and applies the lists that pass every check to the compatibility groups.' : ' — and queues the lists for review.') + '</p>' +
+      (can('instagram.import')
+        ? '<div class="ig__actions"><button class="adm__btn adm__btn--primary" data-job-act="continue">Continue — start compatibility analysis</button></div>' : '') +
+      '<h3 class="ig__h3" style="margin-top:16px">What was found</h3><div id="igScanList">' + skel(80) + '</div></div>';
+  }
+
+  function scanListHTML(items) {
+    if (!items.length) return '<p class="adm__none">No posts.</p>';
+    return '<div class="adm__scroll"><table class="adm__table ig__scanlist"><thead><tr><th></th><th>Date</th><th>Type</th><th>Caption</th><th>Classification</th><th>Why</th></tr></thead><tbody>' +
+      items.map(function (it) {
+        var sc = it.scan || {};
+        var cls = SCAN_CLASS[sc.class] || [sc.class || '—', ''];
+        var thumb = it.previewUrl && /^https:\/\//.test(it.previewUrl)
+          ? '<img class="ig__thumb" src="' + ui.esc(it.previewUrl) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility=\'hidden\'">' : '';
+        return '<tr style="cursor:default"><td>' + thumb + '</td>' +
+          '<td style="white-space:nowrap">' + ui.date(typeof it.publishedAt === 'number' ? it.publishedAt : Date.parse(it.publishedAt)) + '</td>' +
+          '<td>' + ui.esc(it.contentType || '') + '</td>' +
+          '<td>' + link(it.permalink, it.captionPreview || '(no caption)') + '</td>' +
+          '<td><span class="adm__pill' + (cls[1] ? ' adm__pill--' + cls[1] : '') + '">' + ui.esc(cls[0]) + '</span></td>' +
+          '<td class="adm__none" style="font-size:12px">' + ui.esc((sc.why || []).join(' · ') || (sc.class === 'already_processed' ? 'was: ' + String(sc.previous || '').replace(/_/g, ' ').toLowerCase() : 'nothing in the caption either way')) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  /** What the scan did to the compatibility data. */
+  function resultHTML(job) {
+    var c = job.counts || {};
+    var done = RUNNING.indexOf(job.status) < 0;
+    var touched = (c.autoGroupsUpdated || 0) + (c.autoGroupsCreated || 0) + (c.autoGroupsMerged || 0) + (c.autoMergesQueued || 0);
+    var title = !done ? 'Updating the compatibility groups…'
+      : touched ? 'Compatibility groups updated'
+      : c.autoAttention ? 'Nothing was applied — ' + ui.count(c.autoAttention) + ' list(s) need attention'
+      : 'Scan complete — no compatibility change';
+    return '<div class="ig__result' + (done && touched ? ' is-done' : '') + '"><h3>' + title + '</h3>' +
+      '<dl class="adm__tiles">' +
+        tile('Posts analysed', c.processed, ui.count(c.relevant) + ' with compatibility content · ' + ui.count(c.ignored) + ' ignored') +
+        tile('Groups updated', c.autoGroupsUpdated, 'existing groups that gained models') +
+        tile('Groups created', c.autoGroupsCreated, 'no existing group matched') +
+        tile('Groups merged', c.autoGroupsMerged, (c.autoMergesQueued ? ui.count(c.autoMergesQueued) + ' more wait for the catalogue build' : 'the same part, listed twice')) +
+        tile('Categories created', c.autoCategoriesCreated, 'a part type there was no category for') +
+        tile('Models added', c.autoModelsAdded, 'to updated and new groups') +
+        tile('Models removed', 0, 'a scan never removes a model') +
+        tile('Needs attention', c.autoAttention, 'lists not applied on their own') +
+        tile('Entries not applied', c.autoSkippedEntries, 'unmatched, ambiguous, or kept in their group') +
+      '</dl>' +
+      '<div class="ig__actions" style="margin-top:10px"><a class="adm__btn adm__btn--primary" href="/admin/instagram/groups?changed=1">View final groups</a>' +
+      (c.autoAttention ? '<a class="adm__btn" href="/admin/instagram/groups#attention">Needs attention (' + ui.count(c.autoAttention) + ')</a>' : '') + '</div></div>';
+  }
+
   function progressHTML(job) {
     var c = job.counts || {};
     var u = job.usage || {};
@@ -171,12 +255,17 @@
       '<div class="ig__actions">' + jobButtons(job) + '</div></div>';
 
     if (job.statusReason) {
-      out += ui.banner(job.status === 'unable_to_collect' || job.status === 'failed' ? 'bad' : 'warn', ui.esc(job.statusReason));
+      out += ui.banner(job.status === 'unable_to_collect' || job.status === 'failed' ? 'bad' : job.status === 'scanned' ? 'info' : 'warn', ui.esc(job.statusReason));
     }
+
+    if (job.status === 'scanned') return out + scanHTML(job) + '<div id="igErrors" hidden>' + errorsHTML(job) + '</div></div>';
 
     out += '<div class="ig__progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '">' +
       '<div style="width:' + pct + '%"></div></div>' +
       '<p class="ig__progressline">' + ui.esc(line) + (running && job.leaseActive ? ' <span class="adm__none">· a worker is on it</span>' : '') + '</p>';
+    if (job.autoApply && job.discovery && job.discovery.done) out += resultHTML(job);
+    /* everything below is the technical record of the run */
+    out += '<details class="ig__details ig__tech"' + (job.autoApply ? '' : ' open') + '><summary>Technical details — the funnel, AI usage and cost</summary>';
 
     /* the cost funnel: what each stage let through */
     out += '<p class="ig__funnel">' + [
@@ -224,7 +313,10 @@
       '<b>Claude</b> ' + ui.count(u.claudeCalls) + ' calls, ' + ui.count(u.claudeInputTokens) + ' in / ' + ui.count(u.claudeOutputTokens) + ' out tokens · ' +
       ui.count(u.videoSeconds) + ' s of video · ' + ui.count(u.cacheHits) + ' cache hits</p>' +
       '<p class="adm__hint" style="margin:4px 0 0">This import\'s AI budget so far: ' + ui.count(b.aiItems) + ' posts · ' + ui.count(b.geminiCalls) + ' Gemini · ' +
-      ui.count(b.claudeCalls) + ' Claude · ' + ui.count(Math.round((b.videoSeconds || 0) / 60)) + ' video min' + (job.forceDeep ? ' · <b>analysis requested by an admin</b>' : '') + '</p>';
+      ui.count(b.claudeCalls) + ' Claude · ' + ui.count(Math.round((b.videoSeconds || 0) / 60)) + ' video min' + (job.forceDeep ? ' · <b>analysis requested by an admin</b>' : '') + '</p>' +
+      '<p class="adm__hint" style="margin:8px 0 0">Records: <a href="/admin/instagram/extractions?job=' + encodeURIComponent(job.jobId) + '">what each post said</a> · ' +
+      '<a href="/admin/instagram/review?job=' + encodeURIComponent(job.jobId) + '">the lists and their evidence</a> · ' +
+      '<a href="/admin/instagram/jobs/' + encodeURIComponent(job.jobId) + '">this job\'s items</a></p></details>';
 
     out += '<div id="igErrors" hidden>' + errorsHTML(job) + '</div></div>';
     return out;
@@ -245,9 +337,7 @@
         b.push('<button class="adm__btn" data-job-act="cancel">Cancel job</button>');
       }
     }
-    b.push('<button class="adm__btn" data-job-act="errors">View errors (' + (job.errorCount || 0) + ')</button>');
-    b.push('<a class="adm__btn" href="/admin/instagram/extractions?job=' + encodeURIComponent(job.jobId) + '">Extraction results</a>');
-    b.push('<a class="adm__btn" href="/admin/instagram/review?job=' + encodeURIComponent(job.jobId) + '">Review candidates</a>');
+    if (job.errorCount) b.push('<button class="adm__btn" data-job-act="errors">View errors (' + (job.errorCount || 0) + ')</button>');
     return b.join('');
   }
 
@@ -275,7 +365,8 @@
       return Promise.resolve(false);
     }
     return act({ action: action, jobId: jobId }).then(function (r) {
-      ctx.toast({ resume: 'Job resumed' + (r.requeued ? ' · ' + r.requeued + ' item(s) put back in the queue' : ''),
+      ctx.toast({ continue: 'Compatibility analysis started',
+                  resume: 'Job resumed' + (r.requeued ? ' · ' + r.requeued + ' item(s) put back in the queue' : ''),
                   retry_failed: r.requeued + ' failed item(s) queued again', cancel: 'Job cancelled' }[action]);
       return true;
     }, function (err) {
@@ -312,21 +403,21 @@
   function renderImporter(host, ctx) {
     host = mount(host);
     ADM.currentCan = ctx.can;
-    host.innerHTML = head('Instagram Data Importer',
-      'Instagram is a source of claims, never an authority. Every model is matched to the catalogue, and nothing reaches production without approval.') +
+    var INTRO = 'Give it an Instagram page. It scans the page for free, shows what it found, and — when you continue — reads the compatibility posts, matches every model to the catalogue and updates the compatibility groups.';
+    host.innerHTML = head('Instagram Data Importer', INTRO) +
       '<div class="adm__card"><div class="adm__skel" style="height:60px"></div></div>';
 
     var params = new URLSearchParams(location.search);
     api({ view: 'overview' }).then(function (data) {
       var i = data.integration;
-      var html = head('Instagram Data Importer',
-        'Instagram is a source of claims, never an authority. Every model is matched to the catalogue, and nothing reaches production without approval.') +
+      i.autoApplyForMe = !!data.autoApply;
+      var html = head('Instagram Data Importer', INTRO) +
         integrationBanners(i) +
-        '<div class="adm__card"><h2>Analyze a source</h2>' +
+        '<div class="adm__card"><h2>Scan a source</h2>' +
         '<p class="adm__hint">Only content the configured Instagram API is permitted to return is collected — public professional (Business/Creator) accounts, or your own. Private and personal accounts are reported as unable to collect.</p>' +
         (ctx.can('instagram.import') ? formHTML(i, params) : ui.banner('info', 'Your role can read imports but not start them.')) +
         '</div><div id="igActive"></div>' +
-        '<div class="adm__card"><h2>Recent imports</h2><div id="igRecent">' + jobsTable(data.recentJobs, true) + '</div></div>';
+        '<div class="adm__card"><h2>Recent scans</h2><div id="igRecent">' + jobsTable(data.recentJobs, true) + '</div></div>';
       host.innerHTML = html;
       wireForm(host, ctx);
       var jobId = params.get('job');
@@ -341,7 +432,15 @@
         return verifyProviders(host.querySelector('#igVerify'), ctx);
       }
       var row = e.target.closest('tr[data-job-row]');
-      if (row && !e.target.closest('a,button')) ctx.go('/admin/instagram/jobs/' + encodeURIComponent(row.getAttribute('data-job-row')));
+      if (row && !e.target.closest('a,button')) {
+        /* a scan is opened HERE, with its summary and its result — the job's
+           item list is the technical record, a link away */
+        var rowId = row.getAttribute('data-job-row');
+        history.replaceState(null, '', '/admin/instagram?job=' + encodeURIComponent(rowId));
+        showJob(host, rowId, ctx);
+        global.scrollTo(0, 0);
+        return;
+      }
       var btn = e.target.closest('[data-job-act]');
       if (!btn) return;
       var panel = document.getElementById('igJob');
@@ -359,15 +458,17 @@
         'placeholder="https://www.instagram.com/shopname/" value="' + ui.esc(params.get('profile') || '') + '"></label>' +
       '<label><span>Specific post or reel URL <span class="adm__none">(optional)</span></span><input name="postUrl" type="url" inputmode="url" ' +
         'placeholder="https://www.instagram.com/p/…/"></label>' +
-      '<label>Posts to read<input name="maxItems" type="number" min="1" max="' + i.limits.maxItemsPerJob + '" value="' +
-        Math.min(25, i.limits.maxItemsPerJob) + '"></label>' +
+      '<label>Posts to scan<input name="maxItems" type="number" min="1" max="' + i.limits.maxItemsPerJob + '" step="1" list="igCounts" value="' +
+        Math.min(50, i.limits.maxItemsPerJob) + '"><datalist id="igCounts">' +
+        [25, 50, 100, 150, 250, 500, 1000].filter(function (n) { return n <= i.limits.maxItemsPerJob; }).map(function (n) { return '<option value="' + n + '">'; }).join('') +
+        '</datalist><span class="adm__hint" style="font-weight:400">Up to ' + ui.count(i.limits.maxItemsPerJob) + '. Listing is free; what is read by a model is bounded by the AI budget, and the rest waits for Resume.</span></label>' +
       '<fieldset class="ig__mode"><legend>How</legend>' +
         '<label><input type="radio" name="mode" value="api" checked> Official Instagram API' + (i.graph.configured ? '' : ' <span class="adm__none">(not configured)</span>') + '</label>' +
         '<label><input type="radio" name="mode" value="manual"> Manual entry — paste text you read yourself</label>' +
       '</fieldset>' +
       '<label id="igManual" hidden>Post text (caption, or the text shown in its images)<textarea name="manualText" rows="5" maxlength="5000" ' +
         'placeholder="Samsung A15 4G Tempered Glass&#10;Compatible: A15 4G / A15 5G"></textarea></label>' +
-      '<div><button class="adm__btn adm__btn--primary" type="submit">Analyze Source</button></div>' +
+      '<div><button class="adm__btn adm__btn--primary" type="submit">Scan Source</button></div>' +
       '</form>';
   }
 
@@ -382,9 +483,12 @@
       var data = new FormData(form);
       var button = form.querySelector('button[type="submit"]');
       button.disabled = true;
-      button.textContent = 'Creating import job…';
+      button.textContent = 'Starting the scan…';
       act({
         action: 'analyze',
+        /* a whole page is scanned first and waits for Continue; one post, or
+           text typed by hand, goes straight to analysis */
+        scanFirst: true,
         profileUrl: String(data.get('profileUrl') || ''),
         postUrl: String(data.get('postUrl') || ''),
         maxItems: Number(data.get('maxItems')) || undefined,
@@ -392,13 +496,13 @@
         manualText: String(data.get('manualText') || '')
       }).then(function (r) {
         button.disabled = false;
-        button.textContent = 'Analyze Source';
+        button.textContent = 'Scan Source';
         history.replaceState(null, '', '/admin/instagram?job=' + encodeURIComponent(r.job.jobId));
         paintJob(host, r.job, ctx);
         refreshRecent(host);
       }, function (err) {
         button.disabled = false;
-        button.textContent = 'Analyze Source';
+        button.textContent = 'Scan Source';
         ctx.toast(err.message || 'Could not start the import', 'bad');
       });
     });
@@ -424,20 +528,43 @@
     var box = host.querySelector('#igActive');
     if (!box) return;
     box.innerHTML = progressHTML(job);
+    if (job.status === 'scanned') loadScanList(host, job.jobId);
     if (stopDriving) stopDriving();
     stopDriving = null;
     if (RUNNING.indexOf(job.status) > -1 && ctx.can('instagram.import')) {
       stopDriving = drive(host, job.jobId, ctx, function (next) {
         var b = host.querySelector('#igActive');
         var open = document.getElementById('igErrors') && !document.getElementById('igErrors').hidden;
+        var tech = b && b.querySelector('.ig__tech');
+        var techOpen = tech ? tech.open : null;
         if (b) b.innerHTML = progressHTML(next);
+        if (techOpen !== null && b.querySelector('.ig__tech')) b.querySelector('.ig__tech').open = techOpen;
         if (open) document.getElementById('igErrors').hidden = false;
+        if (next.status === 'scanned') loadScanList(host, next.jobId);
         if (RUNNING.indexOf(next.status) < 0) {
-          ctx.toast('Import ' + statusLabel(next.status).toLowerCase(), next.status === 'completed' ? '' : 'warn');
+          ctx.toast(next.status === 'scanned' ? 'Scan complete — review what was found, then Continue' : 'Scan ' + statusLabel(next.status).toLowerCase(),
+            next.status === 'completed' || next.status === 'scanned' ? '' : 'warn');
           refreshRecent(host);
         }
       });
     }
+  }
+
+  function loadScanList(host, jobId) {
+    api({ view: 'job', jobId: jobId, itemLimit: 200 }).then(function (r) {
+      var box = host.querySelector('#igScanList');
+      if (!box) return;
+      /* what will be read first, then what will not */
+      var order = { likely_relevant: 0, needs_visual_check: 1, already_processed: 2, likely_irrelevant: 3 };
+      var items = r.items.slice().sort(function (a, b) {
+        return (order[(a.scan || {}).class] || 0) - (order[(b.scan || {}).class] || 0) || a.order - b.order;
+      });
+      box.innerHTML = scanListHTML(items) +
+        (r.job.counts.postsFound > items.length ? '<p class="adm__hint">Showing ' + items.length + ' of ' + ui.count(r.job.counts.postsFound) + ' posts.</p>' : '');
+    }, function (err) {
+      var box = host.querySelector('#igScanList');
+      if (box) box.innerHTML = failBanner(err, 'the posts');
+    });
   }
 
   /* ============================================================= sources */
@@ -478,7 +605,7 @@
               '<td class="num">' + (use ? usd(use.costMicroUsd || 0) + (use.costUnknownCalls ? '<div class="adm__none" style="font-size:11px">+' + ui.count(use.costUnknownCalls) + ' unpriced</div>' : '') : ui.text(null)) + '</td>' +
               '<td class="num">' + ui.count(rep.approved || 0) + '</td><td class="num">' + ui.count(rep.rejected || 0) + '</td>' +
               '<td style="white-space:nowrap">' +
-                (ctx.can('instagram.import') && !s.ignored ? '<a class="adm__btn" href="/admin/instagram?profile=' + encodeURIComponent(s.profileUrl || '') + '">Import again</a> ' : '') +
+                (ctx.can('instagram.import') && !s.ignored ? '<a class="adm__btn" href="/admin/instagram?profile=' + encodeURIComponent(s.profileUrl || '') + '">Scan now</a> ' : '') +
                 (ctx.can('compat.review') ? (s.ignored
                   ? '<button class="adm__btn" data-src="' + ui.esc(s.sourceKey) + '" data-ignore="0">Un-ignore</button>'
                   : '<button class="adm__btn" data-src="' + ui.esc(s.sourceKey) + '" data-ignore="1">Ignore source</button>') : '') +

@@ -193,7 +193,12 @@ const CATEGORY_TERMS = {
   },
   'button-flex': {
     strong: ['button flex', 'buttonflex', 'power flex', 'volume flex', 'power volume flex',
-      'on off flex', 'switch flex', 'power button flex', 'side key flex', 'power on off flex'],
+      'on off flex', 'switch flex', 'power button flex', 'side key flex', 'power on off flex',
+      /* the trade's own word for a flex strip, as Indian sellers print it:
+         "Universal On Off Patta + Vellum". Only with the button it belongs to —
+         a bare "patta" is also a charging or an LCD flex. */
+      'on off patta', 'onoff patta', 'on off patti', 'on off strip', 'power patta', 'volume patta',
+      'power volume patta', 'on off volume patta', 'on off volume flex', 'power key flex', 'volume key flex'],
     weak: []
   },
   'sim-tray': {
@@ -209,7 +214,9 @@ const UNMAPPED_PRODUCT_TERMS = [
   'back door', 'battery door', 'housing', 'charger', 'adapter', 'data cable', 'cable', 'earphone',
   'earphones', 'earbuds', 'headphone', 'speaker', 'ringer', 'loudspeaker', 'microphone',
   'vibrator', 'motherboard', 'touch glass', 'front glass', 'og glass', 'digitizer', 'flip cover',
-  'lcd flex', 'main flex', 'power bank', 'smart watch', 'pop socket', 'back skin', 'lamination'
+  'lcd flex', 'main flex', 'power bank', 'smart watch', 'pop socket', 'back skin', 'lamination',
+  /* "patta" is a flex strip; these are not the button flex and not a display */
+  'lcd patta', 'main patta', 'charging patta', 'display patta'
 ];
 
 /** Category names exactly as the catalogue names them — a hit on one of these
@@ -706,6 +713,67 @@ const CATEGORY_TABLE = (() => {
   return rows;
 })();
 
+/* ---- categories created in Mobile Parts Finder at run time ----
+
+   The eight above are the SITE's categories: each has a part-code prefix, a
+   picture and generated pages, and is declared in the catalogue build. A
+   category can also be created in the compatibility data itself — by
+   Instagram Intelligence, when a post is about a part the catalogue has no
+   category for, or by an administrator. Those live in Firestore
+   (compatCategories), are registered here per instance by
+   category-service.load(), and are matched by name exactly like the others.
+
+   What MAY be created automatically is a closed list, below: part types that
+   are fitted to a phone model. A charger or a power bank is not a fitment
+   category, and a word nobody listed is never made into one. */
+const CREATABLE_CATEGORIES = [
+  { id: 'camera-glass', name: 'Camera Glass', terms: ['camera glass', 'camera lens', 'lens protector', 'camera protector'] },
+  { id: 'back-glass', name: 'Back Glass', terms: ['back glass', 'back panel', 'back door', 'battery door'] },
+  { id: 'touch-glass', name: 'Touch Glass', terms: ['touch glass', 'front glass', 'og glass', 'digitizer'] },
+  { id: 'main-flex', name: 'Main Flex', terms: ['main flex', 'lcd flex', 'main patta', 'lcd patta', 'display patta'] },
+  { id: 'speaker', name: 'Speaker', terms: ['speaker', 'ringer', 'loudspeaker'] },
+  { id: 'housing', name: 'Housing', terms: ['housing'] },
+  { id: 'flip-cover', name: 'Flip Cover', terms: ['flip cover'] }
+];
+
+/** The category that may be created for an unmapped product term, or null. */
+function creatableCategoryFor(term) {
+  const t = basicTokens(term).join(' ');
+  if (!t) return null;
+  return CREATABLE_CATEGORIES.find(c => c.terms.some(x => basicTokens(x).join(' ') === t)) || null;
+}
+
+let DYNAMIC_ROWS = [];
+
+/**
+ * Registers the run-time categories with this instance. Idempotent: the
+ * previous registration is replaced. A site category is never overridden.
+ * @param {Array<{id:string, name:string, code:string, terms?:string[], groupCount?:number}>} list
+ */
+function registerCategories(list) {
+  const tax = taxonomy();
+  Array.from(tax.categories.values()).filter(c => c.dynamic).forEach(c => tax.categories.delete(c.id));
+  const rows = [];
+  (list || []).forEach((c, i) => {
+    if (!c || !c.id || !c.name || tax.categories.has(c.id)) return;
+    tax.categories.set(c.id, { id: c.id, name: c.name, short: c.name, code: c.code || null, order: 100 + i,
+                               groupCount: Number(c.groupCount) || 0, dynamic: true });
+    Array.from(new Set([c.name].concat(c.terms || []).map(t => basicTokens(t).join(' ')).filter(Boolean)))
+      .forEach(term => rows.push({ term, categoryId: c.id, weak: false }));
+  });
+  DYNAMIC_ROWS = rows;
+}
+
+/** A category of the public site (declared in the build), not a run-time one. */
+function isSiteCategory(categoryId) {
+  const c = taxonomy().categories.get(categoryId);
+  return !!c && !c.dynamic;
+}
+
+function categoryById(categoryId) {
+  return taxonomy().categories.get(categoryId) || null;
+}
+
 /**
  * Finds the product category a text is about.
  *
@@ -716,7 +784,12 @@ function resolveCategory(text, opts = {}) {
   const known = opts.categories || taxonomy().categories;
   let hay = ' ' + basicTokens(text).join(' ') + ' ';
   const hits = [];
-  CATEGORY_TABLE.forEach(row => {
+  /* run-time categories first at equal length: once "camera glass" is a
+     category, it is no longer "a product the catalogue has no category for" */
+  const table = DYNAMIC_ROWS.length
+    ? DYNAMIC_ROWS.concat(CATEGORY_TABLE).sort((a, b) => b.term.length - a.term.length)
+    : CATEGORY_TABLE;
+  table.forEach(row => {
     if (!row.term) return;
     const needle = ' ' + row.term + ' ';
     let at = hay.indexOf(needle);
@@ -814,6 +887,7 @@ module.exports = {
   basicTokens, analyse, digitTokens, detectBrand, brandForToken,
   buildTaxonomy, taxonomy,
   matchModel, resolveCategory, isKnownCategory, modelById, searchModels, categoryTermsFor,
+  CREATABLE_CATEGORIES, creatableCategoryFor, registerCategories, isSiteCategory, categoryById,
   aliasKeyFor: (brandName, text) => aliasKey(brandName || '', text),
   slug
 };

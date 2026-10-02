@@ -133,8 +133,20 @@ function load() {
     aiMode: pick('INSTAGRAM_AI_MODE', ['off', 'fallback', 'always']) || 'fallback',
 
     /* limits */
-    maxItemsPerJob: int('INSTAGRAM_MAX_ITEMS_PER_JOB', 50, 1, 500),
-    maxDiscoveryPages: int('INSTAGRAM_MAX_DISCOVERY_PAGES', 20, 1, 60),
+    /* How many posts ONE scan may list. Listing is paged and free; what a scan
+       may SPEND is the AI budget below, and what it does not reach is queued
+       for Resume — so this is a ceiling on reading, not an artificial small
+       number. */
+    maxItemsPerJob: int('INSTAGRAM_MAX_ITEMS_PER_JOB', 500, 1, 2000),
+    maxDiscoveryPages: int('INSTAGRAM_MAX_DISCOVERY_PAGES', 40, 1, 100),
+    /* Instagram Intelligence: a list that passes every check is applied to the
+       compatibility data without a person approving it. "off" sends
+       everything to review, as before. */
+    autoApply: env('INSTAGRAM_AUTO_APPLY').toLowerCase() !== 'off',
+    /* a part type the data has no category for is given one (a closed list of
+       part types — taxonomy-service CREATABLE_CATEGORIES). "off": such a list
+       waits for a person. */
+    autoCreateCategories: env('INSTAGRAM_AUTO_CREATE_CATEGORIES').toLowerCase() !== 'off',
     pageSize: int('INSTAGRAM_PAGE_SIZE', 25, 5, 50),
     maxFramesPerVideo: int('INSTAGRAM_MAX_FRAMES_PER_VIDEO', 8, 1, 30),
     maxCarouselChildren: int('INSTAGRAM_MAX_CAROUSEL_CHILDREN', 10, 1, 20),
@@ -215,6 +227,7 @@ function status(cfg = load()) {
       native: cfg.videoProvider === 'gemini', missing: videoConfigured(cfg) ? [] : missingFor(cfg.videoProvider)
     },
     ai: { mode: cfg.aiMode, configured: ai.isConfigured(), missing: ai.status().missing },
+    autoApply: !!cfg.autoApply,
     budget: {
       maxAiItemsPerSync: cfg.maxAiItemsPerSync, maxGeminiCallsPerSync: cfg.maxGeminiCallsPerSync,
       maxClaudeCallsPerSync: cfg.maxClaudeCallsPerSync, maxVideoMinutesPerSync: cfg.maxVideoMinutesPerSync

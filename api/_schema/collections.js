@@ -96,6 +96,11 @@ const COMPATIBILITY_EVIDENCE = 'compatibilityEvidence';
     fitment exists, who approved it, and what exactly was written. */
 const APPROVED_COMPATIBILITIES = 'approvedCompatibilities';
 
+/** compatCategories/{categoryId} — a part category created in Mobile Parts
+    Finder's own compatibility data at run time (by Instagram Intelligence or
+    an administrator), beside the eight the site build declares. Internal. */
+const COMPAT_CATEGORIES = 'compatCategories';
+
 /** instagramMediaCache/{hash} — OCR / video / AI results by content hash, so
     the same media is never sent to a paid service twice. */
 const INSTAGRAM_MEDIA_CACHE = 'instagramMediaCache';
@@ -132,6 +137,7 @@ module.exports = {
   INSTAGRAM_SOURCES, INSTAGRAM_IMPORT_JOBS, INSTAGRAM_JOB_ITEMS, INSTAGRAM_CONTENT,
   INSTAGRAM_EXTRACTIONS, COMPATIBILITY_CANDIDATES, COMPATIBILITY_EVIDENCE,
   APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
+  COMPAT_CATEGORIES,
   ADMIN_AUDIT_LOG, RATE_LIMITS,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG

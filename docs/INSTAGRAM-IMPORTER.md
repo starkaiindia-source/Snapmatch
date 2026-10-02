@@ -2,10 +2,15 @@
 
 Instagram posts from parts sellers say things like *"Samsung A15 4G Tempered
 Glass — Compatible: A15 4G / A15 5G"*. This feature reads those claims, matches
-every model to the catalogue, and queues them for an administrator. Only what
-an administrator approves reaches the production fitment data.
+every model to the catalogue, compares each list with the existing
+compatibility groups, and **applies the lists that pass every check** — a
+model joins the group it belongs in, a group is created when none matches, two
+groups one list shows to be the same part are merged (§6b). What does not pass
+waits for a person, with the reason. Nothing is ever removed by a scan.
 
-**Instagram is a source of claims, never an authority.** The order of trust:
+**This is Mobile Parts Finder's own data.** Everything here reads and writes
+the Mobile Parts Finder project and no other (§0). **Instagram is a source of
+claims, never an authority.** The order of trust:
 
 1. the catalogue — every model, brand and category (`assets/search-index.json`)
 2. the taxonomy layer — `api/_services/taxonomy-service.js` and `/aliases`
@@ -30,6 +35,48 @@ Three things it is built around:
   from Claude for the few lists that are still doubtful (§3). Everything that
   decides production — model matching, group matching, the one-group rule, the
   writes — is deterministic code, not a model.
+
+---
+
+## 0. Whose data this is — three projects, one write target
+
+Three projects hold mobile-model data that looks alike. They are separate
+databases, and this code writes to exactly one of them.
+
+| Project | What it is here | Access from this code |
+| --- | --- | --- |
+| **Mobile Parts Finder** — this repository, Firebase `mobilepartsfindercom`, Vercel `mobile-parts-finder` | the active product; its compatibility groups, categories and model references are **its own master data** | read and write |
+| **Dashboard** — a separate repository and Firebase project | historical reference: its category exports seeded this catalogue once | **none at run time.** No credential for it is configured here, and no code calls it |
+| **ProGlide** — a separate project | nothing | none |
+
+How the boundary is held, not merely intended:
+
+- **One database handle.** There is one Firebase Admin app (`api/_lib/firebase.js`)
+  built from one service account (`FIREBASE_SERVICE_ACCOUNT`). Every
+  compatibility service takes its handle from
+  `api/_services/instagram/firestore.js`, which calls
+  `projects.assertWritable()` (`api/_schema/projects.js`): a service account
+  that belongs to the Dashboard or to ProGlide — pasted into the wrong
+  environment — is refused before a document is written, and so is one that
+  does not match `FIREBASE_PROJECT_ID`.
+- **A test that fails the build.** `api/_lib/isolation.test.js` scans every
+  source file: no other project's Firebase id, no second Admin app, no other
+  credential variable, no call to another project's Cloud Functions or
+  Firestore REST endpoint. It then runs an Instagram extraction, a group
+  update, a category creation and a merge, and asserts a Dashboard store and a
+  ProGlide store saw **zero writes**.
+- **No foreign keys.** A group, a category or a ledger entry carries no id of
+  another project's record. Across a catalogue build, a change is identified
+  by the device it was anchored on.
+- **The baseline is a file, not a connection.** The category files the build
+  reads (`*_export.json`) are the snapshot this catalogue started from. The
+  build never calls the Dashboard. Do not re-export from it to "refresh" a
+  category: every change since lives in this project's ledger and is replayed
+  over the baseline (§6); a fresh export would not contain it.
+
+One thing that is NOT this project's own: the Instagram Graph API token
+belongs to the Instagram professional account it was issued for. It is used
+for reading only (Business Discovery) and nothing is ever written through it.
 
 ---
 
@@ -558,9 +605,11 @@ A search for "Samsung A14 · tempered glass" must return one part. So:
 - **What approval writes** is additive: models with no group in the category
   join the target group, and one ledger entry is written per added model in the
   same shape a pairwise approval writes — so the build overlay and the import
-  guard below cover it unchanged. A **new group** is recorded as
-  `approved_pending_build` with its master and members; it needs a part code
-  and a serial, which only the catalogue build issues.
+  guard below cover it unchanged. A **new group** is created in the live data
+  under a number from the issued range (9001 upward per category — the build
+  numbers from 0001, so the two never meet) and recorded in the ledger as
+  `new_group`; the build carries it under that number. Its serial is the
+  build's to issue and is left empty until then.
 - **The catalogue import** (`scripts/import-firestore.js`) refuses to publish a
   build in which any device sits in two groups of one category
   (`--allow-duplicate-assignments` overrides, deliberately awkward);
@@ -568,10 +617,99 @@ A search for "Samsung A14 · tempered glass" must return one part. So:
 - **The pairwise approval** already refused "different groups" and a model in
   several groups.
 
-Moving a model between groups, merging two groups, changing an existing
-group's master and removing a member are changes to the **master catalogue**
-(Compatibility Management, which the build is exported from). They are
-requested and recorded here, exported in the worklist, and performed there.
+Moving ONE model between two groups, changing an existing group's master and
+removing a member are never done by an approval. A person does them in
+**Compatibility Management** (§6c) — in this project, on this project's data.
+
+### 6b. Instagram Intelligence — applied without a person
+
+`auto-apply.js` decides whether a list passes, and applies it through the
+**same transaction** a person's approval runs (`approveProposal`, with
+`auto: true`). There is no second write path: the catalogue foreign keys, the
+one-group rule and the ledger are enforced there for both.
+
+| What the list says | What happens | When |
+| --- | --- | --- |
+| a model with no group in the category, in a list that describes an existing group | it is **added** to that group | live at once |
+| none of its models has a group | a **group is created**, numbered from the issued range (`BF-9001`, `MPF-BF-9001`) so it can never collide with a number the build issues | live at once |
+| it holds at least half of another group **and** at least two of its models, or all of a group of one | that group is **merged** into the target: its models move, and its two documents are kept, marked `mergedInto`, so a page still holding the old group id is answered with the group it became | live at once (a merge too large for one transaction is recorded for the build instead) |
+| the product is a part type there is no category for ("camera glass") | the **category is created** in the compatibility data, and the group in it | live at once in the admin panel; on the public site once the category is in the site build |
+| one of its models is in a group the list barely touches | the model **stays where it is**; the rest of the list goes ahead | never |
+| an entry is unmatched, ambiguous, a variant to confirm, or disputed | it is **skipped and reported**; the rest goes ahead | never |
+
+The public *search bundle* and the generated pages are static files built with
+the catalogue: they list a new group, and drop a merged one, at the next
+catalogue build. The part lookup itself (`/api/device-parts`) reads the live
+data and is right at once.
+
+**A visual box is not a database group.** Two boxes of one image that share
+models are one list (`consolidateSets`), and a list whose models already have
+a group joins that group — a post with four boxes does not create four groups.
+
+**What stops a whole list** (it stays in the review queue, marked
+`autoApply.status: attention`, with the reason): the product is not one of the
+site's categories · the reading is weak (a low confidence band — an unclear
+picture read by a model alone, or a second reader's dispute) · fewer than two
+of its models are catalogue records for certain · the post mixes compatibility
+with repair content · anything the transaction refuses.
+
+**The master of a new group** is the product the post names; else the base
+model the other names in the list extend ("Realme 5" for 5s and 5i); else the
+shortest catalogue name, then alphabetical. Deterministic, stored with its
+reason, and never "the first one printed". An existing group keeps its master.
+
+**Who.** A scan applies automatically only when the administrator who started
+it holds `compat.approve` and `INSTAGRAM_AUTO_APPLY` is not `off` — decided in
+`createJob` from the verified role and stored on the job; no request can ask
+for it. Every change is recorded as `instagram-intelligence` acting
+`onBehalfOf` that administrator: on the proposal, in the ledger
+(`automatic: true`), on the group (`lastChange`) and in the audit log
+(`compat.auto_applied`).
+
+**Undo.** *Compatibility Management → Recent changes → Undo* takes back what
+one list did: the models it added come out of the group, a group it created is
+removed (refused if it has gained models since), and a group it merged is a
+group again with its models back in it. The ledger entries are kept
+and marked `reverted` / `cancelled`, so the next build does not restore them.
+Needs `compat.approve`. No model is ever deleted from the catalogue.
+
+**Categories.** Eight are the SITE's: each has a part-code prefix, a picture
+and generated pages, and is declared in `scripts/build-dataset.js`. A category
+can also be created in the compatibility data itself (`compatCategories`,
+`compat/category-service.js`) — by a scan, or by an administrator.
+
+- A scan creates one only for a closed list of fitted part types
+  (`CREATABLE_CATEGORIES` in `taxonomy-service.js`: Camera Glass, Back Glass,
+  Touch Glass, Main Flex, Speaker, Housing, Flip Cover), each with the words
+  that mean it. A charger or a power bank is not a fitment category, and a
+  word nobody listed never becomes one. `INSTAGRAM_AUTO_CREATE_CATEGORIES=off`
+  turns this off.
+- It gets a part-code prefix nobody else has (`CG`), and its groups are
+  numbered `CG-9001` onward.
+- It is complete in the compatibility data at once — groups, the one-group
+  rule, the admin panel — and is **not served to the public site** until it is
+  added to the build's register: the public lookup filters to site
+  categories, and the build writes its groups to their own files
+  (`groups-runtime.ndjson`), which none of the public outputs read.
+
+### 6c. Compatibility Management — changing a group by hand
+
+`api/_services/compat/management.js`, behind `compat.approve`, from the
+*Compatibility Management* page:
+
+| Action | What it does | What it refuses |
+| --- | --- | --- |
+| Add a model | the model joins the group | a model that is not in All Brands & Models; one that already has a group in the category (**BLOCKED — MODEL ALREADY ASSIGNED**) |
+| Remove a model | the relationship goes; the model stays in the catalogue | the master (choose another first); the last member (delete the group) |
+| Make master | the model becomes the master and leads the list | a model that is not in the group |
+| Merge into this group | the other group's models move here; this group keeps its master and part code | groups of different categories |
+| New group | created under the next issued number | any model that already has a group in the category |
+| Delete group | the relationship goes; every model stays in the catalogue | — (the request must repeat the group number) |
+| Create / rename / delete category | run-time categories only | a site category (it is code); a category that still has groups |
+
+Every one is a single transaction over `groups`, `groupDetails` and
+`modelGroups`, writes its ledger entry in the same transaction, and is
+recorded in the audit log.
 
 ### Keeping approvals through the next import
 
@@ -579,12 +717,14 @@ requested and recorded here, exported in the worklist, and performed there.
 an approval. So:
 
 1. `node scripts/export-approved-compatibilities.js --project <id>` →
-   `data/raw/approved-compatibilities.json`. It also prints the worklist for
-   the master catalogue: new groups to create (master and members by name) and
-   reassignments requested.
-2. `node scripts/build-dataset.js` folds every `applied` entry back into its
-   group — additively, and only if the group still holds the model the approval
-   was anchored on; anything else is listed in `report.json`.
+   `data/raw/approved-compatibilities.json`. It also prints the merges the
+   build will fold in and the reassignments requested of the master.
+2. `node scripts/build-dataset.js` replays the ledger over the baseline, in
+   the order the changes were made: models added and removed, masters changed,
+   groups created (under the number issued then), merged (the absorbed group
+   leaves the build) and deleted. Each is found by the device it was anchored
+   on. An undone or cancelled entry is skipped. Anything that no longer fits
+   is listed in `report.json`, never guessed.
 3. `import-firestore.js` checks every `applied` approval against the build and
    **refuses to import** if one would be dropped (`--allow-dropping-approved`
    overrides, deliberately awkward).
@@ -613,6 +753,14 @@ service account.
   marked failed; this re-queues the failed ones.
 - **Cancel** — stops the job and cancels its queued items; processed items stay.
 - **View errors** — the last 50, with the item and the cause.
+- **Scan first** — a scan of a whole page lists it and scores every post from
+  its caption (free), then stops as `scanned` with a summary: likely relevant,
+  needs a visual check, likely irrelevant, already processed. Nothing is read
+  by a model and nothing changes until **Continue**. One post, or text typed by
+  hand, has nothing to summarise and goes straight on.
+- **How many posts** — up to `INSTAGRAM_MAX_ITEMS_PER_JOB` (default 500), paged
+  through the API. What a scan may *spend* is the AI budget; the posts it does
+  not reach are queued for Resume.
 - **Re-import** — unchanged posts are skipped; a changed caption or carousel is
   a new *version*: the old extraction is kept and its open candidates are
   marked superseded.
@@ -707,12 +855,16 @@ approvals are recorded as `approved_pending_build`.
 - **The real provider calls are only as verified as the last check.** The unit
   tests use injected providers; `instagram-verify-providers.js` is what proves
   a key, a model and image input.
-- **The master catalogue is elsewhere.** Compatibility Management (and All
-  Brands & Models) live in the DashBoard project; this site's catalogue is
-  built from its exports. Approvals here change the live site additively and
-  are folded into the next build; group creation, merges, reassignments and
-  master changes are recorded for the master, not performed here — and the
-  one-group-per-category rule is enforced here, not yet in the master editor.
+- **The public search bundle is a build artefact.** A group created or merged
+  in the live data is in the part lookup at once; the static search bundle and
+  the generated pages follow at the next catalogue build + deploy. There is no
+  automated build yet.
+- **A run-time category is not on the public site** until it is added to the
+  build's register, with its picture and pages.
+- **A scan never removes a model, deletes a group or changes a master.** A
+  person does, in Compatibility Management.
+- **The catalogue baseline files live outside the repository** (the build's
+  `--src` folder). They are this project's own snapshot; keep them.
 - **Stories are not available** through Business Discovery.
 - **Media URLs expire**: previews in the review card work for a while; the
   permalink is the lasting reference. Media is not stored.

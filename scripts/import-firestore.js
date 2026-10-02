@@ -76,6 +76,10 @@ function readNdjson(file) {
   if (!fs.existsSync(p)) throw new Error('missing ' + p + ' — run: node scripts/build-dataset.js');
   return fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
 }
+/* A file an older build did not write: the groups of run-time categories. */
+function readOptional(file) {
+  return fs.existsSync(path.join(BUILD, file)) ? readNdjson(file) : [];
+}
 
 /* -------------------------------------------------------------- firestore */
 let db = null;
@@ -137,15 +141,39 @@ async function writeAll(collection, rows, shape) {
 async function guardApprovedFitments() {
   const snap = await db.collection('approvedCompatibilities').where('status', '==', 'applied').get();
   if (snap.empty) return;
-  const groups = new Map(readNdjson('groups.ndjson').map(g => [g.id, g]));
+  const groups = new Map(readNdjson('groups.ndjson').concat(readOptional('groups-runtime.ndjson')).map(g => [g.id, g]));
   const dropped = [];
+  const all = Array.from(groups.values());
+  const holds = (categoryId, modelId) => all.some(g => g.categoryId === categoryId && (g.memberIds || []).indexOf(modelId) > -1);
+  const day = e => new Date(e.approvedAt).toISOString().slice(0, 10);
+  /* A device that was added and LATER taken out again (removed by hand, or its
+     group deleted) is not "dropped by this build": the removal is in the
+     ledger too, and is newer. */
+  const goneAt = new Map();
+  snap.docs.map(d => d.data()).forEach(e => {
+    const ids = e.kind === 'remove_model' ? [e.removedModelId] : e.kind === 'delete_group' ? (e.memberIds || []) : [];
+    ids.forEach(id => { const k = e.categoryId + '|' + id; goneAt.set(k, Math.max(goneAt.get(k) || 0, Number(e.approvedAt) || 0)); });
+  });
+  const removedLater = (e, modelId) => (goneAt.get(e.categoryId + '|' + modelId) || 0) > (Number(e.approvedAt) || 0);
   snap.docs.forEach(d => {
     const e = d.data();
     if (CATEGORY && e.categoryId !== CATEGORY) return;
-    const ch = e.appliedChange || {};
-    const g = groups.get(ch.groupId);
-    if (!g || (g.memberIds || []).indexOf(ch.addedModelId) < 0) {
-      dropped.push(`${e.categoryId}: ${ch.addedModelId} in ${ch.groupId} (approved ${new Date(e.approvedAt).toISOString().slice(0, 10)})`);
+    if (['remove_model', 'set_master', 'delete_group', 'merge_groups'].indexOf(e.kind) > -1) return;
+    /* a group created at run time: every device it was created with must
+       still have a group in its category — the same one, or (after a merge)
+       the one that absorbed it */
+    if (e.kind === 'new_group') {
+      const c = e.createdGroup || {};
+      const lost = (c.memberIds || []).filter(id => !holds(e.categoryId, id) && !removedLater(e, id));
+      if (lost.length) dropped.push(`${e.categoryId}: group ${c.groupNo || c.groupId} — ${lost.length} device(s) have no group in this build (created ${day(e)})`);
+      return;
+    }
+    if (!e.appliedChange) return;
+    const ch = e.appliedChange;
+    /* the device must still be in a group of that category: its own, or the
+       survivor of a merge the build folded in */
+    if (!holds(e.categoryId, ch.addedModelId) && !removedLater(e, ch.addedModelId)) {
+      dropped.push(`${e.categoryId}: ${ch.addedModelId} in ${ch.groupId} (approved ${day(e)})`);
     }
   });
   console.log(`  approved fitments: ${snap.size} applied, ${dropped.length} missing from this build`);
@@ -222,7 +250,10 @@ async function main() {
   if (want('groups') && !DRY) await guardApprovedFitments();
 
   if (want('groups')) {
-    const groups = readNdjson('groups.ndjson').filter(g => !CATEGORY || g.categoryId === CATEGORY);
+    /* the site's groups, and the groups of categories created at run time —
+       both are this project's compatibility data; only the first are public */
+    const groups = readNdjson('groups.ndjson').concat(readOptional('groups-runtime.ndjson'))
+      .filter(g => !CATEGORY || g.categoryId === CATEGORY);
     /* The whole record, readable by anyone — the owner's decision, matching
        what assets/dataset.json now ships. Keeping /groups thinner than the
        bundle would only mean the Firestore path showed less than the file
@@ -260,7 +291,7 @@ async function main() {
   }
 
   if (want('modelGroups')) {
-    let rows = readNdjson('modelGroups.ndjson');
+    let rows = readNdjson('modelGroups.ndjson').concat(readOptional('modelGroups-runtime.ndjson'));
     /* One key per device, merged in. The device's other categories are not in
        the payload, so the merge cannot overwrite them. */
     if (CATEGORY) rows = rows.filter(r => r.byCategory && r.byCategory[CATEGORY])

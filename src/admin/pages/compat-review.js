@@ -189,7 +189,7 @@
     h += '</dl></section>';
 
     /* PROGLIDE MATCH */
-    h += '<section><h4>ProGlide match</h4>';
+    h += '<section><h4>Catalogue match</h4>';
     if (c.kind === 'model_reference') h += matchHTML(c.referenceMatch, 'reference');
     else h += matchHTML(c.sourceMatch, 'source') + matchHTML(c.compatibleMatch, 'compatible');
     h += '</section></div>';
@@ -368,7 +368,7 @@
           '<div class="ig__sub">Existing group: <button type="button" class="ig__link" data-group="' + ui.esc(m.currentGroupId || '') + '">' +
           ui.esc(String(m.currentGroupId || '').toUpperCase()) + '</button>' +
           (m.currentGroupMaster ? ' (master ' + ui.esc(m.currentGroupMaster) + ')' : '') +
-          (m.decision === 'reassign_request' ? ' · <b>reassignment requested</b> — recorded for the master catalogue; the model is not moved here' : '') + '</div>';
+          (m.decision === 'reassign_request' ? ' · <b>reassignment requested</b> — recorded; move it in Compatibility Management (remove it from that group, then add it here)' : '') + '</div>';
         if (editable) {
           h += '<div class="ig__minis">' + mbtn('exclude', m, 'Keep it where it is') +
             (m.decision === 'reassign_request' ? mbtn('clear', m, 'Withdraw the request') : mbtn('reassign', m, 'Request reassignment')) + '</div>';
@@ -505,7 +505,7 @@
       return memberChip(m, 'ok', editable ? ' <button type="button" class="ig__x" data-pact="exclude" data-key="' + ui.esc(m.key) + '" title="Do not add this model" aria-label="Exclude ' + ui.esc(m.text) + '">×</button>' : '');
     }).join('') + '</div>' : '<p class="adm__none">None</p>') +
       (editable ? '<div class="ig__minis"><button type="button" class="ig__mini" data-pact="addmodel">+ Add a catalogue model</button></div>' : '') + '</div>';
-    h += '<div><h5>REMOVE <span class="ig__count">0</span></h5><p class="adm__none">None — a post never removes a model from a group. Removing one is a change to the master catalogue.</p></div>';
+    h += '<div><h5>REMOVE <span class="ig__count">0</span></h5><p class="adm__none">None — a post never removes a model from a group. A person removes one, in Compatibility Management.</p></div>';
     h += '<div><h5>' + (t.mode === 'existing' ? 'ALREADY IN THE GROUP' : 'EXISTING') + ' <span class="ig__count">' + existing.length + '</span></h5>' +
       (existing.length ? '<div class="ig__chips">' + existing.map(function (m) { return memberChip(m, 'plain'); }).join('') + '</div>' : '<p class="adm__none">None</p>') + '</div>';
     h += '<div><h5>CONFLICT <span class="ig__count">' + conflict.length + '</span></h5>' +
@@ -588,7 +588,7 @@
       case 'exclude': return run(host, ctx, { action: 'proposal_member_decision', candidateId: id, memberKey: key, decision: 'exclude' }, 'Set aside');
       case 'clear': return run(host, ctx, { action: 'proposal_member_decision', candidateId: id, memberKey: key, decision: null }, 'Put back');
       case 'reassign':
-        if (!global.confirm('Request that this model be moved to the target group?\n\nNothing is moved here. The request is recorded with the approval, for the master catalogue (Compatibility Management) to act on.')) return;
+        if (!global.confirm('Request that this model be moved to the target group?\n\nNothing is moved by this. The request is recorded with the approval; move the model yourself in Compatibility Management.')) return;
         return run(host, ctx, { action: 'proposal_member_decision', candidateId: id, memberKey: key, decision: 'reassign_request' }, 'Reassignment requested');
       case 'pick': return run(host, ctx, { action: 'proposal_select_model', candidateId: id, memberKey: key, modelId: el.getAttribute('data-model'),
         rememberAlias: !!(card.querySelector('input[name="remember"]') || {}).checked }, 'Match updated');
@@ -634,7 +634,7 @@
       box.innerHTML = '<div class="ig__groupbox"><h4>' + ui.esc(g.groupNo) + (g.partCode ? ' · <span class="mono">' + ui.esc(g.partCode) + '</span>' : '') + '</h4>' +
         '<p style="margin:0 0 6px">' + ui.esc(categoryName(g.categoryId)) + ' · master <b>' + ui.esc(g.masterModelName || '—') + '</b> · ' + ui.count(g.memberCount) + ' models</p>' +
         '<div class="ig__chips">' + (g.memberNames || []).map(function (n) { return '<span class="ig__chip">' + ui.esc(n) + '</span>'; }).join('') + '</div>' +
-        '<p class="adm__none" style="font-size:11px;margin:8px 0 0">As production has it now. Its master, a removal or a merge is changed in Compatibility Management, the master catalogue.</p></div>';
+        '<p class="adm__none" style="font-size:11px;margin:8px 0 0">As the live data has it now. Its master, a removal or a merge is changed in Compatibility Management.</p></div>';
     }, function (err) { box.innerHTML = ui.banner('bad', ui.esc(err.message || 'Could not load the group')); });
   }
 

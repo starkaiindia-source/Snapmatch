@@ -582,13 +582,24 @@ async function setSourceIgnored({ sourceKey, ignored, reason, admin, now }) {
        write is BLOCKED, the whole approval is refused, and nothing is
        written.
 
-   What approval writes is still additive only: models that have no group in
-   the category join the target group. Moving a model out of a group, merging
-   two groups and creating a group (which needs a part code and a serial) are
-   changes to the master catalogue; an approved request for one is recorded
-   in the ledger for it, never performed here. */
+   What approval writes is additive: models that have no group in the
+   category join the target group, and a list none of whose models has a group
+   becomes a NEW group, numbered from the issued range. Moving ONE model out
+   of a group into another is done by a person in Compatibility Management
+   (compat/management.js): a request for it is recorded in the ledger here,
+   never performed by an approval.
+
+   With `auto: true` (auto-apply.js) the same transaction also decides what a
+   person used to — which of two tied groups, what happens to a listed model
+   another group holds, the master of a new group — by the rules in
+   group-proposals.autoResolve. A merge it decides is RECORDED for the
+   catalogue build to fold in; the live groups are left whole until then.
+
+   undoProposal is the way back: it takes out exactly what one list put in. */
 
 const groupProposals = require('./group-proposals');
+const management = require('../compat/management');
+const categoryService = require('../compat/category-service');
 
 function assertProposal(cur, { pending = true } = {}) {
   if (!cur || cur.kind !== 'group_proposal') throw new ReviewError(400, 'not-a-proposal', 'This candidate is not a group proposal.');
@@ -707,7 +718,7 @@ async function proposalSetMaster({ candidateId, modelId, admin, now }) {
   let previous = null;
   const out = await editProposal(candidateId, admin, now, 'master_selected', modelId, p => {
     if (!p.target || p.target.mode !== 'new') {
-      throw new ReviewError(409, 'existing-group', 'An existing group keeps its master model. Changing it is a change to the master catalogue.');
+      throw new ReviewError(409, 'existing-group', 'An existing group keeps its master model. Change it in Compatibility Management.');
     }
     const m = (p.members || []).find(x => x.match && x.match.modelId === modelId && x.state === 'add');
     if (!m) throw new ReviewError(400, 'not-a-member', 'The master must be one of the models this proposal would put in the group.');
@@ -736,14 +747,17 @@ async function proposalSetTarget({ candidateId, groupId, admin, now }) {
   return Object.assign({ ok: true, candidateId, previousTarget: previous, target: groupId || null }, summary(out.after));
 }
 
-async function proposalChangeCategory({ candidateId, categoryId, admin, now }) {
-  if (!taxonomy.isKnownCategory(categoryId)) throw new ReviewError(400, 'unknown-category', 'Not one of the catalogue\'s categories. The importer never creates categories.');
+async function proposalChangeCategory({ candidateId, categoryId, admin, now, method = 'admin_selected' }) {
+  await categoryService.load();
+  if (!taxonomy.isKnownCategory(categoryId)) throw new ReviewError(400, 'unknown-category', 'Not one of the categories. Create the category first.');
   let previous = null;
   const out = await editProposal(candidateId, admin, now, 'category_changed', categoryId, p => {
     previous = p.categoryId || null;
-    Object.assign(p, { categoryId, categoryMethod: 'admin_selected', categoryStrength: 'strong', unmappedCategoryText: null,
+    /* the product term is kept: it is what the category was matched from */
+    const term = p.unmappedCategoryText || p.categoryText || null;
+    Object.assign(p, { categoryId, categoryMethod: method, categoryStrength: 'strong', categoryText: term, unmappedCategoryText: null,
                        targetOverride: null, masterOverride: null });
-    return { categoryId, categoryMethod: 'admin_selected', categoryStrength: 'strong', unmappedCategoryText: null,
+    return { categoryId, categoryMethod: method, categoryStrength: 'strong', categoryText: term, unmappedCategoryText: null,
              targetOverride: null, masterOverride: null };
   });
   return Object.assign({ ok: true, candidateId, previousCategoryId: previous, newCategoryId: categoryId }, summary(out.after));
@@ -763,10 +777,12 @@ async function proposalRefresh({ candidateId, admin, now }) {
  *                                      a different number now is refused as stale
  * @throws {ReviewError} 'category-conflict' when any model is already assigned
  */
-async function approveProposal({ candidateId, admin, acknowledgeLowConfidence = false, expectedAdd = null, now }) {
+async function approveProposal({ candidateId, admin, acknowledgeLowConfidence = false, expectedAdd = null, now, auto = false }) {
   const db = fsx.db();
   const FV = fsx.FieldValue();
   const ref = candidates().doc(candidateId);
+  /* the categories created at run time are categories too */
+  await categoryService.load();
 
   const result = await db.runTransaction(async tx => {
     /* ---------------- every read first (Firestore requires it) ---------------- */
@@ -790,26 +806,76 @@ async function approveProposal({ candidateId, admin, acknowledgeLowConfidence = 
     const mgSnaps = await Promise.all(ids.map(id => tx.get(db.collection(C.MODEL_GROUPS).doc(id))));
     const membership = new Map(ids.map((id, i) => [id, groupProposals.groupsIn(mgSnaps[i].exists ? mgSnaps[i].data() : null, p.categoryId)]));
 
-    /* the target, decided from the membership just read */
-    const first = groupProposals.plan({ categoryId: p.categoryId, headline: p.headline, members, imported: true, membership,
-                                        groups: new Map(), targetOverride: p.targetOverride, masterOverride: p.masterOverride });
+    let overrides = { targetOverride: p.targetOverride || null, masterOverride: p.masterOverride || null,
+                      targetReason: p.targetReason || null, masterReason: p.masterReason || null };
+    const planWith = groups => groupProposals.plan(Object.assign({ categoryId: p.categoryId, headline: p.headline, members,
+                                                                   imported: true, membership, groups }, overrides));
     const groups = new Map();
+    const groupSnaps = new Map();
+    let auto_ = null;
+
+    if (auto) {
+      /* The automatic engine decides what a person used to, so it needs what
+         a person would look at: the size and master of EVERY group the list
+         reaches into — read here, inside the transaction. */
+      const touched = new Set();
+      membership.forEach(list => list.forEach(g => touched.add(g)));
+      await Promise.all(Array.from(touched).map(async id => {
+        const s = await tx.get(db.collection(C.GROUPS).doc(id));
+        groupSnaps.set(id, s);
+        groups.set(id, groupProposals.summariseGroup(id, s.exists ? s.data() : null, null));
+      }));
+      let look = planWith(groups);
+      const tie = groupProposals.autoResolve({ members, planned: look, now });
+      if (tie.targetOverride) {
+        overrides = Object.assign({}, overrides, { targetOverride: tie.targetOverride, targetReason: tie.targetReason });
+        look = planWith(groups);
+      }
+      auto_ = { targetId: look.target.groupId || null };
+    }
+
+    /* the target, decided from the membership just read */
+    const first = auto_ ? { target: { groupId: auto_.targetId } } : planWith(new Map());
     let gdSnap = null, gSnap = null;
     if (first.target.groupId) {
-      gSnap = await tx.get(db.collection(C.GROUPS).doc(first.target.groupId));
+      gSnap = groupSnaps.get(first.target.groupId) || await tx.get(db.collection(C.GROUPS).doc(first.target.groupId));
       gdSnap = await tx.get(db.collection(C.GROUP_DETAILS).doc(first.target.groupId));
       if (!gdSnap.exists) throw new ReviewError(409, 'group-missing', `${first.target.groupId} has no groupDetails document. Nothing was written.`);
       groups.set(first.target.groupId, groupProposals.summariseGroup(first.target.groupId, gSnap.exists ? gSnap.data() : null, gdSnap.data()));
     }
-    const planned = groupProposals.plan({ categoryId: p.categoryId, headline: p.headline, members, imported: true, membership, groups,
-                                          targetOverride: p.targetOverride, masterOverride: p.masterOverride });
-    const state = Object.assign({}, planned, { members: members.map(groupProposals.slimMember) });
+    let planned = planWith(groups);
+
+    let decided = { merges: [], skipped: [] };
+    if (auto) {
+      decided = groupProposals.autoResolve({ members, planned, now });
+      if (decided.masterOverride) overrides = Object.assign({}, overrides, { masterOverride: decided.masterOverride, masterReason: decided.masterReason });
+      if (decided.changed) planned = planWith(groups);
+    }
+    /* A group the list shows to be the same part is merged into the target
+       HERE, in the live data — so its member list is read now, before any
+       write. A merge too large for one transaction is not half-done: it is
+       recorded for the catalogue build to fold in instead. */
+    const absorbed = [];
+    if (auto && planned.target.mode === 'existing') {
+      for (const g of decided.merges) absorbed.push(Object.assign(await management.readGroup(tx, management.refs(db), g.groupId), { seen: g }));
+    }
+    const mergeLive = absorbed.length > 0 &&
+      absorbed.reduce((n, a) => n + management.mergeWrites(a), 0) + members.length * 2 + 6 <= management.MAX_WRITES;
+    /* a new group is numbered here, so the number is read before any write */
+    const issuedRef = db.collection(C.CATALOG).doc('issued');
+    const issuedSnap = planned.target.mode === 'new' ? await tx.get(issuedRef) : null;
+
+    const state = Object.assign({}, planned, { members: members.map(groupProposals.slimMember) },
+      auto ? { targetOverride: overrides.targetOverride, masterOverride: overrides.masterOverride,
+               targetReason: overrides.targetReason, masterReason: overrides.masterReason } : {});
     const stateNext = Object.assign({}, p, state);
 
     /* ---------------------------- decide, then write ---------------------------- */
 
     /* THE RULE. Any listed model that belongs to another group in this
-       category blocks the whole approval, until a person has dealt with it. */
+       category blocks the whole approval, until it has been dealt with — by a
+       person, or (auto) by the engine, which either merges that group or
+       leaves the model where it is. */
     const blocked = members.filter(m => m.state === 'conflict' && !m.decision);
     if (blocked.length || planned.target.mode === 'undecided') {
       tx.set(ref, Object.assign({}, state, {
@@ -836,59 +902,142 @@ async function approveProposal({ candidateId, admin, acknowledgeLowConfidence = 
       permalink: p.sourcePost && p.sourcePost.permalink || null,
       evidenceText: String(p.extractedText || '').slice(0, 500), approvedAt: now
     };
+    const by = { approvedBy: admin.uid, approvedByEmail: admin.email || null, approvedAt: now,
+                 automatic: !!auto, onBehalfOf: auto ? admin.onBehalfOf || null : null };
     const approval = {
       reviewer: admin.uid, reviewedAt: now, approvedBy: admin.uid, approvedByEmail: admin.email || null,
-      approvedAt: now, updatedAt: now, reviewSection: 'closed', conflict: null
+      approvedAt: now, updatedAt: now, reviewSection: 'closed', conflict: null,
+      autoApply: auto ? { status: 'applied', at: now, skipped: decided.skipped.slice(0, 60) } : null
     };
+    const lastChange = extra => Object.assign({
+      source: auto ? 'instagram-intelligence' : 'instagram-proposal', candidateId, by: admin.uid, at: now,
+      sourceKey: p.sourceKey, sourceUsername: p.sourceUsername || null,
+      permalink: p.sourcePost && p.sourcePost.permalink || null
+    }, extra);
+
     const requests = members.filter(m => m.state === 'conflict' && m.decision === 'reassign_request').map(m => ({
       type: 'reassign', modelId: m.match.modelId, modelName: m.match.modelName,
       fromGroupId: m.currentGroupId || (m.currentGroupIds || [])[0] || null, toGroupId: planned.target.groupId || 'new'
     }));
     const requestRef = requests.length ? db.collection(C.APPROVED_COMPATIBILITIES).doc('req__' + S.sha256(candidateId).slice(0, 32)) : null;
     if (requestRef) {
-      tx.set(requestRef, {
+      tx.set(requestRef, Object.assign({
         relKey: requestRef.id, kind: 'master_change_request', status: 'approved_pending_master', productionOutcome: 'pending_master',
         categoryId: p.categoryId, requests, proposalId: candidateId,
-        productionNote: 'Moving a model between groups is a change to the master catalogue. Recorded for it; nothing was moved here.',
-        approvedBy: admin.uid, approvedByEmail: admin.email || null, approvedAt: now,
+        productionNote: 'Moving a model between groups is done by a person in Compatibility Management. The request is recorded; nothing was moved by this approval.',
         candidateIds: [candidateId], evidence: [evidenceEntry], sources: [p.sourceKey], createdAt: now, updatedAt: now
-      });
+      }, by));
     }
+
+    /* ---- groups this list shows to be the same part as the target ----
+       Merged live, below, with the additions. Only a merge too large for one
+       transaction is DECIDED here and left for the catalogue build to fold
+       in; until then both of its groups stay as they are. */
+    const target = planned.target.groupId ? groups.get(planned.target.groupId) : null;
+    const listedIn = g => members.filter(m => m.decision === 'merge' && (m.currentGroupIds || []).indexOf(g.groupId) > -1);
+    const merges = (mergeLive ? [] : decided.merges).map(g => {
+      const survivorAnchor = target && target.masterModelId && (target.memberIds || []).indexOf(target.masterModelId) > -1
+        ? target.masterModelId : (target && (target.memberIds || [])[0]) || null;
+      const listed = members.filter(m => m.decision === 'merge' && (m.currentGroupIds || []).indexOf(g.groupId) > -1);
+      const absorbedAnchor = g.masterModelId || (listed[0] && listed[0].match.modelId) || null;
+      return {
+        key: S.mergeKeyFor(p.categoryId, survivorAnchor, absorbedAnchor),
+        survivor: { groupId: planned.target.groupId, groupNo: planned.target.groupNo || null, partCode: planned.target.partCode || null,
+                    anchorModelId: survivorAnchor, anchorModelName: survivorAnchor ? (taxonomy.modelById(survivorAnchor) || {}).modelName || null : null },
+        absorbed: { groupId: g.groupId, groupNo: g.groupNo || null, partCode: g.partCode || null,
+                    anchorModelId: absorbedAnchor, masterModelName: g.masterModelName || null, memberCount: g.memberCount || null },
+        listedModelIds: listed.map(m => m.match.modelId), listedModelNames: listed.map(m => m.match.modelName),
+        overlap: g.overlap, coverage: g.coverage
+      };
+    }).filter(m => m.key);
+    const mergeNote = 'Decided automatically, and too large to merge in one step: it lands with the next catalogue build, which folds the two groups into one. Both groups stay as they are until then.';
+    merges.forEach(m => {
+      tx.set(db.collection(C.APPROVED_COMPATIBILITIES).doc(m.key), Object.assign({
+        relKey: m.key, kind: 'merge_groups', status: 'approved_pending_build', productionOutcome: 'pending_build',
+        categoryId: p.categoryId, survivor: m.survivor, absorbed: m.absorbed,
+        listedModelIds: m.listedModelIds, listedModelNames: m.listedModelNames, overlap: m.overlap, coverage: m.coverage,
+        productionNote: mergeNote, proposalId: candidateId, confidenceAtApproval: p.confidence ? p.confidence.band : null,
+        candidateIds: FV.arrayUnion(candidateId), evidence: FV.arrayUnion(evidenceEntry), sources: FV.arrayUnion(p.sourceKey),
+        processingVersion: p.processingVersion || null, createdAt: now, updatedAt: now
+      }, by), { merge: true });
+    });
+    const mergeText = merges.length ? `; merge of ${merges.map(m => m.absorbed.groupNo || m.absorbed.groupId).join(', ')} into it queued for the catalogue build` : '';
 
     /* ---- nothing to add: it was all there already ---- */
-    if (planned.target.mode === 'existing' && !add.length) {
+    if (planned.target.mode === 'existing' && !add.length && !mergeLive) {
+      const something = requests.length || merges.length;
       tx.set(ref, Object.assign({}, state, approval, {
-        status: requests.length ? 'approved' : 'duplicate',
-        duplicateReason: requests.length ? null : 'already_existing',
-        reviewSection: requests.length ? 'closed' : 'duplicates',
-        productionOutcome: requests.length ? 'pending_master' : 'already_existing',
-        history: FV.arrayUnion(hist(now, admin, requests.length ? 'approved' : 'duplicate',
-          requests.length ? `${requests.length} reassignment request(s) recorded for the master catalogue` : 'Already Existing in production; kept as evidence'))
+        status: something ? 'approved' : 'duplicate',
+        duplicateReason: something ? null : 'already_existing',
+        reviewSection: something ? 'closed' : 'duplicates',
+        productionOutcome: merges.length ? 'pending_build' : requests.length ? 'pending_master' : 'already_existing',
+        merges: merges.length ? merges : null,
+        history: FV.arrayUnion(hist(now, admin, something ? 'approved' : 'duplicate',
+          merges.length ? 'nothing to add' + mergeText
+            : requests.length ? `${requests.length} reassignment request(s) recorded for Compatibility Management` : 'Already Existing in production; kept as evidence'))
       }), { merge: true });
-      return { outcome: requests.length ? 'pending_master' : 'already_existing', p, requests };
+      return { outcome: merges.length ? 'merge_queued' : requests.length ? 'pending_master' : 'already_existing', p, requests, merges, skipped: decided.skipped };
     }
 
-    /* ---- a new group: recorded for the catalogue build, never invented here ---- */
+    /* ---- a new group ----
+       Created in the live compatibility data under a number issued here, from
+       a range the catalogue build never uses, and recorded in the ledger so
+       the build carries it. The public search bundle learns of it at the next
+       build; the group itself, its members and the one-group index are true
+       from this moment. */
     if (planned.target.mode === 'new') {
       if (planned.masterReviewRequired || !planned.proposedMaster) {
         throw new ReviewError(409, 'master-review-required', 'MASTER MODEL REVIEW REQUIRED: choose the master model of the new group first.');
       }
-      const ledgerRef = db.collection(C.APPROVED_COMPATIBILITIES).doc(planned.relKey);
-      const note = 'A new group needs a part code and a serial, which only the catalogue build issues. Create it in Compatibility Management; it is in the exported worklist.';
-      tx.set(ledgerRef, {
-        relKey: planned.relKey, kind: 'new_group', status: 'approved_pending_build', productionOutcome: 'pending_build',
-        categoryId: p.categoryId, masterModelId: planned.proposedMaster.modelId, masterModelName: planned.proposedMaster.modelName,
-        memberIds: add.map(m => m.match.modelId), memberNames: add.map(m => m.match.modelName),
-        productionNote: note, proposalId: candidateId, confidenceAtApproval: p.confidence ? p.confidence.band : null,
-        approvedBy: admin.uid, approvedByEmail: admin.email || null, approvedAt: now,
+      const category = taxonomy.categoryById(p.categoryId);
+      if (!category || !category.code) throw new ReviewError(409, 'unknown-category', `The category ${p.categoryId} has no part-code prefix. Nothing was written.`);
+      const issued = issuedSnap && issuedSnap.exists ? issuedSnap.data() : {};
+      const number = Math.max(S.ISSUED_GROUP_BASE, Number(issued[p.categoryId]) || 0) + 1;
+      const groupNo = `${category.code}-${number}`;
+      const groupId = groupNo.toLowerCase();
+      const partCode = `MPF-${groupNo}`;
+      const master = taxonomy.modelById(planned.proposedMaster.modelId);
+      const records = add.map(m => taxonomy.modelById(m.match.modelId));
+      /* the master leads its own group, as in every group the build writes */
+      records.sort((a, b) => (b.modelId === master.modelId) - (a.modelId === master.modelId));
+      const memberIds = records.map(r => r.modelId);
+      const memberNames = records.map(r => r.modelName);
+      const created = { groupId, groupNo, partCode, categoryName: category.name, categoryCode: category.code,
+                        masterModelId: master.modelId, masterModelName: master.modelName,
+                        masterReason: planned.proposedMaster.reason || null, memberIds, memberNames, memberCount: memberIds.length };
+      const change = lastChange({ type: 'created', addedModelIds: memberIds });
+
+      tx.set(issuedRef, { [p.categoryId]: number, updatedAt: now }, { merge: true });
+      tx.set(db.collection(C.GROUPS).doc(groupId), {
+        groupNo, serialNo: null, partCode, oemPartNo: null,
+        categoryId: p.categoryId, categoryName: category.name,
+        masterModelId: master.modelId, masterModelName: master.modelName, masterBrandId: master.brandId || null,
+        memberCount: memberIds.length,
+        searchTokens: Array.from(new Set(taxonomy.basicTokens(master.modelName).concat(taxonomy.basicTokens(partCode)))).slice(0, 60),
+        createdBy: admin.uid, createdAt: now, lastChange: change
+      });
+      tx.set(db.collection(C.GROUP_DETAILS).doc(groupId), {
+        groupNo, categoryId: p.categoryId, partCode, oemPartNo: null, drawingName: master.modelName,
+        memberIds, memberNames, memberCount: memberIds.length, lastChange: change
+      });
+      records.forEach(r => tx.set(db.collection(C.MODEL_GROUPS).doc(r.modelId),
+        { id: r.modelId, byCategory: { [p.categoryId]: FV.arrayUnion(groupId) } }, { merge: true }));
+
+      const ledgerKey = planned.relKey || ('grp__' + S.sha256(candidateId).slice(0, 32));
+      tx.set(db.collection(C.APPROVED_COMPATIBILITIES).doc(ledgerKey), Object.assign({
+        relKey: ledgerKey, kind: 'new_group', status: 'applied', productionOutcome: 'created', appliedAt: now,
+        categoryId: p.categoryId, masterModelId: master.modelId, masterModelName: master.modelName,
+        memberIds, memberNames, createdGroup: created,
+        productionNote: 'Created in the live compatibility data. The public search bundle lists it after the next catalogue build.',
+        proposalId: candidateId, confidenceAtApproval: p.confidence ? p.confidence.band : null,
         candidateIds: [candidateId], evidence: [evidenceEntry], sources: [p.sourceKey],
         processingVersion: p.processingVersion || null, createdAt: now, updatedAt: now
-      });
+      }, by));
       tx.set(ref, Object.assign({}, state, approval, {
-        status: 'approved', productionOutcome: 'pending_build', productionNote: note, ledgerId: planned.relKey,
-        history: FV.arrayUnion(hist(now, admin, 'approved', `new group of ${add.length} models, master ${planned.proposedMaster.modelName}; pending the catalogue build`))
+        status: 'approved', productionOutcome: 'created', createdGroup: created, ledgerId: ledgerKey,
+        history: FV.arrayUnion(hist(now, admin, 'approved', `new group ${groupNo} of ${memberIds.length} models, master ${master.modelName} (${planned.proposedMaster.reason || 'named by the post'})`))
       }), { merge: true });
-      return { outcome: 'pending_build', p, note, requests, master: planned.proposedMaster, memberCount: add.length };
+      return { outcome: 'created', p, requests, created, master: planned.proposedMaster, memberCount: memberIds.length, merges, skipped: decided.skipped };
     }
 
     /* ---- an existing group gains the models that have no group yet ---- */
@@ -904,32 +1053,61 @@ async function approveProposal({ candidateId, admin, acknowledgeLowConfidence = 
       throw new ReviewError(409, 'inconsistent-production', `${clash.match.modelName} is already a member of ${groupId} but its modelGroups entry does not say so. Fix the catalogue import; nothing was written.`);
     }
     const records = add.map(m => taxonomy.modelById(m.match.modelId));
-    const newIds = oldIds.concat(records.map(r => r.modelId));
-    const newNames = oldNames.concat(records.map(r => r.modelName));
+    let newIds = oldIds.concat(records.map(r => r.modelId));
+    let newNames = oldNames.concat(records.map(r => r.modelName));
     const previousCount = Number(gd.memberCount) || oldIds.length;
     const masterId = gSnap && gSnap.exists ? gSnap.data().masterModelId : null;
     const anchorId = masterId && oldIds.indexOf(masterId) > -1 ? masterId : oldIds[0];
     const anchor = anchorId ? taxonomy.modelById(anchorId) : null;
     if (!anchor) throw new ReviewError(409, 'group-empty', `Group ${groupId} has no member the approval can be anchored on. Nothing was written.`);
 
+    /* ---- the groups this list shows to be the same part: merged into it ---- */
+    const merged = [];
+    if (mergeLive) {
+      const survivor = { groupId, groupNo: planned.target.groupNo || gd.groupNo || groupId.toUpperCase(), categoryId: p.categoryId,
+                         g: gSnap && gSnap.exists ? gSnap.data() : {}, gd, memberIds: oldIds, memberNames: oldNames };
+      absorbed.forEach(a => {
+        const listed = listedIn(a.seen);
+        const out = management.writeMerge(tx, {
+          db, survivor, absorbed: a, baseIds: newIds, baseNames: newNames, admin, now,
+          ledgerExtra: Object.assign({
+            proposalId: candidateId, confidenceAtApproval: p.confidence ? p.confidence.band : null,
+            listedModelIds: listed.map(m => m.match.modelId), listedModelNames: listed.map(m => m.match.modelName),
+            overlap: a.seen.overlap, coverage: a.seen.coverage,
+            candidateIds: FV.arrayUnion(candidateId), evidence: FV.arrayUnion(evidenceEntry), sources: FV.arrayUnion(p.sourceKey),
+            processingVersion: p.processingVersion || null
+          }, by)
+        });
+        newIds = out.memberIds;
+        newNames = out.memberNames;
+        merged.push({ key: out.key, live: true, survivor: out.entry.survivor,
+                      absorbed: { groupId: a.groupId, groupNo: a.groupNo, partCode: a.g.partCode || null, masterModelName: a.g.masterModelName || null,
+                                  anchorModelId: out.entry.absorbed.anchorModelId, memberCount: a.memberIds.length },
+                      movedModelIds: out.moved, overlap: a.seen.overlap, coverage: a.seen.coverage });
+      });
+    }
+    const allMerges = merged.concat(merges);
+
     const change = {
       groupId, groupNo: planned.target.groupNo || null,
       addedModelIds: records.map(r => r.modelId), addedModelNames: records.map(r => r.modelName),
       anchorModelId: anchor.modelId, anchorModelName: anchor.modelName,
       previousMemberCount: previousCount, newMemberCount: newIds.length,
-      previousMemberIds: oldIds.slice(0, 1000)
+      previousMemberIds: oldIds.slice(0, 1000),
+      mergedGroups: merged.map(m => ({ groupId: m.absorbed.groupId, groupNo: m.absorbed.groupNo, movedModelIds: m.movedModelIds }))
     };
+    const stamp = lastChange(Object.assign({ type: merged.length && !records.length ? 'merged' : 'added', addedModelIds: change.addedModelIds },
+      merged.length ? { mergedGroupIds: merged.map(m => m.absorbed.groupId) } : {}));
     tx.set(db.collection(C.GROUP_DETAILS).doc(groupId), {
-      memberIds: newIds, memberNames: newNames, memberCount: newIds.length,
-      lastChange: { source: 'instagram-proposal', candidateId, addedModelIds: change.addedModelIds, by: admin.uid, at: now }
+      memberIds: newIds, memberNames: newNames, memberCount: newIds.length, lastChange: stamp
     }, { merge: true });
-    if (gSnap && gSnap.exists) tx.set(db.collection(C.GROUPS).doc(groupId), { memberCount: newIds.length }, { merge: true });
+    if (gSnap && gSnap.exists) tx.set(db.collection(C.GROUPS).doc(groupId), { memberCount: newIds.length, lastChange: stamp }, { merge: true });
     records.forEach((r, i) => {
       tx.set(db.collection(C.MODEL_GROUPS).doc(r.modelId), { id: r.modelId, byCategory: { [p.categoryId]: FV.arrayUnion(groupId) } }, { merge: true });
       /* One ledger entry per added model, in the shape the pairwise approval
          writes — so the build overlay and the import guard cover it as is. */
       const relKey = S.relKeyFor(p.categoryId, anchor.modelId, r.modelId);
-      tx.set(db.collection(C.APPROVED_COMPATIBILITIES).doc(relKey), {
+      tx.set(db.collection(C.APPROVED_COMPATIBILITIES).doc(relKey), Object.assign({
         relKey, kind: S.RELATION_KIND, categoryId: p.categoryId,
         modelA: [anchor.modelId, r.modelId].sort()[0], modelB: [anchor.modelId, r.modelId].sort()[1],
         sourceModelId: anchor.modelId, sourceModelName: anchor.modelName,
@@ -938,20 +1116,21 @@ async function approveProposal({ candidateId, admin, acknowledgeLowConfidence = 
         appliedChange: { groupId, addedModelId: r.modelId, addedModelName: r.modelName,
                          anchorModelId: anchor.modelId, anchorModelName: anchor.modelName,
                          previousMemberCount: previousCount + i, newMemberCount: previousCount + i + 1 },
-        proposalId: candidateId, approvedBy: admin.uid, approvedByEmail: admin.email || null, approvedAt: now,
+        proposalId: candidateId,
         candidateIds: FV.arrayUnion(candidateId), evidence: FV.arrayUnion(evidenceEntry), sources: FV.arrayUnion(p.sourceKey),
         confidenceAtApproval: p.confidence ? p.confidence.band : null,
         matchMethods: { source: 'group_master', compatible: add[i].match.method || null },
         processingVersion: p.processingVersion || null, createdAt: now, updatedAt: now
-      }, { merge: true });
+      }, by), { merge: true });
     });
     tx.set(ref, Object.assign({}, state, approval, {
-      status: 'approved', productionOutcome: 'applied', appliedChange: change,
+      status: 'approved', productionOutcome: 'applied', appliedChange: change, merges: allMerges.length ? allMerges : null,
       history: FV.arrayUnion(hist(now, admin, 'approved',
         `${records.length} model(s) added to ${groupId} (${previousCount} -> ${newIds.length} members)` +
+        (merged.length ? `; ${merged.map(m => m.absorbed.groupNo).join(', ')} merged into it` : '') + mergeText +
         (requests.length ? `; ${requests.length} reassignment request(s) recorded` : '')))
     }), { merge: true });
-    return { outcome: 'applied', p, change, requests };
+    return { outcome: 'applied', p, change, requests, merges, merged, skipped: decided.skipped };
   });
 
   if (result.outcome === 'blocked') {
@@ -965,23 +1144,163 @@ async function approveProposal({ candidateId, admin, acknowledgeLowConfidence = 
     throw new ReviewError(409, 'stale', `Production changed since this proposal was shown: it would now add ${result.now} model(s). Review it again; nothing was written.`);
   }
 
-  const added = result.change ? result.change.addedModelIds.length : 0;
+  const added = result.change ? result.change.addedModelIds.length : result.created ? result.created.memberCount : 0;
   await afterDecision(result.p, {
-    approved: ['applied', 'pending_build', 'pending_master'].indexOf(result.outcome) > -1 ? 1 : 0,
+    approved: ['applied', 'created', 'merge_queued', 'pending_master'].indexOf(result.outcome) > -1 ? 1 : 0,
     appliedToProduction: added,
     duplicates: result.outcome === 'already_existing' ? 1 : 0,
     pendingReview: -1
   }, 'approved', now);
 
   return {
-    ok: true, outcome: result.outcome, candidateId, change: result.change || null, requests: result.requests || [],
+    ok: true, outcome: result.outcome, candidateId, change: result.change || null, created: result.created || null,
+    requests: result.requests || [], merges: result.merges || [], merged: result.merged || [], skipped: result.skipped || [],
     note: {
-      applied: `Approved: ${added} model(s) added to ${result.change ? result.change.groupId : ''} in the production compatibility data.`,
-      pending_build: 'Approved into the ledger. Not live yet: ' + (result.note || ''),
-      pending_master: 'Approved: the reassignment request(s) are recorded for the master catalogue. Nothing was moved.',
+      applied: `${added} model(s) added to ${result.change ? result.change.groupId : ''} in the live compatibility data.` +
+        ((result.merged || []).length ? ' ' + result.merged.map(m => m.absorbed.groupNo).join(', ') + ' merged into it.' : ''),
+      created: result.created ? `New group ${result.created.groupNo} created with ${added} model(s), master ${result.created.masterModelName}. The public search lists it after the next catalogue build.` : '',
+      merge_queued: 'Nothing to add. ' + mergeNoteFor(result.merges),
+      pending_master: 'Approved: the reassignment request(s) are recorded. Move the model in Compatibility Management; nothing was moved by this.',
       already_existing: 'Already Existing in production. Kept as additional evidence; nothing written.'
-    }[result.outcome]
+    }[result.outcome] + (result.outcome !== 'merge_queued' && (result.merges || []).length ? ' ' + mergeNoteFor(result.merges) : '')
   };
+}
+
+function mergeNoteFor(merges) {
+  if (!merges || !merges.length) return '';
+  return 'Merge of ' + merges.map(m => m.absorbed.groupNo || m.absorbed.groupId).join(', ') + ' into ' +
+    (merges[0].survivor.groupNo || merges[0].survivor.groupId) + ' is queued for the next catalogue build.';
+}
+
+/**
+ * Undo what one applied list did. For a person, never automatic — it is the
+ * way back from a change Instagram Intelligence made that turns out wrong.
+ *
+ *   models added to a group    are taken out of it again (the group, its
+ *                              master and every other member are untouched)
+ *   a group that was created   is removed, if it still holds only the models
+ *                              it was created with
+ *   a merge it made            is taken back: the absorbed group is a group
+ *                              again and its models return to it (a merge that
+ *                              was only decided is cancelled)
+ *
+ * Nothing else is touched: a model is never deleted from the catalogue, and a
+ * group that existed before the change is never deleted. The ledger entries
+ * are kept and marked `reverted`, so the next build does not put it back.
+ *
+ * @throws {ReviewError}
+ */
+async function undoProposal({ candidateId, admin, now }) {
+  const db = fsx.db();
+  const FV = fsx.FieldValue();
+  const ref = candidates().doc(candidateId);
+  const ledger = db.collection(C.APPROVED_COMPATIBILITIES);
+
+  const result = await db.runTransaction(async tx => {
+    /* ---------------- every read first ---------------- */
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new ReviewError(404, 'not-found', 'No such candidate.');
+    const p = snap.data();
+    assertProposal(p, { pending: false });
+    if (p.status !== 'approved') throw new ReviewError(409, 'wrong-status', `Only an applied change can be undone; this one is ${p.status}.`);
+    const outcome = p.productionOutcome;
+    if (['applied', 'created', 'pending_build'].indexOf(outcome) < 0) {
+      throw new ReviewError(409, 'nothing-to-undo', 'This approval changed nothing in the compatibility data.');
+    }
+
+    /* the merges this list made (live) or decided (left for the build) */
+    const merges = (p.merges || []).filter(m => m && m.key);
+    const mergeSnaps = await Promise.all(merges.map(m => tx.get(ledger.doc(m.key))));
+    const liveMerges = [];
+    for (let i = 0; i < merges.length; i++) {
+      const e = mergeSnaps[i].exists ? mergeSnaps[i].data() : null;
+      if (!e || e.status !== 'applied' || !e.live) continue;
+      const absorbedId = e.absorbed.groupId;
+      const [ag, agd] = await Promise.all([tx.get(db.collection(C.GROUPS).doc(absorbedId)), tx.get(db.collection(C.GROUP_DETAILS).doc(absorbedId))]);
+      if (!agd.exists) {
+        throw new ReviewError(409, 'merge-landed', `${e.absorbed.groupNo || absorbedId} no longer exists: a catalogue build has dropped it. Recreate the group in Compatibility Management; nothing was changed here.`);
+      }
+      liveMerges.push({ key: merges[i].key, entry: e, absorbedId, hasGroupDoc: ag.exists });
+    }
+
+    const groupId = outcome === 'applied' ? p.appliedChange && p.appliedChange.groupId
+      : outcome === 'created' ? p.createdGroup && p.createdGroup.groupId : null;
+    const gSnap = groupId ? await tx.get(db.collection(C.GROUPS).doc(groupId)) : null;
+    const gdSnap = groupId ? await tx.get(db.collection(C.GROUP_DETAILS).doc(groupId)) : null;
+    const gd = gdSnap && gdSnap.exists ? gdSnap.data() : null;
+    const current = gd && Array.isArray(gd.memberIds) ? gd.memberIds.map(String) : [];
+    const names = gd && Array.isArray(gd.memberNames) ? gd.memberNames.slice() : [];
+    const undone = { removedModelIds: [], removedModelNames: [], deletedGroup: null, restoredGroups: [],
+                     cancelledMerges: merges.map(m => m.key), groupId: groupId || null };
+
+    /* ---------------------------- then write ---------------------------- */
+    if (outcome === 'applied') {
+      if (!gd) throw new ReviewError(409, 'group-missing', `${groupId} is no longer in the compatibility data. Nothing was changed.`);
+      const ch = p.appliedChange;
+      const masterId = gSnap && gSnap.exists ? gSnap.data().masterModelId : null;
+      const added = (ch.addedModelIds || []).filter(id => current.indexOf(id) > -1 && id !== masterId);
+      /* the models a merge moved in go back to the group they came from */
+      const movedBack = [];
+      liveMerges.forEach(m => (m.entry.movedModelIds || []).forEach(id => { if (current.indexOf(id) > -1 && id !== masterId) movedBack.push(id); }));
+      const take = added.concat(movedBack);
+      const keepIdx = current.map((id, i) => (take.indexOf(id) > -1 ? -1 : i)).filter(i => i > -1);
+      const nextIds = keepIdx.map(i => current[i]);
+      const nextNames = keepIdx.map(i => names[i]);
+      const stamp = { source: 'undo', type: 'removed', candidateId, by: admin.uid, at: now, removedModelIds: take };
+      tx.set(db.collection(C.GROUP_DETAILS).doc(groupId), { memberIds: nextIds, memberNames: nextNames, memberCount: nextIds.length, lastChange: stamp }, { merge: true });
+      if (gSnap && gSnap.exists) tx.set(db.collection(C.GROUPS).doc(groupId), { memberCount: nextIds.length, lastChange: stamp }, { merge: true });
+      added.forEach(id => tx.set(db.collection(C.MODEL_GROUPS).doc(id), { byCategory: { [p.categoryId]: FV.arrayRemove(groupId) } }, { merge: true }));
+      (ch.addedModelIds || []).forEach(id => {
+        tx.set(ledger.doc(S.relKeyFor(p.categoryId, ch.anchorModelId, id)),
+          { status: 'reverted', productionOutcome: 'reverted', revertedAt: now, revertedBy: admin.uid, updatedAt: now }, { merge: true });
+      });
+      undone.removedModelIds = take;
+      undone.removedModelNames = take.map(id => (taxonomy.modelById(id) || {}).modelName || id);
+    } else if (outcome === 'created') {
+      const c = p.createdGroup;
+      const later = current.filter(id => (c.memberIds || []).indexOf(id) < 0);
+      if (later.length) {
+        throw new ReviewError(409, 'group-grew', `${c.groupNo} has gained ${later.length} model(s) since it was created. Undo those changes first; nothing was changed.`);
+      }
+      if (gSnap && gSnap.exists) tx.delete(db.collection(C.GROUPS).doc(groupId));
+      if (gdSnap && gdSnap.exists) tx.delete(db.collection(C.GROUP_DETAILS).doc(groupId));
+      (c.memberIds || []).forEach(id => tx.set(db.collection(C.MODEL_GROUPS).doc(id), { byCategory: { [p.categoryId]: FV.arrayRemove(groupId) } }, { merge: true }));
+      if (p.ledgerId) tx.set(ledger.doc(p.ledgerId), { status: 'reverted', productionOutcome: 'reverted', revertedAt: now, revertedBy: admin.uid, updatedAt: now }, { merge: true });
+      undone.deletedGroup = c.groupNo;
+      undone.removedModelIds = (c.memberIds || []).slice();
+      undone.removedModelNames = (c.memberNames || []).slice();
+    }
+
+    /* a merged group is a group again: its models point back at it, and the
+       mark that sent lookups to the survivor is lifted */
+    liveMerges.forEach(m => {
+      const back = { mergedInto: FV.delete(), mergedAt: FV.delete(), mergedBy: FV.delete() };
+      if (m.hasGroupDoc) tx.set(db.collection(C.GROUPS).doc(m.absorbedId), back, { merge: true });
+      tx.set(db.collection(C.GROUP_DETAILS).doc(m.absorbedId), back, { merge: true });
+      (m.entry.absorbed.memberIds || []).forEach(id =>
+        tx.set(db.collection(C.MODEL_GROUPS).doc(id), { id, byCategory: { [p.categoryId]: [m.absorbedId] } }, { merge: true }));
+      tx.set(ledger.doc(m.key), { status: 'reverted', productionOutcome: 'reverted', revertedAt: now, revertedBy: admin.uid, updatedAt: now }, { merge: true });
+      undone.restoredGroups.push(m.entry.absorbed.groupNo || m.absorbedId);
+    });
+    /* a merge that was only decided is cancelled before any build folds it in */
+    merges.filter(m => !liveMerges.some(l => l.key === m.key)).forEach(m =>
+      tx.set(ledger.doc(m.key), { status: 'cancelled', productionOutcome: 'cancelled', cancelledAt: now, cancelledBy: admin.uid, updatedAt: now }, { merge: true }));
+
+    tx.set(ref, {
+      status: 'reverted', reviewSection: 'closed', productionOutcome: 'reverted', revertedAt: now, revertedBy: admin.uid, updatedAt: now,
+      history: FV.arrayUnion(hist(now, admin, 'undone',
+        (undone.deletedGroup ? `group ${undone.deletedGroup} removed` : `${undone.removedModelIds.length} model(s) taken out of ${groupId || 'the group'}`) +
+        (undone.restoredGroups.length ? `; ${undone.restoredGroups.join(', ')} restored as its own group` : '') +
+        (merges.length > liveMerges.length ? `; ${merges.length - liveMerges.length} merge decision(s) cancelled` : '')))
+    }, { merge: true });
+    return { p, undone };
+  });
+
+  try {
+    await db.collection(C.COMPATIBILITY_EVIDENCE).doc(candidateId).set({ candidateStatus: 'reverted', updatedAt: now }, { merge: true });
+    await syncExtraction(result.p.extractionId, now);
+  } catch (err) { console.warn('[instagram] counters not updated', err && err.message); }
+  return Object.assign({ ok: true, candidateId }, result.undone);
 }
 
 /** One group as production has it — for "Open existing group". */
@@ -1099,7 +1418,7 @@ module.exports = {
   ReviewError,
   approve, reject, selectModel, changeCategory, markDuplicate, reopen, sendToMissingModels,
   setSourceIgnored, approveAllValid,
-  approveProposal, proposalSelectModel, proposalMemberDecision, proposalAddModel, proposalSetMaster,
+  approveProposal, undoProposal, proposalSelectModel, proposalMemberDecision, proposalAddModel, proposalSetMaster,
   proposalSetTarget, proposalChangeCategory, proposalRefresh, getGroup,
   listCandidates, sectionCounts, getCandidate
 };

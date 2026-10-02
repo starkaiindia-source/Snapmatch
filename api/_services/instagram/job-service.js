@@ -50,6 +50,8 @@ const { estimateCost } = require('./ai-providers');
 const groupProposals = require('./group-proposals');
 const taxonomy = require('../taxonomy-service');
 const aiService = require('../ai-service');
+const roles = require('../../_schema/roles');
+const categoryService = require('../compat/category-service');
 
 const COUNT_KEYS = [
   'postsFound', 'imagesFound', 'carouselsFound', 'videosFound',
@@ -63,7 +65,12 @@ const COUNT_KEYS = [
   'groupProposals', 'groupUpdates', 'newGroups',
   'modelReferences', 'matched', 'unmatched', 'ambiguous',
   'relationships', 'readyForApproval', 'needsReview', 'pendingReview',
-  'duplicates', 'conflicts', 'rejected', 'approved', 'appliedToProduction'
+  'duplicates', 'conflicts', 'rejected', 'approved', 'appliedToProduction',
+  /* the free scan: what the page holds, before anything is spent */
+  'scanLikely', 'scanCheck', 'scanIrrelevant', 'scanSeen',
+  /* Instagram Intelligence: what was applied without a person approving it */
+  'autoApplied', 'autoGroupsUpdated', 'autoModelsAdded', 'autoGroupsCreated', 'autoGroupsMerged', 'autoMergesQueued',
+  'autoCategoriesCreated', 'autoNoChange', 'autoAttention', 'autoSkippedEntries'
 ];
 const USAGE_KEYS = [
   'graphCalls', 'ocrCalls', 'aiCalls', 'videoCalls', 'cacheHits',
@@ -85,7 +92,7 @@ const items = jobId => jobs().doc(jobId).collection(C.INSTAGRAM_JOB_ITEMS);
 /**
  * @returns {Promise<{ok:true, job:object}|{ok:false, status:number, error:string}>}
  */
-async function createJob({ admin, profileUrl, postUrl, maxItems, mode, manualText, force, now, deps = {} }) {
+async function createJob({ admin, profileUrl, postUrl, maxItems, mode, manualText, force, scanFirst, now, deps = {} }) {
   const cfg = deps.cfg || configMod.load();
   const db = fsx.db();
   mode = mode === 'manual' ? 'manual' : 'api';
@@ -145,6 +152,14 @@ async function createJob({ admin, profileUrl, postUrl, maxItems, mode, manualTex
        Never for a whole page — that would be the unlimited spend the filter
        exists to prevent. */
     forceDeep: !!(force && post),
+    /* Scan first: list the page and score every post for free, then WAIT for
+       Continue before anything is read by a model. Only for a whole page —
+       one post, or text a person typed, has nothing to summarise. */
+    scanFirst: !!(scanFirst && !post && mode === 'api'),
+    /* Instagram Intelligence. On only when the person starting the scan may
+       approve compatibility changes themselves — decided here, on the server,
+       from their role; the request cannot ask for it. */
+    autoApply: !!(cfg.autoApply && roles.can(admin.role, roles.PERMISSIONS.COMPAT_APPROVE)),
     errors: [],
     lease: { owner: null, until: 0 },
     resumeAfter: null,
@@ -240,6 +255,8 @@ async function tick({ jobId, workerId, deps = {} }) {
   if (!leased.ok) return { ok: false, busy: !!leased.busy, job: leased.job || null, steps: 0, error: leased.error };
 
   const job = leased.job;
+  /* the categories created at run time, for this instance's matcher */
+  try { await categoryService.load(); } catch (err) { console.warn('[instagram] run-time categories not loaded', err && err.message); }
   const usage = createUsage(cfg, clock(), job);
   await usage.load();
   const cache = createCache();
@@ -368,18 +385,38 @@ async function discoverStep(job, env, errors) {
     }
 
     const batch = db.batch();
-    const inc = zero(['postsFound', 'imagesFound', 'carouselsFound', 'videosFound']);
+    const inc = zero(['postsFound', 'imagesFound', 'carouselsFound', 'videosFound', 'scanLikely', 'scanCheck', 'scanIrrelevant', 'scanSeen']);
+    const wanted = [];
     for (const m of page.media) {
-      if (job.discovery.found >= job.maxItems) break;
+      if (job.discovery.found + wanted.length >= job.maxItems) break;
       if (job.postShortcode && m.shortcode !== job.postShortcode) continue;
+      wanted.push(m);
+    }
+    /* What each post looks like before anything is spent on it: the cheap
+       filter's score, and whether this exact content was already processed. */
+    const seen = new Map();
+    if (job.scanFirst) {
+      const priors = await Promise.all(wanted.map(m => db.collection(C.INSTAGRAM_CONTENT).doc(S.contentKeyFor({ mediaId: m.mediaId })).get()));
+      wanted.forEach((m, i) => seen.set(m.mediaId, priors[i].exists ? priors[i].data() : null));
+    }
+    for (const m of wanted) {
       const mediaIds = [m.mediaId].concat(m.children.map(c => c.mediaId));
+      const signature = S.contentSignature({ caption: m.caption, mediaType: m.mediaType, mediaIds });
+      const scored = relevance.scoreCandidate({ caption: m.caption, contentType: m.contentType, sourceStats: env.sourceStats });
+      const prior = seen.get(m.mediaId);
+      const unchanged = !!(prior && prior.signature === signature && prior.processingVersion === S.PROCESSING_VERSION && prior.latestVersion);
+      const scanClass = unchanged ? 'already_processed' : scored.tier === 'HIGH' ? 'likely_relevant' : scored.tier === 'REJECT' ? 'likely_irrelevant' : 'needs_visual_check';
+      if (job.scanFirst) inc[{ already_processed: 'scanSeen', likely_relevant: 'scanLikely', likely_irrelevant: 'scanIrrelevant', needs_visual_check: 'scanCheck' }[scanClass]]++;
       batch.set(items(job.jobId).doc(m.mediaId), {
+        scan: { class: scanClass, tier: scored.tier, score: scored.score,
+                why: (scored.reasons || []).slice(0, 4).map(r => r.signal + (r.terms && r.terms.length ? ' (' + r.terms.slice(0, 3).join(', ') + ')' : '')),
+                previous: unchanged ? prior.relevance || null : null },
         itemKey: m.mediaId, order: job.discovery.found, status: 'queued', attempts: 0,
         mediaId: m.mediaId, contentKey: S.contentKeyFor({ mediaId: m.mediaId }), manual: false,
         permalink: m.permalink, shortcode: m.shortcode,
         contentType: m.contentType, mediaType: m.mediaType, productType: m.productType,
         caption: String(m.caption || '').slice(0, 5000), captionHash: S.captionHash(m.caption),
-        signature: S.contentSignature({ caption: m.caption, mediaType: m.mediaType, mediaIds }),
+        signature,
         publishedAt: m.timestamp, mediaUrl: m.mediaUrl, thumbnailUrl: m.thumbnailUrl,
         mediaUrlOmitted: !!m.mediaUrlOmitted, children: m.children.slice(0, 20),
         createdAt: now, updatedAt: now
@@ -398,6 +435,12 @@ async function discoverStep(job, env, errors) {
     if (job.discovery.found >= job.maxItems || exhausted || (job.postShortcode && job.discovery.found > 0)) {
       job.discovery.done = true;
       job.status = 'processing';
+      if (job.scanFirst && !job.continuedAt && job.discovery.found > 0) {
+        /* nothing has been read by a model yet, and nothing will be until a
+           person presses Continue */
+        job.status = 'scanned';
+        job.statusReason = 'The page has been listed and every post scored from its caption. Nothing has been spent. Continue to start the compatibility analysis.';
+      }
       if (job.postShortcode && job.discovery.found === 0) {
         job.status = 'unable_to_collect';
         job.statusReason = `The post was not among the ${job.discovery.pages * cfg.pageSize} most recent posts the API returned for @${job.username}. Nothing was collected for it.`;
@@ -408,7 +451,7 @@ async function discoverStep(job, env, errors) {
     Object.keys(inc).forEach(k => { if (inc[k]) patch['counts.' + k] = FV.increment(inc[k]); });
     batch.update(jobs().doc(job.jobId), patch);
     await batch.commit();
-    return job.status === 'unable_to_collect' ? 'unable' : null;
+    return job.status === 'unable_to_collect' ? 'unable' : job.status === 'scanned' ? 'scanned' : null;
   } catch (err) {
     return discoveryFailed(job, err, env, errors, sourceRef);
   }
@@ -1066,7 +1109,26 @@ async function analyseAndPersist({ job, item, env, prior, segments, mediaItems, 
   }, { merge: true }]);
 
   await commitInBatches(writes);
-  return { relevance: verdict, extractionId, version, candidates: candidates.length, proposals: proposals.length };
+
+  /* ---- Instagram Intelligence ----
+     The lists are in the review queue exactly as before. One that passes
+     every check is now applied through the same transaction a person's
+     approval runs; one that does not stays where it is, with the reason. */
+  let applied = null;
+  if (job.autoApply && proposals.some(p => p.status === 'pending')) {
+    applied = await require('./auto-apply').run(proposals, { job, relevance: verdict, clock, createCategories: env.cfg.autoCreateCategories !== false });
+    const patch = { updatedAt: clock() };
+    Object.keys(applied.counts).forEach(k => { if (applied.counts[k]) patch['counts.' + k] = FV.increment(applied.counts[k]); });
+    if (Object.keys(patch).length > 1) await jobRef.update(patch);
+    const open = applied.results.filter(r => r.outcome === 'attention').length;
+    if (!open && !built.candidates.some(c => c.status === 'pending')) {
+      const state = { pipelineState: 'APPROVED' };
+      await itemRef.set(state, { merge: true });
+      await contentRef.set(state, { merge: true });
+      await db.collection(C.INSTAGRAM_EXTRACTIONS).doc(extractionId).set({ pipeline: { state: 'APPROVED' } }, { merge: true });
+    }
+  }
+  return { relevance: verdict, extractionId, version, candidates: candidates.length, proposals: proposals.length, applied };
 }
 
 function tallies(candidates, refs) {
@@ -1699,6 +1761,26 @@ async function resume({ jobId, admin, now }) {
   return { ok: true, requeued };
 }
 
+/**
+ * "Continue": a scanned job starts its analysis. The posts were listed and
+ * scored for free; from here the pipeline may spend, within its budget.
+ */
+async function continueJob({ jobId, admin, now }) {
+  const db = fsx.db();
+  const ref = jobs().doc(jobId);
+  return db.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { ok: false, status: 404, error: 'no such job' };
+    const job = snap.data();
+    if (job.status !== 'scanned') return { ok: false, status: 409, error: `a ${String(job.status).replace(/_/g, ' ')} job has nothing to continue` };
+    tx.update(ref, {
+      status: 'processing', statusReason: null, lease: { owner: null, until: 0 },
+      continuedAt: now, continuedBy: admin.uid, updatedAt: now
+    });
+    return { ok: true, job: Object.assign({}, job, { status: 'processing' }) };
+  });
+}
+
 async function retryFailed({ jobId, admin, now }) {
   const db = fsx.db();
   const FV = fsx.FieldValue();
@@ -1760,7 +1842,12 @@ async function getJob(jobId, { itemLimit = 60, itemStatus = null } = {}) {
         contentKey: i.contentKey, permalink: i.permalink, contentType: i.contentType,
         publishedAt: i.publishedAt || null, captionPreview: String(i.caption || '').slice(0, 160),
         lastError: i.lastError || null, result: i.result || null, mediaUrlOmitted: !!i.mediaUrlOmitted,
-        pipelineState: i.pipelineState || null
+        pipelineState: i.pipelineState || null,
+        /* the free scan's verdict, and a picture to recognise the post by
+           (an Instagram CDN link; it expires, and is never stored elsewhere) */
+        scan: i.scan || null,
+        previewUrl: i.thumbnailUrl || (i.contentType === 'image' ? i.mediaUrl : null) ||
+          ((i.children || []).find(c => c.mediaType !== 'VIDEO') || {}).mediaUrl || null
       };
     })
   };
@@ -1789,7 +1876,8 @@ function publicJob(j) {
     startedAt: j.startedAt, finishedAt: j.finishedAt, lastTickAt: j.lastTickAt, resumeAfter: j.resumeAfter,
     leaseActive: !!(j.lease && j.lease.owner && j.lease.until > Date.now()),
     processingVersion: j.processingVersion,
-    budget: j.budget || null, forceDeep: !!j.forceDeep, contentKey: j.contentKey || null
+    budget: j.budget || null, forceDeep: !!j.forceDeep, contentKey: j.contentKey || null,
+    scanFirst: !!j.scanFirst, autoApply: !!j.autoApply, continuedAt: j.continuedAt || null
   };
 }
 
@@ -1897,7 +1985,7 @@ function createCache() {
 }
 
 module.exports = {
-  COUNT_KEYS, USAGE_KEYS, BUDGET_KEYS, createJob, tick, resume, retryFailed, cancel, getJob, listJobs, publicJob,
+  COUNT_KEYS, USAGE_KEYS, BUDGET_KEYS, createJob, tick, resume, continueJob, retryFailed, cancel, getJob, listJobs, publicJob,
   addEvidence, evidencePreview,
   createUsage, createCache,
   /* exported for tests */

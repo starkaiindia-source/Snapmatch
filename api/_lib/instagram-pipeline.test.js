@@ -62,6 +62,9 @@ function world({ imported = true } = {}) {
 function cfg(over) {
   return Object.assign(configMod.load(), {
     graph: { token: 'test-token', igUserId: '17841400000000000', version: 'v25.0', timeoutMs: 1000, appSecret: '' },
+    /* these tests are about what a PERSON reviews and approves: the automatic
+       engine is off here, and has its own file (instagram-auto.test.js) */
+    autoApply: false,
     ocrProvider: 'gateway', videoProvider: 'gateway', transcribe: true, aiMode: 'off',
     maxItemsPerJob: 50, maxDiscoveryPages: 5, pageSize: 25, maxFramesPerVideo: 8, maxCarouselChildren: 10,
     maxAttempts: 3, tickBudgetMs: 10 * 60 * 1000, leaseMs: 60000,

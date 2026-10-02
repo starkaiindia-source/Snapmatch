@@ -175,8 +175,10 @@ test('the review section follows the evidence, and precedence is fixed', () => {
   assert.equal(S.reviewSectionFor(Object.assign({}, ready, { polarity: 'negative' })), 'review');
 });
 
-test('approved is final in this tool: nothing moves out of it', () => {
-  assert.deepEqual(S.CANDIDATE_TRANSITIONS.approved, []);
-  S.CANDIDATE_STATUSES.forEach(to => assert.equal(S.canTransitionCandidate('approved', to), false));
+test('approved is final for the queue: it is never re-reviewed — the only way out is a person undoing what it did', () => {
+  assert.deepEqual(S.CANDIDATE_TRANSITIONS.approved, ['reverted']);
+  S.CANDIDATE_STATUSES.filter(to => to !== 'reverted').forEach(to => assert.equal(S.canTransitionCandidate('approved', to), false, to));
+  assert.deepEqual(S.CANDIDATE_TRANSITIONS.reverted, [], 'and an undone change stays undone');
+  assert.equal(S.reviewSectionFor({ status: 'reverted', kind: 'group_proposal' }), 'closed');
   assert.equal(S.canTransitionCandidate('rejected', 'approved'), false, 'a rejected claim must be reopened and reviewed first');
 });

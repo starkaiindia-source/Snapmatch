@@ -247,12 +247,28 @@ missing. It does not demo anything.
 
 ### Instagram data
 
-Six pages under one heading — **Instagram Data Importer**, **Instagram
-Sources**, **Import Jobs**, **Extraction Results**, **Compatibility Review**
-and **Import History**. They read compatibility claims from Instagram through
-the official Graph API, match every model to the catalogue, and queue them for
-review; only an approval in Compatibility Review writes production fitments,
-and only additively. Full detail: [`docs/INSTAGRAM-IMPORTER.md`](INSTAGRAM-IMPORTER.md).
+Three pages in the menu — **Instagram Data Importer**, **Instagram Sources**
+and **Compatibility Management**. All of it is Mobile Parts Finder's own data:
+nothing here reads or writes the Dashboard or ProGlide projects. Paste a page, **Scan Source** (free), look at what
+was found, **Continue**: the compatibility posts are read, every model is
+matched to the catalogue, and the lists that pass every check are applied to
+the compatibility groups — nobody approves them one by one. Full detail:
+[`docs/INSTAGRAM-IMPORTER.md`](INSTAGRAM-IMPORTER.md).
+
+- **Compatibility Management** shows the final groups (table or grid), per
+  category, by model, or the ones changed most recently, each with when it
+  changed and from which page. **Edit** on a group: add or remove a model, make
+  another model the master, merge another group into it, delete it. **New
+  group** creates one. **Categories** lists them and creates, renames or
+  deletes the ones made at run time. Above: **Needs attention** (lists a scan
+  would not apply on its own, with the reason). Below: **Recent changes**, each
+  automatic one with **Undo**.
+- A scan applies automatically only when started by someone who may approve
+  compatibility changes; `INSTAGRAM_AUTO_APPLY=off` turns it off for everyone.
+
+The technical record is still there, linked from a scan's *Technical details*
+— Import Jobs, Extraction Results, Compatibility Review, Import History — and
+is no longer in the menu:
 
 What to expect on them:
 

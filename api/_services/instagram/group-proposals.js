@@ -240,7 +240,11 @@ function summariseGroup(id, g, detail) {
     masterModelName: g.masterModelName || (detail && detail.drawingName) || null,
     memberCount: Number(g.memberCount) || (memberIds ? memberIds.length : 0),
     memberIds,
-    memberNames: detail && Array.isArray(detail.memberNames) ? detail.memberNames.map(String) : null
+    memberNames: detail && Array.isArray(detail.memberNames) ? detail.memberNames.map(String) : null,
+    /* a group that was merged into another is kept, and says where it went */
+    mergedInto: g.mergedInto || (detail && detail.mergedInto) || null,
+    lastChange: g.lastChange || (detail && detail.lastChange) || null,
+    createdBy: g.createdBy || null, serialNo: g.serialNo || null
   };
 }
 
@@ -262,9 +266,10 @@ function summariseGroup(id, g, detail) {
  * @param {string|null} [args.targetOverride]      a group id, or 'new' — chosen by an admin
  * @param {string|null} [args.masterOverride]      a model id — chosen by an admin
  */
-function plan({ categoryId, headline, members, imported, membership, groups, targetOverride, masterOverride }) {
+function plan({ categoryId, headline, members, imported, membership, groups, targetOverride, masterOverride, masterReason, targetReason }) {
   const groupsOf = id => (id && membership.get(id)) || [];
-  const active = members.filter(m => m.decision !== 'exclude');
+  const setAside = m => m.decision === 'exclude' || m.decision === 'skip';
+  const active = members.filter(m => !setAside(m));
   const certain = active.filter(m => S.memberIsCertain(m.match) && !m.disputed);
   const reasons = [];
 
@@ -276,9 +281,9 @@ function plan({ categoryId, headline, members, imported, membership, groups, tar
   let target = { mode: 'new', groupId: null, reason: 'no listed model has a group in this category', candidates: [] };
   const headlineGroups = headline && S.memberIsCertain(headline.match) ? groupsOf(headline.match.modelId) : [];
   if (targetOverride === 'new') {
-    target = { mode: 'new', groupId: null, reason: 'chosen by an admin', candidates: ranked.map(r => r[0]) };
+    target = { mode: 'new', groupId: null, reason: targetReason || 'chosen by an admin', candidates: ranked.map(r => r[0]) };
   } else if (targetOverride && (tally.has(targetOverride) || (groups && groups.has(targetOverride)))) {
-    target = { mode: 'existing', groupId: targetOverride, reason: 'chosen by an admin', candidates: ranked.map(r => r[0]) };
+    target = { mode: 'existing', groupId: targetOverride, reason: targetReason || 'chosen by an admin', candidates: ranked.map(r => r[0]) };
   } else if (headlineGroups.length === 1) {
     target = { mode: 'existing', groupId: headlineGroups[0], candidates: ranked.map(r => r[0]),
                reason: `the product the post names (${headline.match.modelName}) is in this group` };
@@ -304,7 +309,7 @@ function plan({ categoryId, headline, members, imported, membership, groups, tar
     const known = holder && groups && groups.get(holder);
     m.currentGroupMaster = known ? known.masterModelName : (holder && m.currentGroupId === holder ? m.currentGroupMaster || null : null);
     m.currentGroupId = holder;
-    if (m.decision === 'exclude') { m.state = 'excluded'; return; }
+    if (setAside(m)) { m.state = 'excluded'; return; }
     if (match.status !== 'matched') { m.state = match.status === 'ambiguous' ? 'needs_review' : 'unmatched'; return; }
     if (!S.memberIsCertain(match)) { m.state = 'needs_review'; return; }
     /* a second reader said this entry was misread, or is not in the image:
@@ -337,6 +342,8 @@ function plan({ categoryId, headline, members, imported, membership, groups, tar
     extracted: members.length, matched: certain.length,
     existing: count('existing'), add: count('add'), conflict: count('conflict'),
     needsReview: count('needs_review'), unmatched: count('unmatched'), excluded: count('excluded'),
+    /* entries whose group is merged into the target (decided automatically) */
+    merge: members.filter(m => m.state === 'conflict' && m.decision === 'merge').length,
     reassignRequested: members.filter(m => m.state === 'conflict' && m.decision === 'reassign_request').length
   };
   const unresolved = members.filter(m => m.state === 'conflict' && !m.decision);
@@ -352,7 +359,7 @@ function plan({ categoryId, headline, members, imported, membership, groups, tar
     const addable = members.filter(m => m.state === 'add');
     const chosen = masterOverride && addable.find(m => m.match.modelId === masterOverride);
     const named = headline && S.memberIsCertain(headline.match) && addable.find(m => m.match.modelId === headline.match.modelId);
-    if (chosen) proposedMaster = { modelId: chosen.match.modelId, modelName: chosen.match.modelName, reason: 'chosen by an admin' };
+    if (chosen) proposedMaster = { modelId: chosen.match.modelId, modelName: chosen.match.modelName, reason: masterReason || 'chosen by an admin' };
     else if (named) proposedMaster = { modelId: named.match.modelId, modelName: named.match.modelName, reason: 'the product the post names' };
     else masterReviewRequired = true;
   }
@@ -377,7 +384,7 @@ function plan({ categoryId, headline, members, imported, membership, groups, tar
     reasons.push(`${unresolved.length} listed model(s) already belong to another group in this category. A model may be in only one group per category, so none of them is added.`);
     if (absorbs.length) {
       reasons.push('The list covers most of ' + absorbs.map(g => g.groupNo).join(', ') +
-        ' — the post treats ' + (absorbs.length > 1 ? 'them' : 'it') + ' as the same part as the target group. Merging groups is a decision for the master catalogue.');
+        ' — the post treats ' + (absorbs.length > 1 ? 'them' : 'it') + ' as the same part as the target group. A scan with Instagram Intelligence merges them; by hand, merge them in Compatibility Management.');
     }
   } else if (target.mode === 'new') {
     if (counts.add < 2) {
@@ -388,9 +395,10 @@ function plan({ categoryId, headline, members, imported, membership, groups, tar
       reasons.push(`None of the ${counts.add} resolved models has a group in this category.`);
       if (masterReviewRequired) reasons.push('MASTER MODEL REVIEW REQUIRED: the post does not name one product model, so the master is not chosen for you.');
     }
-  } else if (counts.add > 0) {
+  } else if (counts.add > 0 || counts.merge > 0) {
     action = 'UPDATE_EXISTING_GROUP';
     reasons.push(`${counts.add} model(s) can be added to ${targetGroup ? targetGroup.groupNo : target.groupId}; ${counts.existing} are already in it.`);
+    if (counts.merge) reasons.push(`${counts.merge} listed model(s) are in a group this list shows to be the same part; that group is merged into this one.`);
   } else if (counts.needsReview + counts.unmatched > 0) {
     action = 'MODEL_REVIEW';
     reasons.push('Every model that resolved is already in the group. The remaining entries need a person to pick the catalogue record, or to exclude them.');
@@ -425,6 +433,128 @@ function plan({ categoryId, headline, members, imported, membership, groups, tar
   };
 }
 
+/* ============================================================ automatic
+
+   WHAT INSTAGRAM INTELLIGENCE DECIDES WHERE A PERSON USED TO
+
+   Three decisions, each deterministic and each explained in words on the
+   record it leaves:
+
+     which group, when two tie         the one more of the list is in; then the
+                                       larger; then the lower number
+     what happens to a listed model    its group is MERGED into the target when
+     that is in another group          the list holds at least half of that
+                                       group and at least two of its models (or
+                                       the group is a single model); otherwise
+                                       the model is LEFT WHERE IT IS — one
+                                       shared model does not make two groups one
+     the master of a new group         the product the post names; else the
+                                       base model the other names extend
+                                       ("Realme 5" for 5s, 5i); else the
+                                       shortest catalogue name — never "the
+                                       first one printed"
+
+   An entry that did not resolve to one catalogue record with certainty is
+   never applied: it is reported, and the rest of the list goes ahead. */
+
+const MERGE_MIN_COVERAGE = 0.5;
+const MERGE_MIN_OVERLAP = 2;
+
+/** May this other group be merged into the target on the strength of one list? */
+function absorbs(g) {
+  if (!g || g.coverage == null || !g.memberCount) return false;
+  return g.coverage >= MERGE_MIN_COVERAGE && (g.overlap >= MERGE_MIN_OVERLAP || g.memberCount === 1);
+}
+
+/**
+ * The master of a new group nobody named.
+ * @param {object[]} addable   entries in state "add", each with a certain match
+ * @returns {{modelId:string, modelName:string, reason:string}|null}
+ */
+function chooseMaster(addable) {
+  const rows = (addable || []).filter(m => m.match && m.match.modelId && m.match.modelName).map(m => {
+    const name = String(m.match.modelName).toLowerCase();
+    return { modelId: m.match.modelId, modelName: m.match.modelName, name };
+  });
+  if (!rows.length) return null;
+  rows.forEach(r => {
+    /* "realme 5" is the base of "realme 5s" and "realme 5 pro", not of "realme 50" */
+    r.extends = rows.filter(o => o !== r && o.name.length > r.name.length && o.name.indexOf(r.name) === 0 &&
+      !/^[0-9]/.test(o.name.slice(r.name.length))).length;
+  });
+  rows.sort((a, b) => b.extends - a.extends || a.name.length - b.name.length || a.name.localeCompare(b.name));
+  const best = rows[0];
+  return {
+    modelId: best.modelId, modelName: best.modelName,
+    reason: best.extends
+      ? `chosen automatically: the base model ${best.extends} other name(s) in the list extend`
+      : 'chosen automatically: the shortest catalogue name in the list (the post names no single product model)'
+  };
+}
+
+/**
+ * Decides what a person used to. Pure; MUTATES `members` (decision,
+ * decidedBy, skipReason) and returns the overrides to plan again with.
+ *
+ * @param {object} args
+ * @param {object[]} args.members
+ * @param {object} args.planned      plan() over the same members, with every touched group in `groups`
+ * @param {number} args.now
+ * @returns {{targetOverride:string|null, targetReason:string|null, masterOverride:string|null, masterReason:string|null,
+ *            merges:object[], skipped:object[], changed:boolean}}
+ */
+function autoResolve({ members, planned, now }) {
+  const by = S.SYSTEM_ACTOR.uid;
+  const out = { targetOverride: null, targetReason: null, masterOverride: null, masterReason: null, merges: [], skipped: [], changed: false };
+
+  /* two groups tie: choose one, and let the caller plan again against it */
+  if (planned.target.mode === 'undecided') {
+    const tied = (planned.otherGroups || []).slice().sort((a, b) =>
+      b.overlap - a.overlap || (b.memberCount || 0) - (a.memberCount || 0) || String(a.groupId).localeCompare(String(b.groupId)));
+    if (tied.length) {
+      out.targetOverride = tied[0].groupId;
+      out.targetReason = `chosen automatically: ${tied[0].overlap} of the listed models are in ${tied[0].groupNo}, the largest of the groups the list ties between`;
+      out.changed = true;
+    }
+    return out;
+  }
+
+  const absorbable = new Map((planned.otherGroups || []).filter(absorbs).map(g => [g.groupId, g]));
+  members.forEach(m => {
+    if (m.state !== 'conflict' || m.decision) return;
+    const others = (m.currentGroupIds || []).filter(g => g !== planned.target.groupId);
+    const inTarget = planned.target.groupId && (m.currentGroupIds || []).indexOf(planned.target.groupId) > -1;
+    const mergeable = !inTarget && planned.target.mode === 'existing' && others.length === 1 && absorbable.has(others[0]);
+    m.decision = mergeable ? 'merge' : 'skip';
+    m.decidedBy = by;
+    m.decidedAt = now;
+    if (!mergeable) {
+      m.skipReason = inTarget
+        ? 'already in the target group and in another one — the existing data breaks the one-group rule; left as it is'
+        : `already in ${others.join(', ') || 'another group'}${m.currentGroupMaster ? ' (master ' + m.currentGroupMaster + ')' : ''}; this list holds too little of that group to merge it, so the model stays where it is`;
+    }
+    out.changed = true;
+  });
+  absorbable.forEach(g => {
+    if (members.some(m => m.decision === 'merge' && (m.currentGroupIds || []).indexOf(g.groupId) > -1)) out.merges.push(g);
+  });
+
+  if (planned.target.mode === 'new' && planned.masterReviewRequired) {
+    const master = chooseMaster(members.filter(m => m.state === 'add'));
+    if (master) { out.masterOverride = master.modelId; out.masterReason = master.reason; out.changed = true; }
+  }
+
+  members.forEach(m => {
+    if (m.decision === 'skip') out.skipped.push({ key: m.key, text: m.text, reason: m.skipReason });
+    else if (m.state === 'unmatched') out.skipped.push({ key: m.key, text: m.text, reason: 'no catalogue record matches it — never created from a post' });
+    else if (m.state === 'needs_review') out.skipped.push({ key: m.key, text: m.text,
+      reason: m.disputed ? 'a second reader disputed this entry'
+        : m.match && m.match.requiresVariantConfirmation ? (m.match.variantNote || 'the variant printed (4G / 5G / year) is not in the catalogue record\'s name')
+        : 'it fits more than one catalogue record' });
+  });
+  return out;
+}
+
 /* ============================================================== documents */
 
 function bestEvidence(evidences) {
@@ -445,6 +575,7 @@ function slimMember(m) {
     state: m.state, currentGroupId: m.currentGroupId || null, currentGroupIds: m.currentGroupIds || [],
     currentGroupMaster: m.currentGroupMaster || null,
     decision: m.decision || null, decidedBy: m.decidedBy || null, decidedAt: m.decidedAt || null,
+    skipReason: m.skipReason ? String(m.skipReason).slice(0, 300) : null,
     addedBy: m.addedBy || null,
     /* a second reader's view: a record it suggests, or a reading it disputes */
     disputed: !!m.disputed,
@@ -564,10 +695,12 @@ async function refresh(p, cache = new Map()) {
   membership.forEach(list => list.forEach(g => touched.add(g)));
   if (p.targetOverride && p.targetOverride !== 'new') touched.add(p.targetOverride);
   const first = plan({ categoryId: p.categoryId, headline: p.headline, members, imported, membership, groups: new Map(),
-                       targetOverride: p.targetOverride, masterOverride: p.masterOverride });
+                       targetOverride: p.targetOverride, masterOverride: p.masterOverride,
+                         masterReason: p.masterReason || null, targetReason: p.targetReason || null });
   const groups = await readGroups(Array.from(touched), first.target.groupId, cache);
   const planned = plan({ categoryId: p.categoryId, headline: p.headline, members, imported, membership, groups,
-                         targetOverride: p.targetOverride, masterOverride: p.masterOverride });
+                         targetOverride: p.targetOverride, masterOverride: p.masterOverride,
+                         masterReason: p.masterReason || null, targetReason: p.targetReason || null });
 
   const confidence = S.evaluateSetConfidence({
     category: p.categoryId ? { categoryId: p.categoryId, strength: p.categoryStrength || 'good' } : null,
@@ -618,5 +751,6 @@ async function buildAll({ det, resolve, segments, ctx, cache }) {
 
 module.exports = {
   MIN_SET_MEMBERS, consolidateSets, readMembership, readGroups, summariseGroup, groupsIn,
-  plan, buildProposal, buildAll, refresh, slimMember
+  plan, buildProposal, buildAll, refresh, slimMember,
+  autoResolve, chooseMaster, absorbs, MERGE_MIN_COVERAGE, MERGE_MIN_OVERLAP
 };
