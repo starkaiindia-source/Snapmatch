@@ -40,13 +40,14 @@
     { path: '/admin/missing-models', id: 'missingModels', label: 'Missing models',
       permission: 'missing_models.read' },
     { path: '/admin/ai', id: 'ai', label: 'Local AI', permission: 'ai.read' },
-    /* Instagram compatibility intelligence — one group, six pages. */
+    /* Instagram compatibility intelligence: where a scan starts, the pages it
+       reads, and the groups it leaves behind. The technical record — jobs,
+       extraction results, the review queue, history — is still routed (below)
+       and linked from where it is useful; it is not something a person has to
+       visit for the compatibility data to change, so it is not in the menu. */
     { path: '/admin/instagram', id: 'igImporter', label: 'Instagram Data Importer', permission: 'instagram.read', group: 'Instagram data' },
     { path: '/admin/instagram/sources', id: 'igSources', label: 'Instagram Sources', permission: 'instagram.read', group: 'Instagram data' },
-    { path: '/admin/instagram/jobs', id: 'igJobs', label: 'Import Jobs', permission: 'instagram.read', group: 'Instagram data' },
-    { path: '/admin/instagram/extractions', id: 'igExtractions', label: 'Extraction Results', permission: 'instagram.read', group: 'Instagram data' },
-    { path: '/admin/instagram/review', id: 'igReview', label: 'Compatibility Review', permission: 'instagram.read', group: 'Instagram data' },
-    { path: '/admin/instagram/history', id: 'igHistory', label: 'Import History', permission: 'instagram.read', group: 'Instagram data' },
+    { path: '/admin/instagram/groups', id: 'igGroups', label: 'Compatibility Management', permission: 'instagram.read', group: 'Instagram data' },
     { path: '/admin/settings', id: 'settings', label: 'Settings', permission: 'admins.read' }
   ];
 
@@ -222,8 +223,7 @@
   function iconFor(id) {
     return { dashboard: 'grid', users: 'user', missingModels: 'inbox',
              ai: 'cpu', settings: 'sliders',
-             igImporter: 'camera', igSources: 'share', igJobs: 'layers',
-             igExtractions: 'search', igReview: 'checkCircle', igHistory: 'history' }[id] || 'grid';
+             igImporter: 'camera', igSources: 'share', igGroups: 'layers' }[id] || 'grid';
   }
 
   /* ---------------------------------------------------------------- router */
@@ -249,8 +249,7 @@
     };
 
     highlight(name === 'users' && parts[1] ? 'users'
-      : name === 'instagram' ? ({ sources: 'igSources', jobs: 'igJobs', extractions: 'igExtractions',
-                                 review: 'igReview', history: 'igHistory' }[parts[1]] || 'igImporter')
+      : name === 'instagram' ? ({ sources: 'igSources', groups: 'igGroups', review: 'igGroups' }[parts[1]] || 'igImporter')
       : name);
     page.innerHTML = '';
     global.scrollTo(0, 0);
@@ -277,6 +276,7 @@
     if (name === 'instagram') {
       if (!can('instagram.read')) return denied(page);
       if (parts[1] === 'sources') return ADM.pages.igSources.render(page, ctx);
+      if (parts[1] === 'groups') return ADM.pages.igGroups.render(page, ctx);
       if (parts[1] === 'jobs' && parts[2]) return ADM.pages.igJob.render(page, ctx, decodeURIComponent(parts[2]));
       if (parts[1] === 'jobs') return ADM.pages.igJobs.render(page, ctx);
       if (parts[1] === 'extractions') return ADM.pages.igExtractions.render(page, ctx);

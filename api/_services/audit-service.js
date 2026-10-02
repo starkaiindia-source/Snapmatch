@@ -80,6 +80,23 @@ const ACTIONS = {
   COMPAT_PROPOSAL_EDITED: 'compat.proposal_edited',
   COMPAT_PROPOSAL_APPROVED: 'compat.proposal_approved',
   COMPAT_PROPOSAL_BLOCKED: 'compat.proposal_blocked',
+  /* Instagram Intelligence changed the compatibility data without a person
+     approving it. The actor is the system; `onBehalfOf` is the administrator
+     whose scan it was. */
+  COMPAT_AUTO_APPLIED: 'compat.auto_applied',
+  COMPAT_CHANGE_UNDONE: 'compat.change_undone',
+  /* Compatibility Management: a group or a category changed by hand, and a
+     category created by the engine */
+  COMPAT_GROUP_MODEL_ADDED: 'compat.group_model_added',
+  COMPAT_GROUP_MODEL_REMOVED: 'compat.group_model_removed',
+  COMPAT_GROUP_MASTER_CHANGED: 'compat.group_master_changed',
+  COMPAT_GROUP_CREATED: 'compat.group_created',
+  COMPAT_GROUP_DELETED: 'compat.group_deleted',
+  COMPAT_GROUPS_MERGED: 'compat.groups_merged',
+  COMPAT_CATEGORY_CREATED: 'compat.category_created',
+  COMPAT_CATEGORY_RENAMED: 'compat.category_renamed',
+  COMPAT_CATEGORY_DELETED: 'compat.category_deleted',
+  INSTAGRAM_JOB_CONTINUED: 'instagram.job_continued',
   INSTAGRAM_EVIDENCE_ADDED: 'instagram.evidence_added',
   INSTAGRAM_PROVIDERS_VERIFIED: 'instagram.providers_verified'
 };

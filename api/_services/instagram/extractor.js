@@ -536,7 +536,7 @@ const AI_SYSTEM_PROMPT = [
   'You are extracting mobile-part compatibility information from source content.',
   'Extract only information supported by the provided source.',
   'Do not invent models, compatibility relationships, categories, or specifications.',
-  'Every model must be resolved against the provided ProGlide Mobile Model Database.',
+  'Every model must be resolved against the provided Mobile Parts Finder model catalogue.',
   'If no confident match exists, return UNMATCHED.',
   'Separate explicit compatibility from inference.',
   'Return structured JSON only.',

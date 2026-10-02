@@ -77,6 +77,9 @@ function world() {
 function cfg(over) {
   return Object.assign(configMod.load(), {
     graph: { token: 'test-token', igUserId: '17841400000000000', version: 'v25.0', timeoutMs: 1000, appSecret: '' },
+    /* these tests are about what a PERSON reviews and approves: the automatic
+       engine is off here, and has its own file (instagram-auto.test.js) */
+    autoApply: false,
     ocrProvider: 'none', visionProvider: 'gemini', videoProvider: 'gemini', validator: 'anthropic',
     geminiKey: 'test-only-gemini-key-not-real', anthropicKey: 'test-only-anthropic-key-not-real',
     geminiModel: 'gemini-3.8-flash', geminiScreenModel: 'gemini-3.1-flash-lite', claudeModel: 'claude-opus-5-5', claudeEffort: 'medium',

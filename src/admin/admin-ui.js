@@ -125,7 +125,8 @@
     IRRELEVANT_REPAIR: '', IRRELEVANT_GENERAL: '', DUPLICATE_SOURCE: '',
     group_updates: 'info', new_groups: 'info', add: 'ok', existing: '', conflict: 'bad', needs_review: 'warn',
     excluded: '', skipped: '', pending_master: 'warn',
-    budget_reached: 'warn', deferred_ai: 'warn', VERIFIED: 'ok', NOT_VERIFIED: 'bad', NOT_CONFIGURED: '', NOT_CALLED: ''
+    budget_reached: 'warn', deferred_ai: 'warn', VERIFIED: 'ok', NOT_VERIFIED: 'bad', NOT_CONFIGURED: '', NOT_CALLED: '',
+    scanned: 'info', attention: 'warn', created: 'ok', merge_queued: 'warn'
   };
 
   function pill(value, label) {

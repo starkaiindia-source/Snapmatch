@@ -91,6 +91,9 @@ function world() {
 function cfg(over) {
   return Object.assign(configMod.load(), {
     graph: { token: 'test-token', igUserId: '17841400000000000', version: 'v25.0', timeoutMs: 1000, appSecret: '' },
+    /* these tests are about what a PERSON reviews and approves: the automatic
+       engine is off here, and has its own file (instagram-auto.test.js) */
+    autoApply: false,
     ocrProvider: 'gateway', videoProvider: 'gateway', visionProvider: 'none', transcribe: true, aiMode: 'off', readRepairMedia: false,
     maxItemsPerJob: 50, maxDiscoveryPages: 5, pageSize: 25, maxFramesPerVideo: 8, maxCarouselChildren: 10,
     maxAttempts: 3, tickBudgetMs: 10 * 60 * 1000, leaseMs: 60000,
@@ -545,7 +548,7 @@ test('the Realme list: an existing group, one model held by another group, and a
 
 const batteryPost = text => ({ p1: { text, confidence: 0.95 } });
 
-test('a list whose models have no group is a NEW GROUP proposal — recorded on approval, never created here', async () => {
+test('a list whose models have no group is a NEW GROUP proposal — approval creates it, under a number the build never issues', async () => {
   const fake = world();
   const text = 'Samsung A15 Battery\nCompatible with:\nSamsung A15\nSamsung A15 5G\nSamsung A25';
   const media = fakeMedia({ ocr: batteryPost(text) });
@@ -562,13 +565,28 @@ test('a list whose models have no group is a NEW GROUP proposal — recorded on 
   assert.equal(p.confidence.band, 'high');
   assert.equal(p.evidence.source, 'ocr');
 
-  const before = production(fake);
   const out = await review.approveProposal({ candidateId: p.candidateId, admin: ADMIN, now: clock() });
-  assert.equal(out.outcome, 'pending_build');
-  assert.equal(production(fake), before, 'a group needs a part code and a serial: production is untouched');
+  assert.equal(out.outcome, 'created');
+  assert.equal(out.created.groupNo, 'BT-9001', 'the build numbers from 0001; a group created at run time is numbered from 9001');
+  assert.equal(out.created.partCode, 'MPF-BT-9001');
+
+  /* the group exists in the live data, complete and consistent */
+  const g = fake.read(C.GROUPS + '/bt-9001');
+  const gd = fake.read(C.GROUP_DETAILS + '/bt-9001');
+  assert.equal(g.categoryId, 'battery');
+  assert.equal(g.masterModelId, id('Samsung Galaxy A15'));
+  assert.equal(g.memberCount, 3);
+  assert.equal(g.serialNo, null, 'a serial is the build\'s to issue; none is invented');
+  assert.equal(gd.memberIds[0], id('Samsung Galaxy A15'), 'the master leads its own group');
+  assert.deepEqual(gd.memberIds.slice().sort(), ['Samsung Galaxy A15', 'Samsung Galaxy A15 5G', 'Samsung Galaxy A25'].map(id).sort());
+  gd.memberIds.forEach(m => assert.deepEqual(fake.read(C.MODEL_GROUPS + '/' + m).byCategory.battery, ['bt-9001'],
+    'the one-group index knows at once — a second list cannot make a second group for the same model'));
+  assert.equal(fake.read(C.CATALOG + '/issued').battery, 9001);
+
   const entry = fake.all(C.APPROVED_COMPATIBILITIES)[0];
   assert.equal(entry.kind, 'new_group');
-  assert.equal(entry.status, 'approved_pending_build');
+  assert.equal(entry.status, 'applied', 'in the ledger, so the next catalogue build carries it');
+  assert.equal(entry.createdGroup.groupId, 'bt-9001');
   assert.equal(entry.masterModelId, id('Samsung Galaxy A15'));
   assert.equal(entry.memberIds.length, 3);
 });
@@ -593,7 +611,8 @@ test('MASTER MODEL REVIEW REQUIRED: with no product title the master is not gues
   assert.equal(p.proposedMaster.modelId, id('Samsung Galaxy A25'));
   assert.equal(p.proposedMaster.reason, 'chosen by an admin');
   const out = await review.approveProposal({ candidateId: p.candidateId, admin: ADMIN, acknowledgeLowConfidence: true, now: clock() });
-  assert.equal(out.outcome, 'pending_build');
+  assert.equal(out.outcome, 'created');
+  assert.equal(out.created.masterModelId, id('Samsung Galaxy A25'), 'the master a person chose');
 });
 
 test('a list an existing group already holds is NO_CHANGE: kept as evidence, nothing queued', async () => {

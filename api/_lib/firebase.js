@@ -124,4 +124,13 @@ function auth() {
   return app().auth();
 }
 
-module.exports = { app, db, auth, admin };
+/**
+ * The Firebase project the service account belongs to — its id, never the
+ * key. Used to hold the project boundary (api/_schema/projects.js): this code
+ * writes to ONE project, and says which.
+ */
+function projectId() {
+  return credentialsFromEnv().project_id || null;
+}
+
+module.exports = { app, db, auth, admin, projectId };

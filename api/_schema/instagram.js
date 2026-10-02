@@ -51,7 +51,12 @@ const crypto = require('crypto');
    (including the video itself); Claude is asked only where matching left
    doubt. Prompts and the vision schema changed, so cached readings from
    ig-extract-3 are not reused. */
-const PROCESSING_VERSION = 'ig-extract-4';
+/* ig-extract-5 (2026-10-02): Instagram Intelligence. A list that passes every
+   check is applied without a person approving it, and the category matcher
+   learned the trade's "on off patta". The prompts did NOT change, so every
+   cached reading is reused: a post read under ig-extract-4 is classified and
+   compared again for free. */
+const PROCESSING_VERSION = 'ig-extract-5';
 
 /* ================================================================== URLs */
 
@@ -255,7 +260,9 @@ const POLARITIES = ['positive', 'negative'];
 
 const CANDIDATE_KINDS = ['relationship', 'model_reference', 'group_proposal'];
 
-const CANDIDATE_STATUSES = ['pending', 'approved', 'rejected', 'duplicate', 'ignored', 'superseded', 'resolved'];
+const CANDIDATE_STATUSES = ['pending', 'approved', 'rejected', 'duplicate', 'ignored', 'superseded', 'resolved',
+  /* an applied change a person undid: the models it added are out again */
+  'reverted'];
 
 /**
  * Who may follow whom. `approved` is final HERE: undoing a production fitment
@@ -268,7 +275,10 @@ const CANDIDATE_TRANSITIONS = {
   ignored: ['pending'],
   resolved: ['pending'],
   superseded: [],
-  approved: []
+  /* Approval is final for the QUEUE — it is not re-reviewed. A person can
+     still undo what it did to the compatibility data (review-service.undoProposal). */
+  approved: ['reverted'],
+  reverted: []
 };
 
 function canTransitionCandidate(from, to) {
@@ -297,7 +307,11 @@ const REVIEW_SECTION_IDS = REVIEW_SECTIONS.map(s => s.id).concat(['closed']);
 /* ---------------------------------------------------------------- jobs */
 
 const JOB_STATUSES = [
-  'queued', 'discovering', 'processing', 'paused',
+  'queued', 'discovering',
+  /* the page has been listed and scored for free; nothing has been spent, and
+     a person presses Continue to start the analysis */
+  'scanned',
+  'processing', 'paused',
   'rate_limited', 'quota_exhausted',
   /* this sync's AI budget is spent; the items that still need a model wait */
   'budget_reached',
@@ -422,7 +436,7 @@ function evidenceStrength(e) {
  * a conflict before it is shown as anything else.
  */
 function reviewSectionFor(c) {
-  if (['approved', 'ignored', 'superseded', 'resolved'].indexOf(c.status) > -1) return 'closed';
+  if (['approved', 'ignored', 'superseded', 'resolved', 'reverted'].indexOf(c.status) > -1) return 'closed';
   if (c.status === 'rejected') return 'rejected';
   if (c.status === 'duplicate') return 'duplicates';
   if (c.conflict && c.conflict.active) return 'conflicts';
@@ -505,6 +519,31 @@ const MEMBER_STATES = ['existing', 'add', 'conflict', 'needs_review', 'unmatched
 /** What an admin may decide about one entry. `reassign_request` is recorded
     for the master catalogue; this tool never moves a model between groups. */
 const MEMBER_DECISIONS = ['include', 'exclude', 'reassign_request'];
+
+/** What the automatic engine may decide about one entry — never offered to a
+    person. `merge`: the entry's group is the same part as the target and the
+    two are merged. `skip`: the entry stays where it is and is not applied. */
+const AUTO_DECISIONS = ['merge', 'skip'];
+
+/** Who an automatic change is recorded as. Not an account: it cannot sign in. */
+const SYSTEM_ACTOR = Object.freeze({ uid: 'instagram-intelligence', email: null, label: 'Instagram Intelligence' });
+
+/** Groups created from Instagram are numbered from here, per category, so a
+    number the catalogue build issues (0001…) and one issued at run time can
+    never be the same. */
+const ISSUED_GROUP_BASE = 9000;
+
+/** What the approved-compatibility ledger holds besides pairwise fitments. */
+const LEDGER_KINDS = ['same_part', 'new_group', 'merge_groups', 'master_change_request'];
+
+/**
+ * One merge of two groups, keyed by the category and the two groups' anchor
+ * models — so the same merge found by ten posts is one ledger entry.
+ */
+function mergeKeyFor(categoryId, survivorAnchorId, absorbedAnchorId) {
+  if (!categoryId || !survivorAnchorId || !absorbedAnchorId) return null;
+  return `mrg__${categoryId}__${sha256([survivorAnchorId, absorbedAnchorId].join('|')).slice(0, 28)}`;
+}
 
 /** A matcher result in the words the review card uses. */
 function matchStatusFor(m) {
@@ -671,6 +710,7 @@ module.exports = {
   evaluateConfidence, evidenceStrength, reviewSectionFor,
   RELEVANCE, ACTIONABLE_RELEVANCE, IGNORED_RELEVANCE, isActionableRelevance, relevanceBucket,
   PROPOSED_ACTIONS, MEMBER_STATES, MEMBER_DECISIONS, matchStatusFor, memberIsCertain,
+  AUTO_DECISIONS, SYSTEM_ACTOR, ISSUED_GROUP_BASE, LEDGER_KINDS, mergeKeyFor,
   setKeyFor, proposalIdFor, evaluateSetConfidence,
   EXTRACTION_FILTERS, extractionFiltersFor, proposalSummary,
   hashtagsIn, usageDay

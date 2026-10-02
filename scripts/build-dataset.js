@@ -1,9 +1,18 @@
 /* ============================================================================
    Mobile Parts Finder · scripts/build-dataset.js
    ----------------------------------------------------------------------------
-   ETL for the REAL production data. Reads the six category exports and the
-   brand/model workbook, normalises them, and writes Firestore-ready documents
-   plus a static search bundle.
+   ETL for the REAL production data. Reads the category baseline files and the
+   brand/model workbook, replays every change made since, and writes
+   Firestore-ready documents plus a static search bundle.
+
+   WHOSE DATA THIS IS. The category files are Mobile Parts Finder's BASELINE:
+   exports taken once from the Dashboard project to establish this catalogue
+   (and the Button Flex file compiled here). They are historical input — this
+   build never calls the Dashboard, and nothing here writes to it. Every change
+   since is Mobile Parts Finder's own, recorded in its ledger
+   (approvedCompatibilities) and replayed over the baseline in step 2a. Do not
+   re-export from the Dashboard to "refresh" a category: that would discard
+   what this project has learned (api/_schema/projects.js).
 
      node scripts/build-dataset.js --src "C:/Users/stark/Downloads"
 
@@ -345,25 +354,33 @@ function build() {
     });
   });
 
-  /* ---- 2a. approved Instagram fitments, folded back in ----
+  /* ---- 2a. the ledger, replayed over the baseline ----
 
-     An administrator approving an Instagram claim in the admin review queue
-     can ADD a device to an existing group in production Firestore. Those
-     approvals are exported to data/raw/approved-compatibilities.json by
-     scripts/export-approved-compatibilities.js; without folding them in here,
-     the next import-firestore run would rewrite the group without them.
-
-     Additive only, and only when it still makes sense: the group must exist,
-     be the same category, and still contain the device the approval was
-     anchored on (group ids follow export order, so a reordered export must
-     not attach a device to the wrong group). Anything else is reported, not
-     guessed. With no ledger file this step does nothing at all. */
+     Everything that has changed in Mobile Parts Finder's compatibility data
+     since the baseline — models added and removed, groups created, merged and
+     deleted, masters changed — by Instagram Intelligence or by an
+     administrator. It is exported from Firestore to
+     data/raw/approved-compatibilities.json by
+     scripts/export-approved-compatibilities.js; without replaying it here the
+     next import-firestore run would put the catalogue back the way the
+     baseline had it. See applyApprovedOverlay below. With no ledger file this
+     step does nothing at all. */
   const ledgerFile = path.join(__dirname, '..', 'data', 'raw', 'approved-compatibilities.json');
+  let runtimeGroups = [];
+  let runtimeModelGroups = new Map();
   if (fs.existsSync(ledgerFile)) {
     const overlay = applyApprovedOverlay(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')), groups, models, modelGroups);
-    report.approvedCompatibilityOverlay = overlay;
-    console.log(`\n  approved Instagram fitments: ${overlay.applied} added, ${overlay.alreadyInBuild} already in the export, ` +
-                `${overlay.unapplied.length} NOT applied (see report.json), ${overlay.pendingNewGroup} awaiting a new group`);
+    runtimeGroups = overlay.runtimeGroups;
+    runtimeModelGroups = overlay.runtimeModelGroups;
+    /* the report keeps the counts; the groups themselves go to their own file */
+    report.approvedCompatibilityOverlay = Object.assign({}, overlay, {
+      runtimeGroups: runtimeGroups.map(g => ({ id: g.id, categoryId: g.categoryId, memberCount: g.memberCount })),
+      runtimeModelGroups: runtimeModelGroups.size
+    });
+    console.log(`\n  ledger replayed: ${overlay.applied} device(s) added, ${overlay.removed} removed, ${overlay.createdGroups} group(s) created, ` +
+                `${overlay.merged} merged, ${overlay.deletedGroups} deleted, ${overlay.mastersChanged} master(s) changed, ` +
+                `${overlay.alreadyInBuild} already in the baseline, ${overlay.unapplied.length} NOT applied (see report.json)` +
+                (runtimeGroups.length ? `; ${runtimeGroups.length} group(s) in run-time categories (not on the public site)` : ''));
   }
 
   /* ---- 2a-bis. one category + one model = one group ----
@@ -459,6 +476,10 @@ function build() {
   nd('groups.ndjson', groups);
   nd('brands.ndjson', [...brands.values()]);
   nd('modelGroups.ndjson', [...modelGroups.entries()].map(([id, byCategory]) => ({ id, byCategory })));
+  /* Groups in a category created at run time. Imported into Firestore with
+     the rest; in none of the public outputs, which read the two files above. */
+  nd('groups-runtime.ndjson', runtimeGroups);
+  nd('modelGroups-runtime.ndjson', [...runtimeModelGroups.entries()].map(([id, byCategory]) => ({ id, byCategory })));
 
   const meta = {
     version: searchIndex.version,
@@ -531,29 +552,198 @@ function build() {
               groups.filter(g => !g.oemPartNo).length + ' groups)\n');
 }
 
-/* The approved-fitment overlay (step 2a). Mutates `groups` and `modelGroups`
-   in place, additively, and returns what it did. Exported for its test. */
-function applyApprovedOverlay(ledger, groups, models, modelGroups) {
-  const byId = new Map(groups.map(g => [g.id, g]));
-  const overlay = { applied: 0, alreadyInBuild: 0, pendingNewGroup: 0, unapplied: [] };
-  (ledger.entries || []).forEach(e => {
+/* The ledger overlay (step 2a). Mutates `groups` and `modelGroups` in place
+   and returns what it did. Exported for its tests.
+
+   Mobile Parts Finder's compatibility data is its own: the category exports
+   are the BASELINE it started from, and the ledger (approvedCompatibilities)
+   is every change made to it since — by Instagram Intelligence or by an
+   administrator in Compatibility Management. This replays the ledger over the
+   baseline, in the order the changes were made:
+
+     same_part      a device added to a group
+     remove_model   a device taken out of a group
+     set_master     a group given another master
+     new_group      a group created at run time, under the number it was
+                    issued then — never renumbered here
+     merge_groups   two groups that are one part: the absorbed group's devices
+                    join the survivor and the absorbed group leaves the build
+     delete_group   a group deleted
+
+   Each is identified by the DEVICES it is anchored on, not by a group id
+   alone: group ids follow export order, so an id is only trusted when the
+   group still holds the device the change was anchored on. An undone or
+   cancelled entry is skipped. Anything that no longer fits is reported,
+   never guessed.
+
+   A group in a RUN-TIME category (one created in the compatibility data, not
+   declared in CATEGORIES above) is kept apart, in `overlay.runtimeGroups` /
+   `overlay.runtimeModelGroups`: it is imported into Firestore with the rest,
+   and it is in none of the public outputs — the search bundle, the dataset
+   and the generated pages know the site's categories only. */
+function applyApprovedOverlay(ledger, groups, models, modelGroups, categories) {
+  const cats = new Map((categories || CATEGORIES).map(c => [c.id, c]));
+  const overlay = { applied: 0, alreadyInBuild: 0, pendingNewGroup: 0, createdGroups: 0, merged: 0,
+                    removed: 0, mastersChanged: 0, deletedGroups: 0, unapplied: [],
+                    runtimeGroups: [], runtimeModelGroups: new Map() };
+  const runtime = overlay.runtimeGroups;
+  const all = () => groups.concat(runtime);
+  const byId = id => all().find(g => g.id === id) || null;
+  const groupOf = (categoryId, modelId) => all().find(g => g.categoryId === categoryId && g.memberIds.indexOf(modelId) > -1) || null;
+  const mapFor = categoryId => (cats.has(categoryId) ? modelGroups : overlay.runtimeModelGroups);
+  const link = (modelId, categoryId, groupId) => {
+    const map = mapFor(categoryId);
+    if (!map.has(modelId)) map.set(modelId, {});
+    const byCat = map.get(modelId);
+    byCat[categoryId] = byCat[categoryId] || [];
+    if (byCat[categoryId].indexOf(groupId) < 0) byCat[categoryId].push(groupId);
+  };
+  const unlink = (modelId, categoryId, groupId) => {
+    const byCat = mapFor(categoryId).get(modelId);
+    if (!byCat || !byCat[categoryId]) return;
+    byCat[categoryId] = byCat[categoryId].filter(g => g !== groupId);
+    if (!byCat[categoryId].length) delete byCat[categoryId];
+  };
+  const drop = g => {
+    const list = groups.indexOf(g) > -1 ? groups : runtime;
+    list.splice(list.indexOf(g), 1);
+  };
+  const live = e => ['reverted', 'cancelled'].indexOf(e.status) < 0;
+
+  const entries = (ledger.entries || []).slice().sort((a, b) => (Number(a.approvedAt) || 0) - (Number(b.approvedAt) || 0));
+  entries.forEach(e => {
+    const kind = e.kind || 'same_part';
+    if (!live(e)) return;
+
+    /* ---- a group created at run time ---- */
+    if (kind === 'new_group') {
+      const c = e.createdGroup || null;
+      if (e.status !== 'applied' || !c) { if (e.status === 'approved_pending_build') overlay.pendingNewGroup++; return; }
+      const refuse = reason => overlay.unapplied.push({ relKey: e.relKey, groupId: c.groupId, reason });
+      /* its category: one of the site's, or one created at run time — which
+         brings its own name and prefix, recorded when the group was made */
+      const cat = cats.get(e.categoryId) || (c.categoryCode ? { id: e.categoryId, name: c.categoryName || e.categoryId, code: c.categoryCode, runTime: true } : null);
+      if (!cat) return refuse(`category ${e.categoryId} is not in the build's register and the entry does not describe it`);
+      const memberIds = (c.memberIds || []).filter(id => models.has(id));
+      if (memberIds.length < 2) return refuse('fewer than two of its devices are in the catalogue');
+      if (byId(c.groupId)) { overlay.alreadyInBuild++; return; }
+      const held = memberIds.filter(id => groupOf(e.categoryId, id));
+      if (held.length === memberIds.length) { overlay.alreadyInBuild++; return; }
+      if (held.length) return refuse(`${held.length} of its devices already have a ${e.categoryId} group in this build`);
+      const masterId = memberIds.indexOf(c.masterModelId) > -1 ? c.masterModelId : memberIds[0];
+      const master = models.get(masterId);
+      memberIds.sort((a, b) => (b === masterId) - (a === masterId));
+      (cat.runTime ? runtime : groups).push({
+        id: c.groupId, groupNo: c.groupNo, serialNo: null,
+        categoryId: cat.id, categoryName: cat.name,
+        partCode: c.partCode, oemPartNo: null, sourcePartNo: null,
+        drawingName: master.name,
+        masterModelId: masterId, masterModelName: master.name, masterBrandId: master.brandId,
+        memberIds, memberNames: memberIds.map(id => models.get(id).name), memberCount: memberIds.length,
+        searchTokens: [...new Set([...(master.tokens || []), ...loose(c.partCode).split(' ')])].filter(Boolean).slice(0, 60),
+        createdFrom: e.automatic ? 'instagram' : 'admin'
+      });
+      memberIds.forEach(id => link(id, cat.id, c.groupId));
+      overlay.createdGroups++;
+      return;
+    }
+
+    /* ---- two groups that are one part ---- */
+    if (kind === 'merge_groups') {
+      const refuse = reason => overlay.unapplied.push({ relKey: e.relKey, groupId: e.survivor && e.survivor.groupId, reason });
+      if (['approved_pending_build', 'applied'].indexOf(e.status) < 0) return;
+      if (!e.survivor || !e.absorbed) return refuse('the merge names no groups');
+      const into = groupOf(e.categoryId, e.survivor.anchorModelId);
+      const from = groupOf(e.categoryId, e.absorbed.anchorModelId);
+      if (!into) return refuse(`no ${e.categoryId} group holds ${e.survivor.anchorModelId} any more`);
+      if (!from || from === into) { overlay.alreadyInBuild++; return; }
+      from.memberIds.forEach(id => {
+        unlink(id, e.categoryId, from.id);
+        if (into.memberIds.indexOf(id) < 0) { into.memberIds.push(id); into.memberNames.push(models.get(id).name); }
+        link(id, e.categoryId, into.id);
+      });
+      into.memberCount = into.memberIds.length;
+      drop(from);
+      overlay.merged++;
+      overlay.mergedGroups = (overlay.mergedGroups || []).concat({ into: into.id, from: from.id, partCodeRetired: from.partCode });
+      return;
+    }
+
+    /* ---- a device taken out of a group ---- */
+    if (kind === 'remove_model') {
+      if (e.status !== 'applied') return;
+      const refuse = reason => overlay.unapplied.push({ relKey: e.relKey, groupId: e.groupId, removedModelId: e.removedModelId, reason });
+      const g = groupOf(e.categoryId, e.removedModelId);
+      if (!g) { overlay.alreadyInBuild++; return; }
+      if (g.memberIds.indexOf(e.anchorModelId) < 0) return refuse(`the group that holds it is no longer the one anchored on ${e.anchorModelId}`);
+      if (g.masterModelId === e.removedModelId) return refuse('it is the master of its group');
+      const at = g.memberIds.indexOf(e.removedModelId);
+      g.memberIds.splice(at, 1);
+      g.memberNames.splice(at, 1);
+      g.memberCount = g.memberIds.length;
+      unlink(e.removedModelId, e.categoryId, g.id);
+      overlay.removed++;
+      return;
+    }
+
+    /* ---- a group given another master ---- */
+    if (kind === 'set_master') {
+      if (e.status !== 'applied') return;
+      const refuse = reason => overlay.unapplied.push({ relKey: e.relKey, groupId: e.groupId, reason });
+      const g = groupOf(e.categoryId, e.masterModelId);
+      if (!g) return refuse(`no ${e.categoryId} group holds ${e.masterModelId}`);
+      if (g.memberIds.indexOf(e.anchorModelId) < 0) return refuse(`the group that holds it is no longer the one anchored on ${e.anchorModelId}`);
+      if (g.masterModelId === e.masterModelId) { overlay.alreadyInBuild++; return; }
+      const m = models.get(e.masterModelId);
+      const at = g.memberIds.indexOf(e.masterModelId);
+      g.memberIds.splice(at, 1); g.memberNames.splice(at, 1);
+      g.memberIds.unshift(e.masterModelId); g.memberNames.unshift(m.name);
+      g.masterModelId = e.masterModelId; g.masterModelName = m.name; g.masterBrandId = m.brandId; g.drawingName = m.name;
+      overlay.mastersChanged++;
+      return;
+    }
+
+    /* ---- a group deleted ---- */
+    if (kind === 'delete_group') {
+      if (e.status !== 'applied') return;
+      const g = e.anchorModelId ? groupOf(e.categoryId, e.anchorModelId) : null;
+      if (!g) { overlay.alreadyInBuild++; return; }
+      /* only the group that was deleted: the same master, not whatever group
+         the device has joined since */
+      if (g.masterModelId !== e.anchorModelId && g.id !== e.groupId) {
+        overlay.unapplied.push({ relKey: e.relKey, groupId: e.groupId, reason: `${e.anchorModelId} is now in ${g.id}, a different group` });
+        return;
+      }
+      g.memberIds.forEach(id => unlink(id, e.categoryId, g.id));
+      drop(g);
+      overlay.deletedGroups++;
+      return;
+    }
+
+    /* ---- a device added to an existing group ---- */
     if (e.status === 'approved_pending_build') { overlay.pendingNewGroup++; return; }
     if (e.status !== 'applied' || !e.appliedChange) return;
     const ch = e.appliedChange;
-    const g = byId.get(ch.groupId);
     const refuse = reason => overlay.unapplied.push({ relKey: e.relKey, groupId: ch.groupId, addedModelId: ch.addedModelId, reason });
-    if (!g) return refuse('group not in this build');
-    if (g.categoryId !== e.categoryId) return refuse(`group is ${g.categoryId}, approval is ${e.categoryId}`);
     if (!models.has(ch.addedModelId)) return refuse('device not in the catalogue');
+    /* The group by its id. If that id is gone because a merge retired it, the
+       change follows the device it was anchored on into the surviving group.
+       An id that EXISTS but no longer holds the anchor is a reordered export:
+       refused, as before — never attached to whatever now has that number. */
+    let g = byId(ch.groupId);
+    if (!g) {
+      g = (overlay.mergedGroups || []).some(m => m.from === ch.groupId) ? groupOf(e.categoryId, ch.anchorModelId) : null;
+      if (!g) return refuse('group not in this build');
+    }
+    if (g.categoryId !== e.categoryId) return refuse(`group is ${g.categoryId}, approval is ${e.categoryId}`);
     if (g.memberIds.indexOf(ch.anchorModelId) < 0) return refuse(`group no longer contains ${ch.anchorModelId}`);
     if (g.memberIds.indexOf(ch.addedModelId) > -1) { overlay.alreadyInBuild++; return; }
+    const elsewhere = groupOf(e.categoryId, ch.addedModelId);
+    if (elsewhere) return refuse(`device already has a ${e.categoryId} group in this build (${elsewhere.id})`);
     g.memberIds.push(ch.addedModelId);
     g.memberNames.push(models.get(ch.addedModelId).name);
     g.memberCount = g.memberIds.length;
-    if (!modelGroups.has(ch.addedModelId)) modelGroups.set(ch.addedModelId, {});
-    const byCat = modelGroups.get(ch.addedModelId);
-    byCat[g.categoryId] = byCat[g.categoryId] || [];
-    if (byCat[g.categoryId].indexOf(g.id) < 0) byCat[g.categoryId].push(g.id);
+    link(ch.addedModelId, g.categoryId, g.id);
     overlay.applied++;
   });
   return overlay;

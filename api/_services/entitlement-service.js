@@ -149,14 +149,22 @@ async function consumeSearch(uid, now) {
    closed to every client in firestore.rules. One source, already in
    production, already protected.
 
-   Cached per warm instance. A group's member list does not change between
-   deployments, so re-reading it for every sheet open would be a Firestore read
-   per click for a constant. */
+   Cached per warm instance, for a few minutes. A group's member list used to
+   change only with a deployment; it now changes when the compatibility data
+   does (Compatibility Management, Instagram Intelligence), so an entry is
+   trusted for MEMBER_CACHE_MS and then read again — a read per group every
+   few minutes, not per click.
+
+   A group that was MERGED into another keeps its document, marked
+   `mergedInto`. A page still holding the old group id is answered with the
+   group it became — one hop, never a chain walked blindly. */
 const memberCache = new Map();
 const MEMBER_CACHE_MAX = 500;
+const MEMBER_CACHE_MS = 5 * 60 * 1000;
 
-async function readGroupDetail(groupId) {
-  if (memberCache.has(groupId)) return memberCache.get(groupId);
+async function readGroupDetail(groupId, hop = 0) {
+  const hit = memberCache.get(groupId);
+  if (hit && Date.now() - hit.at < MEMBER_CACHE_MS) return hit.value;
 
   /* The local file first when it exists — a local run then needs no service
      account to open a group sheet. Absent in production, which is the point. */
@@ -170,6 +178,11 @@ async function readGroupDetail(groupId) {
   if (!snap.exists) { cacheMember(groupId, null); return null; }
 
   const d = snap.data() || {};
+  if (d.mergedInto && hop < 2 && /^[a-z0-9]{2,3}-\d{1,6}$/.test(String(d.mergedInto))) {
+    const survivor = await readGroupDetail(String(d.mergedInto), hop + 1);
+    cacheMember(groupId, survivor);
+    return survivor;
+  }
   const ids = Array.isArray(d.memberIds) ? d.memberIds : [];
   const names = Array.isArray(d.memberNames) ? d.memberNames : [];
 
@@ -190,7 +203,7 @@ function cacheMember(groupId, value) {
      sees a handful; this only exists so a scripted walk of every group cannot
      grow the heap without limit. */
   if (memberCache.size >= MEMBER_CACHE_MAX) memberCache.clear();
-  memberCache.set(groupId, value);
+  memberCache.set(groupId, { value, at: Date.now() });
 }
 
 /**
@@ -296,11 +309,18 @@ async function deviceGroupsForUser(modelId, tier) {
        expected are accepted, newest first. */
     const d = await readDeviceGroupDoc(modelId);
     if (!d) return null;
-    byCategory = Object.keys(d).map(categoryId => ({
-      categoryId,
-      categoryName: categoryId,
-      groupIds: Array.isArray(d[categoryId]) ? d[categoryId] : []
-    }));
+    /* Only the SITE's categories are served. A category created in the
+       compatibility data at run time has groups, but no picture and no pages
+       yet: it is shown to a shop once it is in the site build, not before.
+       A category the device was taken out of is an empty list, not a category. */
+    const site = search.loadIndex().categories;
+    byCategory = Object.keys(d)
+      .filter(categoryId => (!site || !site.size || site.has(categoryId)) && Array.isArray(d[categoryId]) && d[categoryId].length)
+      .map(categoryId => ({
+        categoryId,
+        categoryName: categoryId,
+        groupIds: d[categoryId]
+      }));
   }
 
   const categories = await Promise.all(byCategory.map(async cat => ({
