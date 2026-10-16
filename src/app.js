@@ -34,7 +34,7 @@
       trending: [], suggest: [], newModels: [], restTotal: 0,
       /* An open compatibility group, and which of its devices the right panel
          is describing. Both null means the finder is in its default state. */
-      groupId: null, detailModelId: null, groupQ: '', groupShown: 400,
+      groupId: null, groupShown: 400,
       /* The devices in the open group, as /api/device-parts returned them for
          THIS account. Not read from the catalogue: the fitment list is the
          paid half and no longer ships to the browser.
@@ -336,8 +336,6 @@
       state.finder.groupId = r.params[0] || null;
       /* Every fresh visit opens in the compact list. */
       state.finder.groupView = 'compact';
-      state.finder.detailModelId = null;
-      state.finder.groupQ = '';
       state.finder.groupShown = 400;
       /* A new group: forget the last one's devices before anything paints, or
          the first frame of group B shows group A's list. */
@@ -353,8 +351,6 @@
       r = { name: 'finder', params: [] };
     } else if (state.finder.groupId) {
       state.finder.groupId = null;
-      state.finder.detailModelId = null;
-      state.finder.groupQ = '';
       state.finder.groupMembers = null;
       state.finder.groupLocked = false;
       state.finder.groupLoadFailed = false;
@@ -766,14 +762,6 @@
     return { group: g, category: db.categoryById[g.categoryId], master: master };
   }
 
-  /** The device the right panel is describing: the picked one, or the master. */
-  function detailModel() {
-    var row = currentGroup();
-    if (!row) return null;
-    var id = state.finder.detailModelId;
-    return (id && db.modelById[id]) || row.master;
-  }
-
   /* A copy button with nothing to copy is a button that lies. Part code used to
      be null for every group, so this rendered "Part code: " and put an empty
      string on the clipboard. */
@@ -808,66 +796,124 @@
     return nf(n) + ' device' + (n === 1 ? '' : 's') + (verb ? ' ' + verb : '');
   }
 
-  /* ------------------------------------------------- the opened group's header
+  /* ======================================================================
+     THE OPEN GROUP — one layout for a searched model and an opened group
 
-     ONE header, compact from the first frame, sticky at the same size.
+     Three parts, top to bottom, and nothing else:
 
-     It used to be two: a toolbar that stuck, and a large green banner under it
-     that scrolled away — with a compact copy of the banner fading into the
-     toolbar as it went. On a phone both were on screen at once for the first
-     part of every scroll, the group's codes printed twice, one over the other,
-     and the header read as starting large and then shrinking. Now the banner's
-     content IS the sticky header, at the size it keeps.
+       1. the category selector, floating above the sheet on a phone
+       2. the master model's header — identity, codes and specifications
+       3. the compatible devices, in compact, grid or table view
 
-     Left to right: back, the master handset, the identity — "Master model",
-     the category, the name, how many devices and brands, the group's codes —
-     and the part itself on the right. Everything the banner said, in the
-     app's master-model colours, at about a third of its height.
+     A searched model (/finder) and an opened group (/group/<id>) used to be
+     two layouts carrying the same facts several times over: a sticky summary
+     ("35 devices linked · 4 groups"), a "Compatible parts · 1 match" heading,
+     a filter box and a filter button for a list of one, a MATCH FOUND badge,
+     an "Open group" button on a group that was already open, the master in a
+     green card and again in a specification panel, and the whole brand list
+     under it. Each of those said something already on screen. They are gone;
+     what is left is the part, the master it is named after, and the phones
+     it fits.
+     ====================================================================== */
 
-     The part picture is drawn bare. It used to sit in a bordered white tile
-     with the thumbnail's own border inside that: two outlines around a
-     photograph that is already shot on white. The file's own white is its
-     ground, in both themes. */
-  function groupHeadHTML(row) {
+  /* THE CATEGORY SELECTOR. The result order and names, each category a white
+     card of its own with the part's picture; the one on screen outlined in
+     the brand colour. A category this master has no group in stays in its
+     place, switched off, so the row never reshuffles between models. A
+     category whose data is still being collected is left out rather than
+     offered as a button that leads nowhere.
+
+     @param {object|null} counts  categoryId -> groups, from the public counts
+     @param {string} active       the category on screen
+     @param {string} act          what a press does */
+  function catSelectorHTML(counts, active, act) {
+    return '<nav class="gcats" aria-label="Part category"><div class="gcats__row">' +
+      resultCategories().filter(function (c) { return !c.comingSoon; }).map(function (c) {
+        var n = counts ? (counts[c.id] || 0) : null;
+        var on = c.id === active;
+        var off = !on && n === 0;
+        var label = resultCatLabel(c);
+        return '<button type="button" class="gcat' + (on ? ' is-on' : '') + (off ? ' is-off' : '') + '" ' +
+          'data-act="' + act + '" data-id="' + esc(c.id) + '" aria-pressed="' + on + '"' +
+          (off ? ' disabled' : '') +
+          ' aria-label="' + esc(label + (off ? ' — no group for this model' : '')) + '">' +
+          '<span class="gcat__art">' + SM.art.category(c.id, 'pthumb--gcat', label, { eager: true }) + '</span>' +
+          '<span class="gcat__n">' + esc(label) + '</span>' +
+          '</button>';
+      }).join('') +
+      '</div></nav>';
+  }
+
+  /* THE MASTER MODEL'S HEADER. One block, drawn once, the same size for as
+     long as it is on screen — it is not sticky, so it cannot shrink, jump or
+     sit over the list; the device toolbar under it is what stays.
+
+     Back; the master handset at a size it can be recognised at; the crown,
+     MASTER MODEL and the category; the name; the codes a counter quotes; the
+     master's measurements from the shared SPEC_COLS, so they read exactly as
+     the table's columns do; and the part itself on the right, bare on its own
+     white. When the searched model is not the master, one line says the part
+     fits it, because the header is about the master and the reader came here
+     about their own phone. */
+  function masterHeadHTML(row, opts) {
+    opts = opts || {};
     var g = row.group, cat = row.category, master = row.master;
-    var codes = [g.groupNumber, g.partCode, g.oemPartNo].filter(Boolean).join(' · ');
-    var total = groupMemberCount(g);
+    var hit = opts.hit && opts.hit.id !== master.id ? opts.hit : null;
+    var codes = [
+      ['Group', g.groupNumber],
+      ['Part code', row.partCode || g.partCode],
+      ['Serial', g.serialNumber],
+      ['Manufacturer part no.', row.oemPartNo || g.oemPartNo]
+    ].filter(function (c) { return c[1]; });
 
-    /* Brands, counted from the member list the page is showing, so the number
-       and the headings below cannot disagree. Absent until it has loaded —
-       the header leaves the phrase out rather than claiming "0 brands". */
-    var seen = Object.create(null), brands = 0;
-    (openGroupMembers() || []).forEach(function (m) {
-      var b = m.brandId || '?';
-      if (!seen[b]) { seen[b] = 1; brands++; }
-    });
-
-    return '<header class="ghead" aria-labelledby="gheadName">' +
-      /* The phone's own grab handle. Drawn only inside the mobile sheet. */
-      '<span class="gbar__grab" aria-hidden="true"></span>' +
-      '<div class="ghead__row">' +
-        '<button type="button" class="gback ghead__back" data-act="close-group" ' +
-          'aria-label="Back to compatibility groups" title="Back to compatibility groups">' +
-          icon('chevronLeft') + '</button>' +
-        '<span class="ghead__shot">' +
-          SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'ghead__ph' }) +
-        '</span>' +
-        '<div class="ghead__id">' +
-          '<span class="ghead__eyebrow">' +
-            '<span class="ghead__tag">' + icon('crown') + 'Master model</span>' +
-            (cat ? '<span class="ghead__tag"><i aria-hidden="true"></i>' + esc(resultCatLabel(cat)) + '</span>' : '') +
+    return '<header class="mhead">' +
+      '<span class="sheet-grab" aria-hidden="true"></span>' +
+      '<div class="mhead__top">' +
+        '<button type="button" class="gback mhead__back" data-act="' + esc(opts.back || 'clear-model') + '" ' +
+          'aria-label="Back" title="Back">' + icon('chevronLeft') + '</button>' +
+        '<span class="mhead__shot">' +
+          SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'mhead__ph' }) + '</span>' +
+        '<div class="mhead__id">' +
+          '<span class="mhead__eyebrow">' +
+            '<span class="masterflag">' + icon('crown') + 'Master model</span>' +
+            (cat ? '<span class="mhead__cat">' + esc(resultCatLabel(cat)) + '</span>' : '') +
           '</span>' +
-          '<h2 class="ghead__n" id="gheadName">' + esc(deviceTitle(master)) + '</h2>' +
-          '<span class="ghead__meta">' +
-            '<span class="ghead__count" data-gcount>' + esc(deviceCountLabel(total, 'linked')) + '</span>' +
-            (brands ? '<span class="ghead__fact">' + nf(brands) + (brands === 1 ? ' brand' : ' brands') + '</span>' : '') +
-            (codes ? '<span class="ghead__codes">' + esc(codes) + '</span>' : '') +
-          '</span>' +
+          '<h2 class="mhead__n">' + esc(master.fullName) + '</h2>' +
+          (hit ? '<span class="mhead__hit">' + icon('check') + 'Fits your ' + esc(hit.fullName) + '</span>' : '') +
         '</div>' +
-        (cat ? '<span class="ghead__part" title="' + esc(cat.name) + '">' +
-          SM.art.category(cat.id, 'pthumb--ghead', cat.name, { eager: true }) + '</span>' : '') +
+        (cat ? '<span class="mhead__part" title="' + esc(cat.name) + '">' +
+          SM.art.category(cat.id, 'pthumb--mhead', cat.name, { eager: true }) + '</span>' : '') +
       '</div>' +
+      (codes.length ? '<dl class="mhead__codes">' + codes.map(function (c) {
+        return '<div><dt>' + esc(c[0]) + '</dt><dd>' + esc(c[1]) + '</dd></div>';
+      }).join('') + '</dl>' : '') +
+      '<dl class="mhead__specs">' + SPEC_COLS.map(function (c) {
+        return '<div title="' + esc(c.title) + '"><dt>' + esc(c.label) +
+          ' <span>(' + esc(c.unit) + ')</span></dt><dd>' + specValue(c, master) + '</dd></div>';
+      }).join('') + '</dl>' +
       '</header>';
+  }
+
+  /* THE COMPATIBLE DEVICES. A toolbar that stays — the count and the view —
+     and the list under it.
+
+     @param {number} total     the group's own size
+     @param {string} listHTML  the list, already drawn in the chosen view
+     @param {object} opts      { act: the view switch's action, view, listId,
+                                 listAttr: an attribute that finds the list
+                                 again for a repaint, note: extra pill } */
+  function deviceBodyHTML(total, listHTML, opts) {
+    return '<section class="gdev" aria-label="Compatible devices">' +
+      '<div class="gdev__bar">' +
+        '<span class="gdev__t">Compatible devices</span>' +
+        '<span class="pill pill--brand">' + nf(total) + '</span>' +
+        (opts.note || '') +
+        listViewSwitchHTML(listView(opts.view), opts.act) +
+      '</div>' +
+      '<div class="gdev__list glist--' + listView(opts.view) + '"' +
+        (opts.listId ? ' id="' + opts.listId + '"' : '') + (opts.listAttr || '') + '>' +
+        listHTML + '</div>' +
+      '</section>';
   }
 
   /* One device, as a chip you pick.
@@ -1090,6 +1136,14 @@
   function modelListHTML(list, opts) {
     opts = opts || {};
     var view = listView(opts.view);
+    /* The master leads, whatever order the group's members were recorded in:
+       it is the device the group — and the header above the list — is named
+       after. The rest keep the order they came in. */
+    if (opts.masterId) {
+      var mi = -1;
+      for (var i = 0; i < list.length; i++) if (list[i].id === opts.masterId) { mi = i; break; }
+      if (mi > 0) list = [list[mi]].concat(list.slice(0, mi), list.slice(mi + 1));
+    }
     var byBrand = list.length > (opts.brandsAbove || 0);
     if (view === 'table') {
       return specTableHTML(byBrand ? brandOrdered(list, opts.masterId) : list, opts);
@@ -1163,20 +1217,16 @@
     }).join('');
   }
 
-  /* The header, then one toolbar — the filter and the view — then the list.
-     The toolbar is not sticky: the header is the one thing that stays, so the
-     list keeps the height of the screen. */
+  /* The opened group, in the same three parts as a searched model: the
+     master's categories (switching one shows the master's group there), the
+     master's header, and the devices. */
   function groupCenterHTML(row) {
-    return groupHeadHTML(row) +
-      '<div class="gtools">' +
-        '<label class="field gtools__filter">' + icon('search') +
-          '<input class="input" id="gdq" type="search" placeholder="Filter these devices…" ' +
-          'value="' + esc(state.finder.groupQ || '') + '" autocomplete="off" ' +
-          'aria-label="Filter devices in this group" /></label>' +
-        listViewSwitchHTML(listView(state.finder.groupView), 'group-view') +
-      '</div>' +
-      '<div id="groupList" class="glist glist--' + listView(state.finder.groupView) + '">' +
-        groupListHTML(row) + '</div>';
+    var counts = (db.partCountsByCategory && db.partCountsByCategory[row.master.id]) || null;
+    return catSelectorHTML(counts, row.group.categoryId, 'group-cat') +
+      masterHeadHTML(row, { back: 'close-group' }) +
+      deviceBodyHTML(groupMemberCount(row.group), groupListHTML(row), {
+        act: 'group-view', view: state.finder.groupView, listId: 'groupList'
+      });
   }
 
   /* Just the list. Repainted on its own when the filter changes, so the input
@@ -1259,22 +1309,21 @@
         '<span>Loading the devices in this group&hellip;</span></div>';
     }
 
-    var q = String(state.finder.groupQ || '').trim().toLowerCase();
-    var list = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }) : all;
+    var list = all;
     /* The cap is a guard rail, not a page size: the largest group in the
        catalogue is 325 and the median is 3, so today it never fires. It is
        here so that a group ten times that size degrades into a button rather
        than into a second of blocked scripting. */
     var shown = list.slice(0, state.finder.groupShown || 400);
-    var sel = detailModel();
     if (!shown.length) {
       return '<div class="notice">' + icon('alert') +
-        '<span>' + (q
-          ? 'No device in this group matches that filter.'
-          : 'No devices are recorded in this group yet.') + '</span></div>';
+        '<span>No devices are recorded in this group yet.</span></div>';
     }
+    /* A device opens its own page, as it does from a searched model's list —
+       the specifications live there and in the table view, not in a second
+       panel beside the list. */
     return modelListHTML(shown, {
-      view: state.finder.groupView, masterId: row.master.id, sel: sel, act: 'pick-device'
+      view: state.finder.groupView, masterId: row.master.id, act: 'open-model'
     }) +
       (list.length > shown.length
         ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
@@ -1328,128 +1377,6 @@
     });
   }
 
-  /* The right panel: the selected device, in the space a sidebar has.
-
-     The sections are the same builder the full model page uses, so a field the
-     import adds later appears here too without a second edit. IMPORTED is not
-     passed: on the model page an empty-but-known column is worth a hyphen,
-     because the page is about completeness; in a 240px sidebar a column of
-     hyphens just reads as broken. */
-  function groupDetailHTML() {
-    var row = currentGroup();
-    var base = detailModel();
-    if (!row || !base) return '';
-    var m = previewVariants(base);
-    var b = db.brandById[m.brandId] || { id: m.brandId, name: m.brand };
-    var sp = m.specs || {};
-    var cur = currentVariant(m);
-    var rear = sp.cameraRear || [];
-    var isMaster = m.id === row.master.id;
-
-    var ramTxt = (sp.ramVariantsGb || []).length ? sp.ramVariantsGb.join(' / ') + ' GB' : null;
-    var romTxt = (sp.storageVariantsGb || []).length
-      ? sp.storageVariantsGb.map(fmtRom).join(' / ') : null;
-
-    return '<div class="gdet">' +
-      '<div class="gdet__top">' +
-        /* Drawn only inside the mobile sheet, where the list this device was
-           picked from is thousands of pixels above. Beside the list on a
-           desktop it would be a button that scrolls nothing. */
-        '<button type="button" class="gdet__back" data-act="back-to-list">' +
-          icon('chevronLeft') + 'Device list</button>' +
-        '<span class="t-lab">' + (isMaster ? 'Master model' : 'Selected device') + '</span>' +
-      '</div>' +
-
-      /* The photograph, and nothing around it.
-
-         This used to sit in a bordered, tinted, radiused box — inside which
-         .dphoto draws its own box — so every handset in the panel arrived
-         wearing two frames it did not need. The picture is a cut-out on a
-         white ground already; a second outline around it reads as a smudge on
-         the part rather than as a card. The box is gone, the image is bigger
-         for the space it frees, and object-fit still keeps whatever ratio the
-         file actually has. */
-      '<div class="gdet__shot">' +
-        SM.art.photo(m, { src: deviceImageUrl(m), colourIdx: state.deviceColour || 0,
-                          alt: m.fullName, eager: true, cls: 'gdet__ph' }) +
-      '</div>' +
-
-      '<div class="gdet__brand">' + SM.brandLogo(b, 'blogo--sm') +
-        (brandHasMark(b) ? '<span>' + esc(b.name) + '</span>' : '') + '</div>' +
-      '<h3 class="gdet__n">' + esc(deviceTitle(m)) + '</h3>' +
-
-      priceHTML(m, cur) +
-      /* Renders nothing at all until the catalogue carries variants — which is
-         the right answer for a device with one known build, and means the
-         import that adds them needs no work here. */
-      variantPickerHTML(m) +
-
-      '<div class="gdet__secs">' +
-        specBlockHTML('Overview', 'info', [
-          ['Brand', b.name],
-          ['Released', m.releaseDate],
-          ['Availability', m.releaseStatus && m.releaseStatus !== 'available'
-            ? m.releaseStatus.replace(/_/g, ' ') : null],
-          ['Device type', m.deviceType]
-        ]) +
-        specBlockHTML('Display', 'phone', [
-          ['Size', m.displaySize ? m.displaySize + ' inches' : null],
-          ['Resolution', m.screenResolution],
-          ['Type', m.screenType],
-          ['Refresh rate', m.refreshRate],
-          ['Protection', m.protection]
-        ]) +
-        specBlockHTML('Body', 'ruler', [
-          ['Height', m.height],
-          ['Width', m.width],
-          ['Thickness', m.thickness],
-          ['Weight', m.weight],
-          ['Screen area', m.screenCm2 ? m.screenCm2 + ' cm²' : null],
-          ['Body ratio', m.bodyRatio ? m.bodyRatio + '%' : null],
-          ['Colours', coloursOf(m).length
-            ? coloursOf(m).map(function (c) { return c.n; }).join(', ') : null]
-        ]) +
-        specBlockHTML('Battery & charging', 'battery', [
-          ['Capacity', sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null],
-          ['Battery part number', m.batteryPartNo
-            ? m.batteryPartNo + (m.batteryPartVerified ? ' (verified)' : ' (unverified)') : null],
-          ['Wired charging', sp.chargingWatts ? sp.chargingWatts + 'W' : null],
-          ['Wireless charging', sp.wirelessCharging == null ? null
-            : (sp.wirelessCharging ? 'Supported' : 'Not supported')]
-        ]) +
-        specBlockHTML('Memory', 'layers', [
-          ['RAM', ramTxt],
-          ['Storage', romTxt],
-          ['Expandable', sp.expandable == null ? null
-            : (sp.expandable ? 'microSD supported' : 'Not expandable')]
-        ]) +
-        specBlockHTML('Performance', 'cpu', [
-          ['Chipset', sp.chipset], ['CPU', sp.cpu], ['GPU', sp.gpu]
-        ]) +
-        specBlockHTML('Camera', 'camera', rear.map(function (c) {
-          return [c.role, c.mp + ' MP · ' + c.aperture + (c.ois ? ' · OIS' : '')];
-        }).concat([
-          ['Front camera', sp.cameraFront
-            ? sp.cameraFront.mp + ' MP · ' + sp.cameraFront.aperture : null],
-          ['Video', sp.videoMax]
-        ])) +
-        specBlockHTML('Network & connectivity', 'signal', [
-          ['Network', sp.networkDetail || sp.network],
-          ['SIM', m.sim], ['Wi-Fi', sp.wifi], ['Bluetooth', sp.bluetooth],
-          ['NFC', sp.nfc == null ? null : (sp.nfc ? 'Yes' : 'No')],
-          ['USB', sp.usb]
-        ]) +
-      '</div>' +
-
-      '<div class="gdet__cta">' +
-        '<a class="btn btn--outline" href="/model/' + esc(m.id) + '">' +
-          icon('info') + 'Full specifications</a>' +
-        '<button class="btn btn--primary" data-act="find-parts" data-id="' + esc(m.id) + '">' +
-          icon('search') + 'Find parts</button>' +
-      '</div>' +
-      '</div>';
-  }
-
   /* ======================================================================
      THE MOBILE SHEET
 
@@ -1476,41 +1403,6 @@
     return !!(global.matchMedia && global.matchMedia(SHEET_MQ).matches);
   }
 
-  /* ------------------------------------------------- where the header ends
-
-     The brand headings stick UNDER the master header, which means they need
-     its height. That height is not a constant: it grows with a long device
-     name that wraps, with a third part code, and with the grab handle the
-     mobile sheet adds. A number written into the stylesheet would be wrong for
-     most groups — either a gap under the header or a heading sliding beneath
-     it — so it is measured from the element itself and published as --gbar-h.
-
-     ResizeObserver where it exists, which is every browser this app supports
-     bar none; the initial write covers the rest, and a wrong value there costs
-     a few pixels of overlap on one heading, not a broken list. */
-  /* .gbar is the selected model's header; .ghead the opened group's. One of
-     them, at most, is on the page. */
-  var STICKY_HEAD = '.ghead, .gbar';
-  var gbarRO = null;
-  function measureGbar() {
-    var bar = document.querySelector(STICKY_HEAD);
-    var host = document.documentElement;
-    if (gbarRO) { gbarRO.disconnect(); gbarRO = null; }
-    if (!bar) { host.style.removeProperty('--gbar-h'); return; }
-    var h = Math.round(bar.getBoundingClientRect().height);
-    if (h > 0) host.style.setProperty('--gbar-h', h + 'px');
-
-    if (global.ResizeObserver) {
-      gbarRO = new ResizeObserver(function () {
-        var b = document.querySelector(STICKY_HEAD);
-        if (!b) return;
-        var n = Math.round(b.getBoundingClientRect().height);
-        if (n > 0) host.style.setProperty('--gbar-h', n + 'px');
-      });
-      gbarRO.observe(bar);
-    }
-  }
-
   /* True when the finder is showing a RESULT rather than the library: a group
      is open, or a model has been selected and its matches are on screen. */
   function sheetWanted() {
@@ -1532,9 +1424,6 @@
       body.classList.toggle('ws__body--sheet', on);
     }
     document.body.classList.toggle('has-gsheet', on);
-    /* After the class, not before: the sheet adds a grab handle to the header,
-       so its height is not the height it had a moment ago. */
-    measureGbar();
 
     var scrim = document.getElementById('gscrim');
     if (on && !scrim) {
@@ -1588,14 +1477,17 @@
     if (!document.getElementById('catPanel')) { renderFinder(document.getElementById('page')); return; }
     document.getElementById('catPanel').innerHTML = categoryPanelHTML();
 
-    /* With a group open the right panel stops being the brand list and becomes
-       the selected device. Both panels stay mounted either way — the left one
-       never changes, which is what keeps this a state change rather than a
-       different page. */
+    /* An open group or a searched model is the focused layout: the centre
+       column alone, with its own category selector. The side panels are the
+       LIBRARY's filters — categories and brands — and in a result they were
+       a second category picker and a brand list that narrowed nothing the
+       reader was looking at. Both stay mounted, so going back to the library
+       is a class change, not a rebuild. */
     var grp = currentGroup();
-    document.getElementById('brandPanel').innerHTML =
-      grp ? groupDetailHTML() : brandPanelHTML();
-    document.getElementById('brandPanel').classList.toggle('ws__right--detail', !!grp);
+    var focus = !!(grp || state.finder.modelId);
+    document.getElementById('brandPanel').innerHTML = focus ? '' : brandPanelHTML();
+    var wsb = document.querySelector('.ws__body');
+    if (wsb) wsb.classList.toggle('ws__body--focus', focus);
 
     if (grp) {
       document.getElementById('centerHead').innerHTML = groupCenterHTML(grp);
@@ -1627,225 +1519,17 @@
     else loadGroups(true);
   }
 
-  /* Picking a device changes one panel. Repainting the whole workspace would
-     rebuild the centre list and throw away its scroll position, which is where
-     the reader is standing when they pick. */
-  function repaintGroupDetail() {
-    var panel = document.getElementById('brandPanel');
-    if (panel) panel.innerHTML = groupDetailHTML();
-    var sel = detailModel();
-    /* Only the chip that WAS on and the chip that is on now are touched. The
-       old pass wrote two attributes on all 325 chips for every pick, which is
-       325 style invalidations to move one highlight. */
-    var want = sel ? sel.id : null;
-    /* Whichever view the list is in: a compact chip, a card or a table row. */
-    var PICK = '#groupList [data-act="pick-device"]';
-    var prev = document.querySelector(PICK + '.is-on');
-    if (prev && prev.getAttribute('data-id') !== want) {
-      prev.classList.remove('is-on');
-      if (prev.hasAttribute('aria-pressed')) prev.setAttribute('aria-pressed', 'false');
-    }
-    if (want) {
-      var next = document.querySelector(PICK + '[data-id="' + cssEsc(want) + '"]');
-      if (next) {
-        next.classList.add('is-on');
-        if (next.hasAttribute('aria-pressed')) next.setAttribute('aria-pressed', 'true');
-      }
-    }
-  }
-
-  /* In the mobile sheet the details are BELOW the list — which is the right
-     order to read them in, and the wrong place to leave them after a tap three
-     hundred devices down: the panel updates somewhere off screen and the tap
-     looks like it did nothing. So the sheet carries the reader to the answer,
-     and the answer carries a way back to the exact chip they came from.
-
-     Not smoothly. The gap can be eight thousand pixels, and a smooth scroll
-     across that either takes seconds or gives up part way. A jump that the
-     sticky master header stays put across reads as a panel changing rather
-     than as the page running away.
-
-     scroll-margin-top on the panel is what keeps its own heading — and the way
-     back — clear of that sticky header.
-
-     Only in the sheet. On a desktop the panel is already beside the list and
-     nothing needs to move; scrolling the column there would take the list out
-     from under the hand that is picking from it. */
-  function revealDetailOnPhone() {
-    var body = document.querySelector('.ws__body--sheet');
-    var panel = document.getElementById('brandPanel');
-    if (!body || !panel || !panel.scrollIntoView) return;
-    panel.scrollIntoView({ behavior: 'auto', block: 'start' });
-  }
-
-  /* The way back: the chip that is selected, which is the one that was tapped
-     to get here. Scrolling to the top of the list instead would be a different
-     journey home from the one taken out. */
-  function backToDeviceList() {
-    var body = document.querySelector('.ws__body--sheet');
-    if (!body) return;
-    var chip = document.querySelector('#groupList [data-act="pick-device"].is-on') ||
-      document.querySelector('#groupList [data-act="pick-device"]');
-    if (chip && chip.scrollIntoView) chip.scrollIntoView({ behavior: 'auto', block: 'center' });
-  }
-
+  /* A change of view, or "show more": the list alone, in place. */
   function repaintGroupList() {
     var row = currentGroup();
     if (!row) return;
     var host = document.getElementById('groupList');
     if (host) host.innerHTML = groupListHTML(row);
-    /* The group's own size is public and comes from the catalogue row; only
-       the NAMES are gated. So a locked group still says "325 devices linked",
-       which is the sentence that makes the plan worth buying. */
-    var all = openGroupMembers() || [];
-    var q = String(state.finder.groupQ || '').trim().toLowerCase();
-    var n = q ? all.filter(function (m) { return m.search.indexOf(q) > -1; }).length : all.length;
-    if (!all.length) {
-      Array.prototype.forEach.call(document.querySelectorAll('[data-gcount]'), function (c) {
-        c.textContent = deviceCountLabel(row.group.compatibleCount || 0, 'linked');
-      });
-      return;
-    }
-    /* Filtering narrows what is on screen; it does not change how many devices
-       the group links. "12 of 325 devices" says both, and the group's own
-       total never silently becomes the size of a search.
-
-       Every [data-gcount], not one id: the banner and the toolbar's compact
-       copy both carry the count, and a filter that updated only one of them
-       would leave the header disagreeing with itself the moment it docked. */
-    var label = q
-      ? nf(n) + ' of ' + deviceCountLabel(all.length)
-      : deviceCountLabel(all.length, 'linked');
-    Array.prototype.forEach.call(document.querySelectorAll('[data-gcount]'), function (c) {
-      c.textContent = label;
-    });
   }
 
   /* Kept as the old name so nothing else had to change; the two are the same
      operation now that there is only one layout. */
   function renderBrowse() { renderWorkspace(); }
-
-  /* ------------------------------------------------- devices linked to ONE
-
-     Every distinct device that shares at least one compatibility group with
-     this model. Read from the same two maps the group view reads — the model's
-     groups, and each of those groups' members — so "88 devices linked" and the
-     lists underneath it are the same edges counted two ways.
-
-     The model itself is seeded into `seen`, because a phone is not compatible
-     with itself; a device that appears in six of its groups is counted once,
-     because it is one phone you could take the part off. */
-  /* COUNTED FROM WHAT THE SERVER ACTUALLY SENT, never from the bundle.
-
-     This used to walk db.groupsByModel and db.membersByGroup, which is the
-     fitment list — and the fitment list no longer ships to the browser, so
-     that walk can only return 0 now. Printing "0 devices linked" over a phone
-     with five part groups would be a confident lie, which is worse than
-     saying nothing.
-
-     So it counts the distinct devices in the matches THIS account was given.
-     A subscriber has them all and gets the real figure; a free account was
-     given none, and gets null — which the header renders as no phrase at all
-     rather than as a zero.
-
-     @returns {number|null} null means "not known to this account" */
-  function linkedDeviceCount(modelId) {
-    var rows = state.finder.matches;
-    if (!rows || !rows.length) return null;
-    var seen = Object.create(null);
-    seen[modelId] = 1;
-    var n = 0;
-    var any = false;
-    for (var i = 0; i < rows.length; i++) {
-      var ds = rows[i] && rows[i].devices;
-      if (!ds || !ds.length) continue;
-      any = true;
-      for (var j = 0; j < ds.length; j++) {
-        var id = ds[j] && ds[j].id;
-        if (id && !seen[id]) { seen[id] = 1; n++; }
-      }
-    }
-    return any ? n : null;
-  }
-
-  /* The selected model, as the head of the CENTRE column.
-
-     It used to be the whole page, then a card that scrolled away with the
-     results it was heading. It is now the SAME sticky header the group view
-     uses — the same element, the same classes, the same behaviour — because a
-     search result and an opened group are one result page in two states, and
-     shipping two headers is how they drift apart.
-
-     What it says is what the reader arrived to find out: which handset this is
-     about, how many devices are linked to it, and across how many groups. All
-     three are counted from the compatibility edges at the moment of render. */
-  function selectedModelHTML() {
-    var f = state.finder;
-    var m = db.modelById[f.modelId];
-    if (!m) return '';
-    var nGroups = (db.groupCountByModel && db.groupCountByModel[m.id]) || 0;
-    var cats = (db.partCountsByCategory && db.partCountsByCategory[m.id]) || {};
-    var nCats = Object.keys(cats).length;
-    var linked = linkedDeviceCount(m.id);
-
-    var meta = [
-      nGroups ? nf(nGroups) + ' group' + (nGroups === 1 ? '' : 's') : null,
-      nCats ? nf(nCats) + ' part ' + (nCats === 1 ? 'category' : 'categories') : null
-    ].filter(Boolean).join(' · ');
-
-    return '<div class="gbar">' +
-      '<span class="gbar__grab" aria-hidden="true"></span>' +
-      '<div class="gbar__row">' +
-        '<button type="button" class="gback" data-act="clear-model" ' +
-          'aria-label="Clear the selected model" title="Clear the selected model">' +
-          icon('chevronLeft') + '<span class="gback__t">Back</span></button>' +
-
-        '<span class="gbar__shot">' +
-          SM.art.photo(m, { alt: m.fullName, eager: true, cls: 'gbar__ph' }) +
-        '</span>' +
-
-        '<span class="gbar__id">' +
-          '<span class="gbar__n">' + esc(deviceTitle(m)) + '</span>' +
-          '<span class="gbar__meta">' +
-            /* Always in the DOM, empty until the answer arrives. The header
-               paints before /api/device-parts has replied, so the tally is
-               filled in by loadMatches rather than guessed at here — and an
-               element that is not rendered cannot be filled in later. Empty
-               it collapses, because :empty hides it. */
-            '<span class="gbar__count">' +
-              (linked != null ? esc(deviceCountLabel(linked, 'linked')) : '') +
-            '</span>' +
-            (meta ? '<span class="gbar__codes">' + esc(meta) + '</span>' : '') +
-          '</span>' +
-        '</span>' +
-
-        '<span class="gbar__right">' +
-          '<a class="btn btn--outline btn--sm gbar__specs" href="/model/' + esc(m.id) + '">' +
-            icon('info') + '<span class="gbar__specst">Specs</span></a>' +
-        '</span>' +
-      '</div>' +
-
-      /* THE CATEGORY SWITCHER, inside the sticky header.
-
-         It is resultRailHTML() — the same rail, the same cards, the same
-         pick-cat-rail action and the same per-category counts the finder has
-         always used. Nothing new is being invented here; it is being put
-         somewhere the reader can reach.
-
-         On a phone the rail lives in the hero band, and the hero band is behind
-         the sheet's scrim the moment a model is picked. So the one control that
-         decides WHICH group is on screen was the one control the sheet had
-         covered up. Rendering it here puts it back, inside the part of the
-         sheet that stays put while the groups scroll.
-
-         Rendered always, shown only in the sheet — the same trick the search
-         box already uses to exist once in the header and once in the hero. A
-         desktop keeps its left-hand category panel and its own rail, and this
-         copy is display:none there, so the desktop layout is untouched and a
-         window dragged across the breakpoint needs no re-render. */
-      '<div class="gbar__cats">' + resultRailHTML() + '</div>' +
-      '</div>';
-  }
 
   function centerHeadHTML() {
     var f = state.finder;
@@ -1854,32 +1538,13 @@
         '<input class="input" id="' + id + '" placeholder="Filter groups, part codes…" ' +
         'value="' + esc(f.filters.q) + '" aria-label="Filter groups" /></label>';
     };
-    /* With a model selected the head is that model plus a filter row; the
-       "Compatibility groups" title and the sort control belong to the library
-       view and would be describing something else here. */
+    /* With a model selected the head is the category selector and nothing
+       else: the master's header and its devices are the results themselves,
+       one per group, drawn by loadMatches. */
     if (f.modelId) {
-      /* Same section shell as the library view — the desktop filter field in
-         the head, the compact filter bar below it on narrow screens. Only the
-         words change, so the column behaves identically whether it is holding
-         matches or the whole library.
-
-         sec--flow, though: the library's section head sticks to the top of the
-         column, and here the SELECTED MODEL is what has to stay put. Two
-         elements stuck to top:0 in one scroller do not queue — they stack on
-         top of each other, and the one that loses is the one the reader
-         needs. */
-      return selectedModelHTML() +
-        '<div class="sec sec--flow"><div class="sec__head"><div class="sec__title">' +
-        '<h2>Compatible parts</h2><span class="sec__count" id="gcount">…</span></div>' +
-        '<div class="row wrap ws-tools" style="gap:8px">' +
-        '<span class="ws-only">' + searchField('gqd') + '</span></div></div>' +
-        '<div class="fbar">' +
-        '<div class="field grow">' + icon('search') +
-        '<input class="input" id="gq" placeholder="Filter these groups…" value="' +
-        esc(f.filters.q) + '" aria-label="Filter matching groups" /></div>' +
-        '<button class="btn btn--outline btn--icon fbar__btn" data-act="open-filters" aria-label="Filters">' +
-        icon('filter') + (activeFilterCount() ? '<span class="dotn">' + activeFilterCount() + '</span>' : '') +
-        '</button></div></div>';
+      return catSelectorHTML(
+        (db.partCountsByCategory && db.partCountsByCategory[f.modelId]) || null,
+        f.catId, 'pick-cat-rail');
     }
 
     return (
@@ -2577,10 +2242,6 @@
         if (rail) rail.innerHTML = railHTML();
         var panel = document.getElementById('catPanel');
         if (panel) panel.innerHTML = categoryPanelHTML();
-        /* The switcher inside the mobile sheet is a second copy of the same
-           rail, and it is the one the reader is looking at. */
-        var cats = document.querySelector('.gbar__cats');
-        if (cats) cats.innerHTML = resultRailHTML();
       });
     }
 
@@ -2598,8 +2259,6 @@
          exception to swallow. */
       if (rows && rows.unavailable) {
         state.finder.matches = null;
-        var cntU = document.getElementById('gcount');
-        if (cntU) cntU.textContent = '';
         host.innerHTML = C.state({
           icon: 'alert',
           title: 'Could not load the compatibility groups',
@@ -2620,29 +2279,11 @@
       var m = db.modelById[f.modelId];
       var cat = f.catId ? db.categoryById[f.catId] : null;
 
-      /* The right-hand panel and the filter box narrow this list too — a model,
-         a category and a brand are three filters on one result, not three
-         separate modes. */
-      if (f.filters.brandId && f.filters.brandId !== 'all') {
-        rows = rows.filter(function (r) { return r.master && r.master.brandId === f.filters.brandId; });
-      }
-      /* The same fields the group library searches, so one box means one thing
-         on both sides of the switch. */
-      var q = (f.filters.q || '').toLowerCase().trim();
-      if (q) {
-        var hasq = function (v) { return String(v == null ? '' : v).toLowerCase().indexOf(q) > -1; };
-        rows = rows.filter(function (r) {
-          var g = r.group;
-          return hasq(g.groupNumber) || hasq(g.partCode) || hasq(g.serialNumber) ||
-                 (r.category && hasq(r.category.name)) ||
-                 (r.master && hasq(r.master.fullName)) ||
-                 (r.devices || []).some(function (d) { return hasq(d.fullName); });
-        });
-      }
-
+      /* No brand or text filter applies here. Those are the library's
+         controls, and the result page no longer shows them — a filter left
+         set in the library would otherwise empty a result with nothing on
+         screen to say why. */
       if (!rows.length) {
-        var cnt0 = document.getElementById('gcount');
-        if (cnt0) cnt0.textContent = 'no matches';
         /* The categories this model DOES have a group in, as the way on —
            named, and in the result order, rather than an "all parts" list
            the result page no longer has. */
@@ -2655,8 +2296,6 @@
           title: 'No Compatibility Found',
           text: esc(m.fullName) + ' is in the database but has no ' +
             (cat ? esc(resultCatLabel(cat).toLowerCase()) + ' ' : '') + 'compatibility group' +
-            (f.filters.brandId !== 'all' && db.brandById[f.filters.brandId]
-              ? ' under ' + esc(db.brandById[f.filters.brandId].name) : '') +
             ' yet. Nothing unrelated is shown in its place' +
             (others.length ? ' — it does have a group in these:' : '.'),
           action: '<div class="row wrap" style="gap:8px;justify-content:center">' +
@@ -2670,22 +2309,10 @@
       }
 
       var shown = rows.slice(0, f.matchShown);
-      var cnt = document.getElementById('gcount');
-      if (cnt) cnt.textContent = rows.length === 1 ? '1 match' : rows.length + ' matches';
-
-      /* The header was drawn before this answer arrived, so the device tally
-         in it is either absent or stale. Updated here rather than by
-         re-rendering the whole sticky bar, which would scroll the column. */
-      var linkedNow = linkedDeviceCount(f.modelId);
-      var gc = document.querySelector('.gbar__count');
-      if (gc) {
-        if (linkedNow == null) gc.textContent = '';
-        else gc.textContent = deviceCountLabel(linkedNow, 'linked');
-      }
       /* One category is always selected, so this is that category's group —
          one, by the one-group-per-category rule, and the rare exception still
-         gets a card each. Expanded: the devices are on the card, with no
-         "Open group" between the reader and the answer. */
+         gets one each. Open: the master's header and its devices, with nothing
+         to press first. */
       host.innerHTML = shown.map(function (row) { return matchCard(row, m); }).join('');
 
       /* "Show more" belongs in the column's own footer slot, the same one the
@@ -2773,74 +2400,27 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-match-list]'), function (el) {
       var id = el.getAttribute('data-match-list');
       var row = rows.filter(function (r) { return r.group.groupId === id; })[0];
-      if (row) el.innerHTML = matchListHTML(row, hit);
+      if (!row) return;
+      el.className = 'gdev__list glist--' + listView(state.finder.resultView);
+      el.innerHTML = matchListHTML(row, hit);
     });
   }
 
-  /* ONE GROUP, OPEN.
+  /* ONE GROUP, OPEN — a searched model's group in the selected category.
 
-     What the result page was opened to answer, in reading order: that there is
-     a match, which part and which group; the master model it is named after
-     and the part itself; the codes a counter quotes; then the compatible
-     devices — on the card, in the chosen view, with nothing to press first.
-
-     It used to put a full-width green master card and a two-by-two grid of
-     codes above the list, which on a phone was the whole first screen; the
-     same facts sit in one row and one line now, so the devices start where
-     the reader is already looking. "Open group" stays, for the full page with
-     its filter and specifications panel — it is no longer the way IN. */
+     The master's header, then its devices in the chosen view. The searched
+     model is ticked in the list and named in the header when it is not the
+     master; nothing else on the card repeats the header. */
   function matchCard(row, hitModel) {
-    var g = row.group, cat = row.category, master = row.master;
-    var devices = groupDevices(row);
-    var total = row.deviceCount || devices.length || g.compatibleCount || 0;
-    var included = !row.requiresPlan &&
-      devices.some(function (d) { return d.id === hitModel.id; });
-    var codes = [
-      ['Part code', row.partCode || g.partCode],
-      ['Group', g.groupNumber],
-      ['Serial', g.serialNumber],
-      ['Manufacturer part no.', row.oemPartNo || g.oemPartNo]
-    ].filter(function (c) { return c[1]; });
-
-    return '<article class="match match--open">' +
-      '<div class="match__head">' +
-        '<span class="match__badge">' + icon('checkCircle') + 'Match found</span>' +
-        '<span class="pill pill--code">' + esc(g.groupNumber) + '</span>' +
-        '<span class="pill" style="background:' + cat.color + '18;color:' + cat.color + '">' +
-          icon(cat.icon) + esc(resultCatLabel(cat)) + '</span>' +
-        '<button class="btn btn--ghost btn--sm match__open" data-act="open-group" data-id="' + esc(g.groupId) + '">' +
-          'Open group ' + icon('arrowRight') + '</button>' +
-      '</div>' +
-
-      '<div class="mrow">' +
-        '<span class="mrow__shot">' + SM.art.photo(master, { alt: master.fullName, cls: 'mrow__ph' }) + '</span>' +
-        '<span class="mrow__id">' +
-          '<span class="masterflag">' + icon('crown') + 'Master model</span>' +
-          '<span class="mrow__n">' + esc(master.fullName) + '</span>' +
-          '<span class="mrow__meta">' +
-            [ master.displaySize ? esc(master.displaySize) + '&Prime; display' : null,
-              master.releaseDate ? esc(master.releaseDate) : null
-            ].filter(Boolean).join(' · ') + '</span>' +
-        '</span>' +
-        '<span class="mrow__part">' + SM.art.category(cat.id, 'pthumb--mrow', cat.name) + '</span>' +
-      '</div>' +
-
-      (codes.length ? '<dl class="mcodes">' + codes.map(function (c) {
-        return '<div class="mcodes__i"><dt>' + esc(c[0]) + '</dt><dd>' + esc(c[1]) + '</dd></div>';
-      }).join('') + '</dl>' : '') +
-
-      '<div class="complist__head">' +
-        '<span class="t-lab">Compatible devices</span>' +
-        '<span class="pill pill--brand">' + nf(total) + ' total</span>' +
-        /* Read off the list actually rendered rather than assumed from "the
-           hit is not the master": a group can hold the searched-for device
-           without it being either. */
-        (included && master.id !== hitModel.id
-          ? '<span class="pill pill--ok">' + icon('check') + esc(hitModel.modelName) + ' included</span>'
-          : '') +
-        listViewSwitchHTML(listView(state.finder.resultView), 'result-view') +
-      '</div>' +
-      '<div class="match__list" data-match-list="' + esc(g.groupId) + '">' + matchListHTML(row, hitModel) + '</div>' +
+    var total = row.deviceCount || groupDevices(row).length || row.group.compatibleCount || 0;
+    /* Every row here came from asking which groups fit hitModel, so the part
+       fits it whether or not this account may see the list. */
+    return '<article class="gopen">' +
+      masterHeadHTML(row, { back: 'clear-model', hit: hitModel }) +
+      deviceBodyHTML(total, matchListHTML(row, hitModel), {
+        act: 'result-view', view: state.finder.resultView,
+        listAttr: ' data-match-list="' + esc(row.group.groupId) + '"'
+      }) +
       '</article>';
   }
 
@@ -6863,7 +6443,7 @@
         });
         if (act === 'group-view') {
           var gl = document.getElementById('groupList');
-          if (gl) gl.className = 'glist glist--' + nv;
+          if (gl) gl.className = 'gdev__list glist--' + nv;
           repaintGroupList();
         } else {
           repaintMatchLists();
@@ -6871,17 +6451,18 @@
         break;
       }
 
-      /* Picking a device inside an open group changes the right panel and
-         nothing else. No navigation, no overlay. */
-      case 'pick-device':
-        state.finder.detailModelId = id;
-        repaintGroupDetail();
-        revealDetailOnPhone();
+      /* The opened group's category selector: the same master's group in
+         another category. That is a searched-model result for the master —
+         the one layout that already knows how to show it — and the selector
+         exists only on a group a subscriber has opened, so it costs no search. */
+      case 'group-cat': {
+        var gnow = currentGroup();
+        if (!gnow || id === gnow.group.categoryId || !db.categoryById[id]) break;
+        var masterId = gnow.master.id;
+        go('/finder');
+        pickModel(masterId, { catId: id });
         break;
-
-      /* The mobile sheet's way back from a device's specifications to the list
-         it was picked from. */
-      case 'back-to-list': backToDeviceList(); break;
+      }
 
       /* The red X. Back to the group list, in place. */
       case 'close-group': go('/finder'); break;
@@ -6920,7 +6501,7 @@
            Which device they are describing differs, so the device is resolved
            from whichever view is open rather than from state.deviceId alone —
            that field trails a group opened straight from a link. */
-        var dm = state.finder.groupId ? detailModel() : db.modelById[state.deviceId];
+        var dm = db.modelById[state.deviceId];
         if (!dm) break;
         state.deviceId = dm.id;
         dm = previewVariants(dm);
@@ -6958,8 +6539,7 @@
           state.deviceVariant = want;
         }
 
-        if (state.finder.groupId) repaintGroupDetail();
-        else repaintDevice(dm);
+        repaintDevice(dm);
         break;
       }
       case 'open-model': go('/model/' + id); break;
@@ -7390,7 +6970,7 @@
   }
 
   /* --------------------------------------------------------------- inputs */
-  var gqTimer = null, mqTimer = null, bqTimer = null, gdqTimer = null;
+  var gqTimer = null, mqTimer = null, bqTimer = null;
   document.addEventListener('input', function (e) {
     var el = e.target;
     if (el.id === 'q' || el.id === 'qh') {
@@ -7422,17 +7002,6 @@
         if (state.finder.modelId) { state.finder.matchShown = 6; loadMatches(); }
         else loadGroups(true);
       }, 220);
-    }
-    /* Narrowing the devices ALREADY on screen inside an open group. Not the
-       same thing as the paid group search above: this filters a list the
-       reader has already been shown, and asks the server nothing. */
-    if (el.id === 'gdq') {
-      clearTimeout(gdqTimer);
-      gdqTimer = setTimeout(function () {
-        state.finder.groupQ = el.value;
-        state.finder.groupShown = 400;
-        repaintGroupList();
-      }, 180);
     }
     if (el.id === 'mq') {
       clearTimeout(mqTimer);
