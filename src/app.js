@@ -2107,6 +2107,7 @@
         ? '<span class="t-xs muted">' + nf(shown) + ' of ' + nf(f.total) +
           ' groups — switch to “All groups” for the rest</span>'
         : '<span class="t-xs muted">Nothing to suggest for these filters</span>';
+      C.fitPreviews(res);
       syncRails();
       return;
     }
@@ -2131,8 +2132,27 @@
     lm.innerHTML = f.hasMore
       ? '<button class="btn btn--outline" data-act="more-groups">' + icon('plus') + 'Show more groups <span class="muted">(' + nf(Math.max(0, left)) + ' left)</span></button>'
       : '<span class="t-xs muted">All ' + nf(f.total) + (f.total === 1 ? ' group' : ' groups') + ' shown</span>';
+    C.fitPreviews(res);
     observeMore();
     syncRails();
+  }
+
+  /* The cards' name boxes are fitted to their width, so a change of width —
+     a rotated phone, a resized window — and the web font arriving (names are
+     wider in it than in the fallback) both refit them. Coalesced to a frame. */
+  var fitRaf = 0;
+  function refitCards(force) {
+    if (fitRaf) return;
+    var run = function () {
+      fitRaf = 0;
+      var res = document.getElementById('results');
+      if (res) C.fitPreviews(res, force);
+    };
+    fitRaf = global.requestAnimationFrame ? global.requestAnimationFrame(run) : setTimeout(run, 16);
+  }
+  global.addEventListener('resize', function () { refitCards(false); });
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { refitCards(true); });
   }
 
   /* An arrow is never left offering a direction there is nothing in, and a
