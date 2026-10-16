@@ -726,7 +726,7 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   position:relative; display:flex; flex-direction:column; text-align:left; width:100%;
   background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
   box-shadow:var(--sh-1); overflow:hidden;
-  content-visibility:auto; contain-intrinsic-size:auto 330px; cursor:pointer;
+  cursor:pointer;
   transition:transform .2s cubic-bezier(.2,.8,.3,1), box-shadow .2s, border-color .2s;
 }
 .plate:hover{ transform:translateY(-3px); box-shadow:var(--sh-2); border-color:color-mix(in srgb,var(--c) 40%,var(--line)); }
@@ -2762,13 +2762,15 @@ button.mchip:hover{ border-color:var(--teal-500); background:var(--surface-2); }
 
 /* ---- the home feed's preview, inside a group card ------------------------- */
 .pchips{ display:flex; flex-wrap:wrap; gap:5px; }
-/* Drawn before its names arrive: one chip's height held, so the card does not
-   jump when they land. */
-.pchips--wait{ min-height:26px; }
-/* Cards in a row size to their own content — a card of two chip rows is not
-   stretched to the height of its neighbour with five. */
-.gridcards{ align-items:start; }
-.trendrow,.suggestrow{ align-items:start; }
+/* THREE ROWS, ALWAYS. The name box is a fixed three chip-rows tall, so every
+   card is the same height whatever its group holds; C.fitPreviews hides the
+   names that do not fit and counts them into "+N more". A card drawn before
+   its names arrive holds the same box, so nothing moves when they land. */
+.pchips{
+  height:calc(3 * 26px + 2 * 5px); overflow:hidden;
+  align-content:flex-start;
+}
+.mchip[hidden]{ display:none; }
 
 /* ---- the view switch: Compact / Grid / Table ------------------------------ */
 .lview{
@@ -3046,4 +3048,86 @@ button.mchip:hover{ border-color:var(--teal-500); background:var(--surface-2); }
 }
 @media (prefers-reduced-motion:reduce){
   .gcat{ transition:none; }
+}
+
+/* ==========================================================================
+   HOME FEED — group cards and section heads
+   ----------------------------------------------------------------------------
+   Equal tiles in every row and carousel, the category's own colour as the
+   card's accent, and a little more presence for the section heads. Every
+   colour is a token or mixed from the category colour with a token, so the
+   same rules hold in light and dark.
+   ========================================================================== */
+.gridcards, .trendrow, .suggestrow{ align-items:stretch; }
+.trendrow > .plate, .suggestrow > .plate, .gridcards > .plate{ height:100%; }
+
+.plate{
+  border-color:color-mix(in srgb,var(--c) 18%,var(--line));
+  background:
+    radial-gradient(120% 70% at 100% 0%, color-mix(in srgb,var(--c) 7%,transparent), transparent 60%),
+    var(--surface);
+}
+/* The category's colour along the top edge of the label strip. */
+.plate__strip{ box-shadow:inset 0 3px 0 var(--c); padding-top:10px; }
+.plate:hover{
+  box-shadow:0 14px 30px -14px color-mix(in srgb,var(--c) 55%,transparent), var(--sh-1);
+}
+.plate:focus-visible{ outline:2px solid var(--c); outline-offset:2px; }
+.plate__body{ gap:11px; }
+/* The part, on its white, ringed in its category's colour. */
+.plate__master .pthumb--plate{
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 16%,transparent);
+  border-color:color-mix(in srgb,var(--c) 30%,var(--line));
+}
+/* Two lines at most: a long master name must not make its card taller than
+   its neighbours. */
+.plate__mname{
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  font-size:18px;
+}
+@media (min-width:768px){ .plate__mname{ font-size:18.5px; } }
+.fitline{
+  padding:8px 11px;
+  background:color-mix(in srgb,var(--c) 7%,var(--surface-2));
+  border-color:color-mix(in srgb,var(--c) 16%,var(--line-soft));
+}
+.fitline__n{ font-size:24px; }
+.plate .mchip--static{
+  background:var(--surface-2);
+  border-color:color-mix(in srgb,var(--c) 24%,var(--line));
+}
+.plate .mchip--static.is-master{
+  border-color:var(--amber-400);
+  background:color-mix(in srgb,var(--amber-400) 10%,var(--surface));
+}
+.plate__foot{ background:transparent; padding:10px 14px; }
+.plate__cta{
+  padding:6px 12px; border-radius:var(--r-pill);
+  background:color-mix(in srgb,var(--c) 12%,transparent);
+  transition:background .16s;
+}
+.plate:hover .plate__cta{ background:color-mix(in srgb,var(--c) 20%,transparent); }
+
+/* Section heads: a coloured mark and a heavier title, so the feed reads as
+   sections rather than one long scroll. */
+.feed__head{ margin-bottom:12px; align-items:center; }
+.feed__title{ font-size:17px; gap:9px; }
+.feed__title svg{
+  width:28px; height:28px; padding:6px; border-radius:9px;
+  background:color-mix(in srgb,var(--amber-500) 14%,transparent); color:var(--amber-600);
+}
+@media (max-width:560px){
+  .feed__title{ font-size:16px; }
+  .feed__note{ flex-basis:100%; margin-left:37px; margin-top:-6px; }
+}
+@media (prefers-reduced-motion:reduce){
+  .plate, .plate__cta{ transition:none; }
+}
+/* The footer is one line at any card width: the serial gives way with an
+   ellipsis, the button never wraps its own label. */
+.plate__foot .mono{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.plate__cta{ flex:none; white-space:nowrap; }
+@media (max-width:560px){
+  .plate__strip{ font-size:10.5px; gap:6px; padding-inline:11px; }
+  .plate__cta{ padding:5px 10px; font-size:12.5px; }
 }

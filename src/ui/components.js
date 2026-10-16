@@ -123,7 +123,10 @@
     });
     var total = Number(got.memberCount) || g.compatibleCount || 0;
     var more = Math.max(0, total - list.length);
-    return '<div class="pchips" aria-label="Some of the devices in this group">' +
+    /* data-more is the count the server's preview leaves out. C.fitPreviews
+       adds to it whatever does not fit the card's three rows, so the number
+       on "+N more" is always the number of names the reader cannot see. */
+    return '<div class="pchips" data-more="' + more + '" aria-label="Some of the devices in this group">' +
       list.map(function (m) {
         var isMaster = master && m.id === master.id;
         return '<span class="mchip mchip--static' + (isMaster ? ' is-master' : '') + '">' +
@@ -132,6 +135,53 @@
       }).join('') +
       (more ? '<span class="mchip mchip--more">' + icon('lock') + '+' + more + ' more</span>' : '') +
       '</div>';
+  };
+
+  /* EVERY CARD THE SAME HEIGHT.
+
+     The names sit in a box exactly three chip-rows tall, so a card's height
+     no longer depends on how many names its group has or how long they are —
+     a row of cards lines up, and a carousel is a row of equal tiles rather
+     than a skyline. Names that do not fit the three rows are hidden from the
+     end (never the master, which leads) and counted into "+N more", so the
+     number stays true.
+
+     Measured, because chip widths depend on the names, the font and the card
+     width. A box is refitted only when its width has changed, so a page of
+     new cards costs a pass over the new cards and a resize one pass over all.
+
+     @param {Element} [root]
+     @param {boolean} [force]  refit even at an unchanged width (fonts loaded) */
+  C.fitPreviews = function (root, force) {
+    var scope = root || document;
+    Array.prototype.forEach.call(scope.querySelectorAll('.pchips[data-more]'), function (box) {
+      var w = String(box.clientWidth);
+      if (!w || w === '0' || (!force && box.getAttribute('data-fitw') === w)) return;
+      box.setAttribute('data-fitw', w);
+
+      var base = Number(box.getAttribute('data-more')) || 0;
+      var names = box.querySelectorAll('.mchip--static');
+      var more = box.querySelector('.mchip--more');
+      var cut = 0;
+      var setMore = function () {
+        var n = base + cut;
+        if (!n) { if (more) more.hidden = true; return; }
+        if (!more) {
+          more = document.createElement('span');
+          more.className = 'mchip mchip--more';
+          box.appendChild(more);
+        }
+        more.hidden = false;
+        more.innerHTML = icon('lock') + '+' + n + ' more';
+      };
+      for (var i = 0; i < names.length; i++) names[i].hidden = false;
+      setMore();
+      for (var j = names.length - 1; j > 0 && box.scrollHeight > box.clientHeight + 1; j--) {
+        names[j].hidden = true;
+        cut++;
+        setMore();
+      }
+    });
   };
 
   /* Fills the slots of cards that were drawn before their previews arrived.
@@ -146,6 +196,7 @@
       if (!master) return;
       el.outerHTML = C.groupPreview({ group: g, master: master });
     });
+    C.fitPreviews(scope);
   };
 
   C.plate = function (row, opts) {
