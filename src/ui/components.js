@@ -89,33 +89,63 @@
   };
 
 
-  /* A row of the handsets a group actually covers.
+  /* WHICH MODELS A GROUP COVERS, BY NAME — free, on the card.
 
-     This replaced two things. The first was a bar chart standing in for the
-     device count — a five-bar sparkline of a single number, which is a picture
-     of nothing. The second was the line "324 more devices — not listed", which
-     read as a statement that the catalogue does not have those devices. It has
-     all of them; that sentence was about what the card had been given, and it
-     said the wrong thing about the product.
+     The card used to say "19 devices in this Guard group" and stop there:
+     a number with no phone in it. It now names a handful of them, as the same
+     thin outlined chips the result page's compact view uses — the master
+     first, with its crown, then the preview the server chose for this group,
+     then "+13 more" for the rest.
 
-     What a reader wants from a group card is what the group covers, so the
-     card shows five of them, with their real photographs. api.groupPreview
-     picks them and keeps the count inside the free-tier allowance. */
-  C.groupPreview = function (row, max) {
+     The names come from /api/device-parts?previews= (SM.access.previews),
+     never from the public bundle, and there are previewSize() of them at most
+     — about three in ten of the group, and always fewer than all of it. The
+     card is drawn before that answer when it is slow, with an empty slot that
+     C.fillPreviews fills in place.
+
+     Spans, not buttons: the whole card is the control (it opens the group),
+     and a button inside a button is two targets where a hand sees one. */
+  C.groupPreview = function (row) {
     var g = row.group, master = row.master;
-    var picks = (SM.api && SM.api.groupPreview) ? SM.api.groupPreview(g, max || 5) : [];
-    if (!picks.length) return '';
-
-    return '<div class="gprev" aria-label="Devices in this group">' +
-      picks.map(function (m) {
+    var got = SM.access && SM.access.previewOf ? SM.access.previewOf(g.groupId) : null;
+    if (!got) {
+      return '<div class="pchips pchips--wait" data-gprev="' + esc(g.groupId) + '" aria-hidden="true"></div>';
+    }
+    var list = [], seen = Object.create(null);
+    var add = function (m) {
+      if (!m || seen[m.id]) return;
+      seen[m.id] = 1;
+      list.push(m);
+    };
+    add(master);
+    (got.preview || []).forEach(function (p) {
+      add(SM.db.modelById[p.id] || { id: p.id, fullName: p.name || p.id });
+    });
+    var total = Number(got.memberCount) || g.compatibleCount || 0;
+    var more = Math.max(0, total - list.length);
+    return '<div class="pchips" aria-label="Some of the devices in this group">' +
+      list.map(function (m) {
         var isMaster = master && m.id === master.id;
-        return '<span class="gprev__i' + (isMaster ? ' is-master' : '') + '" ' +
-          'title="' + esc(m.fullName) + '">' +
-          SM.art.photo(m, { alt: m.fullName, cls: 'gprev__ph' }) +
-          '<span class="gprev__n">' + esc(m.modelName || m.fullName) + '</span>' +
-          '</span>';
+        return '<span class="mchip mchip--static' + (isMaster ? ' is-master' : '') + '">' +
+          (isMaster ? '<span class="mchip__flag">' + icon('crown') + '<span class="sr">Master model: </span></span>' : '') +
+          '<span class="mchip__n">' + esc(m.fullName) + '</span></span>';
       }).join('') +
+      (more ? '<span class="mchip mchip--more">' + icon('lock') + '+' + more + ' more</span>' : '') +
       '</div>';
+  };
+
+  /* Fills the slots of cards that were drawn before their previews arrived.
+     Only the empty slots are touched, so nothing already on screen moves. */
+  C.fillPreviews = function (root) {
+    var scope = root || document;
+    Array.prototype.forEach.call(scope.querySelectorAll('[data-gprev]'), function (el) {
+      var id = el.getAttribute('data-gprev');
+      var g = SM.db.groupById[id];
+      if (!g || !(SM.access && SM.access.previewOf(id))) return;
+      var master = SM.db.modelById[g.masterModelId];
+      if (!master) return;
+      el.outerHTML = C.groupPreview({ group: g, master: master });
+    });
   };
 
   C.plate = function (row, opts) {
@@ -156,7 +186,7 @@
         : 'devices in this<br>' + esc(cat.short) + ' group') + '</span>' +
       '</div>' +
 
-      C.groupPreview(row, 5) +
+      C.groupPreview(row) +
       '</div>' +
       '<div class="plate__foot">' +
       '<span class="mono">' + esc(g.serialNumber) + '</span>' +

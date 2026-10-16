@@ -164,14 +164,11 @@ service cloud.firestore {
              "last seen" stamp cannot be forged by the browser that reports it. */
           'lastActiveAt',
 
-          /* The free-search meter. THIS IS THE PAYWALL, so it is the one thing
-             a free account has an obvious reason to edit.
-
-             Written only by /api/access through the Admin SDK. A browser that
-             could set freeSearchCount to 0, or freeSearchDay to yesterday,
-             would have an unlimited allowance — which is exactly why the
-             counter lives in Firestore keyed by uid rather than in
-             localStorage, and exactly why it is listed here. */
+          /* The old three-a-day free-search meter. Read once, as the starting
+             point of an account's lifetime count in /searchUsage, and never
+             written again — but still protected: a browser that could set
+             freeSearchCount to 0 before its first lifetime read would start
+             with a full allowance it had already spent. */
           'freeSearchDay', 'freeSearchCount', 'freeSearchAt'
         ];
       }
@@ -366,6 +363,13 @@ service cloud.firestore {
     match /approvedCompatibilities/{relKey}    { allow read, write: if false; }
     match /instagramMediaCache/{hash}          { allow read, write: if false; }
     match /instagramUsageDaily/{day}           { allow read, write: if false; }
+
+    /* The lifetime free-search allowance: five per account, written only by
+       /api/access through the Admin SDK. Closed to every client — a browser
+       that could write `used: 0` here would have an unlimited allowance. The
+       catch-all below already refuses it; it is named so nobody opens it by
+       accident with a broader rule. */
+    match /searchUsage/{uid}                   { allow read, write: if false; }
 
     /* anything not matched above is closed */
     match /{document=**} {

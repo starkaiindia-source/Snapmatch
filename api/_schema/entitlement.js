@@ -30,29 +30,41 @@
 
    A signed-out visitor is `free` as well. There is no separate anonymous tier:
    the caps are the same, and the only thing being signed out changes is that
-   there is no account to count daily searches against, so the header search is
+   there is no account to count searches against, so the header search is
    refused outright rather than metered.
 
    ----------------------------------------------------------------------------
    THE CAPS
 
-     header searches   3 per calendar day, per ACCOUNT
+     header searches   5 per ACCOUNT, for the life of the account — never
+                       reset by a date, a sign-in, a purchase or an expiry
      group filter      paid only
-     group member list PAID ONLY — a free account sees NO members, at any
-                       group size
+     opening a group   paid only, whatever is left of the five searches
+     group member list PAID ONLY — a free account never receives the list
+     preview           a few names per group, sized by previewSize() below,
+                       free for everyone: the home feed and a free result
 
-   THE MEMBER LIST USED TO HAVE A FREE SAMPLE — the whole of a group of five,
-   then the first five, then the first ten. That is gone, by an explicit
-   owner decision: opening a group and reading which devices a part fits is
-   the thing the subscription sells, and a free account may not do it at all.
+   THE SEARCHES WERE THREE A DAY until October 2026. The owner replaced that
+   with five for the account's lifetime: a day-based allowance came back every
+   morning, so a shop could run the counter on it indefinitely. The old fields
+   on users/{uid} (freeSearchDay, freeSearchCount) are read once, as the
+   starting point of an account's lifetime count, and never written again —
+   see entitlement-service.js.
+
+   THE PREVIEW IS NOT THE LIST. It is at most eighteen names, always fewer
+   than the group holds, and the same for every caller — the master model is
+   public already, and the preview adds a representative handful so the home
+   feed shows what a group covers. Which devices a part fits, in full, is
+   still what the subscription sells.
 
    What a free account still gets, because it is what makes the free tier
    worth having and gives nothing away:
 
-     · 3 searches a day
+     · 5 searches, once
      · the group's IDENTITY — group number, serial, part code, category,
        master model
      · `memberCount`, the real size of the group
+     · the preview
 
    "This part fits 325 devices" is the advertisement. The 325 names are the
    product. A free caller receives the first sentence and not one row of the
@@ -84,8 +96,8 @@ const TIERS = { FREE: 'free', PAID: 'paid' };
  */
 const SOURCES = { PAYMENT: 'payment', ADMIN_MANUAL: 'admin_manual' };
 
-/** Header searches a free account may run per calendar day. */
-const FREE_DAILY_SEARCHES = 3;
+/** Header searches a free account may run, in total, for as long as it exists. */
+const FREE_LIFETIME_SEARCHES = 5;
 
 /* The free member allowance. Zero, at every group size.
 
@@ -104,25 +116,41 @@ const FREE_MEMBERS_MEDIUM = FREE_MEMBERS;
 const FREE_MEMBERS_LARGE = FREE_MEMBERS;
 
 /**
- * The business runs in India, so "calendar day" means a day in India.
+ * Where an account's lifetime count starts, from the daily meter it replaced.
  *
- * Using UTC would roll the allowance over at 05:30 local — a shop that opens
- * at 09:00 would find its three searches already half-spent on a day that had
- * not started. The offset is fixed (+05:30, no daylight saving), so this is
- * arithmetic rather than a timezone database.
+ * The daily meter kept one number: how many searches were spent on the LAST
+ * day the account searched. That is a floor on what it has used — it may have
+ * searched on other days too, and those are not recorded anywhere — so it is
+ * carried over as it stands. An account that never searched starts at zero.
+ * Nothing is added for the days that cannot be seen, and nothing is forgiven
+ * for the day that can.
+ *
+ * @param {object|null} profile  users/{uid}
+ * @returns {number} searches already used, 0..FREE_LIFETIME_SEARCHES
  */
-const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
-
-/** The day key a timestamp falls in, as YYYY-MM-DD in India. */
-function dayKeyFor(now) {
-  return new Date(now + IST_OFFSET_MS).toISOString().slice(0, 10);
+function legacySearchesUsed(profile) {
+  if (!profile || !profile.freeSearchDay) return 0;
+  const n = Math.floor(Number(profile.freeSearchCount) || 0);
+  return Math.max(0, Math.min(FREE_LIFETIME_SEARCHES, n));
 }
 
-/** When the current allowance resets, as an epoch millisecond value. */
-function resetsAt(now) {
-  const shifted = now + IST_OFFSET_MS;
-  const dayStart = Math.floor(shifted / 86400000) * 86400000;
-  return dayStart + 86400000 - IST_OFFSET_MS;
+/**
+ * How many device names a group's free preview may carry, the master included.
+ *
+ * About three in ten of the group, at least three and at most eighteen — so a
+ * guard group of 19 shows six and a group of 50 shows fifteen — and ALWAYS
+ * fewer than the group holds. Without that last clause half the catalogue
+ * would be given away whole: the median group has three devices, and a
+ * preview of three out of three is the list.
+ *
+ * @param {number} total  the real size of the group
+ * @returns {number} 0..total-1 (a group of one previews its one: the master)
+ */
+function previewSize(total) {
+  const n = Math.max(0, Math.floor(Number(total) || 0));
+  if (n <= 1) return n;
+  const target = Math.max(3, Math.min(18, Math.round(n * 0.3)));
+  return Math.min(target, n - 1);
 }
 
 function finiteOrNull(v) {
@@ -257,7 +285,7 @@ function visibleMemberLimit(memberCount, tier) {
 }
 
 /** Everything the client needs to draw the right UI, and nothing more. */
-function describe(tier, searchesUsed, now) {
+function describe(tier, searchesUsed) {
   const paid = tier === TIERS.PAID;
   const used = Math.max(0, Number(searchesUsed) || 0);
 
@@ -265,11 +293,14 @@ function describe(tier, searchesUsed, now) {
     tier,
     paid,
     /* Null rather than a number for a paid account: there is no limit, and
-       sending `remaining: 999` invites a UI that counts down from 999. */
-    dailySearchLimit: paid ? null : FREE_DAILY_SEARCHES,
-    dailySearchesUsed: paid ? null : Math.min(used, FREE_DAILY_SEARCHES),
-    dailySearchesRemaining: paid ? null : Math.max(0, FREE_DAILY_SEARCHES - used),
-    searchResetsAt: paid ? null : resetsAt(now),
+       sending `remaining: 999` invites a UI that counts down from 999.
+
+       There is no reset time to report, on purpose. The allowance is the
+       account's for good, and a field called "resetsAt" would be a promise. */
+    searchAllowance: paid ? null : 'lifetime',
+    searchLimit: paid ? null : FREE_LIFETIME_SEARCHES,
+    searchesUsed: paid ? null : Math.min(used, FREE_LIFETIME_SEARCHES),
+    searchesRemaining: paid ? null : Math.max(0, FREE_LIFETIME_SEARCHES - used),
     groupFilter: paid,
     /* May this account OPEN a compatibility group and read the devices in it?
        One boolean, decided here, so the router, the group page, the match card
@@ -291,9 +322,9 @@ function describe(tier, searchesUsed, now) {
 module.exports = {
   TIERS, SOURCES,
   resolveEntitlement,
-  FREE_DAILY_SEARCHES,
+  FREE_LIFETIME_SEARCHES,
   FREE_MEMBERS,
   SMALL_GROUP_MAX, MEDIUM_GROUP_MAX, FREE_MEMBERS_MEDIUM, FREE_MEMBERS_LARGE,
-  IST_OFFSET_MS,
-  dayKeyFor, resetsAt, tierFor, visibleMemberLimit, describe
+  legacySearchesUsed, previewSize,
+  tierFor, visibleMemberLimit, describe
 };

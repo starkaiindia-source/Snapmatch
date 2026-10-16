@@ -1,7 +1,8 @@
 /* ============================================================================
    GET  /api/access               what may this account do right now
-   POST /api/access               spend one free search
+   POST /api/access               spend one of the five lifetime free searches
    GET  /api/device-parts         a group's members, cut to the tier
+   GET  /api/device-parts?previews=  the free home-feed preview of some groups
    ----------------------------------------------------------------------------
    The enforcement point for the free/paid split. Everything the paywall
    withholds is withheld HERE, on the way out, before the response exists.
@@ -38,10 +39,11 @@
    ========================================================================== */
 'use strict';
 
-const { ok, bad, json, fail, unavailable, notAllowed } = require('./_lib/http');
+const { ok, bad, json, fail, unavailable, notAllowed, body } = require('./_lib/http');
 const { auth } = require('./_lib/firebase');
 const { adminConfigured } = require('./_lib/config');
 const entitlements = require('./_services/entitlement-service');
+const search = require('./_services/search-service');
 const { TIERS } = require('./_schema/entitlement');
 const v = require('./_lib/validate');
 
@@ -136,7 +138,16 @@ async function currentAccess(req, res) {
    That distinction is the client's to make and it makes it in one place: the
    credit is spent in pickModel(), not in the keystroke handler that fetches
    suggestions. Autocomplete is free, and typing "samsung galaxy m21" costs
-   nothing. This route simply meters what it is told, once per call. */
+   nothing.
+
+   The body names the model: { modelId }. It is what makes a repeat free — the
+   same model a second time, after a reload, a retry or a double tap, is the
+   same search, and entitlement-service charges it once. A model id the
+   catalogue does not know is refused rather than charged: a typo in a crafted
+   request must not spend the account's allowance, and an unknown id can never
+   return a result anyway. A body with no model id at all (a browser from
+   before this change) is charged as a new search every time, which is the
+   cautious direction. */
 
 async function spendSearch(req, res) {
   if (!adminConfigured()) {
@@ -155,14 +166,21 @@ async function spendSearch(req, res) {
     });
   }
 
-  const { allowed, access } = await entitlements.consumeSearch(uid, Date.now());
+  const requested = body(req).modelId;
+  let modelId = null;
+  if (requested !== undefined && requested !== null && requested !== '') {
+    modelId = v.docId(requested, 80);
+    if (!modelId || !search.loadIndex().byId.has(modelId)) return bad(res, 'unknown modelId');
+  }
+
+  const { allowed, charged, access } = await entitlements.consumeSearch(uid, Date.now(), modelId);
 
   if (!allowed) {
     /* 429, and the current state alongside it so the client can render the
        upgrade prompt from one response rather than asking again. */
-    return json(res, 429, { error: 'daily-search-limit', access });
+    return json(res, 429, { error: 'free-search-limit', access });
   }
-  return ok(res, { allowed: true, access });
+  return ok(res, { allowed: true, charged, access });
 }
 
 /* ------------------------------------------------- GET /api/device-parts
@@ -172,7 +190,16 @@ async function spendSearch(req, res) {
      ?groupId=sg-0001   one compatibility group
      ?modelId=realme-5  every group that fits one device
 
-   Both come back cut to the caller's tier. */
+   Both come back cut to the caller's tier.
+
+   And one free one:
+
+     ?previews=sg-0001,bc-0627,…   up to PREVIEW_MAX groups' previews
+
+   The home feed's model names. Identity is not asked for and not used: the
+   preview is the same for everyone, so the answer may be cached at the edge
+   for a few minutes and most feed loads never reach Firestore at all. */
+const PREVIEW_MAX = 48;
 
 async function deviceParts(req, res) {
   if (req.method !== 'GET') return notAllowed(res);
@@ -181,6 +208,8 @@ async function deviceParts(req, res) {
   }
 
   const query = req.query || {};
+  if (query.previews !== undefined) return groupPreviews(query.previews, res);
+
   const groupId = v.docId(query.groupId, 60);
   const modelId = v.docId(query.modelId, 80);
   if (!groupId && !modelId) return bad(res, 'groupId or modelId is required');
@@ -203,4 +232,21 @@ async function deviceParts(req, res) {
   const device = await entitlements.deviceGroupsForUser(modelId, tier);
   if (!device) return json(res, 404, { error: 'no such model' });
   return ok(res, { device, access });
+}
+
+/* -------------------------------------------- GET /api/device-parts?previews */
+
+async function groupPreviews(raw, res) {
+  const ids = String(raw || '').split(',')
+    .map(id => v.docId(id.trim(), 60))
+    .filter(Boolean);
+  const unique = Array.from(new Set(ids));
+  if (!unique.length) return bad(res, 'previews needs at least one group id');
+  if (unique.length > PREVIEW_MAX) return bad(res, 'at most ' + PREVIEW_MAX + ' groups per request');
+
+  const previews = await entitlements.groupPreviews(unique);
+  /* public: the same bytes for every caller. s-maxage lets Vercel's edge
+     answer repeat feed loads; a group edited in Compatibility Management
+     shows its new preview within ten minutes. */
+  return json(res, 200, { previews }, 'public, max-age=60, s-maxage=600, stale-while-revalidate=600');
 }

@@ -117,6 +117,16 @@ const ADMIN_AUDIT_LOG = 'adminAuditLog';
 /** rateLimits/{bucketKey} — fixed-window counters. internal. */
 const RATE_LIMITS = 'rateLimits';
 
+/** searchUsage/{uid} — the lifetime free-search allowance: how many of the
+    five have been spent, and on which models. server.
+
+    Its own collection rather than fields on users/{uid}, because users/{uid}
+    is OWNER-WRITABLE and firestore.rules protects it with a list of named
+    server fields: a new field there is client-writable until a rules deploy
+    names it. A collection no rule matches is closed by the catch-all at the
+    bottom of firestore.rules from the moment it exists. */
+const SEARCH_USAGE = 'searchUsage';
+
 /* ------------------------------------------------------- existing catalogue
    Named here so a service never has to guess at the spelling, but owned by the
    importer and completely unchanged by this backend. */
@@ -138,7 +148,7 @@ module.exports = {
   INSTAGRAM_EXTRACTIONS, COMPATIBILITY_CANDIDATES, COMPATIBILITY_EVIDENCE,
   APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
   COMPAT_CATEGORIES,
-  ADMIN_AUDIT_LOG, RATE_LIMITS,
+  ADMIN_AUDIT_LOG, RATE_LIMITS, SEARCH_USAGE,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG
 };

@@ -112,6 +112,17 @@
       locked: !!sg.requiresPlan || !!sg.locked,
       requiresPlan: !!sg.requiresPlan,
       lockedCount: Number(sg.lockedCount) || 0,
+      /* A free result's handful of names — the same preview the home feed
+         shows. Resolved like devices; empty for a subscriber, who has them all. */
+      preview: Array.isArray(sg.preview)
+        ? sg.preview.map(function (m) {
+            var id = m && (m.id || m);
+            return db.modelById[id] || {
+              id: id, fullName: (m && m.name) || id, modelName: (m && m.name) || id,
+              brandId: null, search: String((m && m.name) || id).toLowerCase()
+            };
+          })
+        : [],
       partCode: sg.partCode || g.partCode || null,
       oemPartNo: sg.oemPartNo || g.oemPartNo || null
     };
@@ -739,123 +750,12 @@
     }
   };
 
-  /* ------------------------------------------------- group card previews
-
-     A group card used to end with a sentence: "324 more devices — not listed".
-     It read as a claim that the catalogue does not have them, which is the
-     opposite of true — the whole point of the group is that it does.
-
-     So the card shows the handsets instead. The membership comes from
-     db.membersByGroup, which is the bundle's own edge list inverted, so this
-     costs no request.
-
-     HOW MANY may be named is the free-tier allowance from
-     api/_schema/entitlement.js, and this function will not exceed it: the
-     whole group up to five members, then five, then ten. A card asks for five,
-     which is inside the allowance at every group size. The server remains the
-     enforcement point for the full list — this only decides what a card is
-     allowed to show without asking for it. */
-  /* Zero, matching api/_schema/entitlement.js. A free account sees no members
-     of any group, at any size — see that file for why the sample went. This
-     copy exists so a card can decide not to draw a strip without a round
-     trip; it withholds nothing on its own, because the bundle it would read
-     from no longer carries the members either. */
-  var FREE_SMALL_MAX = 5;
-  var FREE_MEDIUM_MAX = 50;
-  var FREE_MEMBERS_MEDIUM = 0;
-  var FREE_MEMBERS_LARGE = 0;
-
-  function freeMemberLimit() { return 0; }
-
-  /**
-   * A representative handful of the devices in a group.
-   *
-   * Representative, not simply the first five: a Guard group of 325 phones is
-   * mostly one brand's back catalogue, and five rows of the same brand tell a
-   * reader nothing about the group's reach. The master leads, then one device
-   * per brand newest-first, then the rest if that has not filled the row.
-   *
-   * @param {object} g    the group row (needs groupId, masterModelId)
-   * @param {number} max  how many to return; clamped to the free allowance
-   * @returns {Array} model objects, resolved from the catalogue
-   */
-  api.groupPreview = function (g, max) {
-    if (!g) return [];
-    /* Empty since the fitment list left the public bundle. A group card
-       therefore shows the group and its size and no handsets, which is what
-       a free account is entitled to; C.groupPreview renders nothing for an
-       empty list rather than an empty strip. */
-    var ids = (db.membersByGroup && db.membersByGroup[g.groupId]) || [];
-    var total = g.compatibleCount || ids.length;
-    var cap = Math.min(Number(max) || 5, freeMemberLimit(total));
-    if (cap <= 0) return [];
-    /* Nothing to preview. Without this the master model was `take`n below and
-       every card drew a one-handset strip UNDER the master card that already
-       names it — the same phone twice, presented as a preview of the group's
-       other members. */
-    if (!ids.length) return [];
-
-    var picked = [];
-    var seen = Object.create(null);
-    function take(m) {
-      if (!m || seen[m.id] || picked.length >= cap) return;
-      seen[m.id] = 1; picked.push(m);
-    }
-
-    take(db.modelById[g.masterModelId]);
-
-    var rest = [];
-    for (var i = 0; i < ids.length; i++) {
-      var m = db.modelById[ids[i]];
-      if (m && !seen[m.id]) rest.push(m);
-    }
-    rest.sort(function (a, b) {
-      return (b.releaseYear || 0) - (a.releaseYear || 0);
-    });
-
-    /* One per brand first, so the row shows the spread. */
-    var brandSeen = Object.create(null);
-    for (var j = 0; j < rest.length && picked.length < cap; j++) {
-      var bid = rest[j].brandId || '?';
-      if (brandSeen[bid]) continue;
-      brandSeen[bid] = 1;
-      take(rest[j]);
-    }
-    /* Then fill any remaining slots in date order. */
-    for (var k = 0; k < rest.length && picked.length < cap; k++) take(rest[k]);
-
-    return picked;
-  };
-
-  /** Every device in a group, for the inline group view's centre column.
-
-     THE LOCAL SOURCE IS GONE. db.membersByGroup was built by inverting the
-     public bundle's fitment map, and that map is the product -- so it no
-     longer ships and this map is always empty. Members now come from
-     /api/device-parts through SM.access, and the group view holds them in
-     `state.finder.groupMembers`.
-
-     Returning [] rather than [master] is deliberate. A group rendered with
-     exactly its master model in it looks like a group of one, which is a
-     false statement about a part that fits 325 handsets. Empty means "not
-     loaded here", and the caller shows either the members it fetched or the
-     paywall. */
-  api.groupMembers = function (g) {
-    if (!g) return [];
-    var ids = (db.membersByGroup && db.membersByGroup[g.groupId]) || [];
-    if (!ids.length) return [];
-    var out = [];
-    var seen = Object.create(null);
-    var master = db.modelById[g.masterModelId];
-    if (master) { seen[master.id] = 1; out.push(master); }
-    for (var i = 0; i < ids.length; i++) {
-      var m = db.modelById[ids[i]];
-      if (m && !seen[m.id]) { seen[m.id] = 1; out.push(m); }
-    }
-    return out;
-  };
-
-  api.freeMemberLimit = freeMemberLimit;
+  /* Group card previews are no longer built here. The device names on a
+     home-feed card come from /api/device-parts?previews= through
+     SM.access.previews — a handful per group, chosen on the server, the same
+     for every caller — because the public bundle carries no member lists to
+     build them from. The local helpers that read db.membersByGroup (always
+     empty since the fitment list left the bundle) were removed with it. */
 
   SM.api = api;
 

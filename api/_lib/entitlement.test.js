@@ -14,9 +14,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  TIERS, FREE_DAILY_SEARCHES, FREE_MEMBERS,
+  TIERS, FREE_LIFETIME_SEARCHES, FREE_MEMBERS,
   SMALL_GROUP_MAX, MEDIUM_GROUP_MAX, FREE_MEMBERS_MEDIUM, FREE_MEMBERS_LARGE,
-  dayKeyFor, resetsAt, tierFor, visibleMemberLimit, describe: describeAccess
+  legacySearchesUsed, previewSize,
+  tierFor, visibleMemberLimit, describe: describeAccess
 } = require('../_schema/entitlement');
 
 const entitlements = require('../_services/entitlement-service');
@@ -220,51 +221,70 @@ test('part codes are not tier-gated', async () => {
    falls through to Firestore when the local file has no such group, and that
    needs the stubbed database rather than a real service account. */
 
-/* ------------------------------------------------------- the daily counter */
+/* ---------------------------------------------------- the lifetime counter */
 
-test('the free allowance is three a day', () => {
-  assert.equal(FREE_DAILY_SEARCHES, 3);
+test('the free allowance is five, for the life of the account', () => {
+  assert.equal(FREE_LIFETIME_SEARCHES, 5);
 });
 
 test('the described state counts down and then reaches zero', () => {
-  /* Edge cases 1-4 from the brief. */
-  [[0, 3], [1, 2], [2, 1], [3, 0], [4, 0]].forEach(([used, left]) => {
+  [[0, 5], [1, 4], [4, 1], [5, 0], [9, 0]].forEach(([used, left]) => {
     const a = describeAccess(TIERS.FREE, used, NOW);
-    assert.equal(a.dailySearchesRemaining, left, `${used} used should leave ${left}`);
-    assert.equal(a.dailySearchLimit, 3);
+    assert.equal(a.searchesRemaining, left, `${used} used should leave ${left}`);
+    assert.equal(a.searchLimit, 5);
+    assert.equal(a.searchAllowance, 'lifetime');
   });
+});
+
+test('nothing in the described state promises a reset', () => {
+  const a = describeAccess(TIERS.FREE, 2, NOW);
+  assert.equal('searchResetsAt' in a, false);
+  assert.equal('dailySearchesRemaining' in a, false);
 });
 
 test('a paid account is told there is no limit, not a big one', () => {
   const a = describeAccess(TIERS.PAID, 0, NOW);
   assert.equal(a.paid, true);
   /* null, not 999 — a number invites a UI that counts down from it. */
-  assert.equal(a.dailySearchLimit, null);
-  assert.equal(a.dailySearchesRemaining, null);
-  assert.equal(a.searchResetsAt, null);
+  assert.equal(a.searchLimit, null);
+  assert.equal(a.searchesRemaining, null);
+  assert.equal(a.searchAllowance, null);
   assert.equal(a.groupFilter, true);
+  assert.equal(a.groupAccess, true);
   assert.equal(a.freeMemberRule, null);
 });
 
-test('the group filter is paid-only', () => {
+test('the group filter and opening a group are paid-only', () => {
   assert.equal(describeAccess(TIERS.FREE, 0, NOW).groupFilter, false);
   assert.equal(describeAccess(TIERS.PAID, 0, NOW).groupFilter, true);
+  /* Free searches left do not open a group. */
+  assert.equal(describeAccess(TIERS.FREE, 0, NOW).groupAccess, false);
 });
 
-test('the day rolls over at midnight in India, not at midnight UTC', () => {
-  /* UTC would roll the allowance at 05:30 local — a shop opening at 09:00
-     would find its three searches already spent on a day that had not
-     started. */
-  const midnightIST = Date.parse('2026-09-05T18:30:00Z');
-  assert.equal(dayKeyFor(midnightIST), '2026-09-06');
-  assert.equal(dayKeyFor(midnightIST - 1), '2026-09-05');
-
-  /* And the reset lands exactly on that boundary. */
-  assert.equal(resetsAt(midnightIST - 1), midnightIST);
+test('an existing account starts from what the daily meter recorded', () => {
+  assert.equal(legacySearchesUsed(null), 0);
+  assert.equal(legacySearchesUsed({}), 0, 'never searched: nothing used');
+  assert.equal(legacySearchesUsed({ freeSearchDay: '2026-09-30', freeSearchCount: 3 }), 3);
+  assert.equal(legacySearchesUsed({ freeSearchDay: '2026-01-01', freeSearchCount: 2 }), 2,
+    'an OLD day still counts — the searches were spent');
+  assert.equal(legacySearchesUsed({ freeSearchDay: '2026-09-30', freeSearchCount: 99 }), 5,
+    'capped at the allowance');
+  assert.equal(legacySearchesUsed({ freeSearchCount: 3 }), 0,
+    'a count with no day was never written by the meter');
 });
 
-test('the reset is always in the future and within a day', () => {
-  const at = resetsAt(NOW);
-  assert.ok(at > NOW);
-  assert.ok(at - NOW <= 24 * HOUR);
+/* ------------------------------------------------------------- the preview */
+
+test('the preview is about three in ten of a group, and never all of it', () => {
+  assert.equal(previewSize(0), 0);
+  assert.equal(previewSize(1), 1, 'a group of one is its master, which is public');
+  assert.equal(previewSize(2), 1);
+  assert.equal(previewSize(3), 2);
+  assert.equal(previewSize(4), 3);
+  assert.equal(previewSize(19), 6, 'the brief: 5-7 names for a group of about 19');
+  assert.equal(previewSize(50), 15, 'the brief: 10-15 names for a group of about 50');
+  assert.equal(previewSize(325), 18, 'capped, whatever the size');
+  for (let n = 2; n <= 400; n++) {
+    assert.ok(previewSize(n) < n, `a group of ${n} must keep at least one name back`);
+  }
 });

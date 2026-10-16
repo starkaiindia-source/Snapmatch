@@ -115,11 +115,13 @@ async function experience(token) {
     access: access.body,
     paid: access.body.paid === true,
     searchStatus: search.status,
-    searchUnlimited: search.status === 200 && search.body.access.dailySearchLimit === null,
+    searchUnlimited: search.status === 200 && search.body.access.searchLimit === null,
     resultsShowDevices: firstGroup.members.length,
+    resultsPreview: firstGroup.preview || [],
+    resultsSerialised: JSON.stringify(results.body),
     groupOpens: group.body.group.requiresPlan === false,
     groupDevices: group.body.group.members.length,
-    serialised: JSON.stringify([results.body, group.body])
+    groupSerialised: JSON.stringify(group.body)
   };
 }
 
@@ -137,8 +139,14 @@ function assertBlocked(x, label) {
   assert.equal(x.resultsShowDevices, 0, label + ': results carry no devices');
   assert.equal(x.groupOpens, false, label + ': the group does not open');
   assert.equal(x.groupDevices, 0, label + ': no device is listed');
-  /* Not hidden — absent. The names must not be in the payload at all. */
-  assert.equal(x.serialised.includes('Ent Device'), false, label + ': a device name leaked');
+  /* Not hidden — absent. The opened group carries no name at all. */
+  assert.equal(x.groupSerialised.includes('Ent Device'), false, label + ': a device name leaked');
+  /* The result carries the free preview and nothing beyond it: previewSize(4)
+     is 3, so at least one of the four names is not in the payload. */
+  assert.ok(x.resultsPreview.length <= 3, label + ': the preview is bounded');
+  const named = ['A', 'B', 'C', 'D'].filter(l => x.resultsSerialised.includes('Ent Device ' + l));
+  assert.equal(named.length, x.resultsPreview.length, label + ': only the preview is named');
+  assert.ok(named.length < 4, label + ': the whole group leaked through the preview');
 }
 
 const adminPost = (token, body) =>
@@ -265,15 +273,46 @@ test('TEST 4 — no subscription: groups are closed, and search is metered then 
   const s = shop();
   assertBlocked(await experience(s.token), 'no plan');
 
-  /* experience() spent one of the three free searches. Two more run; the
+  /* experience() spent one of the five lifetime searches. Four more run; the
      next is refused with the status the app turns into the Plans page. */
-  const search = () => invoke(accessRoute, { method: 'POST', query: { section: 'access' }, token: s.token, body: {} });
-  assert.equal((await search()).status, 200);
-  assert.equal((await search()).status, 200);
-  const refused = await search();
+  const search = modelId => invoke(accessRoute, {
+    method: 'POST', query: { section: 'access' }, token: s.token, body: modelId ? { modelId } : {}
+  });
+  for (const id of ['oppo-a6', 'vivo-y20', 'oneplus-12r', 'itel-a80']) {
+    assert.equal((await search(id)).status, 200);
+  }
+  /* The same model again is the same search: not refused, not charged. */
+  const repeat = await search('oppo-a6');
+  assert.equal(repeat.status, 200);
+  assert.equal(repeat.body.charged, false);
+
+  const refused = await search('realme-5');
   assert.equal(refused.status, 429);
-  assert.equal(refused.body.error, 'daily-search-limit');
+  assert.equal(refused.body.error, 'free-search-limit');
   assert.equal(refused.body.access.paid, false);
+  assert.equal(refused.body.access.searchesRemaining, 0);
+});
+
+test('a model id the catalogue does not know is refused, not charged', async () => {
+  const s = shop();
+  const r = await invoke(accessRoute, {
+    method: 'POST', query: { section: 'access' }, token: s.token, body: { modelId: 'not-a-real-phone-zz' }
+  });
+  assert.equal(r.status, 400);
+  const a = await invoke(accessRoute, { query: { section: 'access' }, token: s.token });
+  assert.equal(a.body.searchesRemaining, 5, 'nothing was spent');
+});
+
+test('the home-feed previews are public, bounded and cacheable', async () => {
+  const r = await invoke(accessRoute, { query: { section: 'device-parts', previews: GROUP + ',' + GROUP } });
+  assert.equal(r.status, 200);
+  const p = r.body.previews[GROUP];
+  assert.equal(p.memberCount, 4);
+  assert.ok(p.preview.length <= 3 && p.preview.length > 0);
+  assert.match(String(r.headers['cache-control'] || r.headers['Cache-Control']), /s-maxage=/);
+
+  const many = Array.from({ length: 49 }, (_, i) => 'zz-g-' + i).join(',');
+  assert.equal((await invoke(accessRoute, { query: { section: 'device-parts', previews: many } })).status, 400);
 });
 
 test('a signed-out visitor cannot search at all, and sees no devices', async () => {
