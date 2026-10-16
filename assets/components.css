@@ -93,11 +93,6 @@
 .panel__clear svg{ width:12px; height:12px; }
 .panel + .panel{ margin-top:16px; padding-top:16px; border-top:1px solid var(--line-soft); }
 
-/* The selected model's own header is .gbar now — the same sticky component the
-   opened group uses, so a search result and a group are one result page in two
-   states rather than two headers that drift apart. The card that used to live
-   here scrolled away with the results it was heading. */
-
 /* a category this model has no group in: still in its place, plainly off */
 .ctile.is-empty{ opacity:.4; pointer-events:none; }
 
@@ -791,41 +786,11 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .plate__cta svg{ width:15px; height:15px; transition:transform .18s; }
 .plate:hover .plate__cta svg{ transform:translateX(3px); }
 
-/* ---------------- match result ---------------- */
-.match{
-  position:relative; overflow:hidden; border-radius:var(--r-xl); border:1px solid var(--teal-100);
-  background:linear-gradient(180deg,var(--teal-050),var(--surface) 42%); box-shadow:var(--sh-2);
-}
-.match__head{
-  display:flex; align-items:center; gap:8px; padding:13px 14px; flex-wrap:wrap;
-  border-bottom:1px solid var(--line-soft);
-}
-@media (min-width:600px){ .match__head{ gap:10px; padding:14px 16px; } }
-.match__badge{
-  display:inline-flex; align-items:center; gap:7px; height:29px; padding:0 12px; border-radius:var(--r-pill);
-  background:var(--grad-brand); color:#fff; font-size:12px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
-  box-shadow:var(--glow-brand);
-}
-.match__badge svg{ width:14px; height:14px; }
-.match__body{ padding:16px; display:grid; gap:16px; }
-@media (min-width:900px){ .match__body{ grid-template-columns:1.1fr 1fr; padding:20px; gap:22px; } }
-
 .idgrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; background:var(--line-soft); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
 @media (min-width:560px){ .idgrid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
 .idcell{ background:var(--surface); padding:10px 12px; min-width:0; }
 .idcell span{ display:block; font-size:10px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); }
 .idcell b{ display:block; font-family:var(--f-mono); font-size:13px; font-weight:600; margin-top:3px; letter-spacing:-.02em; overflow:hidden; text-overflow:ellipsis; }
-
-.mastercard{
-  position:relative; overflow:hidden; border-radius:var(--r-lg); padding:16px;
-  background:var(--grad-bench); color:#fff; box-shadow:var(--sh-2);
-}
-.mastercard::after{ content:""; position:absolute; right:-70px; top:-70px; width:220px; height:220px; border-radius:99px; background:radial-gradient(circle,rgba(255,138,61,.28),transparent 65%); }
-.mastercard__in{ position:relative; z-index:1; }
-.mastercard h3{ color:#fff; font-size:clamp(20px,3.4vw,26px); letter-spacing:-.03em; margin-top:8px; }
-.mastercard .t-lab{ color:rgba(214,255,244,.7); }
-.mspecs{ display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
-.mspec{ background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.16); border-radius:8px; padding:5px 9px; font-size:11.5px; font-weight:700; color:#DCFAF2; }
 
 /* ---------------- compatible device list ---------------- */
 .complist__head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
@@ -2071,40 +2036,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    rather than squeezed to an unreadable width. */
 @media (max-width:420px){ .gprev__i:nth-child(n+4){ display:none; } }
 
-/* ------------------------------------------------- the sticky result header
-   Back, the master handset, its name, how many devices the group links, the
-   part codes, the category's own picture and the filter — and the same element
-   heads a selected model's matches, because a search result and an opened
-   group are one result page in two states.
-
-   top is the header's own height, not 0: on a desktop the centre column is its
-   own scroller and the two never meet, but on a phone the WINDOW scrolls and
-   the sticky topbar already sits at 0, so a bar stuck to the viewport top
-   slides straight under it. Inside the mobile sheet, where the sheet itself is
-   the scroller, it goes back to 0 — see the sheet block at the end. */
-.gbar{
-  position:sticky; top:var(--topbar-h); z-index:6;
-  /* --paper is the page's own background. Anything transparent here lets the
-     device list scroll through the bar. */
-  background:var(--paper);
-  border-bottom:1px solid var(--line);
-  /* The line alone puts the header in the same plane as the list; the short
-     shadow under it puts the list underneath. Three hundred devices sliding
-     past need the header to read as a layer, not as the first row. It is the
-     same shadow the library's own section head uses. */
-  box-shadow:0 10px 12px -12px rgba(10,21,18,.35);
-}
-.gbar__row{
-  display:flex; align-items:center; gap:12px;
-  padding:10px 0 10px;
-}
-/* The sheet's grab handle. It exists in every copy of the header and is drawn
-   only where the header is the top of a panel — a phone. */
-.gbar__grab{ display:none; }
-
+/* The back control of the open group's header. */
 .gback{
-  flex:none; display:inline-flex; align-items:center; gap:5px;
-  height:36px; padding:0 13px 0 9px; cursor:pointer;
+  flex:none; display:inline-flex; align-items:center; justify-content:center; gap:5px;
+  height:36px; padding:0 9px; cursor:pointer;
   background:var(--surface); color:var(--ink-2);
   border:1px solid var(--line); border-radius:999px;
   font:inherit; font-size:13px; font-weight:700;
@@ -2113,49 +2048,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .gback:hover{ border-color:var(--teal-500); color:var(--teal-700); background:var(--surface-2); }
 .gback:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
 .gback svg{ width:17px; height:17px; }
-
-/* The master handset itself, at the size a favicon is — no frame, no tint, no
-   card. It is an identifier inside a row of text, and a box drawn around a
-   cut-out photograph reads as grime on the part. */
-.gbar__shot{ flex:none; width:34px; height:44px; display:flex; align-items:center; justify-content:center; }
-.gbar__shot .dphoto{ width:100%; height:100%; }
-.gbar__shot .dphoto__img,
-.gbar__shot .dphoto__art{ max-height:44px; max-width:34px; width:auto; height:auto; object-fit:contain; }
-
-.gbar__id{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1 1 auto; }
-.gbar__n{
-  font-family:var(--f-display); font-weight:800; font-size:17px;
-  letter-spacing:-.02em; color:var(--ink);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-.gbar__meta{ display:flex; align-items:center; gap:8px; min-width:0; }
-/* The answer to the question the page was opened to ask, so it is the one
-   thing in the second line that is not grey. */
-/* Empty until the server answers how many devices this account may see, so
-   it must take no room at all in the meantime — a bare pill with nothing in
-   it reads as a loading failure. */
-.gbar__count:empty{ display:none; }
-.gbar__count{
-  flex:none; font-size:11.5px; font-weight:800; letter-spacing:.01em;
-  color:var(--teal-700); background:var(--teal-050);
-  border:1px solid var(--teal-100); border-radius:999px;
-  padding:2px 9px; white-space:nowrap;
-}
-/* Secondary on purpose: the codes matter at the counter, but they are not the
-   name of the thing on the screen. */
-.gbar__codes{
-  font-family:var(--f-mono, ui-monospace, monospace); font-size:11px;
-  color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-
-.gbar__right{ flex:none; display:flex; align-items:center; gap:10px; }
-
-/* The category switcher rides inside the sticky header, but ONLY in the mobile
-   sheet. A desktop already has two of them — the left-hand category panel and
-   the rail under the hero — and adding a third would be a change to a layout
-   this work is not allowed to touch. It is rendered on every viewport and
-   revealed on one, the same way the search box exists twice and shows once. */
-.gbar__cats{ display:none; }
 
 /* ==========================================================================
    DEVICES IN THIS GROUP — compact chips, organised by brand
@@ -2191,12 +2083,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    photographs, and that is still there. */
 .gbrand + .gbrand{ margin-top:14px; }
 
-/* Sticky UNDER the master header. --gbar-h is measured from the header itself
-   after every paint, because the header's height depends on its own contents:
-   a group with three part codes is taller than one with none, and a guessed
-   offset here leaves either a gap or an overlap. */
+/* A plain heading in the flow. It used to stick under the group's header;
+   the header is no longer sticky, and the device toolbar is what stays. */
 .gbrand__h{
-  position:sticky; top:var(--gbar-h,64px); z-index:4;
+  position:static;
   display:flex; align-items:center; gap:8px;
   margin:0 0 7px; padding:7px 0 6px;
   background:var(--paper);
@@ -2243,11 +2133,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 /* The device that was searched for, where a match card previews the group it
    was found in. Marked, but quietly: the card is already about that model. */
 .gchip.is-hit{ border-color:var(--teal-500); }
-
-/* Inside a match card the brand headings sit on the card, not on the page, so
-   they take the card's own ground. --paper here would show as a slightly
-   different white sliding over the card as the heading sticks. */
-.match .gbrand__h{ background:var(--surface); }
 
 /* The handset, at favicon size, on the white ground these cut-outs are shot
    against. One border, on the chip, not a second one around the picture. */
@@ -2352,65 +2237,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
   background:var(--surface); border:1px solid var(--line); box-shadow:var(--sh-1);
 }
 
-/* ------------------------------------------------ right panel: the device */
-.ws__right--detail{ padding-top:0; }
-.gdet{ display:flex; flex-direction:column; gap:10px; }
-.gdet__top{ display:flex; align-items:center; gap:10px; }
-/* Beside the list on a desktop there is nothing to go back to, so the button
-   is not drawn at all; the mobile sheet turns it on. */
-.gdet__back{ display:none; }
-
-/* THE PHOTOGRAPH, AND NOTHING AROUND IT.
-
-   This was a bordered, tinted, radiused box with 14px of padding, and .dphoto
-   draws its own box inside that — so every handset arrived wearing two frames.
-   Both are gone. The image sits on the panel, sized to the width it has rather
-   than to what is left after a frame, and object-fit keeps the file's own
-   ratio: nothing here crops, stretches or replaces the picture. */
-.gdet__shot{
-  display:flex; align-items:center; justify-content:center;
-  padding:6px 0 2px; min-height:150px;
-}
-.gdet__shot .dphoto{ width:100%; }
-/* Bounded, so the name and the specifications under it are not pushed off. */
-.gdet__shot .dphoto__img{ width:auto; max-width:100%; max-height:230px; height:auto; object-fit:contain; }
-.gdet__shot .dphoto__art{ height:190px; width:auto; }
-
-.gdet__brand{ display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink-2); }
-.gdet__n{
-  font-family:var(--f-display); font-weight:800; font-size:19px;
-  line-height:1.15; letter-spacing:-.02em; margin:0; color:var(--ink);
-  overflow-wrap:anywhere;
-}
-
-/* The price card and the variant chips are the model page's own components,
-   narrowed to fit a sidebar. */
-.gdet .dprice{ padding:10px 13px; }
-.gdet .dprice__n{ font-size:21px; }
-.gdet .vpick{ padding:11px; margin:0; }
-.gdet .vpick__l{ width:auto; }
-
-.gdet__secs{ display:flex; flex-direction:column; gap:9px; }
-.gdet__secs .dsec__h{ font-size:12.5px; padding:9px 12px; }
-.gdet__secs .dsec__b{ padding:2px 12px 9px; }
-.gdet__secs .dspec{ padding:6px 0; }
-.gdet__secs .dspec dt{ font-size:12px; }
-.gdet__secs .dspec dd{ font-size:12.5px; }
-
-.gdet__cta{ display:flex; flex-direction:column; gap:7px; margin-top:2px; }
-.gdet__cta .btn{ width:100%; justify-content:center; }
-
-@media (min-width:1180px){
-  /* The centre column scrolls independently here, so the bar sticks to the top
-     of that column rather than to the page. */
-  .gbar{ top:0; }
-  /* A selected model's own header is the sticky thing in this column; the
-     section head under it must not claim top:0 as well. */
-  .ws__center .sec--flow .sec__head{
-    position:static; box-shadow:none; padding-top:16px;
-  }
-}
-
 /* ==========================================================================
    NARROW — the result as a bottom sheet
 
@@ -2428,7 +2254,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    without moving a node, so every id, handler and repaint keeps working.
    ========================================================================== */
 @media (max-width:1179px){
-  .ws__right--detail{ display:block; }
 
   .gscrim{
     position:fixed; inset:0; z-index:90; background:rgba(6,20,18,.5);
@@ -2438,12 +2263,10 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   .ws__body--sheet{
     position:fixed; z-index:100; left:0; right:0; bottom:0;
-    /* 88, not 94. A sheet that reaches within a few pixels of the status bar
-       is a page wearing rounded corners: there is nothing of the finder left
-       behind it to say what it is sitting on top of, or to tap to get back.
-       Six percent of the screen is enough to read as a layer, and it is the
-       room the category switcher in the header needed. */
-    max-height:88dvh; height:88dvh;
+    /* Everything below the category selector, which floats in the band above
+       the sheet: that band was a blurred strip of the finder showing through,
+       and it is now the one control that decides which part is on screen. */
+    max-height:calc(100dvh - var(--gcats-h)); height:calc(100dvh - var(--gcats-h));
     display:flex; flex-direction:column;
     background:var(--surface);
     border-radius:var(--r-xl) var(--r-xl) 0 0;
@@ -2456,7 +2279,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
     padding:0 14px calc(22px + env(safe-area-inset-bottom));
     animation:gsheetup .32s cubic-bezier(.2,.9,.25,1);
   }
-  @keyframes gsheetup{ from{ transform:translateY(14%); opacity:.4; } }
+  /* By offset, not by transform. A transformed ancestor becomes the
+     containing block of everything position:fixed inside it, and the
+     category selector is fixed above the sheet — a transform here would hold
+     it inside the sheet for the length of the animation and then let it jump
+     to the top of the screen. */
+  @keyframes gsheetup{ from{ bottom:-14%; opacity:.4; } }
   @media (prefers-reduced-motion:reduce){
     .ws__body--sheet{ animation:none; }
   }
@@ -2466,92 +2294,17 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 
   /* The columns are flattened away inside the sheet.
 
-     position:sticky cannot leave its own containing block, and .gbar lives two
-     boxes deep — inside #centerHead, inside .ws__center. Those two boxes end
-     where the device list ends, so the master header would unstick the moment
-     the reader reached the selected device's specifications underneath it. On a
-     desktop the same flattening is already applied to #centerHead for exactly
-     this reason; here both go and the header spans the whole scroll — which is
-     what "sticky inside the sheet" has to mean when the sheet holds the details
-     as well as the list. */
+     position:sticky cannot leave its own containing block, and the device
+     toolbar lives several boxes deep. Flattened, every part of the open group
+     is a direct item of the sheet's own column, so the toolbar sticks for the
+     whole scroll. */
   .ws__body--sheet .ws__center,
   .ws__body--sheet .ws__center > .ws__head{ display:contents; }
-  .ws__body--sheet .ws__right{
-    display:block; padding:0; background:transparent; border:0;
-    /* so a picked device lands below the sticky header rather than under it */
-    scroll-margin-top:calc(var(--gbar-h,64px) + 8px);
-  }
 
-  /* Inside the sheet the SHEET is the scroller, so the header sticks to its
-     top rather than to the window's — the app's own topbar is behind the
-     scrim and no longer in the way. */
-  .ws__body--sheet .gbar{
-    top:0; margin-inline:-14px; padding-inline:14px;
-    background:var(--surface); border-radius:var(--r-xl) var(--r-xl) 0 0;
-  }
   .ws__body--sheet .gbrand__h{ background:var(--surface); }
-
-  /* ---------------------------------------- the category switcher, revealed
-
-     Same rail, same cards, same behaviour — sized for a header rather than for
-     a hero band, and re-grounded for one. The card's resting border is
-     rgba(255,255,255,.5), which is a hairline on the green band and nothing at
-     all on the sheet's own surface, so it becomes the ordinary line colour
-     here. Everything else about the card is left exactly as it is. */
-  .ws__body--sheet .gbar__cats{
-    display:block; margin-inline:-14px; padding:0 14px 6px;
-  }
-  .ws__body--sheet .gbar__cats .crail{ margin-top:0; padding:2px 0 4px; }
-  /* 56px, not the hero band's 86: this strip is a header inside a sheet, and
-     every pixel it takes is a pixel of the group underneath it. Still a card
-     wide enough to recognise a part in and to hit with a thumb. */
-  .ws__body--sheet .gbar__cats .crail__item{ width:56px; }
-  /* "Tempered" is the longest word on the rail; at the card's 10px it was
-     cut to "Temper". A point smaller and a little more width fits it. */
-  .ws__body--sheet .gbar__cats .crail__name{ left:2px; right:2px; font-size:9px; letter-spacing:-.02em; }
-  .ws__body--sheet .gbar__cats .crail__item:not(.is-on){
-    border-color:var(--line); box-shadow:none;
-  }
-  /* A category this model has no group in stays in the row, plainly off, so
-     the six categories never move about between models. */
-  .ws__body--sheet .gbar__cats .crail__item.is-empty{ opacity:.38; }
-  .ws__body--sheet .gbar__grab{
-    display:block; width:38px; height:4px; border-radius:99px;
-    background:var(--line); margin:9px auto 2px;
-  }
-  /* Back is the sheet's own dismiss, and the grab handle plus the scrim
-     already say so; the word is what makes the row too tight to hold the
-     handset's name. */
-  .ws__body--sheet .gback{ padding:0 9px; }
-  .ws__body--sheet .gback__t{ display:none; }
-
-  /* The way back to the list, at the top of the specifications the list led
-     to. It is the sheet's only up-navigation, so it is drawn as a control
-     rather than left as a label. */
-  .ws__body--sheet .gdet__top{ padding-top:14px; }
-  .ws__body--sheet .gdet__back{
-    display:inline-flex; align-items:center; gap:3px;
-    height:30px; padding:0 12px 0 7px; cursor:pointer;
-    background:var(--surface-2); color:var(--ink-2);
-    border:1px solid var(--line); border-radius:999px;
-    font:inherit; font-size:12px; font-weight:700;
-  }
-  .ws__body--sheet .gdet__back svg{ width:15px; height:15px; }
 }
 
-@media (max-width:900px){
-  .gbar__specst{ display:none; }
-}
 @media (max-width:560px){
-  .gbar__row{ gap:9px; padding:9px 0; }
-  .gback{ padding:0 9px; }
-  .gback__t{ display:none; }
-  .gbar__n{ font-size:15.5px; }
-  /* The count and the group's codes do not fit on one 375px line beside a
-     34px handset, so they wrap onto two rather than one of them being
-     dropped: the count is what the reader came for and the codes are what
-     they quote at the counter. */
-  .gbar__meta{ flex-wrap:wrap; gap:5px 8px; }
   .gchips{ grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); }
   .gchip{ padding:4px 8px 4px 4px; gap:8px; }
   .gchip__ph{ width:26px; height:26px; }
@@ -3095,156 +2848,6 @@ button.mchip:hover{ border-color:var(--teal-500); background:var(--surface-2); }
   .gchip--card .gchip__flag{ top:9px; right:9px; width:20px; height:20px; }
 }
 
-/* ==========================================================================
-   THE OPENED GROUP — one compact header, from the first frame
-   ========================================================================== */
-.ghead{
-  position:sticky; top:var(--topbar-h); z-index:6;
-  /* A flex item of the phone sheet's column (the centre is flattened there):
-     it keeps its height rather than giving it to the list. */
-  flex:none;
-  /* The master-model language — --grad-bench and white type — at the size it
-     keeps. The sticky header is this, so nothing changes size on scroll. */
-  background:var(--grad-bench); color:#fff;
-  border-radius:var(--r-lg); margin:12px 0 10px;
-  box-shadow:var(--sh-2);
-}
-.ghead__row{ display:flex; align-items:center; gap:12px; padding:10px 12px; }
-.ghead__back{
-  background:rgba(255,255,255,.12); border-color:rgba(255,255,255,.22); color:#fff;
-  padding:0; width:36px; justify-content:center;
-}
-.ghead__back:hover{ background:rgba(255,255,255,.2); border-color:rgba(255,255,255,.4); color:#fff; }
-.ghead__back:focus-visible{ outline-color:#fff; }
-/* The master handset on the white its photograph was shot on. */
-.ghead__shot{
-  flex:none; width:54px; height:68px; padding:4px;
-  display:flex; align-items:center; justify-content:center;
-  background:var(--ctile-paper); border-radius:var(--r-sm);
-}
-.ghead__shot .dphoto{ width:100%; height:100%; }
-.ghead__shot .dphoto__img,
-.ghead__shot .dphoto__art{ max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; }
-.ghead__id{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px; }
-.ghead__eyebrow{
-  display:flex; flex-wrap:wrap; align-items:center; gap:2px 8px;
-  font-size:10.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
-  color:rgba(214,255,244,.82);
-}
-.ghead__tag{ display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
-.ghead__eyebrow svg{ width:13px; height:13px; color:var(--amber-400); }
-.ghead__eyebrow i{ width:3px; height:3px; border-radius:99px; background:currentColor; opacity:.7; }
-.ghead__n{
-  margin:0; font-family:var(--f-display); font-weight:800; font-size:21px;
-  line-height:1.12; letter-spacing:-.025em; color:#fff; overflow-wrap:anywhere;
-}
-.ghead__meta{ display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; }
-.ghead__count{
-  display:inline-flex; align-items:center; height:22px; padding:0 9px;
-  font-size:11.5px; font-weight:800; color:#fff;
-  background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.24);
-  border-radius:999px; white-space:nowrap;
-}
-.ghead__fact{ font-size:12px; font-weight:700; color:rgba(220,250,242,.88); white-space:nowrap; }
-.ghead__codes{
-  min-width:0; font-family:var(--f-mono, ui-monospace, monospace); font-size:11px;
-  color:rgba(220,250,242,.78); overflow-wrap:anywhere;
-}
-/* THE PART, BARE. The asset is a white-ground photograph, so it IS the tile:
-   no border, no inset shadow, no second frame around the first. Portrait and
-   about the master's size, fitted to the part rather than to its canvas by
-   the same focus numbers the category tiles use. */
-.ghead__part{ flex:none; display:block; width:54px; height:68px; border-radius:var(--r-sm); overflow:hidden; }
-.pthumb.pthumb--ghead{
-  position:relative; width:100%; height:100%;
-  border:0; border-radius:var(--r-sm); box-shadow:none; padding:0;
-  background:var(--ctile-paper);
-}
-.pthumb--ghead img.pimg{
-  position:absolute; width:var(--iw,100%); height:auto; max-width:none;
-  left:var(--il,0); top:var(--it,0); object-fit:contain;
-}
-.pthumb--ghead svg.pimg{ width:100%; height:100%; padding:10%; }
-
-/* The filter and the view switch, under the header. Not sticky: the header
-   is the one thing that stays, so the list keeps the screen. */
-.gtools{ flex:none; display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px; }
-.gtools__filter{ flex:1 1 220px; min-width:0; height:40px; }
-.gtools .lview{ margin-left:0; }
-
-/* Compact list in the opened group: the brand headings stay, the chips wrap. */
-.glist--compact .gbrand + .gbrand{ margin-top:16px; }
-.glist--table .stable-wrap{ margin-top:2px; }
-
-@media (min-width:1180px){
-  /* The centre column scrolls by itself here, so the header sticks to the top
-     of that column rather than under the page's own header. */
-  .ghead{ top:0; }
-}
-@media (max-width:1179px){
-  /* Inside the phone sheet the SHEET scrolls: the header sticks to its top and
-     runs to both edges, with the grab handle on the green. */
-  .ws__body--sheet .ghead{
-    top:0; margin:0 -14px 12px; border-radius:var(--r-xl) var(--r-xl) 0 0;
-    box-shadow:0 10px 14px -12px rgba(0,0,0,.5);
-  }
-  .ws__body--sheet .ghead .gbar__grab{ display:block; background:rgba(255,255,255,.4); margin:8px auto 0; }
-  .ws__body--sheet .ghead__row{ padding:6px 14px 10px; }
-}
-@media (max-width:560px){
-  .ghead__row{ gap:9px; }
-  .ghead__shot, .ghead__part{ width:44px; height:56px; }
-  .ghead__n{ font-size:17.5px; }
-  .ghead__eyebrow{ font-size:9.5px; letter-spacing:.06em; }
-  .ghead__codes{ font-size:10.5px; }
-}
-
-/* ==========================================================================
-   THE RESULT PAGE — one category's group, open
-   ========================================================================== */
-.match--open{ padding-bottom:4px; }
-.match__open{ margin-left:auto; }
-.mrow{ display:flex; align-items:center; gap:12px; padding:14px 16px 6px; }
-.mrow__shot{
-  flex:none; width:46px; height:58px; padding:3px;
-  display:flex; align-items:center; justify-content:center;
-  background:var(--ctile-paper); border-radius:var(--r-sm); border:1px solid var(--line-soft);
-}
-.mrow__shot .dphoto{ width:100%; height:100%; }
-.mrow__shot .dphoto__img,
-.mrow__shot .dphoto__art{ max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; }
-.mrow__id{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
-.mrow__id .masterflag{ align-self:flex-start; margin-bottom:3px; }
-.mrow__n{
-  font-family:var(--f-display); font-size:19px; font-weight:800; letter-spacing:-.025em;
-  line-height:1.15; color:var(--ink); overflow-wrap:anywhere;
-}
-.mrow__meta{ font-size:12px; font-weight:600; color:var(--ink-3); margin-top:2px; }
-.mrow__part{ flex:none; width:46px; height:58px; }
-.pthumb.pthumb--mrow{
-  position:relative; width:100%; height:100%; border:0; box-shadow:none; padding:0;
-  border-radius:var(--r-sm); background:var(--ctile-paper);
-}
-.pthumb--mrow img.pimg{
-  position:absolute; width:var(--iw,100%); height:auto; max-width:none;
-  left:var(--il,0); top:var(--it,0); object-fit:contain;
-}
-.pthumb--mrow svg.pimg{ width:100%; height:100%; padding:10%; }
-
-/* The codes a counter quotes, on one wrapping line rather than a grid. */
-.mcodes{ display:flex; flex-wrap:wrap; gap:4px 16px; margin:0; padding:4px 16px 12px; }
-.mcodes__i{ display:flex; align-items:baseline; gap:6px; min-width:0; }
-.mcodes dt{
-  font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
-}
-.mcodes dd{ margin:0; font-family:var(--f-mono); font-size:12.5px; font-weight:600; color:var(--ink); }
-
-.match--open .complist__head{
-  margin:0; padding:10px 16px; border-top:1px solid var(--line-soft);
-}
-.match__list{ padding:2px 16px 14px; }
-.match__list .gbrand__h{ background:var(--surface); }
-
 /* "13 more — part of a plan", under a free preview. */
 .lockrow{
   display:flex; align-items:center; gap:10px; flex-wrap:wrap;
@@ -3257,14 +2860,190 @@ button.mchip:hover{ border-color:var(--teal-500); background:var(--surface-2); }
 .lockrow__t{ flex:1 1 200px; min-width:0; }
 .lockrow__t b{ color:var(--ink); }
 
-@media (max-width:560px){
-  .mrow{ padding:12px 12px 4px; gap:10px; }
-  .mrow__n{ font-size:17px; }
-  .mcodes{ padding:4px 12px 10px; gap:3px 12px; }
-  .match--open .complist__head{ padding:10px 12px; }
-  .match__list{ padding:2px 12px 12px; }
-}
 
 @media (prefers-reduced-motion:reduce){
   .mchip, .lview__b{ transition:none; }
+}
+
+/* ==========================================================================
+   THE OPEN GROUP — category selector, master header, compatible devices
+   ----------------------------------------------------------------------------
+   One layout for a searched model and an opened group. Colours are theme
+   tokens; the only fixed white is --ctile-paper, the ground the catalogue's
+   photographs were shot on, so a part never sits in a grey box in either
+   theme.
+   ========================================================================== */
+:root{ --gcats-h:100px; }
+
+/* ---- the category selector -------------------------------------------- */
+.gcats{ position:relative; z-index:8; }
+.gcats__row{
+  display:flex; gap:8px; align-items:stretch;
+  overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
+  padding:10px 2px;
+  -webkit-overflow-scrolling:touch; scroll-snap-type:x proximity;
+}
+.gcats__row::-webkit-scrollbar{ display:none; }
+.gcat{
+  flex:none; width:76px; scroll-snap-align:start;
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  padding:6px 5px 6px; cursor:pointer;
+  background:var(--surface); color:var(--ink-2);
+  border:1px solid var(--line); border-radius:12px;
+  box-shadow:0 2px 8px -3px rgba(10,21,18,.22);
+  font:inherit; transition:border-color .14s, box-shadow .14s, color .14s;
+}
+.gcat:hover{ border-color:var(--teal-500); }
+.gcat:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+.gcat__art{ display:block; width:44px; height:44px; }
+.pthumb.pthumb--gcat{
+  width:100%; height:100%; border:0; box-shadow:none; border-radius:8px;
+  background:var(--ctile-paper);
+}
+.gcat__n{
+  font-size:10.5px; font-weight:800; line-height:1.15; letter-spacing:-.01em;
+  text-align:center; white-space:normal; overflow-wrap:anywhere;
+}
+.gcat.is-on{
+  color:var(--teal-700); border-color:var(--teal-500);
+  box-shadow:0 0 0 2px var(--teal-500), 0 6px 14px -6px rgba(15,118,110,.55);
+}
+.gcat.is-off{ opacity:.42; cursor:default; box-shadow:none; }
+
+/* ---- the master model's header ----------------------------------------- */
+.mhead{
+  flex:none; position:relative;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:var(--r-lg);
+  padding:12px 14px 14px; margin:12px 0 0;
+}
+.sheet-grab{ display:none; }
+.mhead__top{ display:flex; align-items:center; gap:12px; }
+.mhead__shot, .mhead__part{
+  flex:none; width:68px; height:88px; border-radius:var(--r-sm); overflow:hidden;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--ctile-paper);
+}
+.mhead__shot{ padding:4px; }
+.mhead__shot .dphoto{ width:100%; height:100%; }
+.mhead__shot .dphoto__img,
+.mhead__shot .dphoto__art{ max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain; }
+/* The part, bare: its own white is its ground, no tile and no inner line.
+   Fitted to the part rather than to its square canvas by the per-asset focus
+   numbers, so it fills the box without being stretched. */
+.pthumb.pthumb--mhead{
+  position:relative; width:100%; height:100%; padding:0;
+  border:0; border-radius:var(--r-sm); box-shadow:none; background:var(--ctile-paper);
+}
+.pthumb--mhead img.pimg{
+  position:absolute; width:var(--iw,100%); height:auto; max-width:none;
+  left:var(--il,0); top:var(--it,0); object-fit:contain;
+}
+.pthumb--mhead svg.pimg{ width:100%; height:100%; padding:10%; }
+.mhead__id{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.mhead__eyebrow{ display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; }
+.mhead__eyebrow .masterflag{ margin-bottom:0; }
+.mhead__cat{
+  font-size:10.5px; font-weight:800; letter-spacing:.07em; text-transform:uppercase;
+  color:var(--teal-700);
+}
+.mhead__n{
+  margin:0; font-family:var(--f-display); font-weight:800; font-size:22px;
+  line-height:1.1; letter-spacing:-.025em; color:var(--ink); overflow-wrap:anywhere;
+}
+.mhead__hit{
+  display:inline-flex; align-items:center; gap:5px; align-self:flex-start;
+  font-size:12px; font-weight:700; color:var(--teal-700);
+}
+.mhead__hit svg{ width:13px; height:13px; }
+
+.mhead__codes{ display:flex; flex-wrap:wrap; gap:4px 16px; margin:12px 0 0; }
+.mhead__codes div{ display:flex; align-items:baseline; gap:6px; min-width:0; }
+.mhead__codes dt, .mhead__specs dt{
+  font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
+}
+.mhead__codes dd{ margin:0; font-family:var(--f-mono); font-size:12.5px; font-weight:600; color:var(--ink); }
+
+/* The master's measurements — the same five the table shows, in the same
+   units, so the header and the table can be read against each other. */
+.mhead__specs{
+  display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:1px;
+  margin:12px 0 0; overflow:hidden;
+  background:var(--line-soft); border:1px solid var(--line); border-radius:var(--r-sm);
+}
+.mhead__specs div{ background:var(--surface-2); padding:7px 10px; min-width:0; }
+.mhead__specs dt span{ font-weight:600; letter-spacing:0; text-transform:none; }
+.mhead__specs dd{
+  margin:2px 0 0; font-size:15px; font-weight:800; color:var(--ink);
+  font-variant-numeric:tabular-nums;
+}
+
+/* ---- the compatible devices -------------------------------------------- */
+.gopen + .gopen{ margin-top:22px; }
+.gdev{ flex:none; display:block; }
+.gdev__bar{
+  position:sticky; top:0; z-index:5; flex:none;
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  margin:12px 0 0; padding:10px 0;
+  background:var(--paper); border-bottom:1px solid var(--line-soft);
+}
+.gdev__t{
+  font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-2);
+}
+.gdev__list{ flex:none; padding:12px 0 8px; }
+
+/* ---- focused layout: the centre column alone ---------------------------- */
+@media (min-width:1180px){
+  .ws__body.ws__body--focus{ grid-template-columns:minmax(0,1fr); }
+  .ws__body--focus .ws__left,
+  .ws__body--focus .ws__right{ display:none; }
+  .ws__body--focus .ws__center{ padding-inline:max(24px, calc((100% - 1040px) / 2)); }
+  /* The selector stays at the top of the column; the device toolbar sticks
+     under it, so both remain while a long list scrolls. */
+  .ws__body--focus .gcats{
+    position:sticky; top:0; height:var(--gcats-h);
+    background:var(--paper); display:flex; align-items:center;
+  }
+  .ws__body--focus .gdev__bar{ top:var(--gcats-h); }
+}
+
+/* ---- the phone sheet --------------------------------------------------- */
+@media (max-width:1179px){
+  /* Floating in the band above the sheet, over the dimmed finder. Fixed, so
+     it stays while the sheet scrolls; inside the sheet's own layer, so it is
+     above the scrim and goes when the sheet does. */
+  .ws__body--sheet .gcats{
+    position:fixed; left:0; right:0; top:0; height:var(--gcats-h);
+    padding:0 12px; display:flex; align-items:center;
+  }
+  .ws__body--sheet .gcats__row{ padding:8px 2px; }
+  /* The header is the top of the white panel: square to the sheet's edges,
+     with the grab handle, and no card border of its own. */
+  .ws__body--sheet .mhead{
+    margin:0 -14px; border:0; border-radius:var(--r-xl) var(--r-xl) 0 0;
+    border-bottom:1px solid var(--line-soft); padding:4px 14px 14px;
+  }
+  .ws__body--sheet .sheet-grab{
+    display:block; width:38px; height:4px; border-radius:99px;
+    background:var(--line); margin:4px auto 8px;
+  }
+  .ws__body--sheet .gdev__bar{ background:var(--surface); margin-top:0; }
+  .ws__body--sheet .gopen + .gopen .mhead{ border-radius:0; margin-top:18px; border-top:1px solid var(--line); }
+}
+@media (max-width:560px){
+  .mhead__top{ gap:10px; }
+  .mhead__shot, .mhead__part{ width:56px; height:72px; }
+  .mhead__n{ font-size:18.5px; }
+  .mhead__codes{ gap:3px 12px; }
+  .mhead__specs{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+  /* Five measurements in three columns: the last one takes the empty cell
+     beside it rather than leaving a grey hole in the grid. */
+  .mhead__specs div:last-child:nth-child(3n+2){ grid-column:span 2; }
+  .mhead__specs div{ padding:6px 8px; }
+  .mhead__specs dd{ font-size:14px; }
+  .gcat{ width:70px; }
+  .gcat__art{ width:40px; height:40px; }
+}
+@media (prefers-reduced-motion:reduce){
+  .gcat{ transition:none; }
 }

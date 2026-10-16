@@ -196,50 +196,6 @@
       '</article>';
   };
 
-  /* ------------------------------------------------------ identifier strip */
-  /* The four identifiers a counter actually uses, plus the manufacturer's own
-     code when the catalogue has one.
-
-     Three of these are ISSUED BY THIS CATALOGUE — group number, serial number
-     and part code — and the fourth, when present, is the manufacturer's. The
-     distinction matters at the counter: MPF-BT-0001 identifies the group in
-     this app, EB-BA115ABY is what a supplier recognises. They used to render
-     as one undifferentiated block, all three showing the same value. */
-  C.idGrid = function (g) {
-    var cat = SM.db.categoryById[g.categoryId];
-    return '<div class="idgrid">' +
-      '<div class="idcell"><span>Part code</span><b>' + esc(g.partCode || '—') + '</b></div>' +
-      '<div class="idcell"><span>Group number</span><b>' + esc(g.groupNumber) + '</b></div>' +
-      '<div class="idcell"><span>Serial number</span><b>' + esc(g.serialNumber) + '</b></div>' +
-      (g.oemPartNo
-        ? '<div class="idcell"><span>Manufacturer part no.</span><b>' + esc(g.oemPartNo) + '</b></div>'
-        : '<div class="idcell"><span>Category</span><b style="font-family:var(--f-ui);color:' + cat.color + '">' + esc(cat.name) + '</b></div>') +
-      '</div>';
-  };
-
-  /* --------------------------------------------------------- master banner */
-  C.masterCard = function (master, cat) {
-    var b = SM.db.brandById[master.brandId];
-    return '<div class="mastercard"><div class="mastercard__in">' +
-      '<div class="row" style="gap:9px">' + SM.brandLogo(b, 'blogo--sm') +
-      '<span class="t-lab" style="color:rgba(214,255,244,.72)">Master model</span></div>' +
-      '<h3>' + esc(master.fullName) + '</h3>' +
-      /* Only chips that have a value. screenType and screenResolution are null
-         for most devices, and esc(null) rendered an empty chip — a run of
-         blank pills that looked like a loading state that never finished. */
-      /* Escaped first, entity appended after — esc() turns the & of &Prime;
-         into &amp;Prime; and the card reads 6.4&Prime; in plain text. */
-      '<div class="mspecs">' +
-      [ master.displaySize ? esc(master.displaySize) + '&Prime; display' : null,
-        master.screenType ? esc(master.screenType) : null,
-        master.screenResolution ? esc(master.screenResolution) : null,
-        master.releaseDate ? esc(master.releaseDate) : null,
-        cat ? esc(cat.name) : null
-      ].filter(Boolean)
-       .map(function (t) { return '<span class="mspec">' + t + '</span>'; }).join('') +
-      '</div></div></div>';
-  };
-
   /* ---------------------------------------------------- compatible devices */
   /* Renders in chunks — a 268-device group stays instant on a phone. */
   C.deviceRows = function (devices, opts) {
