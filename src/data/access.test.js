@@ -33,9 +33,9 @@ const vm = require('vm');
 
 const ACCESS = fs.readFileSync(path.join(__dirname, 'access.js'), 'utf8');
 
-const FREE_ANON = { tier: 'free', paid: false, signedIn: false, dailySearchesRemaining: 0, groupAccess: false };
-const FREE_USER = { tier: 'free', paid: false, signedIn: true, dailySearchesRemaining: 3, groupAccess: false };
-const PAID_USER = { tier: 'paid', paid: true, signedIn: true, dailySearchesRemaining: null, groupAccess: true };
+const FREE_ANON = { tier: 'free', paid: false, signedIn: false, searchesRemaining: 5, searchLimit: 5, groupAccess: false };
+const FREE_USER = { tier: 'free', paid: false, signedIn: true, searchesRemaining: 3, searchLimit: 5, groupAccess: false };
+const PAID_USER = { tier: 'paid', paid: true, signedIn: true, searchesRemaining: null, searchLimit: null, groupAccess: true };
 
 const tick = () => new Promise(r => setImmediate(r));
 async function settle(n = 6) { for (let i = 0; i < n; i++) await tick(); }
@@ -87,7 +87,7 @@ function load(o = {}) {
   function fetchStub(url, init = {}) {
     const headers = init.headers || {};
     const bearer = /^Bearer (.+)$/.exec(headers.Authorization || '');
-    calls.push({ url, method: init.method || 'GET', token: bearer ? bearer[1] : null });
+    calls.push({ url, method: init.method || 'GET', token: bearer ? bearer[1] : null, body: init.body });
 
     const reply = (status, body) => Promise.resolve({
       ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body)
@@ -298,7 +298,9 @@ test('a paid search needs no round trip, and a free one is metered by the server
   const free = load({ localSession: true, tiers: { 'tok-free': FREE_USER } });
   free.resolveAuth({ uid: 'uid-free' }, 'tok-free');
   await free.access.refresh();
-  const f = await free.access.consumeSearch();
+  const f = await free.access.consumeSearch('oppo-a6');
   assert.equal(f.allowed, true);
-  assert.equal(free.calls.filter(c => c.method === 'POST').length, 1);
+  const posts = free.calls.filter(c => c.method === 'POST');
+  assert.equal(posts.length, 1);
+  assert.deepEqual(JSON.parse(posts[0].body), { modelId: 'oppo-a6' }, 'the model is what makes a repeat free');
 });

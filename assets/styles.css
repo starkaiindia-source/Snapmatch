@@ -332,7 +332,19 @@ ul{ margin:0; padding:0; list-style:none; }
   .logo__word{ font-size:14px; }
   .logo__mark{ width:32px; height:32px; border-radius:10px; }
   .topbar__end [data-act="open-filters"]{ display:none; }
+  /* With the free-search chip in the row there is not room for everything
+     at 375px. The word mark gives way, with an ellipsis, rather than the chip
+     wrapping onto two lines and drawing over it. */
+  .topbar .logo{ flex:0 1 auto; }
+  .topbar .logo__word{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .topbar__end{ flex:none; }
 }
+/* On a phone-width header with the chip in it, a word mark cut to "M…" says
+   nothing the logo does not; the logo stands alone instead. */
+@media (max-width:420px){
+  .topbar__in:has(.topbar__end .pill) .logo__word{ display:none; }
+}
+.topbar__end .pill{ white-space:nowrap; flex:none; }
 
 .topbar__lead{ display:flex; align-items:center; gap:14px; min-width:0; }
 

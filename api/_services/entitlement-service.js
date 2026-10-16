@@ -8,21 +8,33 @@
    THE COUNTER LIVES IN FIRESTORE, KEYED BY UID
 
    Not in localStorage, not in a cookie, not in a JWT claim. Those are all
-   things the person being limited can edit. `users/{uid}` carries two fields:
+   things the person being limited can edit. `searchUsage/{uid}` holds it:
 
-       freeSearchDay    'YYYY-MM-DD' in India — see _schema/entitlement
-       freeSearchCount  how many have been spent on that day
+       used       how many of the five lifetime searches are spent
+       models     the model ids they were spent on — the idempotency key
+       createdAt / updatedAt / migratedFrom
 
-   Both are server-owned and refused to clients by firestore.rules, so a
-   browser cannot write itself a fresh allowance. Clearing site data, opening
-   an incognito window, signing out and back in, or editing anything the page
-   holds changes nothing: the count follows the ACCOUNT.
+   The collection is closed to every client (no rule names it, so the
+   catch-all in firestore.rules refuses it), and only this file writes it.
+   Clearing site data, opening an incognito window, signing out and back in,
+   changing device or editing anything the page holds changes nothing: the
+   count follows the ACCOUNT.
 
-   THE ROLLOVER IS A COMPARISON, NOT A JOB. There is no nightly task to reset
-   anything. `freeSearchDay` is compared to today on every consume, and a
-   stored day that is not today means the count starts again at zero. A user
-   who does not search for a month has their allowance waiting, and nothing had
-   to run in the meantime.
+   NOTHING RESETS IT. There is no job, no day key and no comparison with a
+   date: the five are the account's for good. A purchase does not touch this
+   document and neither does an expiry — a subscriber is simply not metered
+   while the plan runs, and meets the same count again when it ends.
+
+   ONE SEARCH PER MODEL. Re-opening a model this account has already spent a
+   search on is not a new search — it is the same answer drawn again, after a
+   reload, a Back button, a double tap or a retried request. `models` is what
+   makes that idempotent: a model already in it is allowed and nothing is
+   written. A sixth NEW model is refused.
+
+   WHERE AN EXISTING ACCOUNT STARTS. An account that searched under the old
+   three-a-day meter has no usage document. Its first read seeds one from the
+   old fields on users/{uid} — see legacySearchesUsed() in _schema/entitlement
+   — so a shop that spent its three yesterday starts with two left, not five.
 
    ----------------------------------------------------------------------------
    THE MEMBER LIST IS SLICED BEFORE IT IS SERIALISED
@@ -33,15 +45,21 @@
    the DOM. `lockedCount` is a number, which is what lets the UI say "25 more"
    without knowing which 25.
 
+   The PREVIEW is a separate, smaller thing: previewSize() names, the same for
+   every caller, picked here on the server. It is never a slice of the member
+   list a tier is entitled to — a free group still has `members: []`.
+
    That is the difference between this and hiding rows with CSS, and it is the
    whole reason the paid half of the catalogue moved out of the public bundle.
    ========================================================================== */
 'use strict';
 
 const { db } = require('../_lib/firebase');
-const { USERS, GROUP_DETAILS, DEVICE_GROUPS, MODEL_GROUPS } = require('../_schema/collections');
 const {
-  TIERS, FREE_DAILY_SEARCHES, dayKeyFor,
+  USERS, SEARCH_USAGE, GROUP_DETAILS, DEVICE_GROUPS, MODEL_GROUPS
+} = require('../_schema/collections');
+const {
+  TIERS, FREE_LIFETIME_SEARCHES, legacySearchesUsed, previewSize,
   resolveEntitlement, visibleMemberLimit, describe
 } = require('../_schema/entitlement');
 const search = require('./search-service');
@@ -70,6 +88,25 @@ function entitlementSummary(ent) {
 }
 
 /**
+ * The lifetime usage for one account, from its document or — the first time
+ * — from the daily meter it replaced.
+ *
+ * @param {object|null} usage    searchUsage/{uid}, or null when absent
+ * @param {object|null} profile  users/{uid}
+ * @returns {{used:number, models:string[], seeded:boolean}}
+ */
+function usageOf(usage, profile) {
+  if (usage) {
+    return {
+      used: Math.max(0, Math.floor(Number(usage.used) || 0)),
+      models: Array.isArray(usage.models) ? usage.models.filter(m => typeof m === 'string') : [],
+      seeded: false
+    };
+  }
+  return { used: legacySearchesUsed(profile), models: [], seeded: true };
+}
+
+/**
  * The tier and the current search state for one account.
  *
  * @param {string|null} uid   null for a signed-out visitor
@@ -81,9 +118,8 @@ async function readAccess(uid, now) {
     /* Signed out. Free caps apply, and the header search is refused outright
        rather than metered — there is no account to count against, and
        metering by device would be a limit that clearing cookies resets. */
-    return Object.assign(describe(TIERS.FREE, FREE_DAILY_SEARCHES, now), {
+    return Object.assign(describe(TIERS.FREE, FREE_LIFETIME_SEARCHES), {
       signedIn: false,
-      dailySearchesRemaining: 0,
       reason: 'sign-in required to search'
     });
   }
@@ -94,71 +130,90 @@ async function readAccess(uid, now) {
      and the payment path read. The tier is its one-bit summary. */
   const ent = resolveEntitlement(profile, now);
   const tier = ent.isActive ? TIERS.PAID : TIERS.FREE;
+  const summary = { signedIn: true, entitlement: entitlementSummary(ent) };
 
-  const today = dayKeyFor(now);
-  const storedDay = profile && profile.freeSearchDay;
-  /* A stored day that is not today has already expired — report zero used
-     rather than the stale number, so the UI shows a full allowance before the
-     first search of the day rewrites the field. */
-  const used = storedDay === today ? Number(profile.freeSearchCount) || 0 : 0;
+  /* A subscriber is not metered, so their usage is not read: one Firestore
+     read saved on every page load of every paying shop. */
+  if (tier === TIERS.PAID) return Object.assign(describe(tier, 0), summary);
 
-  return Object.assign(describe(tier, used, now), {
-    signedIn: true,
-    entitlement: entitlementSummary(ent)
-  });
+  const usageSnap = await db().collection(SEARCH_USAGE).doc(uid).get();
+  const usage = usageOf(usageSnap.exists ? usageSnap.data() : null, profile);
+  return Object.assign(describe(tier, usage.used), summary);
 }
 
 /**
- * Spends one free search, or reports that there are none left.
+ * Spends one of the five lifetime searches, or reports that there are none.
  *
  * Runs in a transaction because the read and the write must not be separable:
- * two tabs pressing enter together would otherwise both read "2 used" and both
- * write "3", spending one credit twice.
+ * two tabs pressing enter together would otherwise both read "4 used" and both
+ * write "5", running six searches on an allowance of five. Firestore retries a
+ * transaction whose reads changed underneath it, so the second one re-reads
+ * "5 used" and is refused.
  *
- * A PAID account is not metered at all — no read-modify-write, no document
- * touched. Metering a subscriber costs a write per search for a number nobody
- * will ever look at.
+ * A PAID account is not metered at all — no usage document touched. Metering a
+ * subscriber costs a write per search for a number nobody will ever look at,
+ * and leaving it alone is what makes "a purchase never resets the count" true
+ * by construction: nothing on the payment path knows this document exists.
  *
- * @returns {Promise<{allowed:boolean, access:object}>}
+ * @param {string} uid
+ * @param {number} now
+ * @param {string|null} [modelId]  the model being searched. With it, a model
+ *        this account has already spent a search on costs nothing. Without it
+ *        (a browser from before this change) every call is a new search.
+ * @returns {Promise<{allowed:boolean, charged:boolean, access:object}>}
  */
-async function consumeSearch(uid, now) {
-  const ref = db().collection(USERS).doc(uid);
+async function consumeSearch(uid, now, modelId) {
+  const userRef = db().collection(USERS).doc(uid);
+  const usageRef = db().collection(SEARCH_USAGE).doc(uid);
 
   const result = await db().runTransaction(async tx => {
-    const snap = await tx.get(ref);
+    /* Every read before any write — a Firestore transaction requires it. */
+    const snap = await tx.get(userRef);
+    const usageSnap = await tx.get(usageRef);
     const profile = snap.exists ? snap.data() : null;
     const ent = resolveEntitlement(profile, now);
     const tier = ent.isActive ? TIERS.PAID : TIERS.FREE;
 
-    if (tier === TIERS.PAID) return { allowed: true, tier, used: null, ent };
+    if (tier === TIERS.PAID) return { allowed: true, charged: false, tier, used: 0, ent };
 
-    const today = dayKeyFor(now);
-    const storedDay = profile && profile.freeSearchDay;
-    const used = storedDay === today ? Number(profile.freeSearchCount) || 0 : 0;
+    const usage = usageOf(usageSnap.exists ? usageSnap.data() : null, profile);
 
-    if (used >= FREE_DAILY_SEARCHES) {
-      /* Refused, and nothing is written. A blocked attempt must not extend the
-         window or inflate a counter the user cannot see. */
-      return { allowed: false, tier, used, ent };
+    /* The same model again: allowed, and NOTHING is written — not even a
+       timestamp, so a page that re-asks on every render costs no writes. */
+    if (modelId && usage.models.indexOf(modelId) > -1) {
+      return { allowed: true, charged: false, tier, used: usage.used, ent };
     }
 
-    tx.set(ref, {
-      freeSearchDay: today,
-      /* Written as a plain number rather than an increment: when the stored
-         day is stale this has to RESET to 1, and increment() cannot express
-         "start again". The transaction makes the read-then-write safe. */
-      freeSearchCount: used + 1,
-      freeSearchAt: now
-    }, { merge: true });
+    if (usage.used >= FREE_LIFETIME_SEARCHES) {
+      /* Refused, and nothing is written. A blocked attempt must not inflate a
+         counter the user cannot see. */
+      return { allowed: false, charged: false, tier, used: usage.used, ent };
+    }
 
-    return { allowed: true, tier, used: used + 1, ent };
+    const next = {
+      used: usage.used + 1,
+      /* Bounded by the allowance itself: at most five ids are ever stored. */
+      models: modelId ? usage.models.concat(modelId) : usage.models,
+      updatedAt: now
+    };
+    if (usage.seeded) {
+      next.createdAt = now;
+      /* Where the count started, kept so a support question about "why do I
+         only have two left" can be answered from the document. */
+      next.migratedFrom = profile && profile.freeSearchDay
+        ? { day: String(profile.freeSearchDay), count: Number(profile.freeSearchCount) || 0 }
+        : null;
+    }
+    tx.set(usageRef, next, { merge: true });
+
+    return { allowed: true, charged: true, tier, used: next.used, ent };
   });
 
   const access = Object.assign(
-    describe(result.tier, result.used == null ? 0 : result.used, now),
+    describe(result.tier, result.used),
     { signedIn: true, entitlement: entitlementSummary(result.ent) }
   );
-  return { allowed: result.allowed, access };
+  return { allowed: result.allowed, charged: result.charged, access };
 }
 
 /**
@@ -247,14 +302,97 @@ function cacheMember(groupId, value) {
   memberCache.set(groupId, { value, at: Date.now() });
 }
 
+function nameKey(v) {
+  return String(v == null ? '' : v).toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * A group's free preview — previewSize() devices, the same for every caller.
+ *
+ * Representative rather than simply the first few: a guard group of 325 is
+ * mostly one brand's back catalogue, and six rows of the same brand tell a
+ * reader nothing about the group's reach. The master leads (it is public
+ * already), then one device per brand newest first, then the newest of the
+ * rest. Deterministic, so the same card shows the same names on every load.
+ *
+ * The master is recognised by name because groupDetails does not carry its
+ * id. When it cannot be recognised nothing is put first — the count is the
+ * same either way, so the preview can never be longer than previewSize().
+ *
+ * @param {object} group  readGroupDetail()'s shape
+ * @returns {Array<{id:string, name:string}>}
+ */
+function previewOf(group) {
+  const size = previewSize(group && group.memberCount);
+  if (!size || !group.members || !group.members.length) return [];
+  const idx = search.loadIndex();
+  const masterKey = nameKey(group.masterModelName);
+
+  const rows = group.members.map((m, i) => {
+    const known = idx.byId.get(m.id);
+    const name = m.name || (known && known.name) || m.id;
+    return {
+      m: { id: m.id, name },
+      i,
+      brand: (known && known.brandId) || '?',
+      year: (known && known.year) || 0,
+      master: !!masterKey && nameKey(name) === masterKey
+    };
+  });
+
+  const picked = [];
+  const taken = new Set();
+  const take = r => {
+    if (picked.length >= size || taken.has(r.m.id)) return;
+    taken.add(r.m.id);
+    picked.push(r.m);
+  };
+
+  const master = rows.find(r => r.master);
+  if (master) take(master);
+
+  const rest = rows.filter(r => r !== master)
+    .sort((a, b) => (b.year - a.year) || (a.i - b.i));
+  const brands = new Set(master ? [master.brand] : []);
+  for (const r of rest) {
+    if (picked.length >= size) break;
+    if (brands.has(r.brand)) continue;
+    brands.add(r.brand);
+    take(r);
+  }
+  for (const r of rest) take(r);
+  return picked;
+}
+
+/**
+ * Free previews for a page of the home feed, in one call.
+ *
+ * Not tier-gated: the preview is the same for a visitor, a free account and a
+ * subscriber, which is what lets the response be cached at the edge.
+ *
+ * @param {string[]} groupIds  already validated by the route
+ * @returns {Promise<Object<string, {memberCount:number, preview:Array}>>}
+ */
+async function groupPreviews(groupIds) {
+  const out = {};
+  await Promise.all(groupIds.map(async id => {
+    const group = await readGroupDetail(id);
+    if (!group) return;
+    out[id] = { memberCount: group.memberCount, preview: previewOf(group) };
+  }));
+  return out;
+}
+
 /**
  * One compatibility group, cut to what this tier may see.
  *
  * @param {string} groupId
  * @param {'free'|'paid'} tier
+ * @param {{preview?:boolean}} [opts]  preview: attach the free preview for a
+ *        free caller — the result page, not the opened group
  * @returns {Promise<object|null>} null when there is no such group
  */
-async function groupForUser(groupId, tier) {
+async function groupForUser(groupId, tier, opts) {
   const group = await readGroupDetail(groupId);
   if (!group) return null;
 
@@ -287,6 +425,10 @@ async function groupForUser(groupId, tier) {
        genuinely has no members recorded — two very different sentences to put
        in front of a shop. */
     requiresPlan: tier !== TIERS.PAID,
+    /* The handful a free result shows in place of the list. Absent for a
+       subscriber, who has `members`, and for the opened group, which a free
+       account does not get to open. */
+    preview: opts && opts.preview && tier !== TIERS.PAID ? previewOf(group) : undefined,
     tier
   };
 }
@@ -367,7 +509,7 @@ async function deviceGroupsForUser(modelId, tier) {
   const categories = await Promise.all(byCategory.map(async cat => ({
     categoryId: cat.categoryId,
     categoryName: cat.categoryName,
-    groups: (await Promise.all(cat.groupIds.map(id => groupForUser(id, tier))))
+    groups: (await Promise.all(cat.groupIds.map(id => groupForUser(id, tier, { preview: true }))))
       .filter(Boolean)
   })));
 
@@ -375,5 +517,6 @@ async function deviceGroupsForUser(modelId, tier) {
 }
 
 module.exports = {
-  readAccess, consumeSearch, getUserEntitlement, groupForUser, deviceGroupsForUser
+  readAccess, consumeSearch, getUserEntitlement, groupForUser, deviceGroupsForUser,
+  groupPreviews, previewOf
 };

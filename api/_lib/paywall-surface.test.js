@@ -61,6 +61,7 @@ require.cache[firebasePath] = {
 
 const entitlements = require(path.join(__dirname, '..', '_services', 'entitlement-service'));
 const { datastoreDown } = require('./http');
+const { previewSize } = require('../_schema/entitlement');
 
 test.beforeEach(() => store.clear());
 
@@ -129,10 +130,14 @@ test('a free account gets the groups but none of their devices', async () => {
   assert.equal(group.lockedCount, 60);
 });
 
-test('NOT ONE DEVICE NAME IS IN A FREE DEVICE-LOOKUP RESPONSE', async () => {
+test('NOT ONE DEVICE NAME BEYOND THE PREVIEW IS IN A FREE DEVICE-LOOKUP RESPONSE', async () => {
   /* The property the whole split exists for, asserted on the payload rather
      than on a flag inside it. Hiding rows in the browser would satisfy every
-     other test here and fail this one. */
+     other test here and fail this one.
+
+     A free result carries the group's PREVIEW — previewSize() names, the same
+     handful the home feed shows everyone — and nothing else. Every other
+     name, and every other id, must be absent. */
   const sg = freshGroup('sg'), bt = freshGroup('bt');
   seedDevice('zz-device-c', { 'screen-guards': [sg], battery: [bt] });
   seedGroup(sg, 60);
@@ -141,11 +146,22 @@ test('NOT ONE DEVICE NAME IS IN A FREE DEVICE-LOOKUP RESPONSE', async () => {
   const free = await entitlements.deviceGroupsForUser('zz-device-c', 'free');
   const serialised = JSON.stringify(free);
 
-  for (let i = 0; i < 60; i++) {
-    assert.equal(serialised.includes('Device ' + sg + ' ' + i), false,
-                 `member ${i} of ${sg} leaked into the free payload`);
-    assert.equal(serialised.includes(sg + '-m' + i), false,
-                 `member id ${i} of ${sg} leaked into the free payload`);
+  for (const [gid, size] of [[sg, 60], [bt, 30]]) {
+    const group = free.categories.flatMap(c => c.groups).find(g => g.groupId === gid);
+    assert.equal(group.members.length, 0, 'the list itself is still empty');
+    assert.equal(group.preview.length, previewSize(size));
+    const previewIds = new Set(group.preview.map(m => m.id));
+
+    let named = 0;
+    for (let i = 0; i < size; i++) {
+      const id = gid + '-m' + i;
+      const inPayload = serialised.includes('Device ' + gid + ' ' + i + '"') || serialised.includes('"' + id + '"');
+      if (inPayload) named++;
+      assert.equal(inPayload, previewIds.has(id),
+                   `member ${i} of ${gid} is in the free payload without being in its preview`);
+    }
+    assert.equal(named, previewSize(size));
+    assert.ok(named < size);
   }
 });
 

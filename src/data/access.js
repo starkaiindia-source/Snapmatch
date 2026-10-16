@@ -2,7 +2,7 @@
    Mobile Parts Finder · access.js — the browser's view of what it may do
    ----------------------------------------------------------------------------
    One place the whole app asks "is this account free or paid, and how many
-   free searches are left today".
+   of its five lifetime free searches are left".
 
    ----------------------------------------------------------------------------
    THIS FILE DECIDES NOTHING
@@ -73,6 +73,10 @@
   var listeners = [];
   /* modelId -> the in-flight or settled promise for its group list. */
   var deviceCache = Object.create(null);
+  /* groupId -> {memberCount, preview}. Public and identical for everyone, so
+     it is NOT dropped by reset(): a change of account changes nothing in it. */
+  var previewCache = Object.create(null);
+  var PREVIEW_BATCH = 48;
   /* Bumped by reset(). An answer that was asked for before the last reset is
      an answer about the previous account, wherever it is in its round trip. */
   var epoch = 0;
@@ -208,12 +212,29 @@
      */
     isFree: function () { return !!(state && !state.paid); },
 
-    /** Signed in AND not paid — the account that has a daily allowance. */
+    /** Signed in AND not paid — the account that has a search allowance. */
     isMeteredAccount: function () { return !!(state && state.signedIn && !state.paid); },
 
-    /** Free searches left today, or null for a paid account / unknown. */
+    /** Free searches left for the life of the account, or null for a paid
+        account / unknown. */
     remaining: function () {
-      return state && !state.paid ? state.dailySearchesRemaining : null;
+      return state && !state.paid && typeof state.searchesRemaining === 'number'
+        ? state.searchesRemaining : null;
+    },
+
+    /**
+     * The server's answer, once there is one.
+     *
+     * For a decision that must not be made on a guess — opening a group sends
+     * a free account to Plans and a visitor to Sign in, and doing either to a
+     * subscriber whose answer simply has not landed yet would be the
+     * "paid but asked to pay again" fault over again. Asks if nothing is held
+     * or in flight; resolves with null if the server cannot be reached, which
+     * the caller treats as "unknown", never as "free".
+     */
+    whenKnown: function () {
+      if (state) return Promise.resolve(state);
+      return access.refresh().then(function () { return state; });
     },
 
     onChange: function (fn) {
@@ -260,16 +281,22 @@
     },
 
     /**
-     * Spends one free search.
+     * Spends one of the five lifetime free searches.
      *
      * The credit is spent HERE, once, when a search is actually run — never
      * while typing. Autocomplete does not call this.
      *
+     * The model is sent with it, and that is what makes it one search rather
+     * than one per request: the server charges a model once per account, so a
+     * reload, a retried request or a second tap on the same suggestion costs
+     * nothing. A NEW model past the fifth is refused with 429.
+     *
+     * @param {string} modelId
      * @returns {Promise<{allowed:boolean, access:object|null, limitReached:boolean}>}
      *          Resolves for a refusal too: being out of searches is an outcome
      *          the caller renders, not an exception it has to catch.
      */
-    consumeSearch: function () {
+    consumeSearch: function (modelId) {
       /* A paid account is not metered and does not need a round trip. The
          server agrees independently, so this is a saved request rather than a
          decision — a browser that lied about being paid would still be metered
@@ -277,7 +304,8 @@
       if (access.isPaid()) return Promise.resolve({ allowed: true, access: state, limitReached: false });
 
       var ticket = epoch;
-      return call('/api/access', { method: 'POST', body: '{}' }).then(function (r) {
+      var payload = JSON.stringify(modelId ? { modelId: modelId } : {});
+      return call('/api/access', { method: 'POST', body: payload }).then(function (r) {
         var data = r.data || {};
         accept(data.access, r.who, ticket);
         return {
@@ -374,6 +402,50 @@
       deviceCache[modelId] = req;
       return req;
     },
+
+    /**
+     * The free preview of some groups — a handful of device names each, the
+     * same for every caller. For the home feed's cards.
+     *
+     * Sent WITHOUT a token on purpose: the answer is public and identical for
+     * everyone, so it is cacheable at the edge, and attaching an identity
+     * would only make each shop's copy a separate cache entry.
+     *
+     * @param {string[]} groupIds
+     * @returns {Promise<Object<string,{memberCount:number,preview:Array}>>}
+     *          only the groups that came back; an outage is an empty object,
+     *          and the cards simply draw without names.
+     */
+    previews: function (groupIds) {
+      var want = [];
+      var out = {};
+      (groupIds || []).forEach(function (id) {
+        if (!id) return;
+        if (previewCache[id]) out[id] = previewCache[id];
+        else if (want.indexOf(id) === -1) want.push(id);
+      });
+      if (!want.length) return Promise.resolve(out);
+      /* Sorted, so the same page of the feed is the same URL — and the same
+         edge-cache entry — for everybody who loads it. */
+      want.sort();
+      var batches = [];
+      for (var i = 0; i < want.length; i += PREVIEW_BATCH) batches.push(want.slice(i, i + PREVIEW_BATCH));
+      return Promise.all(batches.map(function (ids) {
+        return fetch('/api/device-parts?previews=' + ids.map(encodeURIComponent).join(','))
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (data) {
+            var got = (data && data.previews) || {};
+            Object.keys(got).forEach(function (id) { previewCache[id] = got[id]; out[id] = got[id]; });
+          })
+          .catch(function (err) {
+            SM.debug.warn('access', 'previews unavailable', { message: err && err.message });
+          });
+      })).then(function () { return out; });
+    },
+
+    /** The preview already fetched for one group, or null. Synchronous, for a
+        card that is being painted from what is already known. */
+    previewOf: function (groupId) { return previewCache[groupId] || null; },
 
     /** Drops one device's cached answer, so a retry is a real request. */
     forgetDevice: function (modelId) {

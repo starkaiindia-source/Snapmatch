@@ -46,6 +46,10 @@
          `groupLocked` is the server saying which of the last two it is, so an
          empty list is never rendered as "this group has no devices". */
       groupMembers: null, groupLocked: false, groupLoadFailed: false,
+      /* How a list of compatible models is drawn: 'compact' (names in thin
+         outlines), 'grid' (photographs) or 'table' (specifications). Compact
+         first, on the result page and on every freshly opened group. */
+      resultView: 'compact', groupView: 'compact',
       /* The rows the last search returned, kept so the header can count the
          distinct devices it was actually given rather than guessing. */
       matches: null
@@ -69,6 +73,9 @@
     brandQ: '',
     suggest: { open: false, q: '', items: [], cursor: -1 },
     sheet: null,           /* { type:'group'|'model'|'filters'|'demo', id } */
+    /* Why the Plans page was just opened for this visitor, if it was sent
+       there: { kind:'search'|'group', modelId? }. Cleared on leaving it. */
+    planNotice: null,
   };
 
   function store(k, v) {
@@ -166,7 +173,7 @@
     }
     end += '<button class="iconbtn" data-act="open-filters" title="Filters" aria-label="Filter groups">' + icon('sliders') + '</button>' +
       '<button class="iconbtn" data-act="theme" title="Switch theme" aria-label="Switch colour theme">' + icon(dark ? 'sun' : 'moon') + '</button>';
-    /* Free searches left today. Only for a free account, only once the SERVER
+    /* Free searches left. Only for a free account, only once the SERVER
        has said so, and never for a subscriber — a paid user should not be
        reading a counter about a limit they do not have. Deliberately small and
        to the left of the avatar rather than a banner across the page. */
@@ -208,7 +215,7 @@
     return (n || 'PG').split(/\s+/).slice(0, 2).map(function (w) { return w[0]; }).join('').toUpperCase();
   }
 
-  /* "2/3 searches" while some remain, "Upgrade" once they are gone.
+  /* "3/5 free searches" while some remain, "Upgrade" once they are gone.
      Renders nothing at all for a paid account, a signed-out visitor, or before
      the server has answered — an entitlement chip drawn on a guess is a chip
      that flickers the wrong number on every page load. */
@@ -218,14 +225,16 @@
        button instead, which is the more useful thing to show them. */
     if (!SM.access || !SM.access.isMeteredAccount()) return '';
     var a = SM.access.get();
-    if (!a || a.dailySearchesRemaining == null) return '';
+    var left = SM.access.remaining();
+    if (!a || left == null) return '';
 
-    if (a.dailySearchesRemaining > 0) {
-      return '<a class="pill" href="/plans" title="Free searches reset each day">' +
-        icon('search') + a.dailySearchesRemaining + '/' + a.dailySearchLimit + ' searches</a>';
+    /* The title says it plainly: these do not come back. */
+    if (left > 0) {
+      return '<a class="pill" href="/plans" title="Free searches left on this account. They do not reset.">' +
+        icon('search') + left + '/' + a.searchLimit + ' free</a>';
     }
     return '<a class="pill pill--warn" href="/plans" ' +
-      'title="Daily free searches used. Upgrade to keep searching.">' +
+      'title="All 5 free searches used. A plan keeps you searching.">' +
       icon('lock') + 'Upgrade</a>';
   }
 
@@ -311,8 +320,22 @@
        URL still says which group, so it is still shareable and still
        bookmarkable; the centre column holds the group's devices and the right
        panel holds whichever device is selected. Nothing overlays anything. */
+    /* A notice the Plans page shows once, for whoever was just sent there. */
+    if (r.name !== 'plans') state.planNotice = null;
+
     if (r.name === 'group') {
+      /* OPENING A GROUP NEEDS A PLAN — a free account's unused searches do
+         not open one. When the server has already said this account is not
+         paid, the group never opens: a visitor goes to Sign in, a free
+         account to Plans. When it has not said yet, the group opens in its
+         loading state and the member request — which the server answers with
+         the account's tier — decides; see loadGroupMembers. The server
+         withholds the list either way, so a typed URL, a Back button or a
+         crafted request all get nothing. */
+      if (r.params[0] && refuseGroup(r.params[0])) return;
       state.finder.groupId = r.params[0] || null;
+      /* Every fresh visit opens in the compact list. */
+      state.finder.groupView = 'compact';
       state.finder.detailModelId = null;
       state.finder.groupQ = '';
       state.finder.groupShown = 400;
@@ -383,6 +406,39 @@
     e.preventDefault();
     go(href);
   });
+
+  /* Like go(), but in place of the current history entry — so the address a
+     visitor was turned away from is not left behind Back, sending them round
+     the same refusal again. */
+  function redirect(url) {
+    history.replaceState(null, '', toPath(toRoute(url)));
+    route();
+  }
+
+  /**
+   * Turns a group away from an account the server has said is not paid.
+   *
+   *   signed out   -> Sign in, and back to this group afterwards
+   *   free         -> Plans, with a line saying why
+   *
+   * @returns {boolean} true when it redirected — the caller stops there.
+   *          False while the answer is unknown, and for a subscriber.
+   */
+  function refuseGroup(groupId) {
+    var a = SM.access && SM.access.get();
+    if (!a || a.paid) return false;
+    if (!a.signedIn) {
+      state.afterSignIn = '/group/' + groupId;
+      authMode = 'signin';
+      toast('Sign in to open a group', 'lock');
+      redirect('/account');
+    } else {
+      state.planNotice = { kind: 'group' };
+      toast('Opening a group needs a plan', 'lock');
+      redirect('/plans');
+    }
+    return true;
+  }
 
   function go(url) {
     var r = toRoute(url);
@@ -675,9 +731,16 @@
   function setCategory(id) {
     var f = state.finder;
     var next = (!id || id === 'all') ? 'all' : id;
-    /* Tapping the tile that is already on clears it, which is what the tiles
-       have always done. */
-    if (f.filters.catId === next && next !== 'all') next = 'all';
+    if (f.modelId) {
+      /* A RESULT is always one category. There is no "all" to fall back to,
+         and tapping the category already on keeps it on — it must not empty
+         the page the reader is looking at. */
+      if (next === 'all') return;
+    } else if (f.filters.catId === next && next !== 'all') {
+      /* Browsing the library: tapping the tile that is already on clears it,
+         which is what the tiles have always done. */
+      next = 'all';
+    }
     f.filters.catId = next;
     f.catId = next === 'all' ? null : next;
     f.matchShown = 6;
@@ -709,33 +772,6 @@
     if (!row) return null;
     var id = state.finder.detailModelId;
     return (id && db.modelById[id]) || row.master;
-  }
-
-  /* CategoryProductVisual — one place the group view asks for a category's
-     picture, so a second call site cannot start showing a different one.
-
-     Today it delegates to SM.art.category, which already resolves the official
-     logo from Firebase Storage first and the identical file deployed with the
-     site second, falling back to a drawn symbol only when both are
-     unreachable. An explicit imageUrl overrides all of that, and that is the
-     seam the admin panel will write to: once a category record carries its own
-     product photograph, it arrives here as `imageUrl` and no call site changes.
-
-     @param {object} cat   the category record
-     @param {object} opts  { imageUrl, cls } */
-  function categoryVisual(cat, opts) {
-    opts = opts || {};
-    if (!cat) return '';
-    /* categoryImageUrl is not in the schema yet. Reading it now means the
-       import that adds it needs no code change here. */
-    var url = opts.imageUrl || cat.categoryImageUrl || cat.imageUrl || null;
-    var cls = 'catvis' + (opts.cls ? ' ' + opts.cls : '');
-    var inner = url
-      ? '<img class="catvis__img" src="' + esc(url) + '" alt="' + esc(cat.name) + '" ' +
-        'loading="lazy" decoding="async" />'
-      : SM.art.category(cat.id, 'catvis__art', cat.name);
-    return '<span class="' + cls + '" title="' + esc(cat.name) + '" ' +
-      'aria-label="' + esc(cat.name) + '">' + inner + '</span>';
   }
 
   /* A copy button with nothing to copy is a button that lies. Part code used to
@@ -772,71 +808,66 @@
     return nf(n) + ' device' + (n === 1 ? '' : 's') + (verb ? ' ' + verb : '');
   }
 
-  /* The sticky toolbar: back, the filter, and — once the banner under it has
-     scrolled away — a compact copy of the master's identity: the handset, its
-     name, how many devices the group links, the part codes and the category's
-     own picture. groupHeroHTML is the banner; observeHeroDock decides the
-     moment one hands over to the other.
+  /* ------------------------------------------------- the opened group's header
 
-     It is a SIBLING of everything below it, not a wrapper around the head.
-     position:sticky is bounded by its own parent's box, so nested inside a
-     header block it would unstick the moment that block scrolled past — about
-     200px into a list that can run to 325 devices. As a direct child of the
-     centre column it spans the whole scroll instead.
+     ONE header, compact from the first frame, sticky at the same size.
 
-     The title is the model, and only the model. It used to read "Motorola Razr
-     50 cover group", which put the part category inside the device's name; the
-     category is already said by the picture on the right and by the left-hand
-     rail, and saying it a third time inside the heading made the heading wrong
-     rather than fuller. */
-  function groupBarHTML(row) {
+     It used to be two: a toolbar that stuck, and a large green banner under it
+     that scrolled away — with a compact copy of the banner fading into the
+     toolbar as it went. On a phone both were on screen at once for the first
+     part of every scroll, the group's codes printed twice, one over the other,
+     and the header read as starting large and then shrinking. Now the banner's
+     content IS the sticky header, at the size it keeps.
+
+     Left to right: back, the master handset, the identity — "Master model",
+     the category, the name, how many devices and brands, the group's codes —
+     and the part itself on the right. Everything the banner said, in the
+     app's master-model colours, at about a third of its height.
+
+     The part picture is drawn bare. It used to sit in a bordered white tile
+     with the thumbnail's own border inside that: two outlines around a
+     photograph that is already shot on white. The file's own white is its
+     ground, in both themes. */
+  function groupHeadHTML(row) {
     var g = row.group, cat = row.category, master = row.master;
     var codes = [g.groupNumber, g.partCode, g.oemPartNo].filter(Boolean).join(' · ');
     var total = groupMemberCount(g);
 
-    /* gbar--hero marks this as the toolbar half of a two-part header. Its
-       compact identity (.gbar__dock) and part picture (.gbar__dockpart) are in
-       the layout from the first frame — the bar never changes height, which is
-       what keeps the list underneath from jumping — but they stay transparent
-       until the banner's own name has scrolled under the bar.
+    /* Brands, counted from the member list the page is showing, so the number
+       and the headings below cannot disagree. Absent until it has loaded —
+       the header leaves the phrase out rather than claiming "0 brands". */
+    var seen = Object.create(null), brands = 0;
+    (openGroupMembers() || []).forEach(function (m) {
+      var b = m.brandId || '?';
+      if (!seen[b]) { seen[b] = 1; brands++; }
+    });
 
-       aria-hidden on both: the banner's heading is the group's accessible
-       title, and a second copy read out beside it would be the same sentence
-       twice. */
-    return '<div class="gbar gbar--hero">' +
-      /* The phone's own grab handle. Drawn only inside the mobile sheet, where
-         the header is the top of a panel rather than a column heading. */
+    return '<header class="ghead" aria-labelledby="gheadName">' +
+      /* The phone's own grab handle. Drawn only inside the mobile sheet. */
       '<span class="gbar__grab" aria-hidden="true"></span>' +
-
-      '<div class="gbar__row">' +
-        '<button type="button" class="gback" data-act="close-group" ' +
+      '<div class="ghead__row">' +
+        '<button type="button" class="gback ghead__back" data-act="close-group" ' +
           'aria-label="Back to compatibility groups" title="Back to compatibility groups">' +
-          icon('chevronLeft') + '<span class="gback__t">Back</span></button>' +
-
-        '<span class="gbar__dock" aria-hidden="true">' +
-          '<span class="gbar__shot">' +
-            SM.art.photo(master, { alt: '', eager: true, cls: 'gbar__ph' }) +
-          '</span>' +
-          '<span class="gbar__id">' +
-            '<span class="gbar__n">' + esc(deviceTitle(master)) + '</span>' +
-            '<span class="gbar__meta">' +
-              '<span class="gbar__count" data-gcount>' +
-                esc(deviceCountLabel(total, 'linked')) + '</span>' +
-              (codes ? '<span class="gbar__codes">' + esc(codes) + '</span>' : '') +
-            '</span>' +
-          '</span>' +
+          icon('chevronLeft') + '</button>' +
+        '<span class="ghead__shot">' +
+          SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'ghead__ph' }) +
         '</span>' +
-
-        '<span class="gbar__right">' +
-          '<span class="gbar__dockpart" aria-hidden="true">' +
-            categoryVisual(cat, { cls: 'catvis--bar' }) + '</span>' +
-          '<label class="field gbar__filter">' + icon('search') +
-            '<input class="input" id="gdq" placeholder="Filter these devices…" ' +
-            'value="' + esc(state.finder.groupQ || '') + '" ' +
-            'aria-label="Filter devices in this group" /></label>' +
-        '</span>' +
+        '<div class="ghead__id">' +
+          '<span class="ghead__eyebrow">' +
+            '<span class="ghead__tag">' + icon('crown') + 'Master model</span>' +
+            (cat ? '<span class="ghead__tag"><i aria-hidden="true"></i>' + esc(resultCatLabel(cat)) + '</span>' : '') +
+          '</span>' +
+          '<h2 class="ghead__n" id="gheadName">' + esc(deviceTitle(master)) + '</h2>' +
+          '<span class="ghead__meta">' +
+            '<span class="ghead__count" data-gcount>' + esc(deviceCountLabel(total, 'linked')) + '</span>' +
+            (brands ? '<span class="ghead__fact">' + nf(brands) + (brands === 1 ? ' brand' : ' brands') + '</span>' : '') +
+            (codes ? '<span class="ghead__codes">' + esc(codes) + '</span>' : '') +
+          '</span>' +
+        '</div>' +
+        (cat ? '<span class="ghead__part" title="' + esc(cat.name) + '">' +
+          SM.art.category(cat.id, 'pthumb--ghead', cat.name, { eager: true }) + '</span>' : '') +
       '</div>' +
-      '</div>';
+      '</header>';
   }
 
   /* One device, as a chip you pick.
@@ -906,10 +937,168 @@
      which reads as a list that failed rather than as one not asked for. */
   function chipGridHTML(list, opts) {
     if (!list || !list.length) return '';
+    /* Compact: the model's name in a thin outline and nothing else, each chip
+       as wide as its own name, wrapping in rows. */
+    if (opts && opts.view === 'compact') {
+      return '<div class="mchips">' + list.map(function (m) {
+        return modelChipHTML(m, opts);
+      }).join('') + '</div>';
+    }
     return '<div class="gchips' + (opts && opts.card ? ' gchips--cards' : '') + '">' +
       list.map(function (m) {
       return deviceChipHTML(m, opts);
     }).join('') + '</div>';
+  }
+
+  /* ======================================================================
+     THREE WAYS TO READ ONE LIST — compact, grid, table
+
+     Shared by the result page and the opened group, so a list of compatible
+     models looks and behaves the same wherever it appears: one chip, one card
+     and one table, with one definition of what each column means.
+     ====================================================================== */
+
+  var LIST_VIEWS = [
+    { id: 'compact', label: 'Compact', icon: 'parts' },
+    { id: 'grid', label: 'Grid', icon: 'grid' },
+    { id: 'table', label: 'Table', icon: 'layers' }
+  ];
+  function listView(v) {
+    return v === 'grid' || v === 'table' ? v : 'compact';
+  }
+
+  /* The segmented control. `act` says which list it drives, so the result
+     page and the group page can each keep their own choice. */
+  function listViewSwitchHTML(current, act) {
+    return '<div class="lview" role="group" aria-label="Display style">' +
+      LIST_VIEWS.map(function (v) {
+        var on = current === v.id;
+        return '<button type="button" class="lview__b' + (on ? ' is-on' : '') + '" ' +
+          'data-act="' + act + '" data-view="' + v.id + '" aria-pressed="' + on + '" ' +
+          'title="' + v.label + ' view" aria-label="' + v.label + ' view">' + icon(v.icon) +
+          '<span class="lview__t">' + v.label + '</span></button>';
+      }).join('') + '</div>';
+  }
+
+  /* One compatible model in the compact view: its full name in a thin outline.
+
+     The width is the name's own — no fixed cell, no truncation — and a very
+     long name wraps inside the chip rather than being cut. The master keeps
+     its crown and the searched-for model its tick, at the size of the text. */
+  function modelChipHTML(m, opts) {
+    opts = opts || {};
+    var isMaster = m.id === opts.masterId;
+    var isHit = !isMaster && !!opts.hitId && m.id === opts.hitId;
+    var sel = !!opts.sel && opts.sel.id === m.id;
+    return '<button type="button" class="mchip' + (sel ? ' is-on' : '') +
+      (isMaster ? ' is-master' : '') + (isHit ? ' is-hit' : '') + '" ' +
+      'data-act="' + esc(opts.act || 'pick-device') + '" data-id="' + esc(m.id) + '" ' +
+      'aria-pressed="' + (sel ? 'true' : 'false') + '">' +
+      (isMaster ? '<span class="mchip__flag">' + icon('crown') + '<span class="sr">Master model: </span></span>' : '') +
+      (isHit ? '<span class="mchip__flag mchip__flag--hit">' + icon('check') + '<span class="sr">Your model: </span></span>' : '') +
+      '<span class="mchip__n">' + esc(m.fullName) + '</span>' +
+      '</button>';
+  }
+
+  /* ------------------------------------------------- the specification table
+
+     ONE definition of every column, read by the result page and the group
+     page alike. The values are the catalogue's own fields, unconverted:
+
+       Display          displaySize   inches
+       Height / Width   heightMm / widthMm   millimetres
+       Screen area      screenCm2     square centimetres
+       Screen-to-body   bodyRatio     per cent
+
+     The catalogue records ONE ratio, `bodyRatio` — the source's
+     "screen-to-body ratio", which is also what is called "body to screen" at
+     the counter. It is one column. Showing it twice under two names would
+     present one number as two facts, and inverting it would invent a figure
+     nobody measured. Screen AREA is a different quantity and has its own
+     column. A value that is not recorded is an em dash, never a guess. */
+  var SPEC_COLS = [
+    { k: 'size', label: 'Display', unit: 'in', title: 'Display size, inches',
+      get: function (m) { return m.displaySize; } },
+    { k: 'h', label: 'Height', unit: 'mm', title: 'Body height, millimetres',
+      get: function (m) { return m.heightMm; } },
+    { k: 'w', label: 'Width', unit: 'mm', title: 'Body width, millimetres',
+      get: function (m) { return m.widthMm; } },
+    { k: 'area', label: 'Screen area', unit: 'cm²', title: 'Screen area, square centimetres',
+      get: function (m) { return m.screenCm2; } },
+    { k: 'ratio', label: 'Screen-to-body', unit: '%',
+      title: 'Screen-to-body ratio (also called body to screen), per cent',
+      get: function (m) { return m.bodyRatio; } }
+  ];
+
+  /* The number exactly as the catalogue records it — the unit is in the
+     heading, the figures are right-aligned in tabular digits so a column reads
+     down. Not rounded or padded to a fixed precision: some heights are
+     recorded to two places (165.77) and most to one, and a fixed format would
+     either drop a digit that was measured or add one that was not. */
+  function specValue(col, m) {
+    var v = col.get(m);
+    if (v == null || v === '' || !isFinite(Number(v))) return '<span class="stable__none">&mdash;</span>';
+    return esc(String(Number(v)));
+  }
+
+  /* The thumbnail is the catalogue photograph at favicon size, the same image
+     the chips and cards use. A device with none gets the drawn outline. */
+  function thumbHTML(m) {
+    return '<span class="stable__ph' + (m.image ? '' : ' is-failed') + '" aria-hidden="true">' +
+      (m.image
+        ? '<img class="stable__img" src="' + esc(m.image) + '" alt="" loading="lazy" decoding="async" ' +
+          'referrerpolicy="no-referrer" onerror="this.parentNode.classList.add(&quot;is-failed&quot;)" />'
+        : '') +
+      '<span class="gchip__fb"></span></span>';
+  }
+
+  /* Wide, and scrolled sideways on a phone rather than squeezed: every column
+     stays, and the name column stays put while the numbers move under it. */
+  function specTableHTML(list, opts) {
+    opts = opts || {};
+    if (!list || !list.length) return '';
+    var head = '<tr><th class="stable__dev" scope="col">Model</th>' +
+      SPEC_COLS.map(function (c) {
+        return '<th scope="col" title="' + esc(c.title) + '">' + esc(c.label) +
+          ' <span class="stable__u">(' + esc(c.unit) + ')</span></th>';
+      }).join('') + '</tr>';
+    var rows = list.map(function (m) {
+      var isMaster = m.id === opts.masterId;
+      var isHit = !isMaster && !!opts.hitId && m.id === opts.hitId;
+      var sel = !!opts.sel && opts.sel.id === m.id;
+      return '<tr class="' + (sel ? 'is-on' : '') + (isMaster ? ' is-master' : '') + '" ' +
+        'data-act="' + esc(opts.act || 'pick-device') + '" data-id="' + esc(m.id) + '" tabindex="0">' +
+        '<th class="stable__dev" scope="row"><span class="stable__devin">' + thumbHTML(m) +
+          '<span class="stable__n">' + esc(m.fullName) + '</span>' +
+          (isMaster ? '<span class="stable__flag" title="Master model">' + icon('crown') +
+            '<span class="sr">Master model</span></span>' : '') +
+          (isHit ? '<span class="stable__flag stable__flag--hit" title="Your model">' + icon('check') +
+            '<span class="sr">Your model</span></span>' : '') +
+        '</span></th>' +
+        SPEC_COLS.map(function (c) {
+          return '<td class="stable__v">' + specValue(c, m) + '</td>';
+        }).join('') +
+        '</tr>';
+    }).join('');
+    return '<div class="stable-wrap" role="region" aria-label="Specifications" tabindex="0">' +
+      '<table class="stable"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /* A list of models in whichever view is chosen. Long lists keep their brand
+     headings in compact and grid; the table is one table, in the same order,
+     because a table split by brand is a table you cannot compare down. */
+  function modelListHTML(list, opts) {
+    opts = opts || {};
+    var view = listView(opts.view);
+    var byBrand = list.length > (opts.brandsAbove || 0);
+    if (view === 'table') {
+      return specTableHTML(byBrand ? brandOrdered(list, opts.masterId) : list, opts);
+    }
+    var o = {};
+    Object.keys(opts).forEach(function (k) { o[k] = opts[k]; });
+    o.view = view;
+    o.card = view === 'grid';
+    return byBrand ? brandBlocksHTML(list, o) : chipGridHTML(list, o);
   }
 
   /* --------------------------------------------------------- brand blocks
@@ -925,9 +1114,10 @@
 
      @param {Array}  list  the devices to show, already filtered
      @param {object} opts  as deviceChipHTML, plus masterId deciding the order */
-  function brandBlocksHTML(list, opts) {
-    opts = opts || {};
-    var master = db.modelById[opts.masterId];
+  /* The brands of a list, in the order the blocks are drawn: the master's own
+     brand first, then by how many devices each contributes. */
+  function brandGroups(list, masterId) {
+    var master = db.modelById[masterId];
     var masterBrand = master ? master.brandId : null;
 
     var order = [];
@@ -948,9 +1138,19 @@
       var bn = (db.brandById[b] || {}).name || b;
       return an.localeCompare(bn);
     });
+    return order.map(function (bid) { return { bid: bid, list: byBrand[bid] }; });
+  }
 
-    return order.map(function (bid) {
-      var mine = byBrand[bid];
+  /* The same order, as one list — the table's rows. */
+  function brandOrdered(list, masterId) {
+    return brandGroups(list, masterId).reduce(function (out, g) { return out.concat(g.list); }, []);
+  }
+
+  function brandBlocksHTML(list, opts) {
+    opts = opts || {};
+    return brandGroups(list, opts.masterId).map(function (grp) {
+      var bid = grp.bid;
+      var mine = grp.list;
       var b = db.brandById[bid] || { id: bid, name: mine[0].brand || bid };
       return '<section class="gbrand">' +
         '<h3 class="gbrand__h">' +
@@ -963,74 +1163,20 @@
     }).join('');
   }
 
-  /* ---------------------------------------------------- the master banner
-
-     What the group is, said at the size of a heading: the master handset on
-     the white tile its photograph was shot for, its name, how many devices the
-     group links, how many brands those come from, the part codes, and the
-     part itself on the right.
-
-     It is drawn in the app's own Master Model language — --grad-bench, white
-     type, the amber glow — the same treatment .mastercard gives the master of
-     every match card, so "the master" looks like one thing wherever it
-     appears.
-
-     It is NOT sticky, on purpose. Shrinking a stuck header is a layout change:
-     every device under it moves up by the difference, which is a visible jump,
-     and in Safari — which has no scroll anchoring to hide it — a real one. So
-     the banner simply scrolls, like the content it is, underneath a toolbar
-     that never changes height, and the toolbar shows its compact copy of the
-     same identity once this one is out of sight. One header, two states, and
-     nothing below it ever moves. */
-  function groupHeroHTML(row) {
-    var g = row.group, cat = row.category, master = row.master;
-    var codes = [g.groupNumber, g.partCode, g.oemPartNo].filter(Boolean).join(' · ');
-    var total = groupMemberCount(g);
-
-    /* Brands, counted from the same member list the grid is built from, so
-       the number and the headings below it cannot disagree. Zero for a free
-       account, which has no member list — the banner leaves the phrase out
-       rather than claiming "0 brands". */
-    var seen = Object.create(null), brands = 0;
-    (openGroupMembers() || []).forEach(function (m) {
-      var b = m.brandId || '?';
-      if (!seen[b]) { seen[b] = 1; brands++; }
-    });
-
-    return '<section class="ghero" aria-labelledby="gheroName">' +
-      '<span class="ghero__shot">' +
-        SM.art.photo(master, { alt: master.fullName, eager: true, cls: 'ghero__ph' }) +
-      '</span>' +
-      '<div class="ghero__id">' +
-        /* Two phrases, each in its own span, so a narrow banner wraps BETWEEN
-           them rather than inside them. As bare text in a flex row each phrase
-           was its own shrinking column, and a phone read "MASTER / MODEL" and
-           "SCREEN / GUARDS" side by side. */
-        '<span class="ghero__eyebrow">' +
-          '<span class="ghero__tag">' + icon('crown') + 'Master model</span>' +
-          (cat ? '<span class="ghero__tag"><i aria-hidden="true"></i>' + esc(cat.name) + '</span>' : '') +
-        '</span>' +
-        '<h2 class="ghero__n" id="gheroName">' + esc(deviceTitle(master)) + '</h2>' +
-        '<div class="ghero__meta">' +
-          '<span class="ghero__count" data-gcount>' +
-            esc(deviceCountLabel(total, 'linked')) + '</span>' +
-          (brands ? '<span class="ghero__fact">' + nf(brands) +
-            (brands === 1 ? ' brand' : ' brands') + '</span>' : '') +
-          (codes ? '<span class="ghero__codes">' + esc(codes) + '</span>' : '') +
-        '</div>' +
-      '</div>' +
-      categoryVisual(cat, { cls: 'catvis--hero' }) +
-      '</section>';
-  }
-
+  /* The header, then one toolbar — the filter and the view — then the list.
+     The toolbar is not sticky: the header is the one thing that stays, so the
+     list keeps the height of the screen. */
   function groupCenterHTML(row) {
-    return groupBarHTML(row) +
-      groupHeroHTML(row) +
-      '<div class="fbar"><div class="field grow">' + icon('search') +
-        '<input class="input" id="gdqm" placeholder="Filter these devices…" ' +
-        'value="' + esc(state.finder.groupQ || '') + '" ' +
-        'aria-label="Filter devices in this group" /></div></div>' +
-      '<div id="groupList" class="glist">' + groupListHTML(row) + '</div>';
+    return groupHeadHTML(row) +
+      '<div class="gtools">' +
+        '<label class="field gtools__filter">' + icon('search') +
+          '<input class="input" id="gdq" type="search" placeholder="Filter these devices…" ' +
+          'value="' + esc(state.finder.groupQ || '') + '" autocomplete="off" ' +
+          'aria-label="Filter devices in this group" /></label>' +
+        listViewSwitchHTML(listView(state.finder.groupView), 'group-view') +
+      '</div>' +
+      '<div id="groupList" class="glist glist--' + listView(state.finder.groupView) + '">' +
+        groupListHTML(row) + '</div>';
   }
 
   /* Just the list. Repainted on its own when the filter changes, so the input
@@ -1127,7 +1273,9 @@
           ? 'No device in this group matches that filter.'
           : 'No devices are recorded in this group yet.') + '</span></div>';
     }
-    return brandBlocksHTML(shown, { masterId: row.master.id, sel: sel, card: true }) +
+    return modelListHTML(shown, {
+      view: state.finder.groupView, masterId: row.master.id, sel: sel, act: 'pick-device'
+    }) +
       (list.length > shown.length
         ? '<div class="loadmore"><button class="btn btn--outline" data-act="more-devices">' +
           'Show ' + nf(list.length - shown.length) + ' more</button></div>'
@@ -1162,8 +1310,15 @@
       if (!g) {
         state.finder.groupLoadFailed = true;
         state.finder.groupMembers = null;
+      } else if (g.requiresPlan) {
+        /* The server has just said this account may not open groups — and,
+           in the same response, who the account is. That is the answer the
+           gate in route() was waiting for. */
+        state.finder.groupLocked = true;
+        state.finder.groupMembers = [];
+        if (refuseGroup(groupId)) return;
       } else {
-        state.finder.groupLocked = !!g.requiresPlan;
+        state.finder.groupLocked = false;
         state.finder.groupMembers = Array.isArray(g.members) ? g.members : [];
         state.finder.groupLoadFailed = false;
       }
@@ -1333,82 +1488,27 @@
      ResizeObserver where it exists, which is every browser this app supports
      bar none; the initial write covers the rest, and a wrong value there costs
      a few pixels of overlap on one heading, not a broken list. */
+  /* .gbar is the selected model's header; .ghead the opened group's. One of
+     them, at most, is on the page. */
+  var STICKY_HEAD = '.ghead, .gbar';
   var gbarRO = null;
-  var gbarLastH = 0;
   function measureGbar() {
-    var bar = document.querySelector('.gbar');
+    var bar = document.querySelector(STICKY_HEAD);
     var host = document.documentElement;
-    if (!bar) { host.style.removeProperty('--gbar-h'); observeHeroDock(); return; }
+    if (gbarRO) { gbarRO.disconnect(); gbarRO = null; }
+    if (!bar) { host.style.removeProperty('--gbar-h'); return; }
     var h = Math.round(bar.getBoundingClientRect().height);
     if (h > 0) host.style.setProperty('--gbar-h', h + 'px');
-    gbarLastH = h;
-    observeHeroDock();
 
     if (global.ResizeObserver) {
-      if (gbarRO) gbarRO.disconnect();
       gbarRO = new ResizeObserver(function () {
-        var b = document.querySelector('.gbar');
+        var b = document.querySelector(STICKY_HEAD);
         if (!b) return;
         var n = Math.round(b.getBoundingClientRect().height);
         if (n > 0) host.style.setProperty('--gbar-h', n + 'px');
-        /* The dock line IS the bottom of this bar. When the bar changes height
-           the line moves, and the observer watching for it has to be told. */
-        if (n !== gbarLastH) { gbarLastH = n; observeHeroDock(); }
       });
       gbarRO.observe(bar);
     }
-  }
-
-  /* ------------------------------------------------------- the dock line
-
-     When the banner's name has scrolled fully under the toolbar, the toolbar
-     takes over saying who the group belongs to: its compact identity fades in
-     and its shadow appears. Scrolling back reverses it.
-
-     An IntersectionObserver rather than a scroll handler: the browser works
-     out the crossing off the main thread and calls back twice per journey,
-     where a scroll listener would run a layout read on every frame of a
-     325-device fling. The root is whatever is actually scrolling the group —
-     the centre column on a desktop, the sheet on a phone — and its top edge is
-     pulled down by the toolbar's own height, so "out of view" means "under the
-     bar", not "off the screen".
-
-     The class changes opacity, transform and a shadow and nothing else. The
-     bar's height does not change in either state, so nothing below it moves. */
-  var heroIO = null;
-  function observeHeroDock() {
-    if (heroIO) { heroIO.disconnect(); heroIO = null; }
-    var bar = document.querySelector('.gbar--hero');
-    if (!bar) return;
-    var name = document.querySelector('.ghero__n');
-
-    /* Nothing to watch, or nothing to watch it with. A sticky header that is
-       blank for ever is worse than one that was never large, so the compact
-       identity is simply shown. */
-    if (!name || !global.IntersectionObserver) {
-      bar.classList.add('is-docked');
-      return;
-    }
-
-    /* Decided once now, synchronously, so a group re-rendered while already
-       scrolled — a category tapped halfway down the list — does not show an
-       empty toolbar for the frame before the observer's first report. */
-    var barRect = bar.getBoundingClientRect();
-    bar.classList.toggle('is-docked', name.getBoundingClientRect().bottom <= barRect.bottom + 1);
-
-    heroIO = new IntersectionObserver(function (entries) {
-      var e = entries[entries.length - 1];
-      var b = document.querySelector('.gbar--hero');
-      if (!b || !e) return;
-      var top = e.rootBounds ? e.rootBounds.top : 0;
-      /* Below the viewport is not "docked" — only above it, under the bar. */
-      b.classList.toggle('is-docked', !e.isIntersecting && e.boundingClientRect.bottom <= top + 1);
-    }, {
-      root: wsScroller(),
-      rootMargin: '-' + Math.round(barRect.height) + 'px 0px 0px 0px',
-      threshold: 0
-    });
-    heroIO.observe(name);
   }
 
   /* True when the finder is showing a RESULT rather than the library: a group
@@ -1538,14 +1638,19 @@
        old pass wrote two attributes on all 325 chips for every pick, which is
        325 style invalidations to move one highlight. */
     var want = sel ? sel.id : null;
-    var prev = document.querySelector('.gchip.is-on');
+    /* Whichever view the list is in: a compact chip, a card or a table row. */
+    var PICK = '#groupList [data-act="pick-device"]';
+    var prev = document.querySelector(PICK + '.is-on');
     if (prev && prev.getAttribute('data-id') !== want) {
       prev.classList.remove('is-on');
-      prev.setAttribute('aria-pressed', 'false');
+      if (prev.hasAttribute('aria-pressed')) prev.setAttribute('aria-pressed', 'false');
     }
     if (want) {
-      var next = document.querySelector('.gchip[data-id="' + cssEsc(want) + '"]');
-      if (next) { next.classList.add('is-on'); next.setAttribute('aria-pressed', 'true'); }
+      var next = document.querySelector(PICK + '[data-id="' + cssEsc(want) + '"]');
+      if (next) {
+        next.classList.add('is-on');
+        if (next.hasAttribute('aria-pressed')) next.setAttribute('aria-pressed', 'true');
+      }
     }
   }
 
@@ -1579,7 +1684,8 @@
   function backToDeviceList() {
     var body = document.querySelector('.ws__body--sheet');
     if (!body) return;
-    var chip = document.querySelector('.gchip.is-on') || document.querySelector('.gchip');
+    var chip = document.querySelector('#groupList [data-act="pick-device"].is-on') ||
+      document.querySelector('#groupList [data-act="pick-device"]');
     if (chip && chip.scrollIntoView) chip.scrollIntoView({ behavior: 'auto', block: 'center' });
   }
 
@@ -1812,16 +1918,60 @@
     );
   }
 
-  /* Category priority used by the Result page — both for the rail order and
-     for the grouped "All Parts" listing. Anything not listed follows after. */
-  var RESULT_CAT_ORDER = ['tempered-glass', 'back-cover', 'combo-display', 'middle-frame', 'cc-board', 'battery'];
+  /* THE RESULT PAGE'S CATEGORIES, IN A FIXED ORDER, WITH THE COUNTER'S NAMES.
+
+     Written as the words a shop uses and resolved to the catalogue's own ids
+     through SM.categoryAssets — so "tempered glass" lands on screen-guards
+     and "combo display" on combo-display, and nothing here can invent a
+     second category for an id it misspelt. That is exactly what the list this
+     replaces did: it named 'tempered-glass', which is not an id, so Screen
+     Guards fell to the END of the rail, after Battery, and the result page
+     opened on "All Parts" instead of on the glass.
+
+     The order is this list's, not the database's and not the alphabet's.
+     A category the catalogue adds later follows the six, in its own order.
+     There is no "All Parts": a result is always one category's group. */
+  var RESULT_CATS = [
+    { key: 'tempered glass', label: 'Tempered Glass' },
+    { key: 'back cover', label: 'Back Cover' },
+    { key: 'combo display', label: 'Combo / Display' },
+    { key: 'middle frame', label: 'Middle Frame' },
+    { key: 'battery', label: 'Battery' },
+    { key: 'cc board', label: 'CC Board' }
+  ];
 
   function resultCategories() {
-    var byId = {}, out = [];
-    db.categories.forEach(function (c) { byId[c.id] = c; });
-    RESULT_CAT_ORDER.forEach(function (id) { if (byId[id]) { out.push(byId[id]); byId[id] = null; } });
-    db.categories.forEach(function (c) { if (byId[c.id]) out.push(c); });
+    var out = [], used = {};
+    RESULT_CATS.forEach(function (rc) {
+      var id = (SM.categoryAssets && SM.categoryAssets.resolve(rc.key)) || rc.key;
+      var c = db.categoryById[id];
+      if (c && !used[c.id]) { used[c.id] = 1; out.push(c); }
+    });
+    db.categories.forEach(function (c) { if (!used[c.id]) out.push(c); });
     return out;
+  }
+
+  /* The name a category goes by on the result page. */
+  function resultCatLabel(c) {
+    if (!c) return '';
+    for (var i = 0; i < RESULT_CATS.length; i++) {
+      var id = SM.categoryAssets && SM.categoryAssets.resolve(RESULT_CATS[i].key);
+      if (id === c.id) return RESULT_CATS[i].label;
+    }
+    return c.name;
+  }
+
+  /* Where a freshly searched model opens: Tempered Glass when it has one,
+     otherwise the first category in the order above that it DOES have a group
+     in — read from the public per-category counts, so it is decided before
+     the server has answered and the first frame is already the right one. A
+     model with no group anywhere opens on Tempered Glass and its honest
+     empty state. */
+  function defaultResultCategory(modelId) {
+    var counts = (db.partCountsByCategory && db.partCountsByCategory[modelId]) || {};
+    var cats = resultCategories().filter(function (c) { return !c.comingSoon; });
+    for (var i = 0; i < cats.length; i++) if (counts[cats[i].id] > 0) return cats[i].id;
+    return cats.length ? cats[0].id : null;
   }
 
   /* A category the catalogue carries but has no groups for yet.
@@ -1892,13 +2042,11 @@
   function resultRailHTML() {
     var f = state.finder;
     var avail = f.avail;
-    var total = avail ? Object.keys(avail).reduce(function (n, k) { return n + avail[k]; }, 0) : null;
     return '<div class="crail" role="group" aria-label="Part categories">' +
-      railItem({ id: 'all', name: 'All Parts', count: total, on: !f.catId, act: 'pick-cat-rail' }) +
       resultCategories().map(function (c) {
         var n = avail ? (avail[c.id] || 0) : null;
         return railItem({
-          id: c.id, name: c.name, count: n, color: c.color, soon: c.comingSoon,
+          id: c.id, name: resultCatLabel(c), count: n, color: c.color, soon: c.comingSoon,
           on: f.catId === c.id, empty: n === 0, act: catAct(c.id, 'pick-cat-rail')
         });
       }).join('') +
@@ -1924,7 +2072,10 @@
   }
   function activeFilterCount() {
     var f = state.finder.filters;
-    return (f.brandId !== 'all' ? 1 : 0) + (f.catId !== 'all' ? 1 : 0) + (f.sort !== 'mixed' ? 1 : 0) + (f.view && f.view !== 'both' ? 1 : 0);
+    /* On a result the category is not a filter — there is always one — so it
+       is not counted as one being applied. */
+    var catOn = f.catId !== 'all' && !state.finder.modelId;
+    return (f.brandId !== 'all' ? 1 : 0) + (catOn ? 1 : 0) + (f.sort !== 'mixed' ? 1 : 0) + (f.view && f.view !== 'both' ? 1 : 0);
   }
 
   /* ---- LEFT panel: part categories as a 2-up grid of icon-over-name tiles --- */
@@ -2012,19 +2163,25 @@
         icon(n === 2 ? 'cols2' : 'cols3') + '</button>';
     };
 
+    /* With a model selected this is the result page's category selector:
+       the result order and names, no "All" tile and no Clear — a result is
+       always one category. Browsing the library keeps the catalogue's own
+       order and the All tile. */
+    var resultMode = !!state.finder.modelId;
+    var cats = resultMode ? resultCategories() : db.categories;
     return '<section class="panel panel--cats">' +
       '<div class="panel__head"><span class="t-lab">Part category</span>' +
       '<span class="row" style="gap:6px">' +
       '<span class="cols" role="group" aria-label="Category grid columns">' +
       colBtn(2) + colBtn(3) + '</span>' +
-      (f.catId !== 'all'
+      (f.catId !== 'all' && !resultMode
         ? '<button class="panel__clear" data-act="filter-cat" data-id="all">' + icon('close') + 'Clear</button>'
         : '<span class="panel__n">' + db.categories.length + '</span>') +
       '</span></div>' +
       '<div class="ctiles ctiles--' + state.catCols + '">' +
-      tile('all', 'All Categories', 'var(--teal-500)', 'grid', db.stats.groups) +
-      db.categories.map(function (c) {
-        return tile(c.id, c.name, c.color, c.icon, c.groupCount);
+      (resultMode ? '' : tile('all', 'All Categories', 'var(--teal-500)', 'grid', db.stats.groups)) +
+      cats.map(function (c) {
+        return tile(c.id, resultMode ? resultCatLabel(c) : c.name, c.color, c.icon, c.groupCount);
       }).join('') +
       addTile +
       '</div></section>';
@@ -2115,7 +2272,7 @@
     /* Firestore pages with a cursor, not a page number — there is no OFFSET
        that skips for free, so "page 10" would re-read pages 1-9. The cursor is
        the last document of the previous page and is cleared on a new query. */
-    if (reset) { f.page = 1; f.rows = []; f.cursor = null; }
+    if (reset) { f.page = 1; f.rows = []; f.cursor = null; f.rowsReady = false; }
     f.busy = true;
     var res = document.getElementById('results');
     if (reset && res) res.innerHTML = C.skelPlates(6);
@@ -2140,7 +2297,8 @@
       if (reset) { f.trending = r.trending || []; f.suggest = r.suggest || []; }
       f.restTotal = r.restTotal == null ? r.total : r.restTotal;
       f.rows = reset ? r.items : f.rows.concat(r.items);
-      paintGroups();
+      var cards = r.items.concat(reset ? (f.trending || []).concat(f.suggest || []) : []);
+      withPreviews(cards, function () { f.rowsReady = true; paintGroups(); });
     });
 
     /* The handset strip is its own read — a different question over a
@@ -2152,12 +2310,33 @@
           categoryId: f.filters.catId, brandId: f.filters.brandId, limit: 14
         }).then(function (models) {
           f.newModels = models || [];
-          paintGroups();
+          /* Not before the groups themselves are on their way to the page:
+             painting the handset strip over an empty group list would flash
+             "no group matches" while the cards are still being prepared. */
+          if (f.rowsReady) paintGroups();
         });
       } else {
         f.newModels = [];
       }
     }
+  }
+
+  /* The model names on the cards about to be painted, fetched first so a
+     card is drawn once with its names in it rather than growing a moment
+     later under the reader's thumb. Not waited on for long: past PREVIEW_WAIT
+     the cards are painted without, and C.fillPreviews puts the names into
+     their reserved slots when they arrive. */
+  var PREVIEW_WAIT = 1200;
+  function withPreviews(rows, paint) {
+    var ids = (rows || []).map(function (row) { return row && row.group && row.group.groupId; })
+      .filter(function (id) { return id && SM.access && !SM.access.previewOf(id); });
+    if (!ids.length || !SM.access || !SM.access.previews) { paint(); return; }
+    var painted = false;
+    var timer = setTimeout(function () { painted = true; paint(); }, PREVIEW_WAIT);
+    SM.access.previews(ids).then(function () {
+      if (!painted) { clearTimeout(timer); painted = true; paint(); return; }
+      C.fillPreviews(document.getElementById('results'));
+    });
   }
 
   /* The suggestion sections are shown while BROWSING, and stand down for
@@ -2177,6 +2356,11 @@
     var lm = document.getElementById('loadmore');
     var cnt = document.getElementById('gcount');
     if (!res) return;
+    /* The library is painted only while the library is what the centre column
+       is showing. A page of groups can land late — its card previews are
+       waited for — and by then a model may have been searched or a group
+       opened; painting it then would put the whole feed under that result. */
+    if (state.route.name !== 'finder' || f.groupId || f.modelId) return;
     if (cnt) cnt.textContent = nf(f.total) + (f.total === 1 ? ' group' : ' groups');
 
     var trending = sectionWanted(f, 'trending') ? (f.trending || []) : [];
@@ -2459,33 +2643,30 @@
       if (!rows.length) {
         var cnt0 = document.getElementById('gcount');
         if (cnt0) cnt0.textContent = 'no matches';
+        /* The categories this model DOES have a group in, as the way on —
+           named, and in the result order, rather than an "all parts" list
+           the result page no longer has. */
+        var have = (db.partCountsByCategory && db.partCountsByCategory[f.modelId]) || {};
+        var others = resultCategories().filter(function (c) {
+          return c.id !== f.catId && !c.comingSoon && have[c.id] > 0;
+        });
         host.innerHTML = C.state({
           icon: 'alert', brand: true,
           title: 'No Compatibility Found',
           text: esc(m.fullName) + ' is in the database but has no ' +
-            (cat ? cat.name.toLowerCase() + ' ' : '') + 'compatibility group' +
+            (cat ? esc(resultCatLabel(cat).toLowerCase()) + ' ' : '') + 'compatibility group' +
             (f.filters.brandId !== 'all' && db.brandById[f.filters.brandId]
               ? ' under ' + esc(db.brandById[f.filters.brandId].name) : '') +
-            ' yet. Nothing unrelated is shown in its place — try another part category, or clear the filters.',
-          action: '<div class="row" style="gap:8px"><button class="btn btn--soft" data-act="clear-cat">' + icon('layers') + 'Try all categories</button>' +
+            ' yet. Nothing unrelated is shown in its place' +
+            (others.length ? ' — it does have a group in these:' : '.'),
+          action: '<div class="row wrap" style="gap:8px;justify-content:center">' +
+            others.map(function (c) {
+              return '<button class="btn btn--soft" data-act="pick-cat-rail" data-id="' + esc(c.id) + '">' +
+                esc(resultCatLabel(c)) + '</button>';
+            }).join('') +
             '<button class="btn btn--outline" data-act="clear-model">' + icon('grid') + 'Browse all groups</button></div>'
         });
         return;
-      }
-
-      var catCount = {};
-      rows.forEach(function (r) { catCount[r.group.categoryId] = 1; });
-      var nCats = Object.keys(catCount).length;
-
-      /* All Parts: keep categories together, in the agreed priority order,
-         instead of interleaving them */
-      if (!cat) {
-        var order = {};
-        resultCategories().forEach(function (c, i) { order[c.id] = i; });
-        rows = rows.slice().sort(function (a, b) {
-          return (order[a.group.categoryId] - order[b.group.categoryId]) ||
-            a.group.groupNumber.localeCompare(b.group.groupNumber);
-        });
       }
 
       var shown = rows.slice(0, f.matchShown);
@@ -2501,29 +2682,11 @@
         if (linkedNow == null) gc.textContent = '';
         else gc.textContent = deviceCountLabel(linkedNow, 'linked');
       }
-      var head =
-        (rows.length > 1 && !cat
-          ? '<div class="notice notice--brand" style="margin-bottom:14px">' + icon('layers') +
-          '<span><b>' + esc(m.fullName) + '</b> appears in ' + rows.length + ' compatibility groups across ' +
-          nCats + ' part ' + (nCats === 1 ? 'category' : 'categories') + '. Pick a category above to narrow it down.</span></div>'
-          : '');
-
-      var lastCat = null;
-      host.innerHTML = head + shown.map(function (row) {
-        var heading = '';
-        /* a heading before the first card of each category block */
-        if (!cat && row.group.categoryId !== lastCat) {
-          lastCat = row.group.categoryId;
-          var c = row.category;
-          var n = rows.filter(function (r) { return r.group.categoryId === c.id; }).length;
-          heading = '<div class="catgroup" style="--c:' + c.color + '">' +
-            SM.art.category(c.id, 'pthumb--head', c.name) +
-            '<span class="catgroup__name">' + esc(c.name) + '</span>' +
-            '<span class="catgroup__n">' + n + (n === 1 ? ' group' : ' groups') + '</span>' +
-            '</div>';
-        }
-        return heading + matchCard(row, m);
-      }).join('');
+      /* One category is always selected, so this is that category's group —
+         one, by the one-group-per-category rule, and the rare exception still
+         gets a card each. Expanded: the devices are on the card, with no
+         "Open group" between the reader and the answer. */
+      host.innerHTML = shown.map(function (row) { return matchCard(row, m); }).join('');
 
       /* "Show more" belongs in the column's own footer slot, the same one the
          library view uses, so the two views scroll and paginate identically. */
@@ -2551,65 +2714,134 @@
     return row.devices || [];
   }
 
+  /* The free preview of a row: the master, then the handful the server chose
+     for it, resolved against the catalogue for photographs and specs. Never
+     more than the server sent, and never the master twice. */
+  function previewDevices(row) {
+    var out = [], seen = Object.create(null);
+    var add = function (m) { if (m && !seen[m.id]) { seen[m.id] = 1; out.push(m); } };
+    add(row.master);
+    (row.preview || []).forEach(add);
+    return out;
+  }
+
+  /* "13 more devices — part of a plan", under a preview. The count is the
+     group's own, which is public; the names are not in the page. */
+  function lockRowHTML(n) {
+    if (!(n > 0)) return '';
+    return '<div class="lockrow">' +
+      '<span class="lockrow__ico">' + icon('lock') + '</span>' +
+      '<span class="lockrow__t"><b>' + nf(n) + ' more compatible device' + (n === 1 ? '' : 's') +
+        '</b> — the full list is part of a plan.</span>' +
+      '<button class="btn btn--primary btn--sm" data-act="go-plans">' + icon('crown') + 'See plans</button>' +
+      '</div>';
+  }
+
+  /* The devices on a match card, in the chosen view.
+
+       subscriber   every device in the group
+       free         the preview, and a line saying how many more there are
+
+     The free preview is exactly the names the server put in the response;
+     nothing here can widen it, because nothing else was sent. */
+  function matchListHTML(row, hitModel) {
+    var view = listView(state.finder.resultView);
+    var total = row.deviceCount || row.group.compatibleCount || 0;
+    var opts = { view: view, masterId: row.master.id, hitId: hitModel && hitModel.id, act: 'open-model' };
+
+    if (row.requiresPlan) {
+      var preview = previewDevices(row);
+      opts.brandsAbove = Infinity;
+      return modelListHTML(preview, opts) + lockRowHTML(Math.max(0, total - preview.length));
+    }
+    var devices = groupDevices(row);
+    if (!devices.length) {
+      return '<p class="t-xs muted" style="margin:0">No devices are recorded in this group yet.</p>';
+    }
+    /* Brand headings earn their place on a long list and are noise on a short
+       one: five devices under one heading is a heading saying what the five
+       already say. */
+    opts.brandsAbove = 12;
+    return modelListHTML(devices, opts);
+  }
+
+  /* A change of view repaints the lists on the cards and nothing else — the
+     header, the codes and the scroll position stay exactly where they were. */
+  function repaintMatchLists() {
+    var hit = db.modelById[state.finder.modelId];
+    var rows = state.finder.matches || [];
+    Array.prototype.forEach.call(document.querySelectorAll('[data-match-list]'), function (el) {
+      var id = el.getAttribute('data-match-list');
+      var row = rows.filter(function (r) { return r.group.groupId === id; })[0];
+      if (row) el.innerHTML = matchListHTML(row, hit);
+    });
+  }
+
+  /* ONE GROUP, OPEN.
+
+     What the result page was opened to answer, in reading order: that there is
+     a match, which part and which group; the master model it is named after
+     and the part itself; the codes a counter quotes; then the compatible
+     devices — on the card, in the chosen view, with nothing to press first.
+
+     It used to put a full-width green master card and a two-by-two grid of
+     codes above the list, which on a phone was the whole first screen; the
+     same facts sit in one row and one line now, so the devices start where
+     the reader is already looking. "Open group" stays, for the full page with
+     its filter and specifications panel — it is no longer the way IN. */
   function matchCard(row, hitModel) {
     var g = row.group, cat = row.category, master = row.master;
-    /* THE WHOLE LIST, not a preview.
-
-       This card used to name eight devices and end with "View all 47
-       compatible models", which is a button between the reader and the answer
-       they came for — and the destination was the same list on another screen.
-       The devices are here now, all of them, directly under the group's own
-       details. The card grew; the journey did not. */
     var devices = groupDevices(row);
-    var total = devices.length || g.compatibleCount || 0;
+    var total = row.deviceCount || devices.length || g.compatibleCount || 0;
     var included = !row.requiresPlan &&
       devices.some(function (d) { return d.id === hitModel.id; });
+    var codes = [
+      ['Part code', row.partCode || g.partCode],
+      ['Group', g.groupNumber],
+      ['Serial', g.serialNumber],
+      ['Manufacturer part no.', row.oemPartNo || g.oemPartNo]
+    ].filter(function (c) { return c[1]; });
 
-    /* Brand blocks earn their headings on a long list and are noise on a short
-       one: five devices under one heading is a heading saying what the five
-       already say. The cut is where a list stops being readable in one glance. */
-    /* WITHHELD, NOT MISSING. `row.requiresPlan` is the server saying this
-       account may not read the list; the list is therefore not in `devices`
-       and never was. The sentence this replaces — "the devices in this group
-       are not in the local catalogue" — described a loading quirk and is
-       exactly the wrong thing to tell a free user, because it reads as the
-       catalogue being incomplete rather than as the product being paid for. */
-    var list = row.requiresPlan
-      ? paywallHTML({ count: total, what: 'the devices this part fits' })
-      : (devices.length
-          ? (devices.length > 12
-              ? brandBlocksHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' })
-              : chipGridHTML(devices, { masterId: master.id, hitId: hitModel.id, act: 'open-model' }))
-          : '<p class="t-xs muted" style="margin:0">No devices are recorded in ' +
-            'this group yet.</p>');
-
-    return '<div class="match" style="margin-bottom:14px">' +
+    return '<article class="match match--open">' +
       '<div class="match__head">' +
-      '<span class="match__badge">' + icon('checkCircle') + 'Match found</span>' +
-      '<span class="pill pill--code">' + esc(g.groupNumber) + '</span>' +
-      '<span class="pill" style="background:' + cat.color + '18;color:' + cat.color + '">' + icon(cat.icon) + esc(cat.name) + '</span>' +
-      '<button class="btn btn--ghost btn--sm" style="margin-left:auto" data-act="open-group" data-id="' + g.groupId + '">' +
-      'Open group ' + icon('arrowRight') + '</button>' +
+        '<span class="match__badge">' + icon('checkCircle') + 'Match found</span>' +
+        '<span class="pill pill--code">' + esc(g.groupNumber) + '</span>' +
+        '<span class="pill" style="background:' + cat.color + '18;color:' + cat.color + '">' +
+          icon(cat.icon) + esc(resultCatLabel(cat)) + '</span>' +
+        '<button class="btn btn--ghost btn--sm match__open" data-act="open-group" data-id="' + esc(g.groupId) + '">' +
+          'Open group ' + icon('arrowRight') + '</button>' +
       '</div>' +
-      '<div class="match__body">' +
-      '<div class="stack" style="gap:14px">' +
-      C.masterCard(master, cat) +
-      C.idGrid(g) +
+
+      '<div class="mrow">' +
+        '<span class="mrow__shot">' + SM.art.photo(master, { alt: master.fullName, cls: 'mrow__ph' }) + '</span>' +
+        '<span class="mrow__id">' +
+          '<span class="masterflag">' + icon('crown') + 'Master model</span>' +
+          '<span class="mrow__n">' + esc(master.fullName) + '</span>' +
+          '<span class="mrow__meta">' +
+            [ master.displaySize ? esc(master.displaySize) + '&Prime; display' : null,
+              master.releaseDate ? esc(master.releaseDate) : null
+            ].filter(Boolean).join(' · ') + '</span>' +
+        '</span>' +
+        '<span class="mrow__part">' + SM.art.category(cat.id, 'pthumb--mrow', cat.name) + '</span>' +
       '</div>' +
-      '<div class="stack" style="gap:12px">' +
+
+      (codes.length ? '<dl class="mcodes">' + codes.map(function (c) {
+        return '<div class="mcodes__i"><dt>' + esc(c[0]) + '</dt><dd>' + esc(c[1]) + '</dd></div>';
+      }).join('') + '</dl>' : '') +
+
       '<div class="complist__head">' +
-      '<span class="t-lab">Compatible devices</span>' +
-      '<span class="pill pill--brand">' + nf(total) + ' total</span>' +
-      /* Read off the list actually rendered rather than assumed from "the hit
-         is not the master": a group can hold the searched-for device without
-         it being either. */
-      (included && master.id !== hitModel.id
-        ? '<span class="pill pill--ok">' + icon('check') + esc(hitModel.modelName) + ' included</span>'
-        : '') +
+        '<span class="t-lab">Compatible devices</span>' +
+        '<span class="pill pill--brand">' + nf(total) + ' total</span>' +
+        /* Read off the list actually rendered rather than assumed from "the
+           hit is not the master": a group can hold the searched-for device
+           without it being either. */
+        (included && master.id !== hitModel.id
+          ? '<span class="pill pill--ok">' + icon('check') + esc(hitModel.modelName) + ' included</span>'
+          : '') +
+        listViewSwitchHTML(listView(state.finder.resultView), 'result-view') +
       '</div>' +
-      list +
-      '</div>' +
-      '</div></div>';
+      '<div class="match__list" data-match-list="' + esc(g.groupId) + '">' + matchListHTML(row, hitModel) + '</div>' +
+      '</article>';
   }
 
   /* ==========================================================================
@@ -3074,9 +3306,10 @@
       '</div></section>' +
 
       '<div class="shell" style="margin-top:-18px;position:relative;z-index:2">' +
+      planNoticeHTML() +
       (s.status === 'expired' ? '<div class="notice notice--amber" style="margin-bottom:16px">' + icon('alert') +
         '<span><b>Your plan has expired.</b> Renew to open compatibility groups ' +
-        'and search without a daily limit again.</span></div>' : '') +
+        'and search without a limit again.</span></div>' : '') +
       activePlanNoticeHTML(s) +
       '<div class="plans">' + SM.PLANS.map(function (p) {
         return C.planCard(p, {
@@ -3103,20 +3336,39 @@
       '<div class="idgrid" style="grid-template-columns:repeat(1,minmax(0,1fr))">' +
       cmp('Browse all mobile models & specs', 'Free', 'Free') +
       cmp('Browse the group library — number, part code, master', 'Free', 'Free') +
-      cmp('Model searches per day', '3', 'Unlimited') +
+      cmp('Model searches', '5 in total', 'Unlimited') +
       cmp('Open a group and see the devices it fits', '—', 'Every group') +
       cmp('Full compatible-device list', '—', 'Included') +
       cmp('Search and filter inside the group library', '—', 'Included') +
       '</div></div>' +
 
       '<div class="notice" style="margin:18px 0 8px">' + icon('info') +
-      '<span><b>What the three free searches show you.</b> A free account can ' +
-      'look up three models a day and see which compatibility groups they ' +
-      'belong to, with the group number and part code. Which other handsets ' +
-      'take the same part — the fitment list — is what a plan unlocks, on ' +
-      'every group and with no daily limit.</span></div>' +
+      '<span><b>What the five free searches show you.</b> Every account gets ' +
+      'five model searches, once — they do not reset. Each shows which ' +
+      'compatibility groups the model belongs to, with the group number, part ' +
+      'code and a few of the other handsets. Opening a group and its full list ' +
+      'of compatible devices is what a plan unlocks, with unlimited ' +
+      'searches.</span></div>' +
       '</div>';
   }
+  /* Why this visitor was just sent here, said once, at the top. */
+  function planNoticeHTML() {
+    var n = state.planNotice;
+    if (!n) return '';
+    if (n.kind === 'search') {
+      var m = n.modelId && db.modelById[n.modelId];
+      return '<div class="notice notice--amber" style="margin-bottom:16px" role="status">' + icon('lock') +
+        '<span><b>You have used your 5 free searches.</b> They are a one-time ' +
+        'allowance for each account and do not reset. Choose a plan to keep searching' +
+        (m ? ' &mdash; <b>' + esc(m.fullName) + '</b> stays in the search box, ready to run.' : '.') +
+        '</span></div>';
+    }
+    return '<div class="notice notice--amber" style="margin-bottom:16px" role="status">' + icon('lock') +
+      '<span><b>Opening a compatibility group needs an active plan.</b> Your free ' +
+      'searches show which groups fit a phone; a plan opens every group and its ' +
+      'full list of compatible devices.</span></div>';
+  }
+
   function cmp(label, free, pro) {
     return '<div class="idcell" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' +
       '<span style="flex:1;min-width:180px;font-weight:600;font-size:14px">' + esc(label) + '</span>' +
@@ -4446,7 +4698,7 @@
      is the account screen telling a shop they have something, and the app
      then refusing it. */
   function freeIncluded() { return [
-    'Three model searches a day',
+    'Five free model searches (one-time, they do not reset)',
     'Browse all ' + nf(db.stats.models) + ' phone models and their specs',
     'Browse every compatibility group — number, part code, master model',
     'See how many devices each group covers'
@@ -4603,7 +4855,7 @@
       '<span><b>Your ' + esc(p ? p.name.toLowerCase() : '') + ' plan expired on ' + esc(sub ? sub.endLabel : '') + '.</b> ' +
       'Your account and its details are untouched, and browsing models and ' +
       'groups still works. Opening a group to see the devices it fits, and ' +
-      'searching without a daily limit, need a plan again.</span></div>' +
+      'searching without a limit, need a plan again.</span></div>' +
 
       (sub ? '<div class="idgrid" style="margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))">' +
         '<div class="idcell"><span>Previous plan</span><b style="font-family:var(--f-ui);font-size:14px">' +
@@ -6203,11 +6455,11 @@
 
     /* The access module has not loaded or has not answered. Ask the server
        anyway — consumeSearch is the thing that decides, and it fails closed. */
-    if (!acc) return denySearch({ needsSignIn: false });
+    if (!acc) return denySearch({ offline: true });
 
-    acc.consumeSearch().then(function (r) {
+    acc.consumeSearch(id).then(function (r) {
       if (r.allowed) { runPickModel(id, opts); renderShellBits(); return; }
-      denySearch(r);
+      denySearch(r, id);
     });
   }
 
@@ -6239,9 +6491,13 @@
     go('/account');
   }
 
-  function denySearch(r) {
+  function denySearch(r, modelId) {
     closeSuggest();
     renderShellBits();
+    /* What they were searching for stays in the box, so it is there to run
+       again the moment a plan is active. */
+    var m = modelId && db.modelById[modelId];
+    if (m) { state.finder.query = m.fullName; syncSearchInputs(true); }
 
     if (r && r.needsSignIn) {
       /* Come back to the Finder once they are in, so signing in finishes the
@@ -6252,7 +6508,16 @@
       go('/account');
       return;
     }
-    toast('Daily free searches used', 'lock');
+    /* Only a 429 means the allowance is spent. Anything else — the server
+       unreachable, a 503 while it is being configured — is a search that could
+       not be RUN, and telling that shop it has used its searches would be
+       false. The search is still refused: an unmetered search never runs. */
+    if (!r || !r.limitReached) {
+      toast('Could not run the search just now — please try again', 'alert');
+      return;
+    }
+    state.planNotice = { kind: 'search', modelId: m ? m.id : null };
+    toast('Your 5 free searches are used', 'lock');
     go('/plans');
   }
 
@@ -6271,21 +6536,17 @@
     var m = db.modelById[id];
     if (!m) return;
     state.finder.modelId = id;
-    /* THE CATEGORY SURVIVES THE MODEL.
+    /* EVERY SEARCH OPENS ON TEMPERED GLASS.
 
        Explicit wins: opts.catId is "find with category" from the device page.
-       Otherwise the category already on screen is kept, because the question
-       being asked does not change when the phone does. Someone comparing the
-       back cover of a Realme 5i with the back cover of a Realme 5 is asking one
-       question about two handsets; dropping them back to All Parts on the
-       second one makes them re-pick the category they never left.
-
-       Nothing needs to check whether the new model HAS a group in that
-       category. findMatches resolves the pairing honestly, and a model with
-       none of that part already has an empty state that says so and offers a
-       way out. Guessing a different category on the reader's behalf would show
-       them a part they did not ask for. */
-    state.finder.catId = opts.catId || state.finder.catId || null;
+       Otherwise a new model opens on Tempered Glass, by the owner's rule,
+       or, when this model has no glass
+       group, on the first category in the result order that it does have.
+       That is decided from the public per-category counts, never by showing a
+       group the model is not in. The category the previous model was on is
+       deliberately NOT carried over: the result page is one fixed starting
+       point, whichever phone was before it. */
+    state.finder.catId = (opts.catId && db.categoryById[opts.catId]) ? opts.catId : defaultResultCategory(id);
     state.finder.filters.catId = state.finder.catId || 'all';
     state.finder.matchShown = 6;
     state.finder.avail = null;
@@ -6417,7 +6678,7 @@
       }
       case 'pick-model': pickModel(id); break;
       /* The search icon on a new-model card. Deliberately the SAME call the
-         search box makes, so this counts against a free account's daily
+         search box makes, so this counts against a free account's five
          searches exactly as typing the name would — a second route to the
          answer must not be a way around the meter. */
       /* One handler for the button and the category chips beside it. Without
@@ -6447,11 +6708,6 @@
            did not ask about — and with every device now rendered in the card,
            "the middle" can be four thousand pixels from the group's own
            details. */
-        resetResultScroll();
-        break;
-      case 'clear-cat':
-        setCategory('all');
-        renderWorkspace();
         resetResultScroll();
         break;
       /* A category that exists but has no groups yet.
@@ -6585,13 +6841,35 @@
          An unanswered question is not a denial, and treating it as one would
          paywall a subscriber for as long as the request takes; the group view
          draws the paywall itself if the answer turns out to be "free". */
+      /* Every route into a group goes through route(), which turns away an
+         account the server has said is not paid — so a card, a button, a
+         typed URL and Back all meet the same gate. */
       case 'open-group':
-        if (SM.access && SM.access.isFree()) {
-          gatedUpgrade('A plan unlocks the devices in a group');
-          break;
-        }
         go('/group/' + id);
         break;
+
+      /* Compact, grid or table — a change of view, not of list. */
+      case 'group-view':
+      case 'result-view': {
+        var nv = listView(t.getAttribute('data-view'));
+        var key = act === 'group-view' ? 'groupView' : 'resultView';
+        if (state.finder[key] === nv) break;
+        state.finder[key] = nv;
+        var bar = t.closest('.lview');
+        if (bar) Array.prototype.forEach.call(bar.querySelectorAll('.lview__b'), function (b) {
+          var on = b.getAttribute('data-view') === nv;
+          b.classList.toggle('is-on', on);
+          b.setAttribute('aria-pressed', String(on));
+        });
+        if (act === 'group-view') {
+          var gl = document.getElementById('groupList');
+          if (gl) gl.className = 'glist glist--' + nv;
+          repaintGroupList();
+        } else {
+          repaintMatchLists();
+        }
+        break;
+      }
 
       /* Picking a device inside an open group changes the right panel and
          nothing else. No navigation, no overlay. */
@@ -6686,7 +6964,7 @@
       }
       case 'open-model': go('/model/' + id); break;
       /* Both of these used to set state.finder.modelId and navigate, which ran
-         a model search without going anywhere near the daily counter — an
+         a model search without going anywhere near the search counter — an
          unlimited free search for anyone who found the button. They go through
          pickModel now, like every other search. */
       case 'find-parts':
@@ -7148,13 +7426,11 @@
     /* Narrowing the devices ALREADY on screen inside an open group. Not the
        same thing as the paid group search above: this filters a list the
        reader has already been shown, and asks the server nothing. */
-    if (el.id === 'gdq' || el.id === 'gdqm') {
+    if (el.id === 'gdq') {
       clearTimeout(gdqTimer);
       gdqTimer = setTimeout(function () {
         state.finder.groupQ = el.value;
         state.finder.groupShown = 400;
-        var gtwin = document.getElementById(el.id === 'gdq' ? 'gdqm' : 'gdq');
-        if (gtwin && gtwin.value !== el.value) gtwin.value = el.value;
         repaintGroupList();
       }, 180);
     }
@@ -7288,6 +7564,10 @@
   document.addEventListener('keydown', function (e) {
     /* keyboard activation for card-shaped controls */
     if ((e.key === 'Enter' || e.key === ' ') && e.target.getAttribute && e.target.getAttribute('role') === 'button') {
+      e.preventDefault(); e.target.click(); return;
+    }
+    /* A focused row of a specification table opens what a click on it opens. */
+    if (e.key === 'Enter' && e.target.tagName === 'TR' && e.target.hasAttribute('data-act')) {
       e.preventDefault(); e.target.click(); return;
     }
     if (e.key === 'Escape') {

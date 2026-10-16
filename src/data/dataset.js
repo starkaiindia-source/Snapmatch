@@ -111,6 +111,11 @@
       bodyRatio: r.br,
       height: r.h != null ? r.h + ' mm' : null,
       width: r.w != null ? r.w + ' mm' : null,
+      /* The same two measurements as numbers, for the specification tables —
+         which put the unit in the column heading and must not parse it back
+         out of a display string. */
+      heightMm: typeof r.h === 'number' ? r.h : null,
+      widthMm: typeof r.w === 'number' ? r.w : null,
       image: r.img,
       sourceUrl: r.src,
 
