@@ -135,6 +135,8 @@ http.createServer((req, res) => {
      section files directly would not exercise the dispatcher at all. */
   const adminApi = /^\/api\/admin\/([A-Za-z0-9_-]+)\/?$/.exec(p);
   if (adminApi) { runApi('admin', req, res, { section: adminApi[1] }); return; }
+  const shopApi = /^\/api\/shop\/([A-Za-z0-9_-]+)\/?$/.exec(p);
+  if (shopApi) { runApi('shop', req, res, { section: shopApi[1] }); return; }
 
   /* The same rewrites vercel.json performs, kept in step by hand because there
      is no way to execute that file locally. Several endpoints share one
@@ -178,7 +180,7 @@ http.createServer((req, res) => {
          sign-in. finder/index.html is a page the app mounts on. vercel.json
          routes the same two paths to the same file. */
       const shellFor = /^\/admin(\/|$)/.test(p) ? 'admin/index.html'
-        : /^\/(account|group)(\/|$)/.test(p) ? 'finder/index.html' : null;
+        : /^\/(account|group|billing)(\/|$)/.test(p) ? 'finder/index.html' : null;
       if (shellFor && !path.extname(p)) {
         const shell = fs.readFileSync(path.join(ROOT, shellFor));
         res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });

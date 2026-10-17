@@ -10,6 +10,12 @@
    the one a looser fake would hide. Writes are applied only when the callback
    resolves, so a thrown error leaves the store untouched, as it would.
 
+   They are also OPTIMISTIC, as the server SDK's are: every document (and every
+   collection a query read) is versioned, and a transaction whose reads changed
+   underneath it before it committed is run again from the top. Two concurrent
+   transactions on one counter therefore behave as they do live — the loser
+   retries against the new value — instead of both committing the same number.
+
    Not shipped: nothing under api/*.js requires this file.
    ========================================================================== */
 'use strict';
@@ -81,7 +87,14 @@ function setPath(obj, path, value) {
 function createFakeFirestore() {
   const store = new Map();          /* full path -> data */
   let autoId = 0;
-  const stats = { reads: 0, writes: 0 };
+  const stats = { reads: 0, writes: 0, retries: 0 };
+  /* path -> write count, for documents and for the collection holding them */
+  const versions = new Map();
+  const parentOf = path => path.split('/').slice(0, -1).join('/');
+  function bump(path) {
+    versions.set(path, (versions.get(path) || 0) + 1);
+    versions.set('col:' + parentOf(path), (versions.get('col:' + parentOf(path)) || 0) + 1);
+  }
 
   function snapshot(path) {
     stats.reads++;
@@ -92,6 +105,7 @@ function createFakeFirestore() {
 
   function applySet(path, data, opts) {
     stats.writes++;
+    bump(path);
     if (opts && opts.merge) {
       const cur = clone(store.get(path)) || {};
       store.set(path, mergeInto(cur, data));
@@ -107,10 +121,12 @@ function createFakeFirestore() {
       throw err;
     }
     stats.writes++;
+    bump(path);
     const cur = clone(store.get(path));
     Object.keys(data).forEach(k => setPath(cur, k, data[k]));
     store.set(path, cur);
   }
+  function applyDelete(path) { bump(path); store.delete(path); }
 
   function docRef(path) {
     return {
@@ -119,7 +135,7 @@ function createFakeFirestore() {
       get: async () => snapshot(path),
       set: async (data, opts) => applySet(path, data, opts),
       update: async data => applyUpdate(path, data),
-      delete: async () => { store.delete(path); },
+      delete: async () => { applyDelete(path); },
       collection: name => collectionRef(path + '/' + name)
     };
   }
@@ -187,7 +203,7 @@ function createFakeFirestore() {
     return {
       set: (ref, data, opts) => { ops.push(() => applySet(ref.path, data, opts)); },
       update: (ref, data) => { ops.push(() => applyUpdate(ref.path, data)); },
-      delete: ref => { ops.push(() => store.delete(ref.path)); },
+      delete: ref => { ops.push(() => applyDelete(ref.path)); },
       commit: async () => {
         /* all-or-nothing, like a real batch */
         const before = new Map(Array.from(store.entries()).map(([k, v]) => [k, clone(v)]));
@@ -198,27 +214,52 @@ function createFakeFirestore() {
   }
 
   async function runTransaction(fn) {
-    const ops = [];
-    let wrote = false;
-    const tx = {
-      get: async refOrQuery => {
-        if (wrote) throw new Error('Firestore transactions require all reads to be executed before all writes.');
-        return refOrQuery.path ? snapshot(refOrQuery.path) : refOrQuery.get();
-      },
-      set: (ref, data, opts) => { wrote = true; ops.push(() => applySet(ref.path, data, opts)); return tx; },
-      update: (ref, data) => { wrote = true; ops.push(() => applyUpdate(ref.path, data)); return tx; },
-      create: (ref, data) => {
-        wrote = true;
-        ops.push(() => { if (store.has(ref.path)) { const e = new Error('ALREADY_EXISTS'); e.code = 6; throw e; } applySet(ref.path, data); });
-        return tx;
-      },
-      delete: ref => { wrote = true; ops.push(() => store.delete(ref.path)); return tx; }
-    };
-    const result = await fn(tx);
-    const before = new Map(Array.from(store.entries()).map(([k, v]) => [k, clone(v)]));
-    try { ops.forEach(op => op()); }
-    catch (err) { store.clear(); before.forEach((v, k) => store.set(k, v)); throw err; }
-    return result;
+    for (let attempt = 1; ; attempt++) {
+      const ops = [];
+      const seen = new Map();          /* version key -> version when read */
+      let wrote = false;
+      const note = key => { if (!seen.has(key)) seen.set(key, versions.get(key) || 0); };
+      const tx = {
+        get: async refOrQuery => {
+          if (wrote) throw new Error('Firestore transactions require all reads to be executed before all writes.');
+          /* A real read is a round trip; yielding here is what lets two
+             concurrent transactions interleave the way they do live. */
+          await new Promise(r => setImmediate(r));
+          if (refOrQuery.path) { note(refOrQuery.path); return snapshot(refOrQuery.path); }
+          note('col:' + refOrQuery._colPath);
+          const res = await refOrQuery.get();
+          res.docs.forEach(d => note(d.ref.path));
+          return res;
+        },
+        getAll: async (...refs) => {
+          const out = [];
+          for (const r of refs) out.push(await tx.get(r));
+          return out;
+        },
+        set: (ref, data, opts) => { wrote = true; ops.push(() => applySet(ref.path, data, opts)); return tx; },
+        update: (ref, data) => { wrote = true; ops.push(() => applyUpdate(ref.path, data)); return tx; },
+        create: (ref, data) => {
+          wrote = true;
+          ops.push(() => { if (store.has(ref.path)) { const e = new Error('ALREADY_EXISTS'); e.code = 6; throw e; } applySet(ref.path, data); });
+          return tx;
+        },
+        delete: ref => { wrote = true; ops.push(() => applyDelete(ref.path)); return tx; }
+      };
+      const result = await fn(tx);
+      /* Commit: synchronous from here on, so nothing can interleave with the
+         check and the writes. Anything read that has since changed means the
+         whole callback runs again, as Firestore does. */
+      const stale = Array.from(seen.entries()).some(([k, v]) => (versions.get(k) || 0) !== v);
+      if (stale) {
+        stats.retries++;
+        if (attempt >= 25) { const e = new Error('ABORTED: too much contention'); e.code = 10; throw e; }
+        continue;
+      }
+      const before = new Map(Array.from(store.entries()).map(([k, v]) => [k, clone(v)]));
+      try { ops.forEach(op => op()); }
+      catch (err) { store.clear(); before.forEach((v, k) => store.set(k, v)); throw err; }
+      return result;
+    }
   }
 
   const db = { collection: collectionRef, doc: docRef, batch, runTransaction };

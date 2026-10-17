@@ -48,6 +48,15 @@
   --bad:          #DC4B52;
   --bad-bg:       #FDECEC;
 
+  /* --- Quick Billing: the shop's own counter wears blue, never the
+         Finder's teal, so it cannot be mistaken for a catalogue view --- */
+  --qb:           #2563EB;
+  --qb-ink:       #1D4ED8;
+  --qb-050:       #EFF4FF;
+  --qb-100:       #DCE7FE;
+  --qb-grad:      linear-gradient(135deg,#1D4ED8 0%,#2563EB 55%,#3B82F6 100%);
+  --qb-glow:      0 10px 26px -10px rgba(37,99,235,.6);
+
   /* --- gradients --- */
   --grad-brand:   linear-gradient(135deg,#0F766E 0%,#12A08C 48%,#10D0A8 100%);
   --grad-amber:   linear-gradient(135deg,#E4711C 0%,#FF8A3D 55%,#FFB347 100%);
@@ -144,6 +153,7 @@
     --amber-100:#43260F; --amber-050:#2A1A0C; --amber-700:#FFB347; --amber-600:#FF8A3D;
     --ok-bg:#0B3A2F; --warn-bg:#3A2A0C; --bad-bg:#3D1A1C;
     --ok:#3DD6A8; --warn:#F5B851; --bad:#FF7B80;
+    --qb:#3B82F6; --qb-ink:#93B4FD; --qb-050:#0F1C36; --qb-100:#1B2F5C;
     --grad-bench: linear-gradient(160deg,#062522 0%,#083C36 45%,#0B5A52 100%);
     --pthumb-bg:#E9F0EE; --pthumb-line:rgba(255,255,255,.14);
     /* brand chips: the wash deepens, the mark lightens, the solids calm down */
@@ -171,6 +181,7 @@
   --amber-100:#43260F; --amber-050:#2A1A0C; --amber-700:#FFB347; --amber-600:#FF8A3D;
   --ok-bg:#0B3A2F; --warn-bg:#3A2A0C; --bad-bg:#3D1A1C;
   --ok:#3DD6A8; --warn:#F5B851; --bad:#FF7B80;
+  --qb:#3B82F6; --qb-ink:#93B4FD; --qb-050:#0F1C36; --qb-100:#1B2F5C;
   --grad-bench: linear-gradient(160deg,#062522 0%,#083C36 45%,#0B5A52 100%);
   --pthumb-bg:#E9F0EE; --pthumb-line:rgba(255,255,255,.14);
   /* brand chips: the wash deepens, the mark lightens, the solids calm down */
@@ -422,6 +433,10 @@ ul{ margin:0; padding:0; list-style:none; }
 .nav__a svg{ width:17px; height:17px; }
 .nav__a:hover{ background:var(--surface-3); color:var(--ink); }
 .nav__a.is-on{ background:var(--teal-050); color:var(--teal-700); }
+/* Quick Billing in the header: blue on the green header in both themes. */
+.topbar .nav__a--qb{ color:#BFD3FF; }
+.topbar .nav__a--qb:hover{ background:rgba(59,130,246,.22); color:#fff; }
+.topbar .nav__a--qb.is-on{ background:#2563EB; color:#fff; box-shadow:0 4px 14px -4px rgba(37,99,235,.7); }
 .topbar__end{ margin-left:auto; display:flex; align-items:center; gap:8px; }
 
 .iconbtn{
@@ -446,7 +461,7 @@ ul{ margin:0; padding:0; list-style:none; }
   background:color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
   border-top:1px solid var(--line-soft);
-  display:grid; grid-template-columns:repeat(4,1fr);
+  display:grid; grid-template-columns:repeat(5,minmax(0,1fr));
 }
 @media (min-width:940px){ .tabbar{ display:none; } }
 .tab{
@@ -460,6 +475,26 @@ ul{ margin:0; padding:0; list-style:none; }
   content:""; position:absolute; top:0; left:50%; transform:translateX(-50%);
   width:26px; height:3px; border-radius:0 0 4px 4px; background:var(--grad-brand);
 }
+/* Quick Billing, centred: a raised rounded container that rises a little
+   above the bar. Outlined blue at rest, filled blue when it is the page —
+   the active state is the fill, not just a colour change on the label. */
+.tab span:last-child{ white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; padding-inline:2px; }
+.tab--qb{ color:var(--qb-ink); justify-content:flex-end; padding-bottom:9px; gap:4px; }
+.tab__qb{
+  width:46px; height:40px; border-radius:14px; display:grid; place-items:center; margin-top:-16px;
+  background:var(--surface); color:var(--qb); border:1.5px solid var(--qb-100);
+  box-shadow:0 6px 16px -6px rgba(37,99,235,.45), 0 0 0 4px color-mix(in srgb, var(--surface) 94%, transparent);
+  transition:background .16s, color .16s, box-shadow .16s, transform .16s;
+}
+.tab .tab__qb svg{ width:22px; height:22px; }
+.tab--qb:active .tab__qb{ transform:scale(.96); }
+.tab--qb.is-on{ color:var(--qb-ink); font-weight:800; }
+.tab--qb.is-on .tab__qb{
+  background:var(--qb-grad); color:#fff; border-color:transparent;
+  box-shadow:var(--qb-glow), 0 0 0 4px color-mix(in srgb, var(--surface) 94%, transparent);
+}
+.tab--qb.is-on::before{ display:none; }
+@media (max-width:359px){ .tab{ font-size:9.5px; letter-spacing:0; } }
 .main{ flex:1 1 auto; padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 20px); }
 @media (min-width:940px){ .main{ padding-bottom:48px; } }
 

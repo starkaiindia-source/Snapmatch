@@ -473,7 +473,7 @@ const APP_BOOT = [
    175 KB gzipped, 537 KB parsed, only to stand down on arrival. So it does not
    get it. What such a page does need is the theme the visitor chose, and that
    is three lines. */
-const APP_ROUTES = { finder: 1, models: 1, model: 1, plans: 1, account: 1, group: 1 };
+const APP_ROUTES = { finder: 1, models: 1, model: 1, plans: 1, account: 1, group: 1, billing: 1 };
 const appOwns = (url) => {
   const first = String(url || '').split('/').filter(Boolean)[0];
   return !!first && !!APP_ROUTES[first];
@@ -1749,6 +1749,7 @@ Allow: /
 # role check on every request, and every admin collection is closed to clients
 # in firestore.rules. A crawler that ignored this line would get a sign-in page.
 Disallow: /account
+Disallow: /billing
 Disallow: /admin
 Disallow: /api/
 Disallow: /__/

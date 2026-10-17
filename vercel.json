@@ -155,6 +155,10 @@
       "dest": "/api/access.js?section=$1"
     },
     {
+      "src": "/api/shop/([^/.]+)/?$",
+      "dest": "/api/shop.js?section=$1"
+    },
+    {
       "src": "/api/([^/.]+)/?$",
       "dest": "/api/$1.js"
     },
@@ -163,7 +167,7 @@
       "dest": "/admin/index.html"
     },
     {
-      "src": "/(account|group)(?:/.*)?$",
+      "src": "/(account|group|billing)(?:/.*)?$",
       "dest": "/finder/index.html"
     },
     {

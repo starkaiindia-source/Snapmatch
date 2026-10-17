@@ -117,6 +117,9 @@
   var NAV = [
     { id: 'finder', href: '/finder', label: 'Device Finder', short: 'Finder', icon: 'search' },
     { id: 'models', href: '/models', label: 'All Mobile Models', short: 'Models', icon: 'grid' },
+    /* The shop's own counter, not the catalogue. Centred in the phone tab bar
+       and drawn in its own blue so it never reads as another Finder view. */
+    { id: 'billing', href: '/billing', label: 'Quick Billing', short: 'Quick Billing', icon: 'receipt', accent: true },
     { id: 'plans', href: '/plans', label: 'Plans', short: 'Plans', icon: 'crown' },
     { id: 'account', href: '/account', label: 'Account', short: 'Account', icon: 'user' }
   ];
@@ -144,13 +147,17 @@
   function renderShellBits() {
     var cur = state.route.name;
     document.getElementById('nav').innerHTML = NAV.map(function (n) {
-      return '<a class="nav__a' + (cur === n.id ? ' is-on' : '') + '" href="' + n.href + '" title="' + esc(n.label) + '">' +
+      return '<a class="nav__a' + (n.accent ? ' nav__a--qb' : '') + (cur === n.id ? ' is-on' : '') + '" href="' + n.href + '" title="' + esc(n.label) + '"' +
+        (cur === n.id ? ' aria-current="page"' : '') + '>' +
         icon(n.icon) + '<span>' + esc(n.label) + '</span></a>';
     }).join('');
 
     document.getElementById('tabbar').innerHTML = NAV.map(function (n) {
-      return '<a class="tab' + (cur === n.id ? ' is-on' : '') + '" href="' + n.href + '">' +
-        icon(n.icon) + '<span>' + esc(n.short) + '</span></a>';
+      /* The accent tab's icon sits in its own raised, rounded container. */
+      return '<a class="tab' + (n.accent ? ' tab--qb' : '') + (cur === n.id ? ' is-on' : '') + '" href="' + n.href + '"' +
+        (cur === n.id ? ' aria-current="page"' : '') + '>' +
+        (n.accent ? '<span class="tab__qb">' + icon(n.icon) + '</span>' : icon(n.icon)) +
+        '<span>' + esc(n.short) + '</span></a>';
     }).join('');
 
     var s = S.get();
@@ -258,7 +265,7 @@
      alone. Listing them here made the app rewrite the URL to /finder and paint
      the finder over the page — the address bar said one thing and the screen
      said another, which is the exact problem clean URLs were added to fix. */
-  var ROUTES = { finder: 1, models: 1, model: 1, plans: 1, account: 1, group: 1 };
+  var ROUTES = { finder: 1, models: 1, model: 1, plans: 1, account: 1, group: 1, billing: 1 };
 
   /** True when this URL is a page the app renders.
 
@@ -496,6 +503,9 @@
     if (r.name === 'account') {
       return { title: 'Your Account | Mobile Parts Finder', desc: null, noindex: true };
     }
+    if (r.name === 'billing') {
+      return { title: 'Quick Billing | Mobile Parts Finder', desc: null, noindex: true };
+    }
     return {
       title: 'Mobile Compatibility Finder — Match a Phone to Its Parts | Mobile Parts Finder',
       desc: 'Search ' + n(db.stats.models) + ' phone models and get every compatibility ' +
@@ -554,7 +564,87 @@
     if (r.name === 'model') return renderDevice(page, r.params[0]);
     if (r.name === 'plans') return renderPlans(page);
     if (r.name === 'account') return renderAccount(page);
+    if (r.name === 'billing') return renderBilling(page, r.params);
     return renderFinder(page);
+  }
+
+  /* ==========================================================================
+     PAGE · QUICK BILLING — the shop's own stock and bills
+
+     Its screens live in src/shop/ and are fetched the first time /billing is
+     opened: a visitor who only ever uses the Finder never downloads them, and
+     no pre-rendered page has to carry them. Everything that page needs from
+     the app is handed over in billingCtx() rather than reached for.
+     ========================================================================== */
+  var billingLoad = null;
+  function loadBilling() {
+    if (SM.quickBilling) return Promise.resolve();
+    if (billingLoad) return billingLoad;
+    var css = new Promise(function (resolve) {
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/assets/quick-billing.css';
+      /* a stylesheet that fails is a plainer page, not a broken one */
+      link.onload = link.onerror = function () { resolve(); };
+      document.head.appendChild(link);
+    });
+    var js = ['/src/data/shop-money.js', '/src/shop/shop-api.js', '/src/shop/quick-billing.js']
+      .reduce(function (p, src) {
+        return p.then(function () {
+          return new Promise(function (resolve, reject) {
+            var s = document.createElement('script');
+            s.src = src;
+            s.onload = resolve;
+            s.onerror = function () { reject(new Error('could not load ' + src)); };
+            document.head.appendChild(s);
+          });
+        });
+      }, Promise.resolve());
+    billingLoad = Promise.all([css, js]);
+    billingLoad.catch(function () { billingLoad = null; });
+    return billingLoad;
+  }
+
+  function billingCtx() {
+    return {
+      go: go,
+      toast: toast,
+      routeName: function () { return state.route.name; },
+      page: function () { return document.getElementById('page'); },
+      signIn: function () {
+        state.afterSignIn = '/billing';
+        authMode = 'signin';
+        go('/account');
+      }
+    };
+  }
+
+  function renderBilling(page, params) {
+    if (SM.quickBilling) return SM.quickBilling.render(page, params, billingCtx());
+    page.innerHTML = '<div class="shell" style="padding-top:20px">' + C.skelRows(5) + '</div>';
+    loadBilling().then(function () {
+      if (state.route.name === 'billing') {
+        SM.quickBilling.render(document.getElementById('page'), state.route.params, billingCtx());
+      }
+    }, function () {
+      if (state.route.name !== 'billing') return;
+      page.innerHTML = '<div class="shell">' + C.state({
+        icon: 'alert', title: 'Quick Billing could not load',
+        text: 'Check the connection and try again.',
+        action: '<a class="btn btn--primary" href="/billing">' + icon('refresh') + 'Try again</a>'
+      }) + '</div>';
+    });
+  }
+
+  /* The way into Quick Billing from the desktop sidebar, under the part
+     categories. Blue like its tab, so it reads as the shop's counter rather
+     than one more catalogue filter. */
+  function billingEntryHTML() {
+    var on = state.route.name === 'billing';
+    return '<a class="qbentry' + (on ? ' is-on' : '') + '" href="/billing"' + (on ? ' aria-current="page"' : '') + '>' +
+      '<span class="qbentry__ico">' + icon('receipt') + '</span>' +
+      '<span class="qbentry__txt"><b>Quick Billing</b><small>Your stock &amp; bills</small></span>' +
+      icon('chevronRight') + '</a>';
   }
 
   /* ==========================================================================
@@ -1475,7 +1565,7 @@
 
   function renderWorkspace() {
     if (!document.getElementById('catPanel')) { renderFinder(document.getElementById('page')); return; }
-    document.getElementById('catPanel').innerHTML = categoryPanelHTML();
+    document.getElementById('catPanel').innerHTML = categoryPanelHTML() + billingEntryHTML();
 
     /* An open group or a searched model is the focused layout: the centre
        column alone, with its own category selector. The side panels are the
@@ -2261,7 +2351,7 @@
         var rail = document.getElementById('catRail');
         if (rail) rail.innerHTML = railHTML();
         var panel = document.getElementById('catPanel');
-        if (panel) panel.innerHTML = categoryPanelHTML();
+        if (panel) panel.innerHTML = categoryPanelHTML() + billingEntryHTML();
       });
     }
 
