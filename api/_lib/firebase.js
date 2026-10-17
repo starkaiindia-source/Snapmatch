@@ -125,6 +125,17 @@ function auth() {
 }
 
 /**
+ * The project's default Storage bucket — the same name the browser is given
+ * in api/_public/firebase-config.js. Used for Quick Billing's product photos,
+ * which the server uploads itself so that storage.rules can stay closed to
+ * every path but a shop's own profile photo.
+ */
+function bucket() {
+  const name = process.env.FIREBASE_STORAGE_BUCKET || `${projectId()}.firebasestorage.app`;
+  return app().storage().bucket(name);
+}
+
+/**
  * The Firebase project the service account belongs to — its id, never the
  * key. Used to hold the project boundary (api/_schema/projects.js): this code
  * writes to ONE project, and says which.
@@ -133,4 +144,4 @@ function projectId() {
   return credentialsFromEnv().project_id || null;
 }
 
-module.exports = { app, db, auth, admin, projectId };
+module.exports = { app, db, auth, bucket, admin, projectId };

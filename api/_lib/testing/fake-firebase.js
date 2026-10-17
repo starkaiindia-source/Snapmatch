@@ -59,9 +59,32 @@ function create() {
     }
   };
 
+  /* Storage, as far as the Quick Billing photos use it: save, delete, and a
+     download URL. The URL is a data: URL of the saved bytes, so a local
+     browser check shows the real picture without a bucket. */
+  const files = new Map();             /* object path -> { buf, type } */
+  const storageBucket = {
+    name: 'fake-bucket',
+    file(p) {
+      return {
+        async save(buf, opts) {
+          if (storageBucket.failNext) { storageBucket.failNext = false; throw new Error('fake upload failure'); }
+          files.set(p, { buf: Buffer.from(buf), type: (opts && opts.contentType) || 'application/octet-stream' });
+        },
+        async delete() { files.delete(p); }
+      };
+    },
+    downloadUrl(p) {
+      const f = files.get(p);
+      return f ? 'data:' + f.type + ';base64,' + f.buf.toString('base64') : null;
+    },
+    failNext: false
+  };
+
   const exportsObject = {
     db: () => firestore.db,
     auth: () => auth,
+    bucket: () => storageBucket,
     app: () => ({}),
     projectId: () => 'test-project',
     admin: { firestore: { FieldValue: firestore.FieldValue } }
@@ -70,6 +93,7 @@ function create() {
   return {
     exports: exportsObject,
     firestore,
+    storage: { bucket: storageBucket, files },
 
     /** Replaces ../firebase for everything loaded after this call. */
     install() {

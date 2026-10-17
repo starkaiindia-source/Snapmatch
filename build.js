@@ -11,7 +11,7 @@ const path = require('path');
 const root = __dirname;
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
 
-const CSS = ['assets/styles.css', 'assets/components.css'];
+const CSS = ['assets/styles.css', 'assets/components.css', 'assets/quick-billing.css'];
 const JS = [
   'src/data/debug.js',
   'src/data/env.js',
@@ -31,6 +31,11 @@ const JS = [
   'src/data/brand-assets.js',
   'src/data/pwa.js',
   'src/ui/components.js',
+  /* Quick Billing: fetched on demand by the hosted app, inlined here so the
+     single-file build has it without a server to fetch from */
+  'src/data/shop-money.js',
+  'src/shop/shop-api.js',
+  'src/shop/quick-billing.js',
   'src/app.js'
 ];
 

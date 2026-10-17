@@ -371,6 +371,15 @@ service cloud.firestore {
        accident with a broader rule. */
     match /searchUsage/{uid}                   { allow read, write: if false; }
 
+    /* Quick Billing: a shop's own categories, products, stock movements and
+       bills, all under shops/{uid}. Read and written ONLY by /api/shop through
+       the Admin SDK, which takes the uid from the verified ID token — so stock
+       is deducted once, bill numbers come from a transaction, and no browser
+       can edit a saved bill or another shop's stock. The catch-all below
+       already refuses every client; this names it so nobody opens it with a
+       broader rule. Documentation only: no deploy is needed for it. */
+    match /shops/{uid}/{document=**}           { allow read, write: if false; }
+
     /* anything not matched above is closed */
     match /{document=**} {
       allow read, write: if false;

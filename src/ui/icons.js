@@ -9,6 +9,7 @@
     search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/>',
     close: '<path d="M18 6 6 18M6 6l12 12"/>',
     chevronDown: '<path d="m6 9 6 6 6-6"/>',
+    chevronUp: '<path d="m6 15 6-6 6 6"/>',
     chevronRight: '<path d="m9 6 6 6-6 6"/>',
     chevronLeft: '<path d="m15 6-6 6 6 6"/>',
     arrowRight: '<path d="M4 12h15"/><path d="m13 6 6 6-6 6"/>',
@@ -41,6 +42,14 @@
     alert: '<path d="M12 3.5 21 19.5H3L12 3.5Z"/><path d="M12 9.5v4M12 16.6v.1"/>',
     inbox: '<path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.4 5h13.2l2 8.5v4a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2v-4L5.4 5Z"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
+    /* --- Quick Billing: additive, same 24x24 stroke grid --- */
+    /* a till receipt with a torn foot — the bottom tab's POS mark */
+    receipt: '<path d="M6 2.8h12a1 1 0 0 1 1 1v17.4l-2.4-1.5-2.3 1.5-2.3-1.5-2.3 1.5-2.3-1.5L5 21.2V3.8a1 1 0 0 1 1-1Z"/><path d="M8.6 7.6h6.8M8.6 11h6.8M8.6 14.4h4"/>',
+    printer: '<path d="M7 9V3.5h10V9"/><rect x="3.5" y="9" width="17" height="8" rx="2"/><path d="M7 14.5h10v6H7z"/><path d="M17.2 11.8h.1"/>',
+    box: '<path d="m12 3 8 4.2v9.6L12 21l-8-4.2V7.2L12 3Z"/><path d="m4 7.2 8 4.3 8-4.3M12 11.5V21"/>',
+    trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.2h5v2.3"/><path d="M6.5 6.5 7.4 20h9.2l.9-13.5"/><path d="M10.3 10.5v6M13.7 10.5v6"/>',
+    edit: '<path d="M4 20h4.2L19.4 8.8a2 2 0 0 0 0-2.8l-1.4-1.4a2 2 0 0 0-2.8 0L4 15.8V20Z"/><path d="m13.6 6.2 4.2 4.2"/>',
     /* Grid-density pair: the icon IS the layout it switches to, so the two
        read as a choice between shapes rather than needing a "2"/"3" label. */
     cols2: '<rect x="3.5" y="4" width="7" height="16" rx="1.4"/><rect x="13.5" y="4" width="7" height="16" rx="1.4"/>',

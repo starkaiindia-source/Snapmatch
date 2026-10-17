@@ -127,6 +127,25 @@ const RATE_LIMITS = 'rateLimits';
     bottom of firestore.rules from the moment it exists. */
 const SEARCH_USAGE = 'searchUsage';
 
+/* ---------------------------------------------------------- quick billing
+
+   A shop's OWN inventory and bills. Nothing here is catalogue data: a master
+   model or a compatibility group never becomes a product, and nothing in the
+   catalogue reads these. Everything sits under the owner's uid, so the path
+   itself is the ownership check — the server builds it from the verified
+   token and a request cannot name another shop's documents. server. */
+
+/** shops/{uid} — the bill counter (`billSeq`) and the shop's settings. */
+const SHOPS = 'shops';
+/** shops/{uid}/categories/{id} — the shop's own product categories. */
+const SHOP_CATEGORIES = 'categories';
+/** shops/{uid}/products/{id} — sellable stock; archived, never deleted. */
+const SHOP_PRODUCTS = 'products';
+/** shops/{uid}/products/{id}/moves/{id} — every change to a product's stock. */
+const SHOP_STOCK_MOVES = 'moves';
+/** shops/{uid}/bills/{finalisationId} — saved bills; voided, never deleted. */
+const SHOP_BILLS = 'bills';
+
 /* ------------------------------------------------------- existing catalogue
    Named here so a service never has to guess at the spelling, but owned by the
    importer and completely unchanged by this backend. */
@@ -149,6 +168,7 @@ module.exports = {
   APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
   COMPAT_CATEGORIES,
   ADMIN_AUDIT_LOG, RATE_LIMITS, SEARCH_USAGE,
+  SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG
 };

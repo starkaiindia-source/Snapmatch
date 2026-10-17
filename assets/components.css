@@ -3131,3 +3131,28 @@ button.mchip:hover{ border-color:var(--teal-500); background:var(--surface-2); }
   .plate__strip{ font-size:10.5px; gap:6px; padding-inline:11px; }
   .plate__cta{ padding:5px 10px; font-size:12.5px; }
 }
+
+/* ============================================================
+   QUICK BILLING ENTRY — bottom of the desktop category sidebar
+   Sticky to the foot of the panel so it is always in reach,
+   blue like its tab. The billing screens' own styles are in
+   assets/quick-billing.css, loaded only when /billing opens.
+   ============================================================ */
+.qbentry{
+  position:sticky; bottom:0; z-index:3; margin:16px -2px 0; padding:11px 12px;
+  display:flex; align-items:center; gap:11px; border-radius:var(--r);
+  background:var(--qb-050); color:var(--qb-ink); border:1px solid var(--qb-100);
+  box-shadow:0 -10px 18px -8px var(--surface), var(--sh-1);
+  transition:background .16s, box-shadow .16s, transform .16s;
+}
+.qbentry:hover{ background:var(--qb-100); transform:translateY(-1px); }
+.qbentry__ico{ width:36px; height:36px; flex:none; border-radius:11px; display:grid; place-items:center; background:var(--qb-grad); color:#fff; box-shadow:var(--qb-glow); }
+.qbentry__ico svg{ width:19px; height:19px; }
+.qbentry__txt{ display:flex; flex-direction:column; min-width:0; flex:1 1 auto; line-height:1.2; }
+.qbentry__txt b{ font-family:var(--f-display); font-size:14.5px; letter-spacing:-.015em; }
+.qbentry__txt small{ font-size:11.5px; font-weight:600; color:var(--ink-3); }
+.qbentry > svg{ width:16px; height:16px; flex:none; opacity:.7; }
+.qbentry.is-on{ background:var(--qb-grad); color:#fff; border-color:transparent; }
+.qbentry.is-on .qbentry__txt small{ color:rgba(255,255,255,.8); }
+/* the toasts clear the billing cart bar on phones */
+body:has(.qb-cartbar) .toasts{ bottom:calc(var(--tabbar-h) + 96px + env(safe-area-inset-bottom)); }
