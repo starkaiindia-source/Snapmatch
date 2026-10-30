@@ -516,17 +516,25 @@
 
     getBrand: function (id) { return respond(db.brandById[id] || null, LAT.fast); },
 
+    /* A name matches when it holds the whole query, or every word of it in any
+       order ("a55 galaxy"), or the query with its spaces taken out
+       ("redminote13"). `instant` is for a caller filtering what is already in
+       memory, where the simulated round trip would only add a delay per
+       keystroke. */
     listModels: function (opts) {
       opts = opts || {};
       var q = norm(opts.q);
+      var words = q ? q.split(/\s+/) : [];
+      var compact = q.replace(/[^a-z0-9]/g, '');
       var list = db.modelsRanked.filter(function (m) {
         if (opts.brandId && opts.brandId !== 'all' && m.brandId !== opts.brandId) return false;
-        if (q && m.search.indexOf(q) === -1 && norm(m.fullName).indexOf(q) === -1) return false;
-        return true;
+        if (!q || m.search.indexOf(q) > -1) return true;
+        if (compact && m.compact && m.compact.indexOf(compact) > -1) return true;
+        return words.every(function (w) { return m.search.indexOf(w) > -1; });
       });
       if (opts.sort === 'az') list = list.slice().sort(function (a, b) { return a.fullName.localeCompare(b.fullName); });
       if (opts.sort === 'newest') list = list.slice().sort(function (a, b) { return b.releaseYear - a.releaseYear || a.fullName.localeCompare(b.fullName); });
-      return respond(page(list, opts.page, opts.pageSize || 24), LAT.normal);
+      return respond(page(list, opts.page, opts.pageSize || 24), opts.instant ? LAT.instant : LAT.normal);
     },
 
     getModel: function (id) {
@@ -536,6 +544,11 @@
          ids, so `groupCountByModel` is the only figure available here — and
          the only one that was ever free. */
       var counts = db.partCountsByCategory && db.partCountsByCategory[m.id];
+      /* Empty in the public catalogue, which is what makes every count below
+         fall back to `counts`. Never drop this line on the grounds that the
+         map is empty: without it the .filter() below is a ReferenceError, and
+         that took down every /model/<id> page from 20 September 2026. */
+      var gids = db.groupsByModel[id] || [];
       return respond({
         model: m,
         groupCount: (db.groupCountByModel && db.groupCountByModel[m.id]) || 0,

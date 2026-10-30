@@ -223,6 +223,8 @@
     });
   }
 
+  var failedPhotos = Object.create(null);
+
   SM.art = {
     /* inject the sprite once */
     mount: function () {
@@ -416,17 +418,20 @@
        whatever ratio the file actually has.
 
        @param {object} m          the device
-       @param {object} [opts]     {src, colourIdx, cls, eager, alt}
+       @param {object} [opts]     {src, colourIdx, cls, eager, alt, fallback}
+                                  fallback: HTML to show instead of the drawing,
+                                  already carrying the dphoto__art class
     */
     photo: function (m, opts) {
       opts = opts || {};
       var url = opts.src || m.image || null;
+      if (url && failedPhotos[url]) url = null;
       var cls = opts.cls ? ' ' + opts.cls : '';
       var alt = opts.alt || m.fullName || '';
       /* The drawing ships with every photo rather than being swapped in by a
          second render pass: onerror fires long after the HTML is written, and
          the fallback has to already be in the DOM for CSS to reveal it. */
-      var art = SM.art.device(m, opts.colourIdx || 0, 'dphoto__art');
+      var art = opts.fallback || SM.art.device(m, opts.colourIdx || 0, 'dphoto__art');
       if (!url) return '<span class="dphoto dphoto--art' + cls + '">' + art + '</span>';
       return '<span class="dphoto' + cls + '">' +
         '<img class="dphoto__img" src="' + esc(url) + '" alt="' + esc(alt) + '" ' +
@@ -434,8 +439,17 @@
           /* The image host is a third party; sending it this site's URLs on
              every device page is a referrer leak with nothing to gain. */
           'referrerpolicy="no-referrer" ' +
-          'onerror="this.closest(&quot;.dphoto&quot;).classList.add(&quot;is-failed&quot;)" />' +
+          'onload="this.closest(&quot;.dphoto&quot;).classList.add(&quot;is-loaded&quot;)" ' +
+          'onerror="SM.art.photoFailed(this)" />' +
         art + '</span>';
+    },
+
+    /* Remembered for the session, so a dead URL is asked for once and not again
+       on every filter change that happens to redraw the card. */
+    photoFailed: function (img) {
+      failedPhotos[img.getAttribute('src')] = 1;
+      var box = img.closest('.dphoto');
+      if (box) box.classList.add('is-failed');
     },
 
     /* Delegates to SM.brandLogo, which owns the file -> vector -> wordmark
