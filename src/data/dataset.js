@@ -63,13 +63,91 @@
 
   var MONTHS = ['January','February','March','April','May','June',
                 'July','August','September','October','November','December'];
+
+  /* How much of a release date the source actually knows.
+
+     The workbook stores every date as dd/mm/yyyy, and a phone it only knows as
+     "2011, March" went in as 01/03/2011. Measured over the 4,822 dated models,
+     1,564 fall on the 1st against roughly 100 on any other day, so a 1st is a
+     month the export padded and not a day anybody recorded. Printing
+     "1 March 2011" would state a day nobody knows; "March 2011" is true either
+     way, including for the few phones really released on a 1st. */
+  function releasePrecision(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+    if (!m) return null;
+    return m[3] && m[3] !== '01' ? 'day' : 'month';
+  }
+
   function fmtDate(iso) {
     if (!iso) return null;
     var m = String(iso).match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
     if (!m) return iso;
     var month = MONTHS[Number(m[2]) - 1];
     if (!month) return iso;
-    return (m[3] ? Number(m[3]) + ' ' : '') + month + ' ' + m[1];
+    return (releasePrecision(iso) === 'day' ? Number(m[3]) + ' ' : '') + month + ' ' + m[1];
+  }
+
+  /* One model whose year is a forecast: the source says "Exp. release 2026, Q1".
+     The year still sorts and filters it, but a card must not say it came out. */
+  var RELEASE_NOT_CONFIRMED = { 'hmd-ivalo-xe': 1 };
+
+  /** The release date as a card prints it, at the precision the source has:
+      "15 September 2026", "March 2025", "2017", or null when nothing is known. */
+  function releaseLabel(m) {
+    if (!m) return null;
+    if (m.releaseDate) return m.releaseDate;
+    if (RELEASE_NOT_CONFIRMED[m.id]) return null;
+    return m.releaseYear ? String(m.releaseYear) : null;
+  }
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  /**
+   * True when this model came out in the last calendar month, counting back
+   * from the visitor's own date: on 30 October the window opens on 30 September,
+   * and on 31 March it opens on the last day of February.
+   *
+   * ISO strings compare correctly as text, so no Date is built from the release
+   * date. new Date('2026-10-15') is midnight UTC, which is the previous evening
+   * anywhere west of Greenwich and would move a model across the boundary.
+   *
+   * Only a date recorded to the day qualifies. A month-only date cannot prove
+   * the model is inside the window, and a model marked cancelled or coming soon
+   * has not been released at all.
+   */
+  function isNewRelease(m, now) {
+    var iso = m && m.releaseDateIso;
+    if (releasePrecision(iso) !== 'day') return false;
+    if (m.releaseStatus === 'cancelled' || m.releaseStatus === 'coming_soon') return false;
+
+    var d = now || new Date();
+    var y = d.getFullYear(), mo = d.getMonth(), day = d.getDate();
+    var fromY = mo === 0 ? y - 1 : y;
+    var fromM = mo === 0 ? 11 : mo - 1;
+    var fromD = Math.min(day, new Date(fromY, fromM + 1, 0).getDate());
+
+    var rel = String(iso).slice(0, 10);
+    return rel >= fromY + '-' + pad2(fromM + 1) + '-' + pad2(fromD) &&
+           rel <= y + '-' + pad2(mo + 1) + '-' + pad2(day);
+  }
+
+  /* Image URLs that are in the export but are not a picture of the model.
+
+     GSMArena serves one generic silhouette, smartphone.jpg, for handsets it has
+     no photograph of, and 15 models across eight brands point at it. Realme X9
+     Pro points at the Oppo Reno5 Pro+. Both are dropped here, where the record
+     is read, so every screen falls back the same way and the catalogue itself
+     stays as the owner exported it.
+
+     The rest of the 313 URLs that more than one model shares are left alone:
+     they are sibling variants of one handset (vivo Y03 and Y03t) sharing a
+     press shot, which is what the source intends. */
+  var NOT_A_MODEL_PHOTO = /\/smartphone\.jpg$/i;
+  var WRONG_MODEL_PHOTO = { 'realme-x9-pro': 1 };
+
+  function modelImage(id, url) {
+    if (!url || NOT_A_MODEL_PHOTO.test(url) || WRONG_MODEL_PHOTO[id]) return null;
+    return url;
   }
 
   /* Turns a positional row into the object shape the UI reads. Fields the
@@ -98,6 +176,8 @@
       modelName: short,
       fullName: name,
       search: name.toLowerCase(),
+      /* The same name with the spaces out, so "redminote13" finds it. */
+      compact: name.toLowerCase().replace(/[^a-z0-9]/g, ''),
       deviceType: r.dt,
       typeDerived: true,           /* read off the name, not stated by the source */
 
@@ -116,7 +196,7 @@
          out of a display string. */
       heightMm: typeof r.h === 'number' ? r.h : null,
       widthMm: typeof r.w === 'number' ? r.w : null,
-      image: r.img,
+      image: modelImage(r.id, r.img),
       sourceUrl: r.src,
 
       /* -------- carried by the category exports, for some devices --------
@@ -394,6 +474,8 @@
         });
       return loaded;
     },
-    build: build
+    build: build,
+    releaseLabel: releaseLabel,
+    isNewRelease: isNewRelease
   };
 })(window);

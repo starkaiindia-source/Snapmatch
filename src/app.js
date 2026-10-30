@@ -54,7 +54,7 @@
          distinct devices it was actually given rather than guessing. */
       matches: null
     },
-    models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false,
+    models: { brandId: null, q: '', page: 1, items: [], total: 0, hasMore: false, busy: false, seq: 0,
       /* View state, not query state: the same records are already in memory,
          so a dropdown change re-renders instead of re-fetching. The chosen
          view is remembered because it is a working preference, not a session
@@ -2535,79 +2535,389 @@
   }
 
   /* ==========================================================================
-     PAGE · ALL MOBILE MODELS  (free for everyone)
-     ========================================================================== */
-  function renderModels(page, brandId) {
-    /* the search box is scoped to the view — moving between brands clears it,
-       re-rendering the same view (e.g. closing a model sheet) keeps it */
-    if (state.models.brandId !== (brandId || null)) state.models.q = '';
-    state.models.brandId = brandId || null;
+     PAGE · MOBILE MODELS  (/models and /models/<brandId>)
 
-    page.innerHTML = '<div class="shell" style="padding-top:20px">' +
-      '<div class="notice notice--brand" style="margin-bottom:18px">' + icon('unlock') +
-      '<span><b>Free for everyone.</b> The full model database — brands, models, ' +
-      'specifications and every compatibility group — is open to use.</span></div>' +
-      '<div id="modelsBody"></div></div>';
-
-    if (!brandId) renderBrandGrid();
-    else renderBrandModels(brandId);
-  }
-
-  function renderBrandGrid() {
-    document.getElementById('modelsBody').innerHTML =
-      '<div class="sec" style="margin-top:0"><div class="sec__head"><div class="sec__title">' +
-      '<h1>All mobile models</h1><span class="sec__count">' + nf(db.stats.models) + ' models · ' + db.stats.brandsWithModels + ' brands</span>' +
-      '</div></div>' +
-      '<label class="field" style="margin-bottom:16px">' + icon('search') +
-      '<input class="input" id="mq" placeholder="Search every model across all brands…" value="' + esc(state.models.q) + '" aria-label="Search all models" /></label>' +
-      '<div id="modelSearchResults"></div>' +
-      '<div id="brandArea"><span class="t-lab" style="display:block;margin-bottom:10px">Browse by brand</span>' +
-      /* only brands that actually carry models are browsable here */
-      '<div class="brandgrid">' +
-      db.brands.filter(function (b) { return b.modelCount > 0; }).map(C.brandCard).join('') +
-      '</div></div>' +
-      '</div>';
-    if (state.models.q) searchAllModels();
-  }
-
-  function searchAllModels() {
-    var q = state.models.q;
-    var host = document.getElementById('modelSearchResults');
-    var brandArea = document.getElementById('brandArea');
-    if (!host) return;
-    if (!q) { host.innerHTML = ''; if (brandArea) brandArea.style.display = ''; return; }
-    if (brandArea) brandArea.style.display = 'none';
-    host.innerHTML = C.skelRows(6);
-    api.listModels({ q: q, page: 1, pageSize: 30 }).then(function (r) {
-      if (state.models.q !== q) return;
-      if (!r.total) {
-        host.innerHTML = C.state({
-          icon: 'search', title: 'No model called “' + q + '”',
-          text: 'Check the spelling, or try just the series — “A55”, “Note 13”, “Reno”.'
-        });
-        return;
-      }
-      host.innerHTML = '<div class="row" style="justify-content:space-between;margin-bottom:10px">' +
-        '<span class="t-lab">' + nf(r.total) + ' models found</span>' +
-        '<button class="btn btn--ghost btn--sm" data-act="clear-mq">' + icon('close') + 'Clear</button></div>' +
-        '<div class="modelgrid">' + r.items.map(function (m) { return C.modelCard(m, q); }).join('') + '</div>' +
-        (r.hasMore ? '<p class="t-xs muted" style="margin-top:12px">Showing first 30 of ' + nf(r.total) + ' — keep typing to narrow it down.</p>' : '');
-    });
-  }
-
-  /* ==========================================================================
-     PAGE · BRAND MODELS  (#/models/<brandId>)
-
-     One list of devices, shown three ways. The view is a real choice, not a
-     decoration: a shop owner scanning for a shape wants the grid, one checking
-     a spec across models wants the table, and a phone screen wants neither —
-     so the table collapses into stacked cards below 900px rather than becoming
-     a sideways scroll.
+     One page, with a brand selected or not. /models and /models/apple used to
+     be two screens with their own search box and their own layout; now the URL
+     only records which brand is selected. Choosing a brand repaints the toolbar
+     and the list in place, so the brand rail keeps its scroll position and the
+     search box keeps its text and its focus.
 
      Filters use native <select>. A custom dropdown would need its own keyboard
      handling, focus trap, touch targets and two themes' worth of styling, and
      would still be worse on a phone than the one the OS already ships.
      ========================================================================== */
+  function renderModels(page, brandId) {
+    var m = state.models;
+    if (brandId && !db.brandById[brandId]) { redirect('/models'); return; }
+
+    /* The URL names the query on arrival and on Back. A tap on a brand arrives
+       here with no query in its link, and carries the box over to that brand. */
+    var stayed = !!document.getElementById('mdlRoot');
+    var urlQ = new URLSearchParams(location.search).get('q');
+    if (urlQ !== null || !stayed) m.q = urlQ || '';
+    m.brandId = brandId || null;
+
+    if (!stayed) page.innerHTML = modelsPageHTML();
+    syncBrandRail(!stayed);
+    dropUnavailableFilters();
+    paintModelTools();
+    syncModelsUrl();
+    loadModels(true);
+  }
+
+  function modelsPageHTML() {
+    return '<div class="mdl" id="mdlRoot">' +
+      brandRailHTML() +
+      '<div class="shell">' +
+        '<div class="mbar">' +
+          '<div class="mbar__ctx">' +
+            /* The page's H1, on every brand. The app mounts over the pre-rendered
+               heading, so without one here the route has none at all. */
+            '<h1 class="mbar__t" id="modelsTitle"></h1>' +
+            '<span class="mbar__c" id="modelsCount" aria-live="polite"></span>' +
+          '</div>' +
+          '<label class="field mbar__q">' + icon('search') +
+            '<input class="input" id="mdlq" type="search" enterkeyhint="search" autocomplete="off" />' +
+            '<button type="button" class="mbar__x" id="mdlqClear" data-act="clear-model-search" ' +
+            'aria-label="Clear search" hidden>' + icon('close') + '</button>' +
+          '</label>' +
+          '<div class="mbar__v" id="modelsView"></div>' +
+          '<div class="mbar__f" id="modelsFilters"></div>' +
+        '</div>' +
+        '<div id="modelsList">' + C.skelRows(6) + '</div>' +
+        '<div class="loadmore" id="modelsMore"></div>' +
+      '</div></div>';
+  }
+
+  /* ------------------------------------------------------------- brand rail */
+  function brandRailHTML() {
+    var chev = function (dir, label, ic) {
+      return '<button type="button" class="brail__go brail__go--' + (dir < 0 ? 'l' : 'r') + '" ' +
+        'data-act="brand-scroll" data-dir="' + dir + '" aria-label="' + label + '">' + icon(ic) + '</button>';
+    };
+    /* Real links: a crawler follows them, a middle-click opens a new tab, and
+       the router intercepts the ordinary click and stays on the page. */
+    var brands = db.brands.filter(function (b) { return b.modelCount > 0; }).map(function (b) {
+      return '<a class="brail__i" href="/models/' + esc(b.id) + '" data-brand="' + esc(b.id) + '">' +
+        SM.brandLogo(b, 'blogo--rail') +
+        '<span class="brail__n">' + esc(b.name) + '</span></a>';
+    }).join('');
+
+    return '<nav class="brail" aria-label="Brands"><div class="brail__w">' +
+      chev(-1, 'Scroll brands left', 'chevronLeft') +
+      '<div class="brail__s" id="brandRail">' +
+        '<a class="brail__i" href="/models" data-brand="">' +
+          '<span class="brail__all">' + icon('grid') + '</span>' +
+          '<span class="brail__n">ALL</span></a>' +
+        brands +
+      '</div>' +
+      chev(1, 'Scroll brands right', 'chevronRight') +
+      '</div></nav>';
+  }
+
+  function syncBrandRail(first) {
+    var rail = document.getElementById('brandRail');
+    if (!rail) return;
+    var id = state.models.brandId || '';
+    var on = null;
+    Array.prototype.forEach.call(rail.children, function (a) {
+      var is = a.getAttribute('data-brand') === id;
+      a.classList.toggle('is-on', is);
+      if (is) { a.setAttribute('aria-current', 'page'); on = a; }
+      else a.removeAttribute('aria-current');
+    });
+    if (!on) return;
+
+    /* Only when it is out of view, and only the rail itself: scrollIntoView
+       would also move the page. */
+    var left = on.offsetLeft, right = left + on.offsetWidth;
+    if (left >= rail.scrollLeft && right <= rail.scrollLeft + rail.clientWidth) return;
+    var calm = first || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    rail.scrollTo({ left: left - (rail.clientWidth - on.offsetWidth) / 2, behavior: calm ? 'auto' : 'smooth' });
+  }
+
+  /* ---------------------------------------------------------------- toolbar */
+  function paintModelTools() {
+    var m = state.models;
+    var b = m.brandId ? db.brandById[m.brandId] : null;
+    var input = document.getElementById('mdlq');
+
+    document.getElementById('modelsTitle').textContent = b ? b.name + ' Models' : 'All Mobile Models';
+    input.placeholder = 'Search ' + (b ? b.name : 'all mobile') + ' models…';
+    input.setAttribute('aria-label', b ? 'Search ' + b.name + ' models' : 'Search all mobile models');
+    if (input.value !== m.q) input.value = m.q;
+    document.getElementById('mdlqClear').hidden = !m.q;
+    document.getElementById('modelsView').innerHTML = viewSwitchHTML(modelView());
+    refreshModelFilters();
+  }
+
+  function refreshModelFilters() {
+    var host = document.getElementById('modelsFilters');
+    if (host) host.innerHTML = modelFiltersHTML(modelScope(state.models.brandId));
+  }
+
+  /* Keeps a search shareable and alive across a refresh. replaceState, so a
+     word typed is not a Back press. */
+  function syncModelsUrl() {
+    if (state.route.name !== 'models') return;
+    var q = state.models.q.trim();
+    var url = toPath(state.route) + (q ? '?q=' + encodeURIComponent(q) : '');
+    if (location.pathname + location.search !== url) history.replaceState(null, '', url);
+  }
+
+  /* ---------------------------------------------------------------- filters */
+  var TYPE_LABELS = { phone: 'Phones', tablet: 'Tablets', watch: 'Watches' };
+  var TYPE_ORDER = ['phone', 'tablet', 'watch'];
+  var SIZE_BANDS = [
+    ['0-5', 'Under 5"'], ['5-6.2', '5–6.2"'], ['6.2-6.7', '6.2–6.7"'], ['6.7-20', '6.7" and up']
+  ];
+
+  function inSizeBand(m, value) {
+    if (m.displaySize == null) return false;
+    var band = value.split('-').map(Number);
+    return m.displaySize >= band[0] && m.displaySize < band[1];
+  }
+
+  /* What the models in view can actually answer. A choice that could only ever
+     return an empty list is not offered: it reads as a broken filter. Cached per
+     brand because it walks every model and the catalogue does not change while
+     the page is open. */
+  var modelScopes = Object.create(null);
+
+  function modelScope(brandId) {
+    var key = brandId || 'all';
+    if (modelScopes[key]) return modelScopes[key];
+
+    var items = brandId ? db.models.filter(function (x) { return x.brandId === brandId; }) : db.models;
+    var types = {}, curves = {}, years = {}, hasBattery = false;
+    items.forEach(function (x) {
+      if (x.deviceType) types[x.deviceType] = 1;
+      if (x.screenCurve) curves[x.screenCurve] = 1;
+      if (x.releaseYear != null) years[x.releaseYear] = 1;
+      if (x.specs && x.specs.batteryMah) hasBattery = true;
+    });
+
+    modelScopes[key] = {
+      types: Object.keys(types).sort(function (a, b) {
+        var x = TYPE_ORDER.indexOf(a), y = TYPE_ORDER.indexOf(b);
+        return (x < 0 ? 99 : x) - (y < 0 ? 99 : y) || a.localeCompare(b);
+      }),
+      curves: Object.keys(curves),
+      years: Object.keys(years).map(Number).sort(function (a, b) { return b - a; }),
+      sizes: SIZE_BANDS.filter(function (s) {
+        return items.some(function (x) { return inSizeBand(x, s[0]); });
+      }).map(function (s) { return s[0]; }),
+      hasBattery: hasBattery
+    };
+    return modelScopes[key];
+  }
+
+  /* A filter set on one brand may mean nothing on the next: Apple watches, then
+     a brand that makes none. Left in place it would empty the list for no
+     visible reason. */
+  function dropUnavailableFilters() {
+    var f = state.models.filters;
+    var o = modelScope(state.models.brandId);
+    if (f.deviceType && o.types.indexOf(f.deviceType) === -1) f.deviceType = '';
+    if (f.curve && o.curves.indexOf(f.curve) === -1) f.curve = '';
+    if (f.year && o.years.indexOf(Number(f.year)) === -1) f.year = '';
+    if (f.size && o.sizes.indexOf(f.size) === -1) f.size = '';
+    if (f.minBattery && !o.hasBattery) f.minBattery = '';
+  }
+
+  function filterModels(items, f) {
+    return items.filter(function (m) {
+      var sp = m.specs || {};
+      if (f.curve && m.screenCurve !== f.curve) return false;
+      if (f.deviceType && m.deviceType !== f.deviceType) return false;
+      if (f.year && m.releaseYear !== Number(f.year)) return false;
+      if (f.fiveG === '5g' && sp.network !== '5G') return false;
+      if (f.fiveG === '4g' && sp.network === '5G') return false;
+      if (f.minRam && Math.max.apply(null, sp.ramVariantsGb || [0]) < Number(f.minRam)) return false;
+      if (f.minStorage && Math.max.apply(null, sp.storageVariantsGb || [0]) < Number(f.minStorage)) return false;
+      if (f.minBattery && (sp.batteryMah || 0) < Number(f.minBattery)) return false;   /* the export carries mAh */
+      if (f.size && !inSizeBand(m, f.size)) return false;
+      return true;
+    });
+  }
+
+  /* The date where the source has one, the year where it does not, and models
+     with neither last in both directions: an unknown date is not an old one. */
+  function releaseKey(m) { return m.releaseDateIso || (m.releaseYear ? m.releaseYear + '-00-00' : ''); }
+  function byRelease(dir) {
+    return function (a, b) {
+      var x = releaseKey(a), y = releaseKey(b);
+      if (x === y) return a.fullName.localeCompare(b.fullName);
+      if (!x) return 1;
+      if (!y) return -1;
+      return x < y ? dir : -dir;
+    };
+  }
+
+  /* Newest first, by year, and with the photographed models first inside each
+     year. The 17 newest models in the export have no image at all, so a strict
+     date order opens this catalogue on a screen of empty tiles. They are not
+     hidden: they follow the other 2026 models, and search and filters reach
+     them as before. */
+  var newestDated = byRelease(1);
+  function newestFirst(a, b) {
+    var x = a.releaseYear || 0, y = b.releaseYear || 0;
+    if (x !== y) return y - x;
+    if (!a.image !== !b.image) return a.image ? -1 : 1;
+    return newestDated(a, b);
+  }
+
+  var SORTS = {
+    newest: newestFirst,
+    oldest: byRelease(-1),
+    name:   function (a, b) { return a.fullName.localeCompare(b.fullName); },
+    size:   function (a, b) { return b.displaySize - a.displaySize; },
+    groups: function (a, b) { return groupCountOf(b) - groupCountOf(a); }
+  };
+
+  function groupCountOf(m) { return (db.groupCountByModel && db.groupCountByModel[m.id]) || 0; }
+
+  /* Does the loaded catalogue actually carry this field?
+     The UI is built for a richer dataset than the current export provides, so
+     rather than render empty controls and blank columns it asks first and
+     leaves out what cannot be answered. One source of truth — the bundle says
+     which fields it has — so a future import with real specs turns the
+     filters, columns and spec cards back on without a code change. */
+  function dbHas(field) {
+    var cov = db.coverage;
+    if (!cov) return true;                 /* sample data carries everything */
+    return cov.absent.indexOf(field) === -1;
+  }
+
+  /* Named for the model page specifically: `activeFilterCount` already exists
+     for the finder's brand panel, and a second declaration of it silently wins
+     — the finder then called this one with no argument and threw on every
+     render. */
+  function activeModelFilterCount(f) {
+    return Object.keys(f || {}).filter(function (k) { return f[k]; }).length;
+  }
+
+  function selectHTML(id, label, value, options) {
+    /* The default sort is not a choice anyone made, so it does not light up. */
+    var isSet = value && !(id === 'sort' && value === 'newest');
+    return '<label class="fsel' + (isSet ? ' is-set' : '') + '">' +
+      '<span class="fsel__l">' + esc(label) + '</span>' +
+      '<select data-act="model-filter" data-key="' + id + '" aria-label="' + esc(label) + '">' +
+      options.map(function (o) {
+        return '<option value="' + esc(o[0]) + '"' + (String(value) === String(o[0]) ? ' selected' : '') + '>' +
+          esc(o[1]) + '</option>';
+      }).join('') + '</select></label>';
+  }
+
+  function modelFiltersHTML(o) {
+    var m = state.models;
+    var f = m.filters;
+    var n = activeModelFilterCount(f);
+    var curveLabels = { flat: 'Flat (recorded)', curved: 'Curved (recorded)' };
+
+    return '<div class="bctl">' +
+      (o.types.length > 1 ? selectHTML('deviceType', 'Type', f.deviceType, [['', 'All types']].concat(
+        o.types.map(function (t) { return [t, TYPE_LABELS[t] || t]; }))) : '') +
+      /* The exports record a screen type for 260 of 4,933 devices, so this
+         filter works — over what is RECORDED. "Flat only" showing 229 phones
+         does not mean the brand made 229 flat phones, and the labels say so
+         rather than letting the count imply it. */
+      (dbHas('screenCurve') && o.curves.length ? selectHTML('curve', 'Screen', f.curve, [['', 'Any screen']].concat(
+        o.curves.sort().reverse().map(function (c) { return [c, curveLabels[c] || c]; }))) : '') +
+      (o.years.length > 1 ? selectHTML('year', 'Year', f.year, [['', 'Any year']].concat(
+        o.years.map(function (y) { return [String(y), String(y)]; }))) : '') +
+      (o.sizes.length > 1 ? selectHTML('size', 'Size', f.size, [['', 'Any size']].concat(
+        SIZE_BANDS.filter(function (s) { return o.sizes.indexOf(s[0]) > -1; }))) : '') +
+      (dbHas('network') ? selectHTML('fiveG', 'Network', f.fiveG, [
+        ['', 'Any network'], ['5g', '5G only'], ['4g', '4G only']]) : '') +
+      (dbHas('ram') ? selectHTML('minRam', 'RAM', f.minRam, [
+        ['', 'Any RAM'], ['6', '6 GB+'], ['8', '8 GB+'], ['12', '12 GB+'], ['16', '16 GB']]) : '') +
+      (dbHas('storage') ? selectHTML('minStorage', 'Storage', f.minStorage, [
+        ['', 'Any storage'], ['128', '128 GB+'], ['256', '256 GB+'], ['512', '512 GB+']]) : '') +
+      (o.hasBattery ? selectHTML('minBattery', 'Battery', f.minBattery, [
+        ['', 'Any battery'], ['4500', '4500 mAh+'], ['5000', '5000 mAh+'], ['5500', '5500 mAh+']]) : '') +
+      selectHTML('sort', 'Sort', m.sort, [
+        ['newest', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'Name A–Z'],
+        ['size', 'Largest screen'], ['groups', 'Most parts']]) +
+      (n ? '<button class="btn btn--ghost btn--sm bctl__clear" data-act="clear-model-filters">' +
+        icon('close') + 'Clear ' + n + '</button>' : '') +
+      '</div>';
+  }
+
+  /* ------------------------------------------------------------------ views */
+  var VIEW_ICON = { grid: 'grid', list: 'list', table: 'layers' };
+
+  /* Below 900px the table collapses into stacked rows, which is the list view
+     under another name, so the phone gets two buttons rather than three that
+     do two things. A table chosen on a desktop opens as a list here. */
+  function modelView() {
+    var v = state.models.view;
+    return v === 'table' && !window.matchMedia('(min-width:900px)').matches ? 'list' : v;
+  }
+
+  function viewSwitchHTML(view) {
+    return '<div class="vswitch" role="group" aria-label="Display style">' +
+      ['grid', 'list', 'table'].map(function (v) {
+        return '<button type="button" class="vswitch__b' + (view === v ? ' is-on' : '') + '" ' +
+          'data-act="model-view" data-view="' + v + '" aria-pressed="' + (view === v) + '" ' +
+          'title="' + v.charAt(0).toUpperCase() + v.slice(1) + ' view" ' +
+          'aria-label="' + v + ' view">' + icon(VIEW_ICON[v]) + '</button>';
+      }).join('') + '</div>';
+  }
+
+  /* The name a card prints: the brand is already selected on /models/apple, and
+     "Y21" alone says nothing in the all-brands list. */
+  function modelCardName(m) { return state.models.brandId ? m.modelName : m.fullName; }
+
+  /* The catalogue photograph, or a plain "no image" tile for the 75 models
+     without one. The drawn handset is kept for the model page: in a grid of
+     real photographs a drawing reads as a picture of the wrong phone. */
+  function modelPhoto(m, cls) {
+    return SM.art.photo(m, {
+      cls: cls,
+      fallback: '<span class="dphoto__art mnone">' + icon('phone') + '<span>No image</span></span>'
+    });
+  }
+
+  function modelFactsHTML(m, now) {
+    var label = SM.dataset.releaseLabel(m);
+    var isNew = SM.dataset.isNewRelease(m, now);
+    return '<span class="mfacts">' +
+        (m.displaySize ? '<span>' + esc(m.displaySize) + '&Prime;</span>' : '') +
+        (isNew ? '<span class="mnew">NEW</span>' : '') +
+      '</span>' +
+      (label ? '<span class="mdate">Released: ' + esc(label) + '</span>' : '');
+  }
+
+  function modelTilesHTML(items, now) {
+    return items.map(function (m) {
+      /* A real href, not a button with a click handler. The delegated
+         listener in the router intercepts it and navigates without a reload,
+         so the behaviour is identical — but a crawler can follow it and a
+         person can middle-click it. Every model page on this site was
+         unreachable except through the sitemap because these were buttons. */
+      return '<a class="mtile" href="/model/' + esc(m.id) + '">' +
+        '<span class="mtile__shot">' + modelPhoto(m) + '</span>' +
+        '<span class="mtile__b">' +
+          '<span class="mname">' + esc(modelCardName(m)) + '</span>' +
+          modelFactsHTML(m, now) +
+        '</span></a>';
+    }).join('');
+  }
+
+  function modelRowsHTML(items, now) {
+    return items.map(function (m) {
+      return '<a class="mrow" href="/model/' + esc(m.id) + '">' +
+        '<span class="mrow__shot">' + modelPhoto(m) + '</span>' +
+        '<span class="mrow__b">' +
+          '<span class="mname">' + esc(modelCardName(m)) + '</span>' +
+          modelFactsHTML(m, now) +
+        '</span>' +
+        '<span class="mrow__go">' + icon('chevronRight') + '</span>' +
+      '</a>';
+    }).join('');
+  }
 
   /* Which columns survive at which width. Priority order is the order a
      repair decision actually needs them, so dropping from the right always
@@ -2633,119 +2943,11 @@
     return TABLE_COLS_ALL.filter(function (c) { return !c.needs || dbHas(c.needs); });
   }
 
-  function groupCountOf(m) { return (db.groupCountByModel && db.groupCountByModel[m.id]) || 0; }
-
-  /* Does the loaded catalogue actually carry this field?
-     The UI is built for a richer dataset than the current export provides, so
-     rather than render empty controls and blank columns it asks first and
-     leaves out what cannot be answered. One source of truth — the bundle says
-     which fields it has — so a future import with real specs turns the
-     filters, columns and spec cards back on without a code change. */
-  function dbHas(field) {
-    var cov = db.coverage;
-    if (!cov) return true;                 /* sample data carries everything */
-    return cov.absent.indexOf(field) === -1;
-  }
-
-  /* ---------------------------------------------------------------- filters */
-  function filterModels(items, f) {
-    return items.filter(function (m) {
-      var sp = m.specs || {};
-      if (f.curve && m.screenCurve !== f.curve) return false;
-      if (f.deviceType && m.deviceType !== f.deviceType) return false;
-      if (f.year && m.releaseYear !== Number(f.year)) return false;
-      if (f.fiveG === '5g' && sp.network !== '5G') return false;
-      if (f.fiveG === '4g' && sp.network === '5G') return false;
-      if (f.minRam && Math.max.apply(null, sp.ramVariantsGb || [0]) < Number(f.minRam)) return false;
-      if (f.minStorage && Math.max.apply(null, sp.storageVariantsGb || [0]) < Number(f.minStorage)) return false;
-      if (f.minBattery && (sp.batteryMah || 0) < Number(f.minBattery)) return false;   /* the export carries mAh */
-      if (f.size) {
-        var band = f.size.split('-').map(Number);
-        if (m.displaySize < band[0] || m.displaySize >= band[1]) return false;
-      }
-      return true;
-    });
-  }
-
-  var SORTS = {
-    newest: function (a, b) { return b.releaseYear - a.releaseYear || a.fullName.localeCompare(b.fullName); },
-    oldest: function (a, b) { return a.releaseYear - b.releaseYear || a.fullName.localeCompare(b.fullName); },
-    name:   function (a, b) { return a.fullName.localeCompare(b.fullName); },
-    size:   function (a, b) { return b.displaySize - a.displaySize; },
-    groups: function (a, b) { return groupCountOf(b) - groupCountOf(a); }
-  };
-
-  /* Named for the model page specifically: `activeFilterCount` already exists
-     for the finder's brand panel, and a second declaration of it silently wins
-     — the finder then called this one with no argument and threw on every
-     render. */
-  function activeModelFilterCount(f) {
-    return Object.keys(f || {}).filter(function (k) { return f[k]; }).length;
-  }
-
-  /* ------------------------------------------------------------------ views */
-  function deviceGridHTML(items) {
-    return '<div class="dgrid">' + items.map(function (m) {
-      var gc = groupCountOf(m);
-      /* A real href, not a button with a click handler. The delegated
-         listener in the router intercepts it and navigates without a reload,
-         so the behaviour is identical — but a crawler can follow it and a
-         person can middle-click it. Every model page on this site was
-         unreachable except through the sitemap because these were buttons. */
-      return '<a class="dcard" href="/model/' + esc(m.id) + '">' +
-        '<span class="dcard__shot">' + SM.art.device(m, 0) + '</span>' +
-        '<span class="dcard__b">' +
-          '<span class="dcard__n">' + esc(m.modelName) + '</span>' +
-          '<span class="dcard__m">' + m.displaySize + '&Prime; · ' + m.releaseYear + '</span>' +
-          '<span class="dcard__t">' +
-            (m.screenCurve
-            ? '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>'
-            : '') +
-            (gc ? '<span class="tag">' + gc + ' part' + (gc === 1 ? '' : 's') + '</span>' : '') +
-          '</span>' +
-        '</span></a>';
-    }).join('') + '</div>';
-  }
-
-  function deviceListHTML(items) {
-    return '<div class="dlist">' + items.map(function (m) {
+  function modelTableRowsHTML(items) {
+    return items.map(function (m) {
       var sp = m.specs || {};
       var gc = groupCountOf(m);
-      return '<a class="drow" href="/model/' + esc(m.id) + '">' +
-        '<span class="drow__shot">' + SM.art.device(m, 0) + '</span>' +
-        '<span class="drow__main">' +
-          '<span class="drow__n">' + esc(m.fullName) + '</span>' +
-          /* Built from what is actually recorded. chipset is null for every
-             device in this catalogue and screenType for most, so the fixed
-             " · null · " separators left the row reading "6.4″  ·  · 0 mAh". */
-          '<span class="drow__m">' +
-            [ m.displaySize ? esc(m.displaySize) + '&Prime;' : null,
-              m.screenType ? esc(m.screenType) : null,
-              sp.chipset ? esc(sp.chipset) : null,
-              sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : null
-            ].filter(Boolean).join(' · ') + '</span>' +
-        '</span>' +
-        '<span class="drow__side">' +
-          (m.screenCurve
-            ? '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>'
-            : '') +
-          '<span class="drow__y">' + m.releaseYear + '</span>' +
-          (gc ? '<span class="tag tag--parts">' + gc + '</span>' : '') +
-        '</span></button>';
-    }).join('') + '</div>';
-  }
-
-  /* The table renders every column; CSS hides the ones that do not fit, and
-     below 900px the whole thing becomes stacked cards. Hiding in CSS rather
-     than in JS means a resize needs no re-render. */
-  function deviceTableHTML(items) {
-    var head = tableCols().map(function (c) {
-      return '<th class="c-' + c.k + '">' + esc(c.label) + '</th>';
-    }).join('');
-
-    var rows = items.map(function (m) {
-      var sp = m.specs || {};
-      var gc = groupCountOf(m);
+      var released = SM.dataset.releaseLabel(m);
       /* One hyphen for anything not recorded. Every column had its own idea of
          what an absent value looks like: an em-dash here, "undefined&Prime;"
          where displaySize was null, an empty tag element for screen curve, and
@@ -2753,13 +2955,13 @@
       var dash = '<span class="c-none">-</span>';
       var cell = {
         device: '<a class="tcell-dev" href="/model/' + esc(m.id) + '">' +
-                SM.art.device(m, 0, 'dvc--xs') +
-                '<span>' + esc(m.modelName) + '</span></a>',
+                modelPhoto(m, 'dphoto--thumb') +
+                '<span>' + esc(modelCardName(m)) + '</span></a>',
         size: m.displaySize ? esc(m.displaySize) + '&Prime;' : dash,
         curve: m.screenCurve
           ? '<span class="tag tag--' + esc(m.screenCurve) + '">' + esc(m.screenCurve) + '</span>'
           : dash,
-        year: m.releaseYear ? esc(String(m.releaseYear)) : dash,
+        year: released ? esc(released) : dash,
         groups: gc ? String(gc) : dash,
         chipset: sp.chipset ? esc(sp.chipset) : dash,
         battery: sp.batteryMah ? nf(sp.batteryMah) + ' mAh' : dash,
@@ -2774,180 +2976,76 @@
           return '<td class="c-' + c.k + '" data-label="' + esc(c.label) + '">' + cell[c.k] + '</td>';
         }).join('') + '</tr>';
     }).join('');
+  }
 
+  /* The table renders every column; CSS hides the ones that do not fit, and
+     below 900px the whole thing becomes stacked cards. Hiding in CSS rather
+     than in JS means a resize needs no re-render. */
+  function modelTableHTML(items) {
+    var head = tableCols().map(function (c) {
+      return '<th class="c-' + c.k + '">' + esc(c.label) + '</th>';
+    }).join('');
     return '<div class="dtable-wrap"><table class="dtable">' +
-      '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+      '<thead><tr>' + head + '</tr></thead><tbody>' + modelTableRowsHTML(items) + '</tbody></table></div>';
   }
 
-  /* --------------------------------------------------------------- controls */
-  function selectHTML(id, label, value, options) {
-    return '<label class="fsel' + (value ? ' is-set' : '') + '">' +
-      '<span class="fsel__l">' + esc(label) + '</span>' +
-      '<select data-act="model-filter" data-key="' + id + '" aria-label="' + esc(label) + '">' +
-      options.map(function (o) {
-        return '<option value="' + esc(o[0]) + '"' + (String(value) === String(o[0]) ? ' selected' : '') + '>' +
-          esc(o[1]) + '</option>';
-      }).join('') + '</select></label>';
-  }
-
-  function brandControlsHTML(b, years) {
+  /* ------------------------------------------------------------------- list */
+  function loadModels(reset) {
     var m = state.models;
-    var f = m.filters;
-    var n = activeModelFilterCount(f);
-
-    /* A filter the dataset cannot answer is not shown. Offering "Curved only"
-       against data with no curvature field returns an empty list and reads as
-       a broken filter rather than as missing data. */
-    return '<div class="bctl">' +
-      selectHTML('deviceType', 'Type', f.deviceType, [
-        ['', 'All types'], ['phone', 'Phones'], ['tablet', 'Tablets'], ['watch', 'Watches']]) +
-      /* The exports record a screen type for 260 of 4,933 devices, so this
-         filter works — over what is RECORDED. "Flat only" showing 229 phones
-         does not mean the brand made 229 flat phones, and the labels say so
-         rather than letting the count imply it. */
-      (dbHas('screenCurve') ? selectHTML('curve', 'Screen', f.curve, [
-        ['', 'Any screen'], ['flat', 'Flat (recorded)'], ['curved', 'Curved (recorded)']]) : '') +
-      selectHTML('year', 'Year', f.year,
-        [['', 'Any year']].concat(years.map(function (y) { return [String(y), String(y)]; }))) +
-      selectHTML('size', 'Size', f.size, [
-        ['', 'Any size'], ['0-5', 'Under 5"'], ['5-6.2', '5–6.2"'],
-        ['6.2-6.7', '6.2–6.7"'], ['6.7-20', '6.7" and up']]) +
-      (dbHas('network') ? selectHTML('fiveG', 'Network', f.fiveG, [
-        ['', 'Any network'], ['5g', '5G only'], ['4g', '4G only']]) : '') +
-      (dbHas('ram') ? selectHTML('minRam', 'RAM', f.minRam, [
-        ['', 'Any RAM'], ['6', '6 GB+'], ['8', '8 GB+'], ['12', '12 GB+'], ['16', '16 GB']]) : '') +
-      (dbHas('storage') ? selectHTML('minStorage', 'Storage', f.minStorage, [
-        ['', 'Any storage'], ['128', '128 GB+'], ['256', '256 GB+'], ['512', '512 GB+']]) : '') +
-      selectHTML('minBattery', 'Battery', f.minBattery, [
-        ['', 'Any battery'], ['4500', '4500 mAh+'], ['5000', '5000 mAh+'], ['5500', '5500 mAh+']]) +
-      selectHTML('sort', 'Sort', m.sort, [
-        ['newest', 'Newest first'], ['oldest', 'Oldest first'], ['name', 'Name A–Z'],
-        ['size', 'Largest screen'], ['groups', 'Most parts']]) +
-      (n ? '<button class="btn btn--ghost btn--sm bctl__clear" data-act="clear-model-filters">' +
-        icon('close') + 'Clear ' + n + '</button>' : '') +
-      '</div>';
-  }
-
-  var VIEW_ICON = { grid: 'grid', list: 'parts', table: 'layers' };
-
-  function viewSwitchHTML(view) {
-    return '<div class="vswitch" role="group" aria-label="Display style">' +
-      ['grid', 'list', 'table'].map(function (v) {
-        return '<button type="button" class="vswitch__b' + (view === v ? ' is-on' : '') + '" ' +
-          'data-act="model-view" data-view="' + v + '" aria-pressed="' + (view === v) + '" ' +
-          'title="' + v.charAt(0).toUpperCase() + v.slice(1) + ' view" ' +
-          'aria-label="' + v + ' view">' + icon(VIEW_ICON[v]) + '</button>';
-      }).join('') + '</div>';
-  }
-
-  /* ------------------------------------------------------------------- page */
-  function renderBrandModels(brandId) {
-    var b = db.brandById[brandId];
-    if (!b) { go('/models'); return; }
-    var m = state.models;
-    var c = b.counts || {};
-
-    /* Devices with no release date produce a null year, and it was reaching the
-       dropdown as an option literally reading "null". */
-    var years = Array.from(new Set(db.models
-      .filter(function (x) { return x.brandId === brandId; })
-      .map(function (x) { return x.releaseYear; })
-      .filter(function (y) { return y != null; }))).sort(function (x, y) { return y - x; });
-
-    document.getElementById('modelsBody').innerHTML =
-      '<div class="crumbs" style="margin-bottom:14px">' +
-      '<button data-act="nav" data-href="/models">All brands</button>' + icon('chevronRight') +
-      '<span style="color:var(--ink)">' + esc(b.name) + '</span></div>' +
-
-      '<div class="bhead" style="--b1:' + b.color + '">' +
-        '<div class="bhead__id">' +
-          SM.brandLogo(b, 'blogo--lg') +
-          '<div>' +
-            /* The page's H1: on /models/apple the brand IS the subject of the
-               page. It was an h2 only because it sits inside a section header,
-               which left the route with no H1 at all once the app mounted over
-               the pre-rendered one. */
-            '<h1 class="bhead__n">' + esc(b.name) + '</h1>' +
-            '<p class="bhead__c">' + c.total + ' devices · ' + (c.phones || 0) + ' phones' +
-              (c.tablets ? ' · ' + c.tablets + ' tablets' : '') +
-              (c.watches ? ' · ' + c.watches + ' watches' : '') + '</p>' +
-          '</div>' +
-        '</div>' +
-        '<div class="bhead__tools">' +
-          '<label class="field bhead__q">' + icon('search') +
-            '<input id="bq" placeholder="Search ' + esc(b.name) + '…" value="' + esc(m.q) + '" ' +
-            'aria-label="Search within ' + esc(b.name) + '" /></label>' +
-          viewSwitchHTML(m.view) +
-        '</div>' +
-      '</div>' +
-
-      '<div id="brandControls">' + brandControlsHTML(b, years) + '</div>' +
-      '<div class="bcount" id="brandCount"></div>' +
-      '<div id="brandModels">' + C.skelRows(9) + '</div>' +
-      '<div class="loadmore" id="brandMore"></div>';
-
-    loadBrandModels(true);
-  }
-
-  /* Repaints the filter bar in place. Called after a change so the "Clear N"
-     button appears and disappears without rebuilding the header, which would
-     blur the search box mid-typing. */
-  function refreshBrandControls() {
-    var host = document.getElementById('brandControls');
-    var b = db.brandById[state.models.brandId];
-    if (!host || !b) return;
-    var years = Array.from(new Set(db.models
-      .filter(function (x) { return x.brandId === b.id; })
-      .map(function (x) { return x.releaseYear; })
-      .filter(function (y) { return y != null; }))).sort(function (x, y) { return y - x; });
-    host.innerHTML = brandControlsHTML(b, years);
-  }
-
-  function loadBrandModels(reset) {
-    var m = state.models;
-    if (reset) { m.page = 1; }
+    if (reset) m.page = 1;
+    var shownBefore = reset ? 0 : m.items.length;
+    var seq = ++m.seq;
 
     /* Filtering and sorting happen here rather than in the API seam because
-       they are view state, not a query — the same 344 records are already in
-       memory, and a round trip per dropdown change would be latency for
-       nothing. When this moves to Firestore the seam takes over and this
-       becomes the fallback path. */
-    api.listModels({ brandId: m.brandId, q: m.q, page: 1, pageSize: 9999, sort: m.sort }).then(function (r) {
+       they are view state, not a query — the records are already in memory, and
+       a round trip per dropdown change would be latency for nothing. When this
+       moves to Firestore the seam takes over and this becomes the fallback
+       path. */
+    api.listModels({ brandId: m.brandId, q: m.q, page: 1, pageSize: 9999, instant: true }).then(function (r) {
+      var host = document.getElementById('modelsList');
+      var more = document.getElementById('modelsMore');
+      if (!host || seq !== m.seq) return;     /* a newer keystroke or brand won */
+
       var all = filterModels(r.items, m.filters).sort(SORTS[m.sort] || SORTS.newest);
-      var pageSize = m.view === 'table' ? 60 : 24;
+      var view = modelView();
+      var pageSize = view === 'table' ? 60 : 24;
       var shown = all.slice(0, m.page * pageSize);
+      var now = new Date();
 
       m.total = all.length;
       m.items = shown;
       m.hasMore = shown.length < all.length;
       m.busy = false;
 
-      var host = document.getElementById('brandModels');
-      var more = document.getElementById('brandMore');
-      var count = document.getElementById('brandCount');
-      if (!host) return;
-
-      if (count) {
-        count.innerHTML = all.length
-          ? '<span>' + nf(all.length) + ' device' + (all.length === 1 ? '' : 's') +
-            (all.length !== r.items.length ? ' of ' + nf(r.items.length) : '') + '</span>'
-          : '';
-      }
+      document.getElementById('modelsCount').textContent =
+        nf(all.length) + ' model' + (all.length === 1 ? '' : 's');
 
       if (!shown.length) {
+        var filtered = activeModelFilterCount(m.filters) > 0;
         host.innerHTML = C.state({
           icon: 'search',
-          title: m.q ? 'No models match “' + esc(m.q) + '”' : 'No models match these filters',
-          text: m.q ? 'Try a shorter search — a series name or a number.'
-                    : 'Clear a filter or two to widen the list.'
+          title: m.q ? 'No models match “' + m.q + '”' : 'No models match these filters',
+          text: filtered ? 'Clear the filters to widen the list.'
+                         : 'Try a shorter search — a series name or a number.',
+          action: filtered ? '<button class="btn btn--outline btn--sm" data-act="clear-model-filters">' +
+            icon('close') + 'Clear filters</button>' : ''
         });
         more.innerHTML = '';
         return;
       }
 
-      host.innerHTML = m.view === 'table' ? deviceTableHTML(shown)
-        : m.view === 'list' ? deviceListHTML(shown)
-          : deviceGridHTML(shown);
+      /* "Show more" adds to the list. Rebuilding it would throw away every
+         image already on screen and ask the browser to decode them again. */
+      var fresh = shownBefore ? shown.slice(shownBefore) : shown;
+      var list = shownBefore && host.querySelector('.mgrid, .mlist, .dtable tbody');
+      if (list) {
+        list.insertAdjacentHTML('beforeend', view === 'table' ? modelTableRowsHTML(fresh)
+          : view === 'list' ? modelRowsHTML(fresh, now) : modelTilesHTML(fresh, now));
+      } else {
+        host.innerHTML = view === 'table' ? modelTableHTML(shown)
+          : view === 'list' ? '<div class="mlist">' + modelRowsHTML(shown, now) + '</div>'
+            : '<div class="mgrid">' + modelTilesHTML(shown, now) + '</div>';
+      }
 
       more.innerHTML = m.hasMore
         ? '<button class="btn btn--outline" data-act="more-models">' + icon('plus') +
@@ -6677,8 +6775,13 @@
         break;
 
       /* models page */
-      case 'open-brand': go('/models/' + id); break;
-      case 'more-models': state.models.page++; loadBrandModels(false); break;
+      case 'more-models': state.models.page++; loadModels(false); break;
+
+      case 'brand-scroll': {
+        var railEl = document.getElementById('brandRail');
+        if (railEl) railEl.scrollBy({ left: Number(t.getAttribute('data-dir')) * railEl.clientWidth * 0.8, behavior: 'smooth' });
+        break;
+      }
 
       case 'model-view': {
         var v = t.getAttribute('data-view');
@@ -6691,7 +6794,7 @@
           el.classList.toggle('is-on', on);
           el.setAttribute('aria-pressed', String(on));
         });
-        loadBrandModels(true);
+        loadModels(true);
         break;
       }
 
@@ -6699,14 +6802,18 @@
         var f = state.models.filters;
         Object.keys(f).forEach(function (k) { f[k] = ''; });
         state.models.page = 1;
-        refreshBrandControls();
-        loadBrandModels(true);
+        refreshModelFilters();
+        loadModels(true);
         break;
       }
-      case 'clear-mq': {
+      case 'clear-model-search': {
+        var mdlq = document.getElementById('mdlq');
+        clearTimeout(mqTimer);
         state.models.q = '';
-        var mq = document.getElementById('mq'); if (mq) mq.value = '';
-        searchAllModels();
+        if (mdlq) { mdlq.value = ''; mdlq.focus(); }
+        t.hidden = true;
+        syncModelsUrl();
+        loadModels(true);
         break;
       }
 
@@ -7080,7 +7187,7 @@
   }
 
   /* --------------------------------------------------------------- inputs */
-  var gqTimer = null, mqTimer = null, bqTimer = null;
+  var gqTimer = null, mqTimer = null;
   document.addEventListener('input', function (e) {
     var el = e.target;
     if (el.id === 'q' || el.id === 'qh') {
@@ -7113,13 +7220,14 @@
         else loadGroups(true);
       }, 220);
     }
-    if (el.id === 'mq') {
+    if (el.id === 'mdlq') {
+      document.getElementById('mdlqClear').hidden = !el.value;
       clearTimeout(mqTimer);
-      mqTimer = setTimeout(function () { state.models.q = el.value; searchAllModels(); }, 220);
-    }
-    if (el.id === 'bq') {
-      clearTimeout(bqTimer);
-      bqTimer = setTimeout(function () { state.models.q = el.value; loadBrandModels(true); }, 220);
+      mqTimer = setTimeout(function () {
+        state.models.q = el.value;
+        syncModelsUrl();
+        loadModels(true);
+      }, 220);
     }
     /* registration fields: validate live without losing the caret */
     if (el.hasAttribute && el.hasAttribute('data-reg')) {
@@ -7205,7 +7313,7 @@
     if (e.target.id === 'sortSel') { state.finder.filters.sort = e.target.value; loadGroups(true); }
     if (e.target.id === 'viewSel') { state.finder.filters.view = e.target.value; loadGroups(true); }
 
-    /* Brand-page filters and sort. Only the control that changed is re-read,
+    /* Model filters and sort. Only the control that changed is re-read,
        and only the list is repainted — re-rendering the whole page would drop
        focus out of the select the user just used, which on a phone closes the
        native picker mid-choice. */
@@ -7216,8 +7324,8 @@
       else state.models.filters[key] = fsel.value;
       state.models.page = 1;
       fsel.parentNode.classList.toggle('is-set', !!fsel.value);
-      refreshBrandControls();
-      loadBrandModels(true);
+      refreshModelFilters();
+      loadModels(true);
     }
   });
 

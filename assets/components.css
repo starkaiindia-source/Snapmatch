@@ -816,40 +816,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .expandbtn svg{ width:16px; height:16px; transition:transform .2s; }
 .expandbtn.is-open svg{ transform:rotate(180deg); }
 
-/* ---------------- model cards / brands ---------------- */
-.brandgrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-@media (min-width:600px){ .brandgrid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
-@media (min-width:960px){ .brandgrid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
-@media (min-width:1240px){ .brandgrid{ grid-template-columns:repeat(5,minmax(0,1fr)); } }
-.brandcard{
-  position:relative; overflow:hidden; text-align:left; padding:16px; border-radius:var(--r-lg);
-  background:var(--surface); border:1px solid var(--line); box-shadow:var(--sh-1);
-  transition:transform .2s cubic-bezier(.2,.8,.3,1), box-shadow .2s, border-color .2s;
-}
-.brandcard:hover{ transform:translateY(-3px); box-shadow:var(--sh-2); }
-.brandcard::after{
-  content:""; position:absolute; right:-40px; top:-40px; width:120px; height:120px; border-radius:99px;
-  background:radial-gradient(circle,color-mix(in srgb,var(--b1) 26%,transparent),transparent 68%);
-}
-.brandcard__n{ font-family:var(--f-display); font-size:17px; font-weight:700; letter-spacing:-.025em; margin-top:11px; }
-.brandcard__c{ font-size:12px; color:var(--ink-3); font-weight:600; font-variant-numeric:tabular-nums; }
-
-.modelgrid{ display:grid; grid-template-columns:1fr; gap:10px; }
-@media (min-width:640px){ .modelgrid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media (min-width:1100px){ .modelgrid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
-.mcard{
-  display:flex; align-items:center; gap:12px; text-align:left; width:100%; padding:12px 14px;
-  border-radius:var(--r); background:var(--surface); border:1px solid var(--line); box-shadow:var(--sh-1);
-  content-visibility:auto; contain-intrinsic-size:auto 74px;
-  transition:transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s, border-color .18s;
-}
-.mcard:hover{ transform:translateY(-2px); box-shadow:var(--sh-2); border-color:var(--teal-500); }
-.mcard__n{ font-weight:700; font-size:15px; letter-spacing:-.018em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.mcard__m{ font-size:12px; color:var(--ink-3); font-weight:600; display:flex; gap:7px; align-items:center; }
-.mcard__m i{ font-style:normal; width:3px; height:3px; border-radius:99px; background:currentColor; }
-.mcard__go{ margin-left:auto; color:var(--ink-3); flex:none; }
-.mcard__go svg{ width:17px; height:17px; }
-
 /* spec sheet */
 .specs{ display:grid; grid-template-columns:1fr; gap:1px; background:var(--line-soft); border:1px solid var(--line); border-radius:var(--r); overflow:hidden; }
 @media (min-width:520px){ .specs{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
@@ -1340,95 +1306,104 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 }
 
 /* ============================================================================
-   BRAND DASHBOARD TILE
-   ----------------------------------------------------------------------------
-   The tile earns the space it takes: logo and name, then the counts in the
-   order that matters when pricing a repair — phones first and largest, split
-   flat/curved, then the other device classes.
-
-   Cards are a fixed minimum height so a brand with no tablets does not sit
-   half as tall as one that has them. Ragged card heights across a grid read as
-   a broken layout, not as information.
-   ========================================================================== */
-.brandcard{
-  display:flex; flex-direction:column; gap:10px; min-height:168px;
-}
-.brandcard__top{ display:flex; align-items:center; gap:11px; min-width:0; }
-.brandcard__id{ display:flex; flex-direction:column; min-width:0; }
-.brandcard__n{
-  font-family:var(--f-display); font-weight:800; font-size:15px; letter-spacing:-.02em;
-  color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.brandcard__c{ font-size:11.5px; color:var(--ink-3); }
-
-/* the headline number */
-.brandcard__lead{ display:flex; align-items:baseline; gap:6px; margin-top:auto; }
-.brandcard__lead b{
-  font-family:var(--f-display); font-weight:800; font-size:30px; line-height:1;
-  letter-spacing:-.035em; color:var(--ink); font-variant-numeric:tabular-nums;
-}
-.brandcard__lead span{
-  font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
-  color:var(--ink-3);
-}
-
-/* Flat vs curved, drawn to scale. The curved remainder is the track itself, so
-   the two segments cannot disagree with each other. */
-.curvebar{
-  display:block; height:5px; border-radius:99px; overflow:hidden;
-  background:var(--b1, var(--teal-600)); opacity:.9;
-}
-.curvebar__flat{ display:block; height:100%; background:var(--ink-3); opacity:.55; }
-
-.brandcard__split{ display:flex; gap:12px; flex-wrap:wrap; }
-.brandcard__extra{
-  display:flex; gap:12px; flex-wrap:wrap;
-  padding-top:9px; border-top:1px solid var(--line);
-}
-.bcs{ font-size:11.5px; color:var(--ink-3); white-space:nowrap; }
-.bcs b{
-  font-weight:800; color:var(--ink-2); font-variant-numeric:tabular-nums;
-  margin-right:2px;
-}
-/* A dot in each label ties the number to its half of the bar. */
-.bcs--flat::before, .bcs--curved::before{
-  content:''; display:inline-block; width:7px; height:7px; border-radius:99px;
-  margin-right:5px; vertical-align:middle;
-}
-.bcs--flat::before{ background:var(--ink-3); opacity:.55; }
-.bcs--curved::before{ background:var(--b1, var(--teal-600)); }
-
-/* On the narrowest phones the tile drops the split bar rather than squeezing
-   two labels onto one 150px line. */
-@media (max-width:400px){
-  .brandcard{ min-height:150px; }
-  .brandcard__lead b{ font-size:26px; }
-  .brandcard__split{ gap:8px; }
-  .bcs{ font-size:11px; }
-}
-
-/* ============================================================================
-   BRAND MODEL PAGE — header, controls, and three views
+   MODELS PAGE — brand rail, toolbar, and three views
    ========================================================================== */
 
-/* ------------------------------------------------------------------ header */
-.bhead{
-  display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between;
-  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
-  padding:16px; margin-bottom:14px;
+/* -------------------------------------------------------------- brand rail
+   One row, scrolled inside itself, so the page never gets wider than the
+   screen. Sticky under the header: the next brand stays one tap away from
+   anywhere in a long list, and the row is short enough to leave the screen to
+   the models. */
+.brail{
+  position:sticky; top:var(--topbar-h); z-index:40;
+  background:var(--paper); border-bottom:1px solid var(--line);
 }
-.bhead__id{ display:flex; align-items:center; gap:13px; min-width:0; }
-.bhead__n{
-  font-family:var(--f-display); font-weight:800; font-size:22px;
-  letter-spacing:-.03em; margin:0; color:var(--ink);
+.brail__w{ position:relative; max-width:var(--shell); margin-inline:auto; }
+.brail__s{
+  position:relative; display:flex; gap:2px; padding:6px var(--pad);
+  overflow-x:auto; overscroll-behavior-x:contain;
+  scrollbar-width:none; -webkit-overflow-scrolling:touch;
 }
-.bhead__c{ margin:2px 0 0; font-size:12.5px; color:var(--ink-3); }
-/* Search and the view switch sit together on the right, as one tool group. */
-.bhead__tools{ display:flex; align-items:center; gap:10px; margin-left:auto; flex-wrap:wrap; }
-.bhead__q{ min-width:min(260px, 100%); }
+.brail__s::-webkit-scrollbar{ display:none; }
+.brail__i{
+  position:relative; flex:none; display:flex; flex-direction:column; align-items:center; gap:3px;
+  width:68px; padding:5px 3px 6px; border-radius:12px;
+  color:var(--ink-2); text-decoration:none; transition:background .15s, color .15s;
+}
+.brail__i:hover{ background:var(--surface-3); text-decoration:none; }
+.brail__i:focus-visible{ outline:2px solid var(--teal-500); outline-offset:-2px; }
+.brail__i.is-on{ background:var(--teal-050); color:var(--teal-700); }
+.brail__i.is-on::after{
+  content:""; position:absolute; left:18%; right:18%; bottom:0; height:3px;
+  border-radius:3px 3px 0 0; background:var(--teal-500);
+}
+.brail__n{
+  max-width:100%; font-size:11.5px; font-weight:700; line-height:1.2;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.brail__all{
+  display:grid; place-items:center; width:48px; height:40px; border-radius:10px;
+  background:var(--surface-3); border:1px solid var(--line); color:var(--ink-2);
+}
+.brail__all svg{ width:20px; height:20px; }
+.brail__i.is-on .brail__all{ background:var(--surface); border-color:var(--teal-500); color:var(--teal-700); }
 
-/* View switch: three icons, not three words. The name is on the tooltip and
-   the aria-label, so the control keeps its width in any language. */
+/* A mouse has no sideways swipe. */
+.brail__go{ display:none; }
+@media (hover:hover) and (min-width:940px){
+  .brail__s{ padding-inline:40px; }
+  .brail__go{
+    position:absolute; top:50%; z-index:1; display:grid; place-items:center;
+    width:30px; height:30px; margin-top:-15px; padding:0; cursor:pointer;
+    background:var(--surface); color:var(--ink-2);
+    border:1px solid var(--line); border-radius:99px; box-shadow:var(--sh-1);
+  }
+  .brail__go:hover{ border-color:var(--teal-500); color:var(--teal-700); }
+  .brail__go:focus-visible{ outline:2px solid var(--teal-500); outline-offset:1px; }
+  .brail__go svg{ width:16px; height:16px; }
+  .brail__go--l{ left:6px; }
+  .brail__go--r{ right:6px; }
+}
+
+/* ----------------------------------------------------------------- toolbar */
+.mbar{
+  display:grid; gap:8px 12px; align-items:center; padding:10px 0 2px;
+  grid-template-columns:minmax(0,1fr) auto;
+  grid-template-areas:"ctx view" "q q" "f f";
+}
+.mbar__ctx{ grid-area:ctx; display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 9px; min-width:0; }
+.mbar__t{
+  margin:0; font-family:var(--f-display); font-weight:800; font-size:20px;
+  letter-spacing:-.03em; line-height:1.2; color:var(--ink);
+}
+.mbar__c{ font-size:12.5px; color:var(--ink-3); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.mbar__v{ grid-area:view; }
+.mbar__q{ grid-area:q; min-width:0; }
+.mbar__q .input{ padding-right:40px; }
+/* The box has its own clear button; two would sit on top of each other. */
+.mbar__q .input::-webkit-search-cancel-button{ -webkit-appearance:none; appearance:none; }
+.mbar__x{
+  position:absolute; right:3px; top:50%; display:grid; place-items:center;
+  width:36px; height:36px; margin-top:-18px; padding:0; cursor:pointer;
+  background:transparent; border:0; border-radius:8px; color:var(--ink-3);
+}
+.mbar__x[hidden]{ display:none; }
+.mbar__x:hover{ color:var(--ink); }
+.mbar__x svg{ position:static; width:16px; height:16px; color:inherit; }
+.mbar__f{ grid-area:f; min-width:0; }
+
+@media (min-width:900px){
+  .mbar{
+    grid-template-columns:auto minmax(0,1fr) auto;
+    grid-template-areas:"ctx q view" "f f f";
+    gap:12px 18px; padding-top:16px;
+  }
+  .mbar__t{ font-size:23px; }
+  .mbar__q{ justify-self:end; width:100%; max-width:440px; }
+}
+
+/* View switch: icons, not words. The name is on the tooltip and the aria-label,
+   so the control keeps its width in any language. */
 .vswitch{
   display:flex; gap:2px; padding:3px; flex:none;
   background:var(--surface-3); border:1px solid var(--line); border-radius:11px;
@@ -1442,9 +1417,12 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .vswitch__b:hover{ color:var(--ink-2); background:var(--surface); }
 .vswitch__b.is-on{ background:var(--surface); color:var(--teal-700); box-shadow:var(--sh-1); }
 .vswitch__b:focus-visible{ outline:2px solid var(--teal-500); outline-offset:1px; }
+@media (max-width:899px){
+  .vswitch__b[data-view="table"]{ display:none; }
+}
 
 /* ---------------------------------------------------------------- controls */
-.bctl{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+.bctl{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding-top:7px; margin-bottom:6px; }
 .fsel{ position:relative; display:inline-flex; }
 .fsel__l{
   position:absolute; left:11px; top:-7px; padding:0 4px; z-index:1;
@@ -1470,39 +1448,6 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    missing data rather than as a filtered one. */
 .fsel.is-set select{ border-color:var(--teal-500); color:var(--teal-700); font-weight:700; }
 .bctl__clear{ margin-left:auto; }
-.bcount{ font-size:12.5px; color:var(--ink-3); margin:0 0 12px; font-variant-numeric:tabular-nums; }
-
-/* ------------------------------------------------------- shared device art */
-.dvc{ display:block; width:auto; height:100%; filter:drop-shadow(0 6px 12px rgba(0,0,0,.22)); }
-.dvc--xs{ height:30px; filter:none; }
-
-/* --------------------------------------------------------------- grid view */
-.dgrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-@media (min-width:560px){ .dgrid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
-@media (min-width:900px){ .dgrid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
-@media (min-width:1280px){ .dgrid{ grid-template-columns:repeat(5,minmax(0,1fr)); } }
-
-.dcard{
-  display:flex; flex-direction:column; text-align:left; padding:0; overflow:hidden;
-  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
-  cursor:pointer; transition:transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s, border-color .18s;
-}
-.dcard:hover{ transform:translateY(-3px); box-shadow:var(--sh-2); border-color:var(--teal-500); }
-.dcard:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
-/* The device image leads — showing it instead of a repeated brand logo is the
-   whole reason this view exists. */
-.dcard__shot{
-  display:grid; place-items:center; height:132px; padding:14px 10px;
-  background:radial-gradient(120% 90% at 50% 0%, var(--teal-050), transparent 70%), var(--surface-2);
-  border-bottom:1px solid var(--line);
-}
-.dcard__b{ display:flex; flex-direction:column; gap:5px; padding:11px 12px 13px; min-width:0; }
-.dcard__n{
-  font-weight:700; font-size:13.5px; color:var(--ink); line-height:1.25;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.dcard__m{ font-size:11.5px; color:var(--ink-3); font-variant-numeric:tabular-nums; }
-.dcard__t{ display:flex; gap:5px; flex-wrap:wrap; margin-top:2px; }
 
 .tag{
   font-size:10px; font-weight:800; letter-spacing:.05em; text-transform:uppercase;
@@ -1512,27 +1457,79 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 .tag--curved{ background:var(--teal-100); color:var(--teal-700); }
 .tag--parts{ background:var(--teal-100); color:var(--teal-700); }
 
+/* ------------------------------------------------------------ catalogue card
+   The photograph leads. The tile stays white in both themes because the source
+   images are JPEGs on white, and any tint would show them as a pale rectangle
+   floating inside the card. The tile's ratio is fixed so a photograph arriving
+   late cannot push the rows below it. */
+.mgrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+@media (min-width:600px){ .mgrid{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; } }
+@media (min-width:900px){ .mgrid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (min-width:1180px){ .mgrid{ grid-template-columns:repeat(5,minmax(0,1fr)); } }
+@media (min-width:1500px){ .mgrid{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
+
+.mtile{
+  display:flex; flex-direction:column; min-width:0; overflow:hidden;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg);
+  color:inherit; text-decoration:none;
+  transition:transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s, border-color .18s;
+}
+.mtile:hover{ transform:translateY(-3px); box-shadow:var(--sh-2); border-color:var(--teal-500); text-decoration:none; }
+.mtile:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+.mtile__shot{ position:relative; display:block; aspect-ratio:1 / 1.24; background:var(--ctile-paper); }
+@media (min-width:900px){ .mtile__shot{ aspect-ratio:1 / 1.08; } }
+.mtile__b{ flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; padding:9px 11px 11px; border-top:1px solid var(--line); }
+
+.mname{ font-weight:700; font-size:13.5px; line-height:1.25; color:var(--ink); overflow-wrap:anywhere; }
+.mfacts{ display:flex; align-items:center; justify-content:space-between; gap:6px; min-height:17px; font-size:12px; font-weight:600; color:var(--ink-2); font-variant-numeric:tabular-nums; }
+.mdate{ font-size:11.5px; line-height:1.3; color:var(--ink-3); }
+/* A fixed teal: white text has to clear contrast in dark mode too, where the
+   theme's own teal tokens brighten. */
+.mnew{
+  flex:none; margin-left:auto; padding:2px 7px; border-radius:99px;
+  background:#0F766E; color:#fff; font-size:10px; font-weight:800; letter-spacing:.06em; line-height:1.3;
+}
+
+/* Out of flow, because a tile sized only by its ratio still grows to fit an
+   in-flow image: every row would jump as its photographs arrived. */
+.mtile__shot .dphoto{ position:absolute; inset:8px; display:flex; }
+.mrow__shot .dphoto{ display:flex; width:100%; height:100%; }
+.mdl .dphoto__img{ display:block; width:100%; height:100%; object-fit:contain; }
+
+/* Held until the photograph arrives. */
+.mtile__shot .dphoto:not(.is-loaded):not(.is-failed):not(.dphoto--art),
+.mrow__shot .dphoto:not(.is-loaded):not(.is-failed):not(.dphoto--art){
+  border-radius:10px; background:linear-gradient(100deg,#EDF2F1 30%,#F8FAFA 50%,#EDF2F1 70%);
+  background-size:220% 100%; animation:sh 1.3s linear infinite;
+}
+
+/* The tile is white in both themes, so these colours are fixed too. */
+.mdl .mnone{
+  display:none; flex-direction:column; align-items:center; justify-content:center; gap:5px;
+  width:100%; height:100%; color:#74877F; font-size:11px; font-weight:600; text-align:center;
+}
+.mdl .mnone svg{ width:26px; height:26px; opacity:.7; }
+.mdl .dphoto.is-failed .mnone, .mdl .dphoto--art .mnone{ display:flex; }
+
 /* --------------------------------------------------------------- list view */
-.dlist{ display:flex; flex-direction:column; gap:8px; }
-.drow{
-  display:flex; align-items:center; gap:13px; text-align:left; width:100%;
-  padding:10px 13px; background:var(--surface); border:1px solid var(--line);
-  border-radius:var(--r); cursor:pointer; transition:border-color .15s, background .15s;
+.mlist{ display:flex; flex-direction:column; gap:8px; }
+.mrow{
+  display:flex; align-items:center; gap:12px; min-width:0; padding:7px 10px 7px 7px;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  color:inherit; text-decoration:none; transition:border-color .15s, background .15s;
 }
-.drow:hover{ border-color:var(--teal-500); background:var(--surface-2); }
-.drow:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
-.drow__shot{ display:grid; place-items:center; width:38px; height:52px; flex:none; }
-.drow__main{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
-.drow__n{
-  font-weight:700; font-size:14px; color:var(--ink);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.drow__m{
-  font-size:12px; color:var(--ink-3);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-}
-.drow__side{ display:flex; align-items:center; gap:8px; flex:none; }
-.drow__y{ font-size:12px; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+.mrow:hover{ border-color:var(--teal-500); background:var(--surface-2); text-decoration:none; }
+.mrow:focus-visible{ outline:2px solid var(--teal-500); outline-offset:2px; }
+.mrow__shot{ flex:none; width:78px; height:98px; padding:4px; border-radius:10px; background:var(--ctile-paper); }
+.mrow__b{ flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
+.mrow .mname{ font-size:14.5px; }
+.mrow .mfacts{ justify-content:flex-start; gap:8px; }
+.mrow .mnew{ margin-left:0; }
+.mrow__go{ flex:none; color:var(--ink-3); }
+.mrow__go svg{ display:block; width:16px; height:16px; }
+.dphoto--thumb{ flex:none; width:30px; height:38px; border-radius:5px; overflow:hidden; background:var(--ctile-paper); }
+.dphoto--thumb .mnone span{ display:none; }
+.dphoto--thumb .mnone svg{ width:18px; height:18px; }
 
 /* -------------------------------------------------------------- table view */
 .dtable-wrap{
@@ -1593,25 +1590,22 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
 }
 
 /* ------------------------------------------------------------ small screens */
-@media (max-width:640px){
-  .bhead{ padding:13px; gap:12px; }
-  .bhead__tools{ width:100%; margin-left:0; }
-  .bhead__q{ flex:1; min-width:0; }
-  .bhead__n{ font-size:19px; }
+@media (max-width:899px){
   /* the filter bar scrolls sideways rather than stacking into a wall */
   .bctl{
-    flex-wrap:nowrap; overflow-x:auto; padding:8px 0 4px;
+    flex-wrap:nowrap; overflow-x:auto; overscroll-behavior-x:contain; padding:7px 0 2px;
     scrollbar-width:none; -webkit-overflow-scrolling:touch;
   }
   .bctl::-webkit-scrollbar{ display:none; }
+  .fsel{ flex:none; }
   .fsel select{ min-height:44px; }
   .bctl__clear{ margin-left:0; flex:none; }
-  .dcard__shot{ height:112px; }
 }
 
 @media (prefers-reduced-motion:reduce){
-  .dcard, .drow, .vswitch__b, .dtable tbody tr{ transition:none; }
-  .dcard:hover{ transform:none; }
+  .mtile, .mrow, .vswitch__b, .brail__i, .dtable tbody tr{ transition:none; }
+  .mtile:hover{ transform:none; }
+  .mtile__shot .dphoto, .mrow__shot .dphoto{ animation:none !important; }
 }
 
 /* ============================================================================
@@ -1815,9 +1809,8 @@ select.input{ appearance:none; cursor:pointer; padding-right:34px;
    <a href> rather than <button>: that is what makes a model page reachable by
    a crawler and by a middle-click. A button carries no colour or underline of
    its own, so those are reset here rather than in every rule above. */
-.dcard, .drow, .mcard, .tcell-dev{ text-decoration:none; color:inherit; }
-.dcard:hover, .drow:hover, .mcard:hover, .tcell-dev:hover{ text-decoration:none; }
-.tcell-dev{ color:inherit; }
+.tcell-dev{ text-decoration:none; color:inherit; }
+.tcell-dev:hover{ text-decoration:none; }
 
 /* ==========================================================================
    MODEL PAGE — photograph, identity, specifications
