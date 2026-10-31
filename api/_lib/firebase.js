@@ -109,7 +109,11 @@ function db() {
 
   const d = app().firestore();
   try {
-    d.settings({ ignoreUndefinedProperties: true });
+    /* preferRest: the first gRPC call loads google-gax and every proto file,
+       which took about ten seconds on a cold function. A shop that had been quiet
+       for a while waited that long for "Confirm Bill". Nothing here needs a
+       stream, so plain HTTP does the same work without that load. */
+    d.settings({ ignoreUndefinedProperties: true, preferRest: true });
   } catch (err) {
     /* Already started — by an earlier module evaluation holding its own
        reference, say. The setting is not worth failing a request over; an
