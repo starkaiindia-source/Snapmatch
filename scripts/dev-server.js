@@ -137,6 +137,8 @@ http.createServer((req, res) => {
   if (adminApi) { runApi('admin', req, res, { section: adminApi[1] }); return; }
   const shopApi = /^\/api\/shop\/([A-Za-z0-9_-]+)\/?$/.exec(p);
   if (shopApi) { runApi('shop', req, res, { section: shopApi[1] }); return; }
+  const invoiceLink = /^\/i\/([A-Za-z0-9_-]{20,64})\/?$/.exec(p);
+  if (invoiceLink) { runApi('shop', req, res, { section: 'invoice', t: invoiceLink[1] }); return; }
 
   /* The same rewrites vercel.json performs, kept in step by hand because there
      is no way to execute that file locally. Several endpoints share one

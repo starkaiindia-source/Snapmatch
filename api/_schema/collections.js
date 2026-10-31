@@ -150,6 +150,10 @@ const SHOP_CUSTOMERS = 'customers';
 /** shops/{uid}/days/{YYYY-MM-DD} — one trading day's figures, written with its bills. */
 const SHOP_DAYS = 'days';
 
+/* A shared invoice link: token -> whose bill. Top level because whoever opens one
+   has no account to find a shop by. Written and read only by the server. */
+const INVOICE_LINKS = 'invoiceLinks';
+
 /* ------------------------------------------------------- existing catalogue
    Named here so a service never has to guess at the spelling, but owned by the
    importer and completely unchanged by this backend. */
@@ -172,7 +176,7 @@ module.exports = {
   APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
   COMPAT_CATEGORIES,
   ADMIN_AUDIT_LOG, RATE_LIMITS, SEARCH_USAGE,
-  SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS, SHOP_CUSTOMERS, SHOP_DAYS,
+  SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS, SHOP_CUSTOMERS, SHOP_DAYS, INVOICE_LINKS,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG
 };

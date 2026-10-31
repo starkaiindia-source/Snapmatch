@@ -159,6 +159,10 @@
       "dest": "/api/shop.js?section=$1"
     },
     {
+      "src": "/i/([A-Za-z0-9_-]{20,64})/?$",
+      "dest": "/api/shop.js?section=invoice&t=$1"
+    },
+    {
       "src": "/api/([^/.]+)/?$",
       "dest": "/api/$1.js"
     },

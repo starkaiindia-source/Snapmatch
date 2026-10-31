@@ -8,22 +8,29 @@
      GET  /api/shop/group?id=         one compatibility group, cut to the plan
      GET  /api/shop/model-groups?modelId=  the groups a device is in
      GET  /api/shop/compat?modelId=   this shop's products that fit a device
-     POST /api/shop/bill              { action: finalise | payment | void }
+     POST /api/shop/bill              { action: finalise | payment | void | share }
      GET  /api/shop/bill?id=          one saved bill
      GET  /api/shop/bills?q=&cursor=  bill history, or a search
      POST /api/shop/customer          { action: create | update }
      GET  /api/shop/customer?id=      one customer and their bills
      GET  /api/shop/customers?q=&filter=&cursor=  the customer list
      GET  /api/shop/overview?from=&to=  the dashboard
+     GET  /i/<token>                  one shared invoice, as a page. The only
+                                      section with no sign-in: see below
 
    ONE FUNCTION FOR ALL OF IT. The Hobby plan allows 12 serverless functions
    and this is the twelfth; any further endpoint must be a section here or in
    another dispatcher (see api/admin.js for the reasoning).
 
-   EVERY SECTION NEEDS A SIGNED-IN USER, and the shop is that user. The uid
-   comes from the verified ID token and from nowhere else — no body field,
+   EVERY SECTION BUT ONE NEEDS A SIGNED-IN USER, and the shop is that user. The
+   uid comes from the verified ID token and from nowhere else — no body field,
    query parameter or header can name a different shop. The service builds
    every Firestore path from it.
+
+   The exception is `invoice`, the link a shop sends a customer. The customer has
+   no account, so an unguessable token stands in for one, and it opens that one
+   invoice and nothing else. It is handled apart so it can never fall through to
+   a section that trusts the caller.
 
    Nothing here changes a subscription or a payment. The compatibility sections
    only read, and what they show of a group is cut to the caller's plan.
@@ -51,7 +58,8 @@ const POSTS = {
   bill: {
     finalise: shop.finaliseBill,
     payment: shop.updatePayment,
-    void: shop.voidBill
+    void: shop.voidBill,
+    share: shop.shareBill
   },
   customer: {
     create: shop.createCustomer,
@@ -82,9 +90,31 @@ function sectionFrom(req) {
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
+async function sharedInvoice(req, res) {
+  const page = (status, html) => {
+    res.status(status);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    /* A private document at a secret address: never cached, never indexed, and
+       the address is not passed on to anything it links to. */
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.end(html);
+  };
+  try {
+    return page(200, await shop.sharedInvoice(req.query || {}));
+  } catch (err) {
+    if (err instanceof shop.ShopError) {
+      return page(404, '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Invoice not found</title><p style="font:16px system-ui;padding:24px">This invoice link is not valid. Ask the shop to send it again.</p>');
+    }
+    return fail(res, err, 'shop:invoice');
+  }
+}
+
 module.exports = async function handler(req, res) {
   const section = sectionFrom(req);
   const isGet = req.method === 'GET';
+  if (isGet && section === 'invoice') return sharedInvoice(req, res);
   if (req.method !== 'GET' && req.method !== 'POST') return notAllowed(res);
   if (isGet ? !has(GETS, section) : !has(POSTS, section)) {
     return json(res, 404, { error: 'no such shop section', section: section || null });
