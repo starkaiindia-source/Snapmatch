@@ -1750,7 +1750,7 @@
       tile('Amount collected', inr(p.collectedNetPaise), esc(rangeName(d.range.from, d.range.to))) +
       tile('Outstanding', inr(d.shop.outstandingPaise), 'all unpaid bills', 'cust-outstanding', d.shop.outstandingPaise ? 'qb-due' : '') +
       '</div>' +
-      '<div class="qb-card2"><span class="qb-lab">Money in this period</span><div class="qb-rows">' +
+      '<div class="qb-card2"><span class="qb-lab">Money in this period</span><div class="qb-rows qb-moneyrows">' +
       money('Gross sales', p.grossPaise) + money('Discounts', -p.discountPaise) + money('Tax', p.taxPaise) +
       money('Net sales', p.netPaise, ' qb-trow--net') +
       money('Voided bills', p.voidedPaise) + money('Collected', p.collectedPaise) + money('Refunds', p.refundedPaise) +
