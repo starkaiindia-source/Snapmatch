@@ -11,8 +11,7 @@
    cut to the shop's plan, like everywhere else.
 
    ROUTES (all under /billing, rendered into the app's #page)
-     /billing                   the counter: products, the bill, the summary
-     /billing/review            the full-screen bill preview (phones)
+     /billing                   a whole new bill, from customer to saved invoice
      /billing/bills             saved bills: search, history
      /billing/bills/<id>        one saved bill: reprint, labels, payment, void
      /billing/products          stock: table or grid, filters, edit, adjust
@@ -32,13 +31,10 @@
    ========================================================================== */
 (function (global) {
   'use strict';
-  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts;
+  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts, SH = SM.shopShare;
   var esc = C.esc, inr = M.inr;
 
   var PRODUCT_PAGE = 50;
-
-  var DESK_MQ = global.matchMedia ? global.matchMedia('(min-width: 1100px)') : null;
-  function isDesk() { return !!(DESK_MQ && DESK_MQ.matches); }
 
   var METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'], ['other', 'Other']];
   var STATUSES = [['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['paid', 'Paid']];
@@ -62,7 +58,7 @@
       uid: uid || null,
       loaded: false, loading: null, loadError: null,
       categories: [], products: [], suggested: [], billCount: 0,
-      filter: { cat: 'all', q: '' },
+      filter: { cat: 'all', q: '' }, catLimit: 60, pickQty: {}, lastAdd: null, custPicked: null,
       cart: null, saving: false, saveError: null, lastSaved: null,
       bills: { items: [], cursor: null, q: '', from: 0, to: 0, range: '', loading: false, loaded: false, error: null, ticket: 0 },
       prodFilter: PF.blankFilter(), prodView: 'table', prodPop: null, prodLimit: PRODUCT_PAGE, prodOpen: {},
@@ -182,11 +178,16 @@
       lines: [],
       discount: { mode: 'amount', text: '' },
       tax: { on: false, rate: '18', inclusive: false, label: 'GST' },
-      customer: { id: '', name: '', mobile: '', notes: '' },
+      customer: { id: '', name: '', mobile: '', whatsapp: '', address: '', gstin: '', notes: '' },
       payment: { method: 'cash', status: 'paid', received: '' }
     };
   }
   function cartKey() { return 'mpf.qb.cart.' + S.uid; }
+  /* The draft survives a reload. A customer's details are kept only for this tab:
+     they have no business outliving the visit in the browser's long-term storage. */
+  function sessionCustomer() {
+    try { return JSON.parse(global.sessionStorage.getItem(cartKey()) || 'null'); } catch (e) { return null; }
+  }
   function loadCart() {
     try {
       var c = JSON.parse(store(cartKey()) || 'null');
@@ -197,14 +198,19 @@
           lines: c.lines.filter(function (l) { return l && l.key && l.name; }),
           discount: Object.assign(e.discount, c.discount),
           tax: Object.assign(e.tax, c.tax),
-          customer: Object.assign(e.customer, c.customer),
+          customer: Object.assign(e.customer, sessionCustomer()),
           payment: Object.assign(e.payment, c.payment)
         };
       }
     } catch (err) { /* a corrupt draft is replaced, not trusted */ }
     return emptyCart();
   }
-  function saveCart() { if (S.uid && S.cart) store(cartKey(), JSON.stringify(S.cart)); }
+  function saveCart() {
+    if (!S.uid || !S.cart) return;
+    var c = S.cart;
+    store(cartKey(), JSON.stringify({ fid: c.fid, lines: c.lines, discount: c.discount, tax: c.tax, payment: c.payment }));
+    try { global.sessionStorage.setItem(cartKey(), JSON.stringify(c.customer)); } catch (e) { /* private mode */ }
+  }
   function lineByKey(k) { for (var i = 0; i < S.cart.lines.length; i++) if (S.cart.lines[i].key === k) return S.cart.lines[i]; return null; }
 
   /**
@@ -212,28 +218,36 @@
    * customer asked about, when the product was found through compatibility. The
    * model is a note on the line: the stock that moves is always this product's.
    */
-  function addToCart(p, v, model) {
-    if (hasVariants(p) && !v) { openVariantPicker(p, model); return; }
+  function addToCart(p, v, model, qty) {
+    if (hasVariants(p) && !v) { openVariantPicker(p, model, qty); return; }
+    var want = qty || 1;
     var stock = v ? v.qty : p.qty;
     var used = v ? inCart(p.id, v.id) : inCart(p.id);
+    var left = stock - used;
     var title = v ? p.name + ' (' + variantLabel(v) + ')' : p.name;
-    if (stock - used <= 0) { toast(stock <= 0 ? '“' + title + '” is out of stock' : 'All ' + stock + ' in stock are already on the bill', 'alert'); return; }
+    if (left <= 0) { toast(stock <= 0 ? '“' + title + '” is out of stock' : 'All ' + stock + ' in stock are already on the bill', 'alert'); return; }
+    if (want > left) { toast('Only ' + left + ' more of “' + title + '” in stock', 'alert'); return; }
     var vid = v ? v.id : null;
     var mid = model ? model.id : null;
+    /* a second tap on the same button within a moment is the same intention */
+    var key = p.id + '|' + vid + '|' + mid;
+    if (S.lastAdd && S.lastAdd.key === key && Date.now() - S.lastAdd.at < 350) return;
+    S.lastAdd = { key: key, at: Date.now() };
     var line = null;
     S.cart.lines.forEach(function (l) {
       if (!line && l.productId === p.id && (l.variantId || null) === vid && (l.modelId || null) === mid) line = l;
     });
-    if (line) line.qty += 1;
+    if (line) line.qty += want;
     else {
       var price = v ? v.pricePaise : p.pricePaise;
       S.cart.lines.push({
         key: API.newId('l'), productId: p.id, variantId: vid, variantLabel: v ? variantLabel(v) : '',
         name: p.name, shelf: (v && v.shelf) || p.shelf || '', sku: (v && v.sku) || p.sku || '',
-        unitPaise: price, priceText: M.toInput(price), qty: 1,
+        unitPaise: price, priceText: M.toInput(price), qty: want,
         modelId: mid, modelName: model ? model.name : '', groupId: model ? model.groupId || null : null
       });
     }
+    delete S.pickQty[p.id];
     cartChanged(true);
     pulse(p.id);
   }
@@ -271,6 +285,13 @@
     if (c.tax.on && !bp) errors.tax = 'Enter a tax rate, e.g. 18';
     if (rv == null) errors.recv = 'Not a valid amount';
     else if (c.payment.status === 'partial' && (!rv || rv >= totals.totalPaise)) errors.recv = 'Enter the part amount received';
+    var cust = c.customer;
+    var phone = digitsOf(cust.mobile);
+    if (!cust.id && phone && phone.length < 10) errors.cmobile = 'Enter the full mobile number, or leave it empty for a walk-in';
+    var whats = digitsOf(cust.whatsapp);
+    if (whats && whats.length < 10) errors.cwhats = 'Enter the full number, or leave it empty';
+    var gst = String(cust.gstin || '').trim();
+    if (gst && !/^[0-9A-Za-z]{15}$/.test(gst)) errors.cgstin = 'A GSTIN has 15 letters and numbers';
     var ok = c.lines.length > 0 && Object.keys(errors).length === 0;
     return { totals: totals, pay: pay, discount: discount, tax: tax, received: rv || 0, errors: errors, ok: ok };
   }
@@ -284,26 +305,6 @@
     return {
       status: M.statusFor(total, r), receivedPaise: r,
       balancePaise: Math.max(0, total - r), changePaise: Math.max(0, r - total)
-    };
-  }
-
-  function draftBill(d) {
-    var c = S.cart;
-    d = d || draft();
-    return {
-      number: null, status: 'draft', createdAt: Date.now(),
-      items: c.lines.map(function (l, i) {
-        var u = l.unitPaise == null ? 0 : l.unitPaise;
-        return {
-          lineNo: i + 1, name: l.name, variantLabel: l.variantLabel || '', selectedModelName: l.modelName || '',
-          shelf: l.shelf, sku: l.sku, custom: !l.productId, unitPaise: u, qty: l.qty, totalPaise: u * l.qty
-        };
-      }),
-      subtotalPaise: d.totals.subtotalPaise, discount: d.discount, discountPaise: d.totals.discountPaise,
-      tax: c.tax.on ? d.tax : { rateBp: 0 }, taxPaise: d.totals.taxPaise, totalPaise: d.totals.totalPaise,
-      payment: { method: c.payment.method, status: d.pay.status, receivedPaise: d.pay.receivedPaise,
-        balancePaise: d.pay.balancePaise, changePaise: d.pay.changePaise },
-      customer: c.customer
     };
   }
 
@@ -323,7 +324,10 @@
       discount: d.discount,
       tax: c.tax.on ? d.tax : { rateBp: 0 },
       payment: { method: c.payment.method, status: c.payment.status, receivedPaise: d.received },
-      customer: { id: c.customer.id || undefined, name: c.customer.name, mobile: c.customer.mobile, notes: c.customer.notes }
+      customer: {
+        id: c.customer.id || undefined, name: c.customer.name, mobile: c.customer.mobile, whatsapp: c.customer.whatsapp,
+        address: c.customer.address, gstin: c.customer.gstin, notes: c.customer.notes
+      }
     };
   }
 
@@ -335,7 +339,8 @@
     return {
       name: p.shopName || p.mobileShopName || s.shopName || s.name || 'My Shop',
       place: [a.flat, a.area, a.city, a.state].filter(Boolean).join(', '),
-      mobile: p.mobile || p.mobileNumber || ''
+      mobile: p.mobile || p.mobileNumber || '',
+      gstin: p.gstin || ''
     };
   }
   function when(ms) {
@@ -358,16 +363,19 @@
       '<header class="inv__head">' +
       '<div class="inv__shop"><b>' + esc(shop.name) + '</b>' +
       (shop.place ? '<span>' + esc(shop.place) + '</span>' : '') +
-      (shop.mobile ? '<span>Mobile: ' + esc(shop.mobile) + '</span>' : '') + '</div>' +
-      '<div class="inv__meta"><b>' + (b.number ? 'INVOICE' : 'BILL PREVIEW') + '</b>' +
-      '<span>' + (b.number ? 'No. ' + esc(b.number) : 'Not saved yet') + '</span>' +
-      '<span>' + esc(when(b.createdAt || Date.now())) + '</span></div>' +
+      (shop.mobile ? '<span>Mobile: ' + esc(shop.mobile) + '</span>' : '') +
+      (shop.gstin ? '<span>GSTIN: ' + esc(shop.gstin) + '</span>' : '') + '</div>' +
+      '<div class="inv__meta"><b>INVOICE</b>' +
+      '<span>No. ' + esc(b.number) + '</span>' +
+      '<span>' + esc(when(b.createdAt)) + '</span></div>' +
       '</header>';
     var cust = b.customer || {};
     var to = (cust.name || cust.mobile || cust.notes)
       ? '<div class="inv__to"><span class="inv__lab">Bill to</span>' +
         (cust.name ? '<b>' + esc(cust.name) + '</b>' : '') +
         (cust.mobile ? '<span>' + esc(cust.mobile) + '</span>' : '') +
+        (cust.address ? '<span>' + esc(cust.address) + '</span>' : '') +
+        (cust.gstin ? '<span>GSTIN: ' + esc(cust.gstin) + '</span>' : '') +
         (cust.notes ? '<span class="inv__note">' + esc(cust.notes) + '</span>' : '') + '</div>'
       : '';
 
@@ -398,8 +406,8 @@
       (b.discountPaise ? t('Discount' + (b.discount && b.discount.mode === 'percent' ? ' (' + pct(b.discount.value) + ')' : ''), '−' + M.format(b.discountPaise)) : '') +
       (tax.rateBp ? t(esc(tax.label || 'Tax') + ' ' + pct(tax.rateBp) + (tax.inclusive ? ' (incl.)' : ''), (tax.inclusive ? '' : '+') + M.format(b.taxPaise || 0)) : '') +
       t('Total', inr(b.totalPaise || 0), 'inv__grand') +
-      (pay.receivedPaise ? t('Received (' + esc(label(METHODS, pay.method)) + ')', M.format(pay.receivedPaise)) : '') +
-      (pay.balancePaise ? t('Balance due', M.format(pay.balancePaise), 'inv__due') : '') +
+      t('Amount paid', M.format(Math.min(pay.receivedPaise || 0, b.totalPaise || 0))) +
+      t('Balance due', M.format(pay.balancePaise || 0), pay.balancePaise ? 'inv__due' : '') +
       (pay.changePaise ? t('Change', M.format(pay.changePaise)) : '') +
       '</div>';
     var status = '<div class="inv__pay">' + esc(label(STATUSES, pay.status)) + ' · ' + esc(label(METHODS, pay.method)) + '</div>';
@@ -474,6 +482,8 @@
   function render(page, prm, context) {
     ctx = context;
     params = prm || [];
+    /* the old address of the review page, from a bookmark or an open tab */
+    if (params[0] === 'review') { go('/billing'); return; }
     var fb = SM.fb;
     var user = fb && fb.user ? fb.user() : null;
     var phase = fb && fb.phase ? fb.phase() : 'unauthenticated';
@@ -525,14 +535,14 @@
     var p = params[0];
     if (p === 'bills') return params[1] ? 'bill' : 'bills';
     if (p === 'customers') return params[1] ? 'customer' : 'customers';
-    if (p === 'review' || p === 'products' || p === 'categories' || p === 'overview') return p;
+    if (p === 'products' || p === 'categories' || p === 'overview') return p;
     return 'pos';
   }
 
   function renderView(page) {
     var v = viewName();
     if (v === 'pos') return renderPos(page);
-    if (v === 'review') return renderReview(page);
+    S.lastSaved = null;
     if (v === 'bills') return renderBills(page);
     if (v === 'bill') return renderBillView(page, params[1]);
     if (v === 'products') return renderProducts(page);
@@ -591,8 +601,7 @@
   /** The page frame every billing screen shares: title, sub-navigation, actions. */
   function frame(view, inner, extraCls) {
     var tab = function (id, href, text, ic) {
-      var on = view === id || (id === 'bills' && view === 'bill') || (id === 'pos' && view === 'review') ||
-        (id === 'customers' && view === 'customer');
+      var on = view === id || (id === 'bills' && view === 'bill') || (id === 'customers' && view === 'customer');
       return '<a class="qb-tab' + (on ? ' is-on' : '') + '" href="' + href + '"' + (on ? ' aria-current="page"' : '') + '>' +
         icon(ic) + '<span>' + text + '</span></a>';
     };
@@ -612,28 +621,35 @@
       inner + '</div>';
   }
 
-  /* ============================================================ POS (counter) */
+  /* ============================================================== NEW BILL
+
+     One page on one route: who it is for, what they are buying, what it comes
+     to, how it was paid. Review is a drawer over the page and the saved invoice
+     takes the form's place, so nothing here changes the URL. A draft is only a
+     draft until the server has saved it: the invoice is drawn from what the
+     server sent back, never from what was on screen. */
   function renderPos(page) {
-    var desk = isDesk();
+    if (S.lastSaved) {
+      page.innerHTML = frame('pos', invoiceDoneHTML(S.lastSaved), 'qb--done');
+      return;
+    }
     page.innerHTML = frame('pos',
-      '<div class="qb-pos">' +
-      '<section class="qb-pane qb-pane--cat" aria-label="Products">' + catalogPaneHTML() + '</section>' +
-      (desk
-        ? '<section class="qb-pane qb-pane--bill" aria-label="Bill" id="qbBill">' + billEditorHTML() + '</section>' +
-          '<aside class="qb-pane qb-pane--sum" aria-label="Invoice and payment" id="qbSum">' + summaryHTML() + '</aside>'
-        : '') +
+      '<div class="qb-nb">' +
+      '<div class="qb-nb__main">' +
+      '<section class="qb-panel" id="qbCustSec" aria-label="Customer details">' + customerSecHTML() + '</section>' +
+      '<section class="qb-nb__find" aria-label="Products">' + catalogPaneHTML() + '</section>' +
       '</div>' +
-      (desk ? '' : '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div>'),
-      desk ? 'qb--desk' : 'qb--mobile');
-    if (!desk && S.openCart) { S.openCart = false; openCartSheet(); }
+      '<div class="qb-nb__side" aria-label="Bill">' + billSideHTML() + '</div>' +
+      '</div>' +
+      '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div>', 'qb--nb');
   }
 
   function catalogPaneHTML() {
     var none = !S.products.length;
     return '<div class="qb-find">' +
       '<label class="qb-search">' + icon('search') +
-      '<input id="qbQ" type="search" autocomplete="off" placeholder="Search a phone model, product or SKU…" ' +
-      'value="' + esc(S.filter.q) + '" aria-label="Search your products or a phone model" data-qbi="q" /></label>' +
+      '<input id="qbQ" type="search" autocomplete="off" placeholder="Search mobile model, product name, SKU..." ' +
+      'value="' + esc(S.filter.q) + '" aria-label="Search your products or a mobile model" data-qbi="q" /></label>' +
       '<div class="qb-mhits" id="qbModelHits">' + modelHitsHTML() + '</div>' +
       '</div>' +
       '<div class="qb-chips" id="qbChips" role="group" aria-label="Categories">' + chipsHTML() + '</div>' +
@@ -652,7 +668,8 @@
     var frequent = frequentProducts().length;
     return chip('all', 'All', activeProducts().length) +
       (frequent ? chip('frequent', 'Frequent', null) : '') +
-      S.categories.map(function (c) { return chip(c.id, c.name, counts[c.id] || 0); }).join('');
+      S.categories.filter(function (c) { return c.status !== 'inactive'; })
+        .map(function (c) { return chip(c.id, c.name, counts[c.id] || 0); }).join('');
   }
 
   function frequentProducts() {
@@ -671,22 +688,15 @@
     });
     list = list.filter(function (p) { return matches(p, f.q); });
     if (f.cat !== 'frequent') list.sort(function (a, b) { return a.name.localeCompare(b.name); });
-
-    var freq = (f.cat === 'all' && !f.q && isDesk()) ? frequentProducts().slice(0, 6) : [];
-    var freqHTML = freq.length
-      ? '<div class="qb-freq"><span class="t-lab">Frequently used</span><div class="qb-freq__row">' +
-        freq.map(function (p) {
-          return '<button class="qb-fchip" data-qb="add" data-id="' + esc(p.id) + '"' + (p.qty - inCart(p.id) <= 0 ? ' disabled' : '') + '>' +
-            '<b>' + esc(p.name) + '</b><span>' + inr(p.pricePaise) + '</span></button>';
-        }).join('') + '</div></div>'
-      : '';
-
     if (!list.length) {
-      return freqHTML + '<div class="qb-empty">' + icon('search') +
+      return '<div class="qb-empty">' + icon('search') +
         '<p>' + (f.q ? 'No product matches “' + esc(f.q) + '”.' : 'No products in this category yet.') + '</p>' +
         '<button class="btn btn--outline btn--sm" data-qb="add-product">' + icon('plus') + 'Add product</button></div>';
     }
-    return freqHTML + '<div class="qb-grid">' + list.map(function (p) { return cardHTML(p); }).join('') + '</div>';
+    return '<div class="qb-grid">' + list.slice(0, S.catLimit).map(function (p) { return cardHTML(p); }).join('') + '</div>' +
+      (list.length > S.catLimit
+        ? '<div class="qb-more"><button class="btn btn--outline btn--sm" data-qb="cat-more">Show more (' + (list.length - S.catLimit) + ')</button></div>'
+        : '');
   }
 
   function thumbHTML(p, cls) {
@@ -696,30 +706,43 @@
     return '<span class="qb-thumb qb-thumb--none ' + (cls || '') + '" aria-hidden="true">' + esc(letters) + '</span>';
   }
 
+  /* A result is a store product, never a catalogue device: the only way a phone
+     gets here is by being on the shop's own shelf. `fits` names the model the
+     customer asked for when the product was found through compatibility. */
   function cardHTML(p, fits) {
     var used = inCart(p.id);
     var left = p.qty - used;
     var st = stockState(p);
-    var from = hasVariants(p) && p.variants.length > 1;
-    return '<button class="qb-card' + (used ? ' is-in' : '') + '" data-qb="add" data-id="' + esc(p.id) + '"' +
-      (left <= 0 ? ' aria-disabled="true"' : '') + ' aria-label="Add ' + esc(p.name) + ' to the bill">' +
-      thumbHTML(p) +
-      '<span class="qb-card__name">' + esc(p.name) + '</span>' +
-      (fits ? '<span class="qb-card__fits">Fits ' + esc(fits) + '</span>' : '') +
-      '<span class="qb-card__price">' + (from ? 'From ' : '') + inr(p.pricePaise) + '</span>' +
-      '<span class="qb-card__meta">' +
+    var many = hasVariants(p) && p.variants.length > 1;
+    var qty = S.pickQty[p.id] || 1;
+    var meta = [catName(p.categoryId), p.sku ? 'SKU ' + p.sku : '', p.shelf ? 'Shelf ' + p.shelf : '',
+      hasVariants(p) ? p.variants.length + (p.variants.length === 1 ? ' variant' : ' variants') : ''].filter(Boolean).join(' · ');
+    return '<article class="qb-card' + (used ? ' is-in' : '') + (left <= 0 ? ' is-out' : '') + '" data-id="' + esc(p.id) + '">' +
+      thumbHTML(p, 'qb-thumb--card') +
+      '<div class="qb-card__body">' +
+      (fits ? '<span class="qb-card__fits">Requested model: <b>' + esc(fits) + '</b></span><span class="qb-card__tag">Actual stock product</span>' : '') +
+      '<b class="qb-card__name">' + esc(p.name) + '</b>' +
+      '<span class="qb-card__meta">' + esc(meta) + '</span>' +
+      '<span class="qb-card__nums"><b class="qb-card__price">' + (many ? 'From ' : '') + inr(p.pricePaise) + '</b>' +
       '<span class="qb-stock qb-stock--' + st + '">' + (p.qty <= 0 ? 'Out of stock' : p.qty + ' in stock') + '</span>' +
-      (hasVariants(p) ? '<span class="qb-shelf">' + p.variants.length + (p.variants.length === 1 ? ' variant' : ' variants') + '</span>'
-        : p.shelf ? '<span class="qb-shelf">' + icon('tag') + esc(p.shelf) + '</span>' : '') + '</span>' +
-      (used ? '<span class="qb-card__in" aria-label="' + used + ' on the bill">' + used + '</span>' : '') +
-      '</button>';
+      (used ? '<span class="qb-card__in">' + used + ' on the bill</span>' : '') + '</span>' +
+      (left > 0
+        ? '<div class="qb-card__add"><div class="qb-qty" role="group" aria-label="Quantity of ' + esc(p.name) + '">' +
+          '<button type="button" data-qb="pick-dec" data-id="' + esc(p.id) + '" aria-label="Decrease">' + icon('minus') + '</button>' +
+          '<input class="qb-qty__in" inputmode="numeric" autocomplete="off" value="' + qty + '" data-qbi="pick-qty" data-id="' + esc(p.id) + '" aria-label="Quantity to add" />' +
+          '<button type="button" data-qb="pick-inc" data-id="' + esc(p.id) + '" aria-label="Increase">' + icon('plus') + '</button></div>' +
+          '<button type="button" class="btn qb-btn btn--sm qb-card__go" data-qb="add" data-id="' + esc(p.id) + '" aria-label="Add ' + esc(p.name) + ' to the bill">' + icon('plus') + 'Add to Bill</button></div>'
+        : '') +
+      '</div></article>';
   }
 
   /* ----------------------------------------------- finding stock by phone
 
-     The search box takes a phone model as well as a product. Picking one asks
-     the server which of this shop's products are linked to a group that phone
-     is in, so the answer can only ever be real links, never a similar name. */
+     The search box takes a phone model as well as a product. Asking about a
+     model asks the server which of this shop's products are linked to a group
+     that phone is in, so the answer can only ever be real links, never a similar
+     name. The model is only what the customer asked for: price, quantity and
+     stock are always the product's. */
   var modelHitTimer = null;
   function modelMatches(q, kind, limit) {
     var words = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -737,20 +760,30 @@
   }
   function modelHitsHTML() {
     var q = S.filter.q;
-    if (S.compat || q.length < 2) return '';
+    if (q.length < 2) return '';
     var hits = modelMatches(q, null, 6);
     if (!hits.length) return '';
-    return '<span class="qb-mhits__l">Find stock that fits</span>' + hits.map(function (m) {
-      return '<button class="qb-mhit" data-qb="pick-model" data-id="' + esc(m.id) + '">' + esc(m.fullName) + '</button>';
+    return '<span class="qb-mhits__l">Find stock that fits a model</span>' + hits.map(function (m) {
+      var on = S.compat && S.compat.id === m.id;
+      return '<button class="qb-mhit' + (on ? ' is-on' : '') + '" data-qb="pick-model" data-id="' + esc(m.id) + '" aria-pressed="' + !!on + '">' + esc(m.fullName) + '</button>';
     }).join('');
   }
   function paintModelHits() { paint('qbModelHits', modelHitsHTML()); }
+
+  /** After typing stops: a name that is exactly one model is answered at once. */
+  function modelSearchSettled() {
+    paintModelHits();
+    var q = S.filter.q;
+    if (q.length < 3 || (S.compat && S.compat.q === q)) return;
+    var first = modelMatches(q, null, 1)[0];
+    if (first && first.compact === q.toLowerCase().replace(/[^a-z0-9]/g, '')) pickModel(first.id);
+  }
 
   function pickModel(id) {
     var m = SM.db && SM.db.modelById[id];
     if (!m) return;
     var uid = S.uid;
-    S.compat = { id: id, name: m.fullName, loading: true, error: null, matches: [], groupCount: 0 };
+    S.compat = { id: id, name: m.fullName, q: S.filter.q, loading: true, error: null, matches: [], groupCount: 0 };
     S.filter.cat = 'all';
     paintModelHits();
     paintCatalog();
@@ -775,7 +808,7 @@
     paintModelHits();
     paintCatalog();
   }
-  /** What a card tap means while a phone is selected, or null for a plain sale. */
+  /** What adding means while a phone is selected, or null for a plain sale. */
   function compatContext(p) {
     var c = S.compat;
     if (!c) return null;
@@ -785,7 +818,7 @@
 
   function compatHTML() {
     var c = S.compat;
-    var banner = '<div class="qb-compatbar" role="status"><span class="qb-compatbar__l">Selected model</span>' +
+    var banner = '<div class="qb-compatbar" role="status"><span class="qb-compatbar__l">Requested model</span>' +
       '<b>' + esc(c.name) + '</b>' +
       '<button class="qb-link" data-qb="clear-model">' + icon('close') + 'Clear</button></div>';
     if (c.loading) return banner + C.skelRows(3);
@@ -793,9 +826,9 @@
       return banner + C.state({ icon: 'alert', title: 'Could not check compatibility', text: say(c.error),
         action: '<button class="btn btn--outline btn--sm" data-qb="pick-model" data-id="' + esc(c.id) + '">' + icon('refresh') + 'Try again</button>' });
     }
-    /* The phone itself, when the shop sells it, is not a compatibility match. */
+    /* The phone itself, when the shop stocks it, is not a compatibility match. */
     var own = activeProducts().filter(function (p) { return p.master && p.master.id === c.id; });
-    var linked = c.matches.map(function (m) { return productById(m.productId); }).filter(Boolean)
+    var linked = c.matches.map(function (m) { return productById(m.productId); }).filter(function (p) { return p && p.active; })
       .sort(function (a, b) { return (b.qty > 0) - (a.qty > 0) || a.name.localeCompare(b.name); });
     var f = S.filter.cat;
     if (f !== 'all' && f !== 'frequent') {
@@ -810,7 +843,7 @@
         '<a class="btn btn--outline btn--sm" href="/billing/products">' + icon('box') + 'Link products</a></div>';
     }
     return banner +
-      (own.length ? '<p class="qb-gridlab">This phone</p><div class="qb-grid">' + own.map(function (p) { return cardHTML(p); }).join('') + '</div>' : '') +
+      (own.length ? '<p class="qb-gridlab">This phone, in your stock</p><div class="qb-grid">' + own.map(function (p) { return cardHTML(p); }).join('') + '</div>' : '') +
       (linked.length ? '<p class="qb-gridlab">Fits this phone</p><div class="qb-grid">' + linked.map(function (p) { return cardHTML(p, c.name); }).join('') + '</div>' : '');
   }
 
@@ -818,7 +851,7 @@
     return '<div class="qb-setup">' +
       '<span class="qb-setup__ico">' + icon('box') + '</span>' +
       '<h2>Set up your counter</h2>' +
-      '<p>Add the products you sell — a photo, a price, where it sits on the shelf and how many you have. ' +
+      '<p>Add the products you sell with a price, where each sits on the shelf and how many you have. ' +
       'They are yours alone and separate from the Device Finder.</p>' +
       '<div class="qb-setup__acts">' +
       '<button class="btn qb-btn" data-qb="add-product">' + icon('plus') + 'Add your first product</button>' +
@@ -838,46 +871,71 @@
     void n.offsetWidth;
     n.classList.add('is-pulse');
   }
-
-  /* ------------------------------------------------------- the bill editor */
-  function billEditorHTML() {
-    var c = S.cart;
-    var d = draft();
-    var count = c.lines.reduce(function (n, l) { return n + l.qty; }, 0);
-    return '<div class="qb-sec"><h2>Bill</h2><span class="qb-count" id="qbCount">' + count + (count === 1 ? ' item' : ' items') + '</span>' +
-      (c.lines.length ? '<button class="qb-link" data-qb="clear-cart">' + icon('trash') + 'Clear</button>' : '') + '</div>' +
-      '<div class="qb-lines" id="qbLines">' + linesHTML(d) + '</div>' +
-      customFormHTML() +
-      '<div class="qb-adj">' +
-      '<div class="qb-field"><span class="qb-lab">Discount</span><div class="qb-inrow">' +
-      '<div class="qb-seg qb-seg--sm" role="group" aria-label="Discount type">' +
-      '<button class="' + (c.discount.mode === 'amount' ? 'is-on' : '') + '" data-qb="disc-mode" data-id="amount" aria-pressed="' + (c.discount.mode === 'amount') + '">₹</button>' +
-      '<button class="' + (c.discount.mode === 'percent' ? 'is-on' : '') + '" data-qb="disc-mode" data-id="percent" aria-pressed="' + (c.discount.mode === 'percent') + '">%</button></div>' +
-      '<input class="input qb-in" id="qbDisc" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(c.discount.text) + '" data-qbi="disc" aria-label="Discount" /></div>' +
-      '<small class="qb-err" data-err="disc">' + esc(d.errors.disc || '') + '</small></div>' +
-      '<div class="qb-field" id="qbTax">' + taxHTML(d) + '</div>' +
-      '</div>' +
-      '<div class="qb-cust">' +
-      '<span class="qb-lab">Customer <em>(optional)</em></span>' +
-      '<div id="qbCust">' + customerPickHTML() + '</div>' +
-      '<textarea class="input qb-in qb-notes" id="qbCNotes" rows="2" placeholder="Notes — e.g. warranty, delivery" data-qbi="cnotes" aria-label="Notes">' + esc(c.customer.notes) + '</textarea>' +
-      '</div>';
+  /** How many of this product can still go on the bill. */
+  function pickRoom(id) {
+    var p = productById(id);
+    return p ? Math.max(1, Math.min(M.MAX_QTY, p.qty - inCart(id))) : 1;
+  }
+  function setPick(id, n) {
+    var qty = Math.max(1, Math.min(pickRoom(id), n));
+    S.pickQty[id] = qty;
+    var box = document.querySelector('[data-qbi="pick-qty"][data-id="' + id + '"]');
+    if (box) box.value = qty;
   }
 
-  /* Choosing who the bill is for. Empty is a walk-in. A full mobile number makes
-     or finds a customer when the bill is saved; a name alone stays a walk-in. */
-  function customerPickHTML() {
+  /* ------------------------------------------------------------- customer
+
+     A bill can be for a customer on file, for someone new, or for nobody in
+     particular. A full mobile number finds or makes the customer when the bill
+     is saved. A name alone stays a walk-in: a name is not enough to say who
+     someone is, and a guess would put one person's purchases on another's record. */
+  function digitsOf(v) { return String(v || '').replace(/\D/g, ''); }
+  function customerState() {
+    var c = S.cart.customer;
+    if (c.id) return 'Existing customer';
+    return digitsOf(c.mobile).length >= 10 ? 'New customer' : 'Walk-in';
+  }
+  function customerHint() {
+    var c = S.cart.customer;
+    if (c.id) return '';
+    if (digitsOf(c.mobile).length >= 10) return 'This customer is saved with the bill, or matched by their number.';
+    return c.name.trim()
+      ? 'Add a mobile number to save them as a customer. Without one this stays a walk-in bill.'
+      : 'Search by name or mobile, or leave it empty for a walk-in.';
+  }
+  function customerSecHTML() {
+    var c = S.cart.customer;
+    var d = draft();
+    var box = function (id, key, label, attrs, value) {
+      return '<label class="qb-vf"><span>' + label + '</span><input class="input qb-in" id="' + id + '" autocomplete="off" data-qbi="' + key + '" value="' + esc(value) + '"' + attrs + ' />' +
+        '<small class="qb-err" data-err="' + key + '">' + esc(d.errors[key] || '') + '</small></label>';
+    };
+    return '<div class="qb-sec"><h2>Customer</h2><span class="qb-count" id="qbCustState">' + esc(customerState()) + '</span></div>' +
+      '<div id="qbCust">' + customerPickHTML(d) + '</div>' +
+      '<details class="qb-custmore"' + (c.whatsapp || c.address || c.gstin || c.notes ? ' open' : '') + '>' +
+      '<summary>WhatsApp, address, GSTIN, notes</summary><div class="qb-custmore__in">' +
+      box('qbCWhats', 'cwhats', 'WhatsApp number', ' type="tel" inputmode="tel" placeholder="Same as mobile"', c.whatsapp) +
+      box('qbCGst', 'cgstin', 'GSTIN', ' maxlength="15" placeholder="Optional"', c.gstin) +
+      box('qbCAddr', 'caddr', 'Address', ' maxlength="200" placeholder="Optional"', c.address) +
+      box('qbCNotes', 'cnotes', 'Notes', ' maxlength="300" placeholder="e.g. warranty, delivery"', c.notes) +
+      '</div></details>';
+  }
+  function customerPickHTML(d) {
     var c = S.cart.customer;
     if (c.id) {
+      var x = S.custPicked && S.custPicked.id === c.id ? S.custPicked : null;
+      var facts = x ? [x.lastBillAt ? 'Last purchase ' + dateOnly(x.lastBillAt) : '', x.outstandingPaise ? inr(x.outstandingPaise) + ' outstanding' : ''].filter(Boolean).join(' · ') : '';
       return '<div class="qb-custpick"><span class="qb-custpick__who"><b>' + esc(c.name || c.mobile) + '</b>' +
-        (c.name && c.mobile ? '<span>' + esc(c.mobile) + '</span>' : '') + '</span>' +
+        (c.name && c.mobile ? '<span>' + esc(c.mobile) + '</span>' : '') +
+        (facts ? '<span>' + esc(facts) + '</span>' : '') + '</span>' +
         '<button class="qb-link" data-qb="cust-clear">' + icon('close') + 'Change</button></div>';
     }
     return '<div class="qb-cust__row">' +
-      '<input class="input qb-in" id="qbCName" autocomplete="off" placeholder="Name, or search customers" value="' + esc(c.name) + '" data-qbi="cname" aria-label="Customer name" />' +
-      '<input class="input qb-in" id="qbCMob" type="tel" inputmode="tel" autocomplete="off" placeholder="Mobile number" value="' + esc(c.mobile) + '" data-qbi="cmobile" aria-label="Customer mobile number" /></div>' +
+      '<input class="input qb-in" id="qbCName" autocomplete="off" placeholder="Customer name" value="' + esc(c.name) + '" data-qbi="cname" aria-label="Customer name, or search customers" />' +
+      '<input class="input qb-in" id="qbCMob" type="tel" inputmode="tel" autocomplete="off" placeholder="Mobile number" value="' + esc(c.mobile) + '" data-qbi="cmobile" aria-label="Customer mobile number, or search customers" /></div>' +
+      '<small class="qb-err" data-err="cmobile">' + esc(((d || {}).errors || {}).cmobile || '') + '</small>' +
       '<div class="qb-custhits" id="qbCustHits"></div>' +
-      '<small class="qb-help">Leave empty for a walk-in. A mobile number saves them as a customer.</small>';
+      '<small class="qb-help" id="qbCustHint">' + esc(customerHint()) + '</small>';
   }
 
   var custSearchTimer = null, custSearchTicket = 0;
@@ -897,11 +955,28 @@
     }, 300);
   }
 
+  /* ----------------------------------------------- cart, summary, payment */
+  function billSideHTML() {
+    var d = draft();
+    return '<section class="qb-panel" id="qbBill" aria-label="Cart">' + billEditorHTML(d) + '</section>' +
+      '<section class="qb-panel" aria-label="Bill summary">' + summaryHTML(d) + '</section>' +
+      '<section class="qb-panel qb-pay" id="qbPay" aria-label="Payment details">' + payHTML(d) + '</section>' +
+      '<div class="qb-acts" id="qbActs">' + actsHTML(d) + '</div>';
+  }
+
+  function billEditorHTML(d) {
+    var c = S.cart;
+    var count = c.lines.reduce(function (n, l) { return n + l.qty; }, 0);
+    return '<div class="qb-sec"><h2>Cart</h2><span class="qb-count" id="qbCount">' + count + (count === 1 ? ' item' : ' items') + '</span>' +
+      (c.lines.length ? '<button class="qb-link" data-qb="clear-cart">' + icon('trash') + 'Clear</button>' : '') + '</div>' +
+      '<div class="qb-lines" id="qbLines">' + linesHTML(d) + '</div>' +
+      customFormHTML();
+  }
+
   function linesHTML(d) {
     var c = S.cart;
     if (!c.lines.length) {
-      return '<div class="qb-empty qb-empty--bill">' + icon('receipt') +
-        '<p>' + (isDesk() ? 'Click a product on the left to add it.' : 'Tap a product to add it.') + '<br>Or add a custom item below.</p></div>';
+      return '<div class="qb-empty qb-empty--bill">' + icon('receipt') + '<p>Search above and add a product to the bill.</p></div>';
     }
     return c.lines.map(function (l) {
       var p = l.productId ? productById(l.productId) : null;
@@ -909,8 +984,8 @@
       var over = stock && stock.used > stock.qty;
       var err = d.errors['line:' + l.key];
       return '<div class="qb-line' + (err || over ? ' is-bad' : '') + '" data-key="' + esc(l.key) + '">' +
-        '<div class="qb-line__main"><b>' + esc(l.name) + (l.variantLabel ? ' · ' + esc(l.variantLabel) : '') + '</b><span>' +
-        (l.modelName ? '<em class="qb-fits">For ' + esc(l.modelName) + '</em> · ' : '') +
+        '<div class="qb-line__main"><b>' + esc(l.name) + (l.variantLabel ? ' · ' + esc(l.variantLabel) : '') + '</b>' +
+        (l.modelName ? '<span class="qb-fits">Requested model: ' + esc(l.modelName) + '</span>' : '') + '<span>' +
         (l.productId ? (l.shelf ? 'Shelf ' + esc(l.shelf) : catName(p && p.categoryId)) : '<em class="qb-tagc">Custom item</em>') +
         (over ? ' · <em class="qb-warn">only ' + stock.qty + ' in stock</em>' : '') +
         (!l.productId ? ' · <button class="qb-link" data-qb="custom-save" data-id="' + esc(l.key) + '">Save as product</button>' : '') +
@@ -927,7 +1002,7 @@
   }
 
   function customFormHTML() {
-    return '<details class="qb-custom" id="qbCustom"><summary>' + icon('plus') + 'Custom item <em>— not saved as a product</em></summary>' +
+    return '<details class="qb-custom" id="qbCustom"><summary>' + icon('plus') + 'Custom item <em>not saved as a product</em></summary>' +
       '<div class="qb-custom__row">' +
       '<input class="input qb-in" id="qbXName" autocomplete="off" placeholder="Item name, e.g. Fitting charge" aria-label="Custom item name" />' +
       '<input class="input qb-in qb-in--price" id="qbXPrice" inputmode="decimal" autocomplete="off" placeholder="Price ₹" aria-label="Custom item price" />' +
@@ -951,15 +1026,19 @@
       '<small class="qb-err" data-err="tax">' + esc((d && d.errors.tax) || '') + '</small>';
   }
 
-  /* ------------------------------------------------- summary (right pane) */
-  function summaryHTML() {
-    if (S.lastSaved) return savedCardHTML(S.lastSaved);
-    var d = draft();
-    return '<div class="qb-sumsec"><div class="qb-sec"><h2>Invoice</h2>' + sizeSelectHTML('qbSize') + '</div>' +
-      '<div class="qb-preview" id="qbPreview">' + invoiceHTML(draftBill(d), 'preview') + '</div></div>' +
-      '<div class="qb-totals" id="qbTotals">' + totalsHTML(d) + '</div>' +
-      '<div class="qb-pay" id="qbPay">' + payHTML(d) + '</div>' +
-      '<div class="qb-acts" id="qbActs">' + actsHTML(d) + '</div>';
+  function summaryHTML(d) {
+    var c = S.cart;
+    return '<div class="qb-sec"><h2>Bill summary</h2></div>' +
+      '<div class="qb-adj">' +
+      '<div class="qb-field"><span class="qb-lab">Discount</span><div class="qb-inrow">' +
+      '<div class="qb-seg qb-seg--sm" role="group" aria-label="Discount type">' +
+      '<button class="' + (c.discount.mode === 'amount' ? 'is-on' : '') + '" data-qb="disc-mode" data-id="amount" aria-pressed="' + (c.discount.mode === 'amount') + '">₹</button>' +
+      '<button class="' + (c.discount.mode === 'percent' ? 'is-on' : '') + '" data-qb="disc-mode" data-id="percent" aria-pressed="' + (c.discount.mode === 'percent') + '">%</button></div>' +
+      '<input class="input qb-in" id="qbDisc" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(c.discount.text) + '" data-qbi="disc" aria-label="Discount" /></div>' +
+      '<small class="qb-err" data-err="disc">' + esc(d.errors.disc || '') + '</small></div>' +
+      '<div class="qb-field" id="qbTax">' + taxHTML(d) + '</div>' +
+      '</div>' +
+      '<div class="qb-totals" id="qbTotals">' + totalsHTML(d) + '</div>';
   }
 
   function sizeSelectHTML(id) {
@@ -974,7 +1053,9 @@
     return row('Subtotal', inr(t.subtotalPaise)) +
       (t.discountPaise ? row('Discount', '−' + inr(t.discountPaise)) : '') +
       (c.tax.on && d.tax.rateBp ? row(esc(d.tax.label) + ' ' + pct(d.tax.rateBp) + (d.tax.inclusive ? ' (included)' : ''), (d.tax.inclusive ? '' : '+') + inr(t.taxPaise)) : '') +
-      row('Grand total', inr(t.totalPaise), 'qb-trow--grand');
+      row('Final total', inr(t.totalPaise), 'qb-trow--grand') +
+      row('Amount paid', inr(Math.min(d.pay.receivedPaise, t.totalPaise))) +
+      row('Outstanding balance', inr(d.pay.balancePaise));
   }
 
   function payHTML(d) {
@@ -984,9 +1065,8 @@
         return '<button class="' + (cur === x[0] ? 'is-on' : '') + '" data-qb="' + act + '" data-id="' + x[0] + '" aria-pressed="' + (cur === x[0]) + '">' + x[1] + '</button>';
       }).join('');
     };
-    return '<span class="qb-lab">Payment method</span>' +
+    return '<div class="qb-sec"><h2>Payment</h2></div>' +
       '<div class="qb-seg" role="group" aria-label="Payment method">' + seg(METHODS, c.payment.method, 'pay-method') + '</div>' +
-      '<span class="qb-lab">Status</span>' +
       '<div class="qb-seg" role="group" aria-label="Payment status" id="qbStatus">' + seg(STATUSES, c.payment.status, 'pay-status') + '</div>' +
       '<div class="qb-field"><label class="qb-lab" for="qbRecv">Amount received</label>' +
       '<label class="qb-prefix"><span>₹</span><input class="input qb-in" id="qbRecv" inputmode="decimal" autocomplete="off" ' +
@@ -1001,66 +1081,27 @@
     return '<span>Balance</span><b>' + inr(0) + '</b>';
   }
 
-  function actsHTML(d) {
-    var dis = !d.ok || S.saving;
+  function actsHTML() {
     return (S.saveError ? '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(S.saveError) + '</span></div>' : '') +
-      '<button class="btn qb-btn btn--lg btn--block" data-qb="save-bill"' + (dis ? ' disabled' : '') + '>' +
-      (S.saving ? '<span class="qb-spin"></span>Saving…' : icon('check') + 'Save Bill') + '</button>' +
-      '<button class="btn btn--outline btn--block" data-qb="print-bill"' + (dis ? ' disabled' : '') + '>' + icon('printer') + 'Print Bill</button>' +
+      '<button class="btn qb-btn btn--lg btn--block" data-qb="review"' + (S.cart.lines.length ? '' : ' disabled') + '>' + icon('check') + 'Review Bill</button>' +
       (S.cart.lines.length ? '' : '<p class="qb-hint">Add a product or a custom item to start a bill.</p>');
   }
 
-  function savedCardHTML(b) {
-    return '<div class="qb-saved">' +
-      '<span class="qb-saved__ico">' + icon('checkCircle') + '</span>' +
-      '<h2>Bill saved</h2><p class="qb-saved__no">' + esc(b.number) + ' · ' + inr(b.totalPaise) + ' · ' + esc(label(STATUSES, b.payment.status)) + '</p>' +
-      '<div class="qb-preview">' + invoiceHTML(b, 'preview') + '</div>' +
-      '<div class="qb-saved__acts">' +
-      '<div class="qb-inrow">' + sizeSelectHTML('qbSizeSaved') +
-      '<button class="btn qb-btn grow" data-qb="print-saved" data-id="' + esc(b.id) + '">' + icon('printer') + 'Print Bill</button></div>' +
-      '<button class="btn btn--outline btn--block" data-qb="labels" data-id="' + esc(b.id) + '">' + icon('tag') + 'Print Product Labels</button>' +
-      '<a class="btn btn--ghost btn--block" href="/billing/bills/' + encodeURIComponent(b.id) + '">' + icon('linkOut') + 'Open bill</a>' +
-      '<button class="btn btn--soft btn--block qb-btn--soft" data-qb="new-bill">' + icon('plus') + 'New Bill</button>' +
-      '</div></div>';
-  }
-
-  /* ---------------------------------------------------- mobile cart pieces */
+  /* The sticky bar on a phone. It only summarises: the controls are on the page. */
   function cartBarHTML() {
-    var c = S.cart;
-    var n = c.lines.reduce(function (k, l) { return k + l.qty; }, 0);
-    if (!n) return '<div class="qb-cartbar__in is-empty">' + icon('receipt') + '<span>Tap products to start a bill</span>' +
-      '<button class="btn btn--sm btn--outline" data-qb="open-cart">Custom item</button></div>';
+    var n = S.cart.lines.reduce(function (k, l) { return k + l.qty; }, 0);
+    if (!n) return '';
     var d = draft();
-    return '<button class="qb-cartbar__in" data-qb="open-cart" aria-label="Open the bill">' +
-      '<span class="qb-cartbar__n">' + n + '</span>' +
-      '<span class="qb-cartbar__t"><b>' + inr(d.totals.totalPaise) + '</b><em>' + n + (n === 1 ? ' item' : ' items') + ' on the bill</em></span>' +
-      '<span class="qb-cartbar__go">View bill' + icon('chevronRight') + '</span></button>';
+    return '<div class="qb-cartbar__in">' +
+      '<button class="qb-cartbar__t" data-qb="to-cart" aria-label="Go to the cart"><b>' + inr(d.totals.totalPaise) + '</b><em>' + n + (n === 1 ? ' item' : ' items') + '</em></button>' +
+      '<button class="qb-cartbar__go" data-qb="review">Review Bill' + icon('chevronRight') + '</button></div>';
   }
   function paintCartBar() { paint('qbCartBar', cartBarHTML()); }
-
-  function cartSheetHTML() {
-    var d = draft();
-    return '<div class="sheet__grab"></div>' +
-      '<div class="sheet__head"><h3 class="t-h3 grow">Current bill</h3>' +
-      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
-      '<div class="sheet__body qb-sheetbody" id="qbBill">' + billEditorHTML() + '</div>' +
-      '<div class="sheet__foot qb-sheetfoot"><div class="qb-sheetfoot__t"><span>Grand total</span><b id="qbSheetTotal">' + inr(d.totals.totalPaise) + '</b></div>' +
-      '<button class="btn qb-btn grow" data-qb="review"' + (S.cart.lines.length ? '' : ' disabled') + '>Review Bill' + icon('arrowRight') + '</button></div>';
-  }
-  function openCartSheet() {
-    S.sheet = { type: 'cart' };
-    openSheet('cart', cartSheetHTML(), 'Current bill');
-  }
 
   /* ----------------------------------------------- after the cart changes */
   /** `structure` true: lines were added or removed, so the list is redrawn. */
   function cartChanged(structure) {
     saveCart();
-    /* The next bill has begun: the "saved" card gives way to its preview. */
-    if (S.lastSaved && viewName() === 'pos') {
-      S.lastSaved = null;
-      if (el('qbSum')) paint('qbSum', summaryHTML());
-    }
     var d = draft();
     if (structure) {
       paint('qbLines', linesHTML(d));
@@ -1089,8 +1130,6 @@
   /** Everything computed from the cart that holds no input being typed in. */
   function paintDerived(d) {
     d = d || draft();
-    if (S.lastSaved) return;
-    paint('qbPreview', invoiceHTML(draftBill(d), 'preview'));
     paint('qbTotals', totalsHTML(d));
     paint('qbBal', balanceHTML(d));
     paint('qbActs', actsHTML(d));
@@ -1102,52 +1141,78 @@
     });
     var recv = el('qbRecv');
     if (recv) recv.placeholder = S.cart.payment.status === 'paid' ? M.toInput(d.totals.totalPaise) + ' (full)' : '0';
-    ['disc', 'tax', 'recv'].forEach(function (k) {
+    ['disc', 'tax', 'recv', 'cmobile', 'cwhats', 'cgstin'].forEach(function (k) {
       var e = document.querySelector('[data-err="' + k + '"]');
       if (e) e.textContent = d.errors[k] || '';
     });
-    paint('qbSheetTotal', inr(d.totals.totalPaise));
-    var rv = document.querySelector('.qb-sheetfoot [data-qb="review"]');
-    if (rv) rv.disabled = !S.cart.lines.length;
+    paint('qbCustState', esc(customerState()));
+    paint('qbCustHint', esc(customerHint()));
     paintCartBar();
-    if (viewName() === 'review') paintReview(d);
   }
 
-  /* ================================================================ REVIEW */
-  function renderReview(page) {
-    if (!S.cart.lines.length && !S.lastSaved) { go('/billing'); return; }
-    page.innerHTML = frame('review',
-      '<div class="qb-review shell">' +
-      '<div class="qb-review__bar"><button class="btn btn--ghost btn--sm" data-qb="edit-bill">' + icon('chevronLeft') + 'Edit Bill</button>' +
-      sizeSelectHTML('qbSize') + '</div>' +
-      '<div id="qbReview">' + reviewInnerHTML() + '</div></div>');
-  }
-  function reviewInnerHTML() {
-    if (S.lastSaved) return savedCardHTML(S.lastSaved);
-    var d = draft();
-    return '<div class="qb-preview qb-preview--full" id="qbPreview">' + invoiceHTML(draftBill(d), 'preview') + '</div>' +
-      '<div class="qb-pay qb-pay--review" id="qbPay">' + payHTML(d) + '</div>' +
-      '<div class="qb-review__foot" id="qbActs">' + actsHTML(d) + '</div>';
-  }
-  function paintReview(d) { paint('qbPreview', invoiceHTML(draftBill(d), 'preview')); }
+  /* ================================================================ REVIEW
 
-  /* ================================================================ SAVING */
-  function saveBill(thenPrint) {
-    if (S.saving) return;
+     A drawer over the page. Opening it changes nothing: the cart stays a draft,
+     no stock moves and the form behind it stays as it was. */
+  function reviewHTML() {
+    var c = S.cart, d = draft(), t = d.totals, who = c.customer;
+    var row = function (k, v, cls) { return '<div class="qb-trow' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + v + '</b></div>'; };
+    return '<div class="sheet__grab"></div>' +
+      '<div class="sheet__head"><h3 class="t-h3 grow">Review Bill</h3>' +
+      '<button class="iconbtn" data-qb="edit-bill" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-review">' +
+      '<div class="qb-review__who"><span class="qb-lab">Customer</span>' +
+      (who.name || who.mobile
+        ? '<b>' + esc(who.name || who.mobile) + '</b>' + (who.name && who.mobile ? '<span>' + esc(who.mobile) + '</span>' : '')
+        : '<b>Walk-in customer</b>') + '</div>' +
+      '<ul class="qb-review__items">' + c.lines.map(function (l) {
+        var u = l.unitPaise == null ? 0 : l.unitPaise;
+        return '<li><div class="grow"><b>' + esc(l.name) + (l.variantLabel ? ' (' + esc(l.variantLabel) + ')' : '') + '</b>' +
+          (l.modelName ? '<span class="qb-fits">Requested model: ' + esc(l.modelName) + '</span>' : '') +
+          '<span>' + l.qty + ' × ' + inr(u) + '</span></div><b>' + inr(u * l.qty) + '</b></li>';
+      }).join('') + '</ul>' +
+      '<div class="qb-totals">' + row('Subtotal', inr(t.subtotalPaise)) +
+      (t.discountPaise ? row('Discount', '−' + inr(t.discountPaise)) : '') +
+      (c.tax.on && d.tax.rateBp ? row(esc(d.tax.label) + ' ' + pct(d.tax.rateBp) + (d.tax.inclusive ? ' (included)' : ''), inr(t.taxPaise)) : '') +
+      row('Final total', inr(t.totalPaise), 'qb-trow--grand') +
+      row('Amount paid', inr(Math.min(d.pay.receivedPaise, t.totalPaise))) +
+      row('Outstanding balance', inr(d.pay.balancePaise)) +
+      row('Payment', esc(label(METHODS, c.payment.method)) + ' · ' + esc(label(STATUSES, d.pay.status))) + '</div>' +
+      '</div>' +
+      '<div class="sheet__foot qb-revfoot" id="qbRevFoot">' + reviewFootHTML() + '</div>';
+  }
+  function reviewFootHTML() {
+    return (S.saveError ? '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(S.saveError) + '</span></div>' : '') +
+      '<div class="qb-revfoot__btns"><button class="btn btn--outline" data-qb="edit-bill"' + (S.saving ? ' disabled' : '') + '>' + icon('edit') + 'Edit Bill</button>' +
+      '<button class="btn qb-btn grow" id="qbConfirm" data-qb="confirm-bill"' + (S.saving ? ' disabled' : '') + '>' +
+      (S.saving ? '<span class="qb-spin"></span>Saving the bill…' : icon('check') + 'Confirm Bill') + '</button></div>';
+  }
+  function openReview() {
     var d = draft();
     if (!d.ok) {
-      if (!S.cart.lines.length) toast('Add something to the bill first', 'alert');
-      else toast('Check the highlighted fields', 'alert');
+      toast(S.cart.lines.length ? 'Check the highlighted fields' : 'Add something to the bill first', 'alert');
       paintDerived(d);
+      var bad = document.querySelector('.qb-nb .qb-err:not(:empty), .qb-line.is-bad');
+      if (bad) bad.scrollIntoView({ block: 'center' });
       return;
     }
+    S.saveError = null;
+    S.sheet = { type: 'review', busy: false };
+    openSheet('review', reviewHTML(), 'Review Bill');
+  }
+
+  /* ================================================================ SAVING */
+  function saveBill() {
+    if (S.saving) return;
+    var d = draft();
+    if (!d.ok) { closeSheet(); openReview(); return; }
     var p = S.cart.lines.filter(function (l) { return l.productId && !productById(l.productId); })[0];
-    if (p) { S.saveError = '“' + p.name + '” is no longer in your products. Remove it from the bill.'; paintDerived(d); return; }
+    if (p) { S.saveError = '“' + p.name + '” is no longer in your products. Remove it from the bill.'; paint('qbRevFoot', reviewFootHTML()); return; }
 
     S.saving = true;
     S.saveError = null;
-    paintDerived(d);
-    var size = S.printSize;
+    if (S.sheet) S.sheet.busy = true;
+    paint('qbRevFoot', reviewFootHTML());
     var uid = S.uid;
     API.bill(billPayload(d)).then(function (r) {
       if (S.uid !== uid) return;
@@ -1169,26 +1234,30 @@
       S.cart = emptyCart();
       S.compat = null;
       S.filter.q = '';
+      S.pickQty = {};
+      S.custPicked = null;
       saveCart();
       S.lastSaved = bill;
       S.saving = false;
+      if (S.sheet) S.sheet.busy = false;
       /* replayed: an earlier attempt of THIS bill had already reached the
          server (a double tap, or a reply lost to the connection) — it is the
          same bill, saved once */
       toast(r.replayed ? 'Bill ' + bill.number + ' saved (it had already reached the server)' : 'Bill ' + bill.number + ' saved', 'checkCircle');
       load();
-      if (thenPrint) printInvoice(bill, size);
       if (onBilling()) {
         closeSheet();
-        if (isDesk() && viewName() === 'pos') { paint('qbSum', summaryHTML()); paint('qbBill', billEditorHTML()); paintCatalog(); }
-        else rerender();
+        rerender();
+        global.scrollTo(0, 0);
       }
     }, function (err) {
       if (S.uid !== uid) return;
       S.saving = false;
+      if (S.sheet) S.sheet.busy = false;
       S.saveError = say(err);
       if (err.code === 'insufficient-stock' || err.code === 'product-archived' || err.code === 'product-missing') load();
       if (onBilling()) {
+        paint('qbRevFoot', reviewFootHTML());
         paintDerived();
         if (err.code === 'insufficient-stock') paint('qbLines', linesHTML(draft()));
       }
@@ -1210,6 +1279,118 @@
     saveCart();
     if (viewName() !== 'pos') { go('/billing'); return; }
     rerender();
+    global.scrollTo(0, 0);
+  }
+
+  /* ======================================================= THE SAVED INVOICE
+
+     Shown in the form's place as soon as the server has saved the bill, and
+     again from Bills. Everything here reads the saved bill, so sharing, printing
+     and downloading can be repeated freely and never make another sale. */
+  function invoiceActsHTML(b) {
+    var id = esc(b.id);
+    return '<button class="btn qb-btn" data-qb="inv-wa" data-id="' + id + '">' + icon('share') + 'WhatsApp Share</button>' +
+      '<button class="btn btn--outline" data-qb="inv-pdf" data-id="' + id + '">' + icon('install') + 'Download Invoice</button>' +
+      '<span class="qb-invprint">' + sizeSelectHTML('qbSize') +
+      '<button class="btn btn--outline" data-qb="print-saved" data-id="' + id + '">' + icon('printer') + 'Print Invoice</button></span>';
+  }
+  function invoiceDoneHTML(b) {
+    return '<div class="qb-done shell">' +
+      '<div class="qb-done__head"><span class="qb-saved__ico">' + icon('checkCircle') + '</span>' +
+      '<div class="grow"><h2>Bill saved</h2><p>' + esc(b.number) + ' · ' + inr(b.totalPaise) + ' · ' + esc(label(STATUSES, b.payment.status)) + '</p></div>' +
+      '<button class="btn qb-btn" data-qb="new-bill">' + icon('plus') + 'New Bill</button></div>' +
+      '<div class="qb-invacts">' + invoiceActsHTML(b) + '</div>' +
+      '<div class="qb-preview qb-preview--full">' + invoiceHTML(b, 'preview') + '</div>' +
+      '<div class="qb-done__more">' +
+      '<button class="qb-link" data-qb="labels" data-id="' + esc(b.id) + '">' + icon('tag') + 'Print Product Labels</button>' +
+      '<a class="qb-link" href="/billing/bills/' + encodeURIComponent(b.id) + '">' + icon('linkOut') + 'Open bill</a></div>' +
+      '</div>';
+  }
+
+  function billById(id) { return S.billCache[id] || S.lastSaved; }
+  function pdfWords(b) {
+    return {
+      money: M.format, when: when,
+      method: label(METHODS, b.payment.method), status: label(STATUSES, b.payment.status)
+    };
+  }
+  function invoiceFile(b) {
+    return new File([SM.shopPdf.invoiceBlob(b, shopInfo(), pdfWords(b))], 'Invoice-' + b.number + '.pdf', { type: 'application/pdf' });
+  }
+  function downloadInvoice(b) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(invoiceFile(b));
+    a.download = 'Invoice-' + b.number + '.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
+    toast('Invoice downloaded', 'checkCircle');
+  }
+
+  /* ------------------------------------------------------- WhatsApp sheet
+
+     The link has to exist before WhatsApp opens, so it is made first and the
+     button is a plain link the person presses themselves. Pressing it, closing
+     WhatsApp or sending nothing all leave the bill exactly as it was. */
+  function shareMessage(b, url) {
+    return SH.invoiceMessage({
+      customerName: (b.customer && b.customer.name) || '',
+      shopName: shopInfo().name, number: b.number, total: inr(b.totalPaise),
+      paid: inr(Math.min(b.payment.receivedPaise || 0, b.totalPaise)), balance: inr(b.payment.balancePaise || 0),
+      url: url
+    });
+  }
+  function canShareFile() {
+    if (!global.navigator.canShare || !global.File) return false;
+    try { return global.navigator.canShare({ files: [new File(['x'], 'x.pdf', { type: 'application/pdf' })] }); } catch (e) { return false; }
+  }
+  function waHref() {
+    var sh = S.sheet;
+    return SH.whatsappUrl(SH.whatsappNumber(sh.to), sh.text);
+  }
+  function waFootHTML() {
+    var sh = S.sheet;
+    var badNumber = digitsOf(sh.to).length > 0 && !SH.whatsappNumber(sh.to);
+    return (canShareFile() ? '<button class="btn btn--outline" data-qb="wa-file">' + icon('share') + 'Share PDF</button>' : '') +
+      (sh.loading
+        ? '<button class="btn qb-btn grow" disabled><span class="qb-spin"></span>Preparing…</button>'
+        : '<a class="btn qb-btn grow' + (badNumber ? ' is-off' : '') + '" id="qbWaGo" href="' + esc(badNumber ? '#' : waHref()) + '" target="_blank" rel="noopener noreferrer"' + (badNumber ? ' aria-disabled="true"' : '') + '>' + icon('share') + 'Open WhatsApp</a>');
+  }
+  function openWhatsApp(b) {
+    var c = b.customer || {};
+    var sh = { type: 'wa', billId: b.id, to: c.whatsapp || c.mobile || '', text: shareMessage(b, ''), loading: true, linkFailed: false };
+    S.sheet = sh;
+    openSheet('wa',
+      '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">Share on WhatsApp</h3>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-form">' +
+      fieldHTML('qbWaTo', 'wato', 'WhatsApp number', false, '<input class="input qb-in" id="qbWaTo" type="tel" inputmode="tel" autocomplete="off" value="' + esc(sh.to) + '" placeholder="Leave empty to choose in WhatsApp" data-qbi="wa-to" />') +
+      fieldHTML('qbWaText', 'watext', 'Message', false, '<textarea class="input qb-in qb-notes" id="qbWaText" rows="11" data-qbi="wa-text">' + esc(sh.text) + '</textarea>') +
+      '<small class="qb-help" id="qbWaNote">You press send in WhatsApp. The message carries a link to the invoice; WhatsApp cannot attach a PDF by link, so use Download Invoice or Share PDF for the file.</small>' +
+      '</div><div class="sheet__foot" id="qbWaFoot">' + waFootHTML() + '</div>', 'Share on WhatsApp');
+    API.bill({ action: 'share', billId: b.id }).then(function (r) {
+      if (S.sheet !== sh) return;
+      sh.loading = false;
+      sh.text = shareMessage(b, global.location.origin + '/i/' + r.token);
+      var box = el('qbWaText');
+      if (box) box.value = sh.text;
+      paint('qbWaFoot', waFootHTML());
+    }, function (err) {
+      if (S.sheet !== sh) return;
+      sh.loading = false;
+      paint('qbWaNote', esc('The invoice link could not be made (' + say(err) + '). The message below has no link: send the PDF instead.'));
+      paint('qbWaFoot', waFootHTML());
+    });
+  }
+  function shareFile() {
+    var sh = S.sheet;
+    var b = sh && billById(sh.billId);
+    if (!b) return;
+    global.navigator.share({ files: [invoiceFile(b)], text: sh.text }).catch(function (err) {
+      /* backing out of the share sheet is not a failure, and changes nothing */
+      if (err && err.name !== 'AbortError') toast('Could not open sharing here. Download the invoice instead.', 'alert');
+    });
   }
 
   /* ============================================================ BILLS LIST */
@@ -1310,9 +1491,7 @@
       '<div class="qb-billview__grid">' +
       '<div class="qb-preview qb-preview--full">' + invoiceHTML(b, 'preview') + '</div>' +
       '<div class="qb-billview__side">' +
-      '<div class="qb-card2"><span class="qb-lab">Print</span>' +
-      '<div class="qb-inrow">' + sizeSelectHTML('qbSize') +
-      '<button class="btn qb-btn grow" data-qb="print-saved" data-id="' + esc(b.id) + '">' + icon('printer') + 'Print Bill</button></div>' +
+      '<div class="qb-card2"><span class="qb-lab">Invoice</span><div class="qb-invacts">' + invoiceActsHTML(b) + '</div>' +
       '<button class="btn btn--outline btn--block" data-qb="labels" data-id="' + esc(b.id) + '">' + icon('tag') + 'Print Product Labels</button></div>' +
       (isVoid ? '' :
         '<div class="qb-card2"><span class="qb-lab">Payment</span>' +
@@ -1325,7 +1504,6 @@
       '<div class="qb-card2"><span class="qb-lab">History</span><ul class="qb-hist">' + hist + '</ul>' +
       (isVoid ? '' : '<button class="btn btn--ghost btn--block qb-danger" data-qb="void" data-id="' + esc(b.id) + '">' + icon('alert') + 'Void this bill</button>') +
       '</div>' +
-      (S.lastSaved && S.lastSaved.id === b.id ? '<button class="btn btn--soft btn--block qb-btn--soft" data-qb="new-bill">' + icon('plus') + 'New Bill</button>' : '') +
       '</div></div></div>');
   }
 
@@ -1834,7 +2012,7 @@
       '<div id="qbCustHist">' + historyHTML(data.bills, '', '') + '</div></div>' +
       '</div><div class="qb-billview__side">' +
       '<div class="qb-card2"><span class="qb-lab">Details</span><div class="qb-rows">' +
-      info('Mobile', c.mobile) + info('WhatsApp', c.whatsapp) + info('Address', c.address) + info('Notes', c.notes) +
+      info('Mobile', c.mobile) + info('WhatsApp', c.whatsapp) + info('Address', c.address) + info('GSTIN', c.gstin) + info('Notes', c.notes) +
       info('Customer since', dateOnly(c.createdAt)) + info('First purchase', dateOnly(c.firstBillAt)) + info('Last purchase', dateOnly(c.lastBillAt)) + '</div></div>' +
       (ins.topProducts.length ? '<div class="qb-card2"><span class="qb-lab">Most purchased</span><div class="qb-rows">' + ins.topProducts.map(function (p) {
         return '<div class="qb-trow"><span>' + esc(p.name) + '</span><b>× ' + p.qty + '</b></div>';
@@ -1881,6 +2059,7 @@
       fieldHTML('qbUWhats', 'uwhats', 'WhatsApp', false, '<input class="input qb-in" id="qbUWhats" type="tel" inputmode="tel" autocomplete="off" placeholder="Optional" value="' + esc(c ? c.whatsapp : '') + '" />') +
       '</div>' +
       fieldHTML('qbUAddr', 'uaddr', 'Address', false, '<input class="input qb-in" id="qbUAddr" maxlength="200" autocomplete="off" placeholder="Optional" value="' + esc(c ? c.address : '') + '" />') +
+      fieldHTML('qbUGst', 'ugst', 'GSTIN', false, '<input class="input qb-in" id="qbUGst" maxlength="15" autocomplete="off" placeholder="Optional" value="' + esc(c ? c.gstin : '') + '" />') +
       fieldHTML('qbUNotes', 'unotes', 'Notes', false, '<textarea class="input qb-in qb-notes" id="qbUNotes" rows="2" maxlength="300" placeholder="Optional">' + esc(c ? c.notes : '') + '</textarea>') +
       (id ? fieldHTML('qbUStatus', 'ustatus', 'Status', false, '<select class="input qb-in" id="qbUStatus"><option value="active">Active</option><option value="inactive"' + (c && c.status === 'inactive' ? ' selected' : '') + '>Inactive</option></select>') : '') +
       '<small class="qb-err" id="qbUErr"></small><button type="submit" hidden></button></form>' +
@@ -1897,7 +2076,7 @@
     if (!name) return;
     var body = {
       action: sh.mode === 'edit' ? 'update' : 'create', customerId: sh.id, name: name,
-      mobile: val('qbUMobile'), whatsapp: val('qbUWhats'), address: val('qbUAddr'), notes: val('qbUNotes')
+      mobile: val('qbUMobile'), whatsapp: val('qbUWhats'), address: val('qbUAddr'), gstin: val('qbUGst'), notes: val('qbUNotes')
     };
     if (sh.mode === 'edit') body.status = val('qbUStatus');
     sh.busy = true;
@@ -2787,7 +2966,8 @@
     if (!onBilling()) return;
     var v = viewName();
     if (v === 'pos') {
-      if (!el('qbCatalog') || !document.querySelector('.qb-quickadd')) { rerender(); return; }
+      if (!el('qbCatalog')) { rerender(); return; }
+      if (!document.querySelector('.qb-quickadd') && S.products.length) { rerender(); return; }
       paintCatalog();
       if (el('qbLines')) paint('qbLines', linesHTML(draft()));
     } else if (v === 'products') paintProductList();
@@ -2917,8 +3097,8 @@
   }
 
   /* ------------------------------------------------------ variant picker */
-  function openVariantPicker(p, model) {
-    S.sheet = { type: 'variant', id: p.id, model: model || null };
+  function openVariantPicker(p, model, qty) {
+    S.sheet = { type: 'variant', id: p.id, model: model || null, qty: qty || 1 };
     openSheet('variant',
       '<div class="sheet__grab"></div><div class="sheet__head">' + thumbHTML(p, 'qb-thumb--sm') +
       '<div class="grow"><h3 class="t-h3">' + esc(p.name) + '</h3><span class="qb-sub">Choose the variant being sold</span></div>' +
@@ -3229,19 +3409,29 @@
     switch (a) {
       case 'sign-in': ctx.signIn(); break;
       case 'reload': S.loadError = null; rerender(); break;
-      case 'add': { var p = productById(id); if (p) addToCart(p, null, compatContext(p)); break; }
+      case 'add': {
+        var p = productById(id);
+        var pickBox = document.querySelector('[data-qbi="pick-qty"][data-id="' + id + '"]');
+        var pickNow = pickBox ? Number(pickBox.value) : 1;
+        if (p) addToCart(p, null, compatContext(p), pickNow >= 1 ? pickNow : 1);
+        break;
+      }
+      case 'pick-inc': setPick(id, (S.pickQty[id] || 1) + 1); break;
+      case 'pick-dec': setPick(id, (S.pickQty[id] || 1) - 1); break;
+      case 'cat-more': S.catLimit += 60; paint('qbCatalog', catalogHTML()); break;
+      case 'to-cart': { var cb = el('qbBill'); if (cb) cb.scrollIntoView({ block: 'start' }); break; }
       case 'pick-variant': {
         var sv = S.sheet;
         if (!sv || sv.type !== 'variant') break;
         var vp = productById(sv.id);
         var vv = vp && variantOf(vp, id);
         closeSheet();
-        if (vv) addToCart(vp, vv, sv.model);
+        if (vv) addToCart(vp, vv, sv.model, sv.qty);
         break;
       }
       case 'pick-model': pickModel(id); break;
       case 'clear-model': clearModel(); break;
-      case 'cat': S.filter.cat = id; paintCatalog(); break;
+      case 'cat': S.filter.cat = id; S.catLimit = 60; paintCatalog(); break;
       case 'qty-inc':
         if (line) {
           var pp = lineStock(line);
@@ -3317,12 +3507,14 @@
         if (id === 'partial' && rcv) rcv.focus();
         break;
       }
-      case 'save-bill': saveBill(false); break;
-      case 'print-bill': saveBill(true); break;
-      case 'print-saved': { var sb = S.billCache[id] || S.lastSaved; if (sb) printInvoice(sb, S.printSize); break; }
+      case 'confirm-bill': saveBill(); break;
+      case 'print-saved': { var sb = billById(id); if (sb) printInvoice(sb, S.printSize); break; }
+      case 'inv-pdf': { var pb = billById(id); if (pb) downloadInvoice(pb); break; }
+      case 'inv-wa': { var wb = billById(id); if (wb) openWhatsApp(wb); break; }
+      case 'wa-file': shareFile(); break;
       case 'new-bill': newBill(); break;
       case 'labels': {
-        var lb = S.billCache[id] || S.lastSaved;
+        var lb = billById(id);
         if (lb) openLabels(labelEntriesFromBill(lb), 'Print Product Labels · ' + lb.number);
         break;
       }
@@ -3335,10 +3527,9 @@
         if (a === 'pp-method' && S.sheet) S.sheet.method = id;
         break;
       case 'lbl-print': printChosenLabels(); break;
-      case 'open-cart': openCartSheet(); break;
       case 'close-sheet': closeSheet(); break;
-      case 'review': closeSheet(); go('/billing/review'); break;
-      case 'edit-bill': S.openCart = !isDesk(); go('/billing'); break;
+      case 'review': openReview(); break;
+      case 'edit-bill': closeSheet(); break;
       case 'add-product': openProductForm('create'); break;
       case 'edit-product': openProductForm('edit', id); break;
       case 'product-save': submitProduct(id === 'again'); break;
@@ -3455,15 +3646,19 @@
       case 'cust-pick': {
         var hit = (S.custHits || []).filter(function (x) { return x.id === id; })[0];
         if (!hit) break;
-        S.cart.customer.id = hit.id; S.cart.customer.name = hit.name; S.cart.customer.mobile = hit.mobile;
+        Object.assign(S.cart.customer, {
+          id: hit.id, name: hit.name, mobile: hit.mobile, whatsapp: hit.whatsapp || '', address: hit.address || '', gstin: hit.gstin || ''
+        });
+        S.custPicked = hit;
         S.custHits = [];
-        paint('qbCust', customerPickHTML());
+        paint('qbCustSec', customerSecHTML());
         cartChanged(false);
         break;
       }
       case 'cust-clear':
-        S.cart.customer.id = ''; S.cart.customer.name = ''; S.cart.customer.mobile = '';
-        paint('qbCust', customerPickHTML());
+        Object.assign(S.cart.customer, { id: '', name: '', mobile: '', whatsapp: '', address: '', gstin: '' });
+        S.custPicked = null;
+        paint('qbCustSec', customerSecHTML());
         cartChanged(false);
         var cn = el('qbCName'); if (cn) cn.focus();
         break;
@@ -3492,9 +3687,25 @@
     switch (k) {
       case 'q':
         S.filter.q = t.value.trim();
+        S.catLimit = 60;
+        if (S.compat && S.compat.q !== S.filter.q) S.compat = null;
         paint('qbCatalog', catalogHTML());
         clearTimeout(modelHitTimer);
-        modelHitTimer = setTimeout(paintModelHits, 120);
+        modelHitTimer = setTimeout(modelSearchSettled, 280);
+        break;
+      case 'pick-qty': {
+        var want = t.value.trim();
+        if (/^\d{1,4}$/.test(want) && Number(want) >= 1) S.pickQty[t.getAttribute('data-id')] = Math.min(Number(want), pickRoom(t.getAttribute('data-id')));
+        break;
+      }
+      case 'cwhats': c.customer.whatsapp = t.value; cartChanged(false); break;
+      case 'caddr': c.customer.address = t.value; cartChanged(false); break;
+      case 'cgstin': c.customer.gstin = t.value.toUpperCase(); cartChanged(false); break;
+      case 'wa-to':
+        if (S.sheet) { S.sheet.to = t.value; paint('qbWaFoot', waFootHTML()); }
+        break;
+      case 'wa-text':
+        if (S.sheet) { S.sheet.text = t.value; var go1 = el('qbWaGo'); if (go1 && !go1.classList.contains('is-off')) go1.href = waHref(); }
         break;
       case 'line-qty': {
         var l = lineByKey(t.getAttribute('data-id'));
@@ -3565,6 +3776,7 @@
     var k = t.getAttribute && t.getAttribute('data-qbi');
     if (!k || !onBilling()) return;
     switch (k) {
+      case 'pick-qty': setPick(t.getAttribute('data-id'), S.pickQty[t.getAttribute('data-id')] || 1); break;
       case 'line-qty': {
         /* on leaving the field, an unreadable quantity goes back to what it was */
         var l = lineByKey(t.getAttribute('data-id'));
@@ -3685,12 +3897,6 @@
       if (b) barTipOff(b);
     });
   });
-  if (DESK_MQ) {
-    var onMq = function () { if (onBilling()) { if (S.sheet && S.sheet.type === 'cart') closeSheet(); rerender(); } };
-    if (DESK_MQ.addEventListener) DESK_MQ.addEventListener('change', onMq);
-    else if (DESK_MQ.addListener) DESK_MQ.addListener(onMq);
-  }
-
   SM.quickBilling = {
     render: render,
     /* exposed for the console and for tests, not for the app */

@@ -819,3 +819,128 @@ test('another shop cannot change a stock count', async () => {
   const st = ok(await w.get(w.tokA, 'state'));
   assert.equal(st.products.find(x => x.id === p.id).qty, 4);
 });
+
+/* ================================================= the customer on a new bill */
+
+test('a new customer is saved with everything typed on the bill', async () => {
+  const w = world();
+  await categories(w, w.tokA);
+  const r = ok(await w.post(w.tokA, 'bill', {
+    action: 'finalise', finalisationId: cid('f'), lines: [{ name: 'Fitting', qty: 1, unitPaise: 5000 }],
+    payment: { method: 'cash', status: 'paid' },
+    customer: { name: 'Ravi', mobile: '+91 98765 43210', whatsapp: '98765 00000', address: '12 Anna Salai', gstin: '33abcde1234f1z5' }
+  }));
+  assert.equal(r.bill.customerId, 'm_9876543210');
+  assert.deepEqual(
+    [r.bill.customer.whatsapp, r.bill.customer.address, r.bill.customer.gstin],
+    ['9876500000', '12 Anna Salai', '33ABCDE1234F1Z5'], 'the bill keeps its own copy');
+  const c = ok(await w.get(w.tokA, 'customer', { id: 'm_9876543210' })).customer;
+  assert.equal(c.whatsapp, '9876500000');
+  assert.equal(c.gstin, '33ABCDE1234F1Z5');
+});
+
+test('what is typed on a bill fills gaps on a record and never replaces it', async () => {
+  const w = world();
+  await categories(w, w.tokA);
+  const made = ok(await w.post(w.tokA, 'customer', { action: 'create', name: 'Priya', mobile: '9000000001', address: 'Old Street' })).customer;
+  const r = ok(await w.post(w.tokA, 'bill', {
+    action: 'finalise', finalisationId: cid('f'), lines: [{ name: 'Fitting', qty: 1, unitPaise: 5000 }],
+    payment: { method: 'cash', status: 'paid' },
+    customer: { id: made.id, name: 'Priya', mobile: '9000000001', address: 'Typed Street', gstin: '33ABCDE1234F1Z5' }
+  }));
+  assert.equal(r.bill.customer.address, 'Typed Street', 'the invoice says what this bill said');
+  const c = ok(await w.get(w.tokA, 'customer', { id: made.id })).customer;
+  assert.equal(c.address, 'Old Street');
+  assert.equal(c.gstin, '33ABCDE1234F1Z5');
+  assert.equal(c.billCount, 1);
+});
+
+/* ==================================================== sharing a saved invoice */
+
+async function aSale(w, extra) {
+  const { byName } = await categories(w, w.tokA);
+  const p = ok(await w.post(w.tokA, 'product', {
+    action: 'create', productId: cid('p'), name: 'Realme 5 Tempered Glass Clear', categoryId: byName['Tempered Glass'].id,
+    pricePaise: 29900, costPaise: 11100, qty: 30, shelf: 'SECRET-SHELF', groupIds: [GLASS]
+  })).product;
+  return ok(await w.post(w.tokA, 'bill', Object.assign({
+    action: 'finalise', finalisationId: cid('f'),
+    lines: [{ productId: p.id, qty: 2, unitPaise: 29900, selectedModelId: 'vivo-y20', groupId: GLASS }],
+    payment: { method: 'upi', status: 'partial', receivedPaise: 50000 },
+    customer: { name: '<script>alert(1)</script>', mobile: '9876543210' }
+  }, extra))).bill;
+}
+const openLink = (w, t) => invoke(require(API), { method: 'GET', url: '/i/' + t, query: { section: 'invoice', t } });
+
+test('a share link is made once and opens one invoice with no sign-in', async () => {
+  const w = world();
+  const bill = await aSale(w);
+  const a = ok(await w.post(w.tokA, 'bill', { action: 'share', billId: bill.id }));
+  const b = ok(await w.post(w.tokA, 'bill', { action: 'share', billId: bill.id }));
+  assert.ok(a.token.length >= 24);
+  assert.equal(a.token, b.token, 'sharing again is the same link');
+
+  const page = await openLink(w, a.token);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers['Cache-Control'], 'private, no-store');
+  assert.equal(page.headers['X-Robots-Tag'], 'noindex, nofollow');
+  [bill.number, 'Realme 5 Tempered Glass Clear', 'For vivo Y20', '598.00', '500.00', '98.00', 'Partially Paid', 'UPI']
+    .forEach(s => assert.ok(page.body.includes(s), s));
+});
+
+test('the shared page leaves out what is only the shop\'s business, and escapes what it shows', async () => {
+  const w = world();
+  const bill = await aSale(w);
+  const { token } = ok(await w.post(w.tokA, 'bill', { action: 'share', billId: bill.id }));
+  const html = (await openLink(w, token)).body;
+  assert.equal(html.includes('<script>alert'), false, 'a typed name cannot run');
+  assert.ok(html.includes('&lt;script&gt;'));
+  ['111.00', 'SECRET-SHELF', 'costPaise', 'ownerUid', 'shopAAAAAA', GLASS].forEach(s => {
+    assert.equal(html.includes(s), false, s);
+  });
+});
+
+test('a wrong token opens nothing and says nothing', async () => {
+  const w = world();
+  await aSale(w);
+  for (const t of ['nope', 'A'.repeat(24), '../../etc/passwd', '']) {
+    const page = await openLink(w, t);
+    assert.equal(page.status, 404, t);
+    assert.equal(page.body.includes('QB-'), false);
+  }
+});
+
+test('another shop cannot make a link to a bill it does not own', async () => {
+  const w = world();
+  const bill = await aSale(w);
+  await categories(w, w.tokB);
+  const r = await w.post(w.tokB, 'bill', { action: 'share', billId: bill.id });
+  assert.equal(r.status, 404);
+});
+
+test('sharing and reopening change nothing about the sale', async () => {
+  const w = world();
+  const bill = await aSale(w);
+  const before = ok(await w.get(w.tokA, 'overview', {}));
+  const { token } = ok(await w.post(w.tokA, 'bill', { action: 'share', billId: bill.id }));
+  await openLink(w, token);
+  await w.post(w.tokA, 'bill', { action: 'share', billId: bill.id });
+  const after = ok(await w.get(w.tokA, 'overview', {}));
+  assert.equal(after.month.bills, before.month.bills);
+  assert.equal(after.month.netPaise, before.month.netPaise);
+  const again = ok(await w.get(w.tokA, 'bill', { id: bill.id })).bill;
+  assert.equal(again.number, bill.number);
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.equal(st.products[0].qty, 28, 'stock moved once, at the sale');
+  const c = ok(await w.get(w.tokA, 'customer', { id: 'm_9876543210' })).customer;
+  assert.equal(c.billCount, 1);
+});
+
+test('a voided bill says so on its link', async () => {
+  const w = world();
+  const bill = await aSale(w);
+  const { token } = ok(await w.post(w.tokA, 'bill', { action: 'share', billId: bill.id }));
+  ok(await w.post(w.tokA, 'bill', { action: 'void', billId: bill.id, reason: 'Duplicate bill' }));
+  const html = (await openLink(w, token)).body;
+  assert.ok(html.includes('class="void"'));
+});

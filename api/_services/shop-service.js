@@ -76,6 +76,7 @@ const C = require('../_schema/collections');
 const money = require('../../src/data/shop-money');
 const insights = require('./shop-insights');
 const search = require('./search-service');
+const { invoicePage } = require('./shop-invoice-page');
 const entitlements = require('./entitlement-service');
 const { TIERS } = require('../_schema/entitlement');
 const { CATALOG_VERSION, DEVICE_KINDS, STANDARD_CATEGORIES, SUGGESTED_CATEGORIES } = require('../_schema/shop-standard');
@@ -221,6 +222,7 @@ function customerView(id, d) {
     mobile: d.mobile || '',
     whatsapp: d.whatsapp || '',
     address: d.address || '',
+    gstin: d.gstin || '',
     notes: d.notes || '',
     status: d.status === 'inactive' ? 'inactive' : 'active',
     createdAt: d.createdAt || null,
@@ -1195,7 +1197,7 @@ const collectedOn = (totalPaise, payment) => Math.min(payment.receivedPaise || 0
 function blankCustomer(uid, c, now) {
   return {
     ownerUid: uid, name: c.name || '', nameKey: (c.name || '').toLowerCase(), mobile: c.mobile || '',
-    whatsapp: c.whatsapp || '', address: c.address || '', notes: c.notes || '', status: 'active',
+    whatsapp: c.whatsapp || '', address: c.address || '', gstin: c.gstin || '', notes: c.notes || '', status: 'active',
     billCount: 0, totalPaise: 0, paidPaise: 0, outstandingPaise: 0,
     firstBillAt: 0, lastBillAt: 0, createdAt: now, updatedAt: now
   };
@@ -1247,12 +1249,12 @@ async function finaliseBill(uid, body) {
   const customer = {
     name: text(typed.name, 60),
     mobile: mobile(typed.mobile),
+    whatsapp: mobile(typed.whatsapp),
+    address: text(typed.address, 200),
+    gstin: text(typed.gstin, 15).toUpperCase(),
     notes: text(typed.notes, 300)
   };
-  const customerInput = {
-    id: typed.id ? docId(typed.id) : '', name: customer.name, mobile: customer.mobile,
-    whatsapp: mobile(typed.whatsapp)
-  };
+  const customerInput = Object.assign({}, customer, { id: typed.id ? docId(typed.id) : '' });
 
   const billRef = billCol(uid).doc(fid);
   const productIds = Array.from(new Set(lines.filter(l => l.productId).map(l => l.productId)));
@@ -1360,6 +1362,11 @@ async function finaliseBill(uid, body) {
       addToCustomer(customerRow, totals.totalPaise, collected, now);
       if (!customer.name) customer.name = customerRow.name;
       if (!customer.mobile) customer.mobile = customerRow.mobile;
+      /* what was typed fills a gap on their record and never replaces it */
+      ['whatsapp', 'address', 'gstin'].forEach(k => {
+        if (!customerRow[k]) customerRow[k] = customer[k];
+        if (!customer[k]) customer[k] = customerRow[k] || '';
+      });
     }
 
     const bill = {
@@ -1666,6 +1673,56 @@ async function listBills(uid, query) {
   };
 }
 
+/* ========================================================= SHARED INVOICES
+
+   A link a shop can put in a WhatsApp message. Whoever holds it sees that one
+   invoice and nothing else, with no sign-in, so the token is the only thing
+   protecting it: 144 random bits, made once per bill, and only when the shop
+   asks to share. Reopening or resending uses the same link. */
+
+function shopDetails(profile) {
+  const p = profile || {};
+  const a = p.address && typeof p.address === 'object' ? p.address : {};
+  return {
+    name: p.mobileShopName || p.shopName || 'Mobile Parts Finder shop',
+    place: [a.flat, a.area, a.city, a.state].filter(Boolean).join(', '),
+    mobile: p.mobileNumber || p.mobile || '',
+    gstin: p.gstin || ''
+  };
+}
+
+async function shareBill(uid, body) {
+  const id = docId(body.billId);
+  if (!id) throw bad('bill-id');
+  const ref = billCol(uid).doc(id);
+  return db().runTransaction(async tx => {
+    const bill = owned(uid, await tx.get(ref));
+    if (!bill) throw notFound('bill-not-found');
+    if (bill.shareToken) return { token: bill.shareToken };
+    const token = crypto.randomBytes(18).toString('base64url');
+    const now = Date.now();
+    tx.create(db().collection(C.INVOICE_LINKS).doc(token), { uid, billId: id, createdAt: now });
+    tx.update(ref, { shareToken: token, updatedAt: now });
+    return { token };
+  });
+}
+
+/** The page behind a link, or a refusal that says nothing about why. */
+async function sharedInvoice(query) {
+  const token = String(query.t || '');
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) throw notFound('invoice-not-found');
+  const link = await db().collection(C.INVOICE_LINKS).doc(token).get();
+  if (!link.exists) throw notFound('invoice-not-found');
+  const { uid, billId } = link.data();
+  const [billSnap, userSnap] = await Promise.all([
+    billCol(uid).doc(billId).get(),
+    db().collection(C.USERS).doc(uid).get()
+  ]);
+  const bill = owned(uid, billSnap);
+  if (!bill || bill.shareToken !== token) throw notFound('invoice-not-found');
+  return invoicePage(bill, shopDetails(userSnap.exists ? userSnap.data() : null));
+}
+
 /* ============================================================== CUSTOMERS
 
    A customer belongs to one shop. Whoever holds a mobile number holds the
@@ -1688,6 +1745,7 @@ function customerFields(body, partial) {
     if (out.whatsapp && out.whatsapp.length < 10) throw bad('customer-whatsapp');
   }
   if (!partial || body.address !== undefined) out.address = text(body.address, 200);
+  if (!partial || body.gstin !== undefined) out.gstin = text(body.gstin, 15).toUpperCase();
   if (!partial || body.notes !== undefined) out.notes = text(body.notes, 300);
   if (body.status !== undefined) out.status = body.status === 'inactive' ? 'inactive' : 'active';
   return out;
@@ -1855,7 +1913,7 @@ module.exports = {
   createCategory, addSuggested, renameCategory, updateCategory, reorderCategories, deleteCategory,
   createProduct, updateProduct, archiveProduct, adjustStock, listMoves,
   groupInfo, modelGroups, compatProducts,
-  finaliseBill, updatePayment, voidBill, getBill, listBills,
+  finaliseBill, updatePayment, voidBill, getBill, listBills, shareBill, sharedInvoice,
   createCustomer, updateCustomer, listCustomers, getCustomer,
   overview,
   /* exported for tests */
