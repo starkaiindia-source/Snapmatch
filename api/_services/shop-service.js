@@ -969,6 +969,10 @@ async function adjustStock(uid, body) {
   if (!adjustId) throw bad('adjust-id');
   const delta = int(body.delta, -MAX_STOCK, MAX_STOCK);
   if (!delta) throw bad('adjust-delta');
+  /* Sent by a stock count: the figure the shop was looking at. If a bill has
+     moved the stock since, the count is out of date and must not be applied. */
+  const expected = blank(body.expectedQty) ? null : int(body.expectedQty, 0, MAX_STOCK);
+  if (!blank(body.expectedQty) && expected == null) throw bad('adjust-expected');
   const ref = prodCol(uid).doc(id);
   const moveRef = moveCol(uid, id).doc('adj_' + adjustId);
   const now = Date.now();
@@ -982,6 +986,7 @@ async function adjustStock(uid, body) {
     const variant = body.variantId ? variants.find(v => v.id === body.variantId) : null;
     if (variants.length && !variant) throw bad('variant-required');
     const have = variant ? variant.qty : (cur.qty || 0);
+    if (expected != null && expected !== have) throw conflict('stock-changed', { available: have });
     const next = have + delta;
     if (next < 0) throw conflict('negative-stock', { available: have });
     if (next > MAX_STOCK) throw bad('adjust-delta');

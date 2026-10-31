@@ -368,6 +368,9 @@
     document.body.style.overflow = '';
     state.route = r;
     state.base = toPath(r);
+    /* Quick Billing is a workspace with a header of its own, so the site's
+       chrome steps aside for it. See body.qb-workspace in styles.css. */
+    document.body.classList.toggle('qb-workspace', r.name === 'billing');
     renderShellBits();
     renderPage(r);
     /* renderPage may have replaced the whole workspace, taking the mobile
@@ -588,7 +591,7 @@
       link.onload = link.onerror = function () { resolve(); };
       document.head.appendChild(link);
     });
-    var js = ['/src/data/shop-money.js', '/src/shop/shop-api.js', '/src/shop/quick-billing.js']
+    var js = ['/src/data/shop-money.js', '/src/data/shop-products.js', '/src/shop/shop-api.js', '/src/shop/quick-billing.js']
       .reduce(function (p, src) {
         return p.then(function () {
           return new Promise(function (resolve, reject) {

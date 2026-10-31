@@ -738,3 +738,84 @@ test('bills can be listed for a time range', async () => {
   assert.equal(ok(await w.get(w.tokA, 'bills', { from, to })).bills.length, 1);
   assert.equal(ok(await w.get(w.tokA, 'bills', { from: from - 86400000, to: from })).bills.length, 0);
 });
+
+/* ================================================== stock changed in the table */
+
+test('a stock count from the table is an adjustment, not a sale', async () => {
+  const w = world();
+  const { byName } = await categories(w, w.tokA);
+  const p = ok(await w.post(w.tokA, 'product', {
+    action: 'create', productId: cid('p'), name: 'Counted Glass', categoryId: byName['Tempered Glass'].id, pricePaise: 29900, qty: 30
+  })).product;
+
+  const adjustId = cid('a');
+  const body = { action: 'adjust', productId: p.id, adjustId, delta: -2, expectedQty: 30, note: 'Stock count' };
+  assert.equal(ok(await w.post(w.tokA, 'product', body)).product.qty, 28);
+  assert.equal(ok(await w.post(w.tokA, 'product', body)).product.qty, 28, 'a repeat is not applied twice');
+
+  const moves = ok(await w.get(w.tokA, 'moves', { productId: p.id })).moves;
+  assert.equal(moves.filter(m => m.reason === 'adjust').length, 1);
+  assert.equal(moves.filter(m => m.reason === 'sale').length, 0);
+  assert.equal(moves[0].qtyAfter, 28);
+});
+
+test('a stock count is refused when a sale moved the stock first', async () => {
+  const w = world();
+  const { byName } = await categories(w, w.tokA);
+  const p = ok(await w.post(w.tokA, 'product', {
+    action: 'create', productId: cid('p'), name: 'Raced Glass', categoryId: byName['Tempered Glass'].id, pricePaise: 29900, qty: 10
+  })).product;
+  ok(await w.post(w.tokA, 'bill', {
+    action: 'finalise', finalisationId: cid('f'), lines: [{ productId: p.id, qty: 3, unitPaise: 29900 }],
+    payment: { method: 'cash', status: 'paid' }
+  }));
+
+  const r = await w.post(w.tokA, 'product', {
+    action: 'adjust', productId: p.id, adjustId: cid('a'), delta: 5, expectedQty: 10, note: 'Stock count'
+  });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'stock-changed');
+  assert.equal(r.body.available, 7);
+
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.equal(st.products.find(x => x.id === p.id).qty, 7, 'the sale stands and nothing was added');
+});
+
+test('a stock count moves one variant and leaves the others', async () => {
+  const w = world();
+  const { byName } = await categories(w, w.tokA);
+  const p = ok(await w.post(w.tokA, 'product', {
+    action: 'create', productId: cid('p'), name: 'vivo Y20', categoryId: byName.Mobiles.id, sku: 'Y20',
+    master: { id: 'vivo-y20', kind: 'phone' },
+    variants: [
+      { id: 'var_small', ram: '3 GB', storage: '32 GB', pricePaise: 899900, qty: 5 },
+      { id: 'var_large', ram: '4 GB', storage: '64 GB', pricePaise: 1099900, qty: 2 }
+    ]
+  })).product;
+
+  const after = ok(await w.post(w.tokA, 'product', {
+    action: 'adjust', productId: p.id, adjustId: cid('a'), delta: 4, expectedQty: 2, variantId: 'var_large', note: 'Stock count'
+  })).product;
+  assert.deepEqual(after.variants.map(v => v.qty), [5, 6]);
+  assert.equal(after.qty, 11);
+  assert.equal(after.master.id, 'vivo-y20', 'the device link is untouched');
+
+  const wrong = await w.post(w.tokA, 'product', {
+    action: 'adjust', productId: p.id, adjustId: cid('a'), delta: 1, expectedQty: 2, variantId: 'var_large', note: 'Stock count'
+  });
+  assert.equal(wrong.status, 409, 'the figure is checked against that variant');
+  assert.equal(wrong.body.available, 6);
+});
+
+test('another shop cannot change a stock count', async () => {
+  const w = world();
+  const { byName } = await categories(w, w.tokA);
+  const p = ok(await w.post(w.tokA, 'product', {
+    action: 'create', productId: cid('p'), name: 'Private Glass', categoryId: byName['Tempered Glass'].id, pricePaise: 100, qty: 4
+  })).product;
+  await categories(w, w.tokB);
+  const r = await w.post(w.tokB, 'product', { action: 'adjust', productId: p.id, adjustId: cid('a'), delta: 1, expectedQty: 4 });
+  assert.equal(r.status, 404);
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.equal(st.products.find(x => x.id === p.id).qty, 4);
+});
