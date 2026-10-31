@@ -38,7 +38,7 @@
   }
 
   /**
-   * @param {string} section  state | category | product | moves | bill | bills
+   * @param {string} section  a section of /api/shop (see api/shop.js)
    * @param {{body?:object, query?:object, onProgress?:function(number), timeout?:number}} [opts]
    * @returns {Promise<object>} the parsed reply; rejects with {status, code, data}
    */
@@ -146,6 +146,15 @@
     bill: function (body) { return withRetry('bill', { body: body }, 3); },
     getBill: function (id) { return request('bill', { query: { id: id } }); },
     bills: function (query) { return request('bills', { query: query }); },
+    group: function (id) { return request('group', { query: { id: id } }); },
+    modelGroups: function (modelId, partCategory) {
+      return request('model-groups', { query: { modelId: modelId, partCategory: partCategory } });
+    },
+    compat: function (modelId) { return request('compat', { query: { modelId: modelId } }); },
+    customers: function (query) { return request('customers', { query: query }); },
+    customer: function (id) { return request('customer', { query: { id: id } }); },
+    customerSave: function (body) { return request('customer', { body: body }); },
+    overview: function (query) { return request('overview', { query: query }); },
     newId: newId,
     prepareImage: prepareImage,
     retryable: retryable

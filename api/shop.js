@@ -2,12 +2,19 @@
    /api/shop/<section> — Quick Billing & Inventory
    ----------------------------------------------------------------------------
      GET  /api/shop/state             categories + products, for the billing screen
-     POST /api/shop/category          { action: create | suggested | rename | reorder | delete }
+     POST /api/shop/category          { action: create | suggested | rename | update | reorder | delete }
      POST /api/shop/product           { action: create | update | archive | adjust }
      GET  /api/shop/moves?productId=  a product's stock movements
+     GET  /api/shop/group?id=         one compatibility group, cut to the plan
+     GET  /api/shop/model-groups?modelId=  the groups a device is in
+     GET  /api/shop/compat?modelId=   this shop's products that fit a device
      POST /api/shop/bill              { action: finalise | payment | void }
      GET  /api/shop/bill?id=          one saved bill
      GET  /api/shop/bills?q=&cursor=  bill history, or a search
+     POST /api/shop/customer          { action: create | update }
+     GET  /api/shop/customer?id=      one customer and their bills
+     GET  /api/shop/customers?q=&filter=&cursor=  the customer list
+     GET  /api/shop/overview?from=&to=  the dashboard
 
    ONE FUNCTION FOR ALL OF IT. The Hobby plan allows 12 serverless functions
    and this is the twelfth; any further endpoint must be a section here or in
@@ -18,7 +25,8 @@
    query parameter or header can name a different shop. The service builds
    every Firestore path from it.
 
-   Nothing here touches subscriptions, entitlements or payments.
+   Nothing here changes a subscription or a payment. The compatibility sections
+   only read, and what they show of a group is cut to the caller's plan.
    ========================================================================== */
 'use strict';
 
@@ -30,6 +38,7 @@ const POSTS = {
     create: shop.createCategory,
     suggested: shop.addSuggested,
     rename: shop.renameCategory,
+    update: shop.updateCategory,
     reorder: shop.reorderCategories,
     delete: shop.deleteCategory
   },
@@ -43,14 +52,24 @@ const POSTS = {
     finalise: shop.finaliseBill,
     payment: shop.updatePayment,
     void: shop.voidBill
+  },
+  customer: {
+    create: shop.createCustomer,
+    update: shop.updateCustomer
   }
 };
 
 const GETS = {
   state: (uid) => shop.loadState(uid),
   moves: (uid, q) => shop.listMoves(uid, q.productId),
+  group: (uid, q) => shop.groupInfo(uid, q),
+  'model-groups': (uid, q) => shop.modelGroups(uid, q),
+  compat: (uid, q) => shop.compatProducts(uid, q),
   bill: (uid, q) => shop.getBill(uid, q.id),
-  bills: (uid, q) => shop.listBills(uid, q)
+  bills: (uid, q) => shop.listBills(uid, q),
+  customer: (uid, q) => shop.getCustomer(uid, q),
+  customers: (uid, q) => shop.listCustomers(uid, q),
+  overview: (uid, q) => shop.overview(uid, q)
 };
 
 function sectionFrom(req) {

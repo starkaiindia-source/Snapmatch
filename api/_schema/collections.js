@@ -129,9 +129,9 @@ const SEARCH_USAGE = 'searchUsage';
 
 /* ---------------------------------------------------------- quick billing
 
-   A shop's OWN inventory and bills. Nothing here is catalogue data: a master
-   model or a compatibility group never becomes a product, and nothing in the
-   catalogue reads these. Everything sits under the owner's uid, so the path
+   A shop's OWN inventory and bills. Nothing here is catalogue data: a product
+   may refer to a master model or a compatibility group by id, but neither is
+   ever copied or changed from here, and nothing in the catalogue reads these. Everything sits under the owner's uid, so the path
    itself is the ownership check — the server builds it from the verified
    token and a request cannot name another shop's documents. server. */
 
@@ -145,6 +145,10 @@ const SHOP_PRODUCTS = 'products';
 const SHOP_STOCK_MOVES = 'moves';
 /** shops/{uid}/bills/{finalisationId} — saved bills; voided, never deleted. */
 const SHOP_BILLS = 'bills';
+/** shops/{uid}/customers/{id} — a shop's own customers and their running totals. */
+const SHOP_CUSTOMERS = 'customers';
+/** shops/{uid}/days/{YYYY-MM-DD} — one trading day's figures, written with its bills. */
+const SHOP_DAYS = 'days';
 
 /* ------------------------------------------------------- existing catalogue
    Named here so a service never has to guess at the spelling, but owned by the
@@ -168,7 +172,7 @@ module.exports = {
   APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
   COMPAT_CATEGORIES,
   ADMIN_AUDIT_LOG, RATE_LIMITS, SEARCH_USAGE,
-  SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS,
+  SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS, SHOP_CUSTOMERS, SHOP_DAYS,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG
 };
