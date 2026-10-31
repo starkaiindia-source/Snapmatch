@@ -111,6 +111,27 @@ const shopRef = uid => db().collection(C.SHOPS).doc(uid);
 const catCol = uid => shopRef(uid).collection(C.SHOP_CATEGORIES);
 const prodCol = uid => shopRef(uid).collection(C.SHOP_PRODUCTS);
 const billCol = uid => shopRef(uid).collection(C.SHOP_BILLS);
+/**
+ * A transaction that leaves a line in the log when it retried or ran slowly,
+ * because at the counter both look the same: a bill that will not save. `ran` is
+ * how long each attempt spent in `run`; the rest of `ms` is waiting and commits.
+ */
+async function transaction(name, run, options) {
+  const started = Date.now();
+  const ran = [];
+  try {
+    return await db().runTransaction(async tx => {
+      const at = Date.now();
+      const result = await run(tx);
+      ran.push(Date.now() - at);
+      return result;
+    }, options);
+  } finally {
+    const ms = Date.now() - started;
+    if (ran.length > 1 || ms > 3000) console.warn('[shop] slow transaction', name, JSON.stringify({ ms, ran }));
+  }
+}
+
 const moveCol = (uid, productId) => prodCol(uid).doc(productId).collection(C.SHOP_STOCK_MOVES);
 const custCol = uid => shopRef(uid).collection(C.SHOP_CUSTOMERS);
 const dayCol = uid => shopRef(uid).collection(C.SHOP_DAYS);
@@ -1261,7 +1282,7 @@ async function finaliseBill(uid, body) {
   const productRefs = productIds.map(id => prodCol(uid).doc(id));
   const catalogue = search.loadIndex().byId;
 
-  return db().runTransaction(async tx => {
+  return transaction('finalise', async tx => {
     /* Every read first — Firestore requires it, and the replay check has to
        come before anything that could deduct stock. */
     const existing = owned(uid, await tx.get(billRef));
@@ -1511,7 +1532,7 @@ async function voidBill(uid, body) {
   const reason = text(body.reason, 200);
   if (!reason) throw bad('void-reason');
   const ref = billCol(uid).doc(id);
-  return db().runTransaction(async tx => {
+  return transaction('void', async tx => {
     const cur = owned(uid, await tx.get(ref));
     if (!cur) throw notFound('bill-not-found');
     if (cur.status === 'void') return { bill: billView(id, cur), replayed: true };
