@@ -459,6 +459,26 @@ async function readDeviceGroupDoc(modelId) {
   return null;
 }
 
+/** The device's category -> [group id] map, as Compatibility Management keeps it. */
+function deviceGroupMap(modelId) { return readDeviceGroupDoc(modelId); }
+
+/**
+ * The ids of every group a device is in, from Firestore, with no member names
+ * and no tier: which groups fit a device is what the free result page already
+ * shows. Quick Billing matches a shop's own products against these.
+ *
+ * @returns {Promise<string[]|null>} null when the device has no group record
+ */
+async function deviceGroupIds(modelId) {
+  const d = await deviceGroupMap(modelId);
+  if (!d) return null;
+  const ids = new Set();
+  Object.keys(d).forEach(categoryId => {
+    if (Array.isArray(d[categoryId])) d[categoryId].forEach(id => ids.add(String(id)));
+  });
+  return Array.from(ids);
+}
+
 /**
  * Every group that fits a device, each cut to the tier's allowance.
  * Used by the device page, which shows one group per part category.
@@ -517,6 +537,6 @@ async function deviceGroupsForUser(modelId, tier) {
 }
 
 module.exports = {
-  readAccess, consumeSearch, getUserEntitlement, groupForUser, deviceGroupsForUser,
+  readAccess, consumeSearch, getUserEntitlement, groupForUser, deviceGroupsForUser, deviceGroupMap, deviceGroupIds,
   groupPreviews, previewOf
 };

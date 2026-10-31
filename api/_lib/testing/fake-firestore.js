@@ -140,12 +140,13 @@ function createFakeFirestore() {
     };
   }
 
-  function query(colPath, filters, orders, limitN) {
+  function query(colPath, filters, orders, limitN, after) {
     const q = {
       _colPath: colPath,
-      where: (field, op, value) => query(colPath, filters.concat([{ field, op, value }]), orders, limitN),
-      orderBy: (field, dir = 'asc') => query(colPath, filters, orders.concat([{ field, dir }]), limitN),
-      limit: n => query(colPath, filters, orders, n),
+      where: (field, op, value) => query(colPath, filters.concat([{ field, op, value }]), orders, limitN, after),
+      orderBy: (field, dir = 'asc') => query(colPath, filters, orders.concat([{ field, dir }]), limitN, after),
+      limit: n => query(colPath, filters, orders, n, after),
+      startAfter: (...values) => query(colPath, filters, orders, limitN, values),
       select: () => q,
       get: async () => run(),
       count: () => ({ get: async () => { const n = run(true).size; return { data: () => ({ count: n }) }; } })
@@ -168,6 +169,7 @@ function createFakeFirestore() {
           case '>=': return v >= f.value;
           case 'in': return f.value.some(x => same(x, v));
           case 'array-contains': return Array.isArray(v) && v.some(x => same(x, f.value));
+          case 'array-contains-any': return Array.isArray(v) && v.some(x => f.value.some(y => same(x, y)));
           default: throw new Error('fake firestore: unsupported op ' + f.op);
         }
       }));
@@ -181,6 +183,19 @@ function createFakeFirestore() {
         }
         return 0;
       });
+      if (after) {
+        /* a cursor is one value per orderBy, compared in the order's direction */
+        const pastCursor = r => {
+          for (let i = 0; i < orders.length && i < after.length; i++) {
+            const o = orders[i];
+            const v = o.field === '__name__' ? r.path.split('/').pop() : getPath(r.data, o.field);
+            if (v === after[i]) continue;
+            return o.dir === 'desc' ? v < after[i] : v > after[i];
+          }
+          return false;
+        };
+        rows = rows.filter(pastCursor);
+      }
       if (limitN != null) rows = rows.slice(0, limitN);
       if (!countOnly) stats.reads += Math.max(1, rows.length);
       const docs = rows.map(r => ({ id: r.path.split('/').pop(), exists: true, ref: docRef(r.path), data: () => clone(r.data) }));

@@ -25,6 +25,7 @@ const { create, invoke } = require('./testing/fake-firebase');
 
 const API = path.join(__dirname, '..', 'shop.js');
 const SERVICE = path.join(__dirname, '..', '_services', 'shop-service.js');
+const ENTITLEMENT = path.join(__dirname, '..', '_services', 'entitlement-service.js');
 
 /** A fresh world: fake Firebase installed, two shops signed in, handler loaded. */
 function world() {
@@ -32,6 +33,7 @@ function world() {
   fb.install();
   delete require.cache[require.resolve(API)];
   delete require.cache[require.resolve(SERVICE)];
+  delete require.cache[require.resolve(ENTITLEMENT)];
   const handler = require(API);
   const tokA = fb.account({ uid: 'shopAAAAAA', email: 'a@example.test', name: 'Shop A' });
   const tokB = fb.account({ uid: 'shopBBBBBB', email: 'b@example.test', name: 'Shop B' });
@@ -46,7 +48,7 @@ let seq = 0;
 const cid = p => (p || 'id') + '_' + String(++seq).padStart(10, '0') + 'abcdef';
 
 async function seedShop(w, token) {
-  const cat = await w.post(token, 'category', { action: 'create', name: 'Tempered Glass' });
+  const cat = await w.post(token, 'category', { action: 'create', name: 'Glass Shelf' });
   assert.equal(cat.status, 200, JSON.stringify(cat.body));
   const catId = cat.body.category.id;
   const mk = async (name, pricePaise, qty) => {
@@ -83,19 +85,21 @@ test('categories: create, no duplicates in any case, suggested defaults fill onl
   assert.equal(dup.status, 409);
   assert.equal(dup.body.error, 'category-exists');
 
+  await w.post(w.tokA, 'category', { action: 'create', name: 'Flex Cable' });
   const s = await w.post(w.tokA, 'category', { action: 'suggested' });
   assert.equal(s.status, 200);
-  assert.equal(s.body.created.length, 9, 'Battery already existed');
+  assert.equal(s.body.created.length, 3, 'Flex Cable already existed');
   const again = await w.post(w.tokA, 'category', { action: 'suggested' });
   assert.equal(again.body.created.length, 0);
 
   const st = await w.get(w.tokA, 'state');
-  assert.equal(st.body.categories.length, 10);
-  assert.equal(st.body.categories[0].name, 'Battery', 'kept in creation order');
+  assert.equal(st.body.categories.length, 16, 'the twelve standard ones and four more');
+  assert.equal(st.body.categories.filter(c => c.name === 'Battery').length, 1, 'the one it had became the standard one');
 });
 
 test('categories: rename, reorder, delete moves products and never deletes one', async () => {
   const w = world();
+  await w.get(w.tokA, 'state');
   const { catId, glass } = await seedShop(w, w.tokA);
   const other = (await w.post(w.tokA, 'category', { action: 'create', name: 'Other' })).body.category.id;
 
@@ -104,7 +108,7 @@ test('categories: rename, reorder, delete moves products and never deletes one',
 
   await w.post(w.tokA, 'category', { action: 'reorder', ids: [other, catId] });
   let st = await w.get(w.tokA, 'state');
-  assert.deepEqual(st.body.categories.map(c => c.id), [other, catId]);
+  assert.deepEqual(st.body.categories.slice(0, 2).map(c => c.id), [other, catId]);
 
   const refused = await w.post(w.tokA, 'category', { action: 'delete', categoryId: catId });
   assert.equal(refused.status, 409);
@@ -372,7 +376,7 @@ test('isolation: one shop can read and touch nothing of another', async () => {
 
   const stB = await w.get(w.tokB, 'state');
   assert.equal(stB.body.products.length, 0);
-  assert.equal(stB.body.categories.length, 0);
+  assert.equal(stB.body.categories.some(c => c.id === a.catId), false, 'B has its own categories');
   assert.equal((await w.get(w.tokB, 'bills')).body.bills.length, 0);
   assert.equal((await w.get(w.tokB, 'bill', { id: billA.id })).status, 404);
   assert.equal((await w.get(w.tokB, 'moves', { productId: a.glass.id })).status, 404);
