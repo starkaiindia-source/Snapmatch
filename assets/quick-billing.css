@@ -9,12 +9,16 @@
 
 /* ---------------------------------------------------------- frame */
 .qb{ padding-bottom:12px; }
+/* Every billing page uses the whole window. On a desktop the gutter is the
+   topbar's, so the page lines up with the header above it. */
+.qb .shell{ max-width:none; }
+@media (min-width:1100px){ .qb .shell{ padding-inline:22px; } }
 /* the hidden attribute wins over every display rule below */
 .qb [hidden], .qb-sheet [hidden]{ display:none !important; }
 .qb--mobile{ padding-bottom:96px; }            /* room above the cart bar */
 .qb-head{ background:var(--surface); border-bottom:1px solid var(--line); }
 .qb-head__in{
-  max-width:var(--shell); margin-inline:auto; padding:12px var(--pad) 0;
+  padding:12px var(--pad) 0;
   display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"title add" "tabs tabs"; gap:10px 12px; align-items:center;
 }
 .qb-title{ grid-area:title; display:flex; align-items:center; gap:11px; min-width:0; }
@@ -38,7 +42,7 @@
   .qb-title p{ display:none; }
 }
 @media (min-width:1100px){
-  .qb-head__in{ max-width:none; padding:10px 22px 0; grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"title tabs add"; padding-bottom:0; }
+  .qb-head__in{ padding:10px 22px 0; grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"title tabs add"; padding-bottom:0; }
   .qb-tabs{ margin:0; padding:0; justify-content:center; }
   .qb-tab{ height:50px; }
   .qb-head__add{ margin-bottom:6px; }
@@ -120,7 +124,7 @@
 .qb-search input:focus{ border-color:var(--qb); box-shadow:0 0 0 3px color-mix(in srgb, var(--qb) 22%, transparent); }
 
 /* ---------------------------------------------------------- counter */
-.qb-pos{ max-width:var(--shell); margin-inline:auto; padding:12px var(--pad) 0; }
+.qb-pos{ padding:12px var(--pad) 0; }
 .qb-pane--cat{ display:flex; flex-direction:column; gap:10px; }
 .qb-find{ display:flex; gap:8px; }
 
@@ -288,7 +292,7 @@
   .qb--desk{ height:calc(100dvh - var(--topbar-h)); display:flex; flex-direction:column; padding:0; }
   .qb--desk .qb-head{ flex:none; }
   .qb--desk .qb-pos{
-    flex:1 1 auto; min-height:0; max-width:none; margin:0; padding:0;
+    flex:1 1 auto; min-height:0; margin:0; padding:0;
     display:grid; grid-template-columns:minmax(300px,1fr) minmax(380px,1.15fr) minmax(330px,380px);
   }
   .qb-pane{ min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:16px 18px 24px; }
@@ -414,7 +418,7 @@
 }
 
 /* ---------------------------------------------------- lists */
-.qb-list{ padding-top:14px; display:flex; flex-direction:column; gap:12px; max-width:980px; }
+.qb-list{ padding-top:14px; display:flex; flex-direction:column; gap:12px; }
 .qb-list__head{ display:flex; gap:8px; flex-wrap:wrap; }
 .qb-catsel{ width:auto; min-width:170px; height:46px; flex:0 1 auto; }
 .qb-bills, .qb-prods, .qb-cats{ display:flex; flex-direction:column; border:1px solid var(--line); border-radius:var(--r-lg); background:var(--surface); overflow:hidden; box-shadow:var(--sh-1); }
@@ -440,6 +444,13 @@
 .qb-prow__acts{ grid-area:acts; display:flex; gap:6px; flex-wrap:wrap; }
 @media (min-width:760px){
   .qb-prow{ grid-template-columns:auto minmax(0,1fr) auto auto; grid-template-areas:"img main nums acts"; }
+}
+/* On a wide screen a row stretched edge to edge puts the amount a long way from
+   the name, so the lists run in columns instead. The container clips the last
+   row's rule and the last column's divider. */
+@media (min-width:1400px){
+  .qb-bills, .qb-prods, .qb-cats{ display:grid; grid-template-columns:repeat(auto-fill,minmax(620px,1fr)); }
+  .qb-brow, .qb-curow, .qb-prow, .qb-crow{ margin-bottom:-1px; box-shadow:1px 0 0 var(--line-soft); }
 }
 
 .qb-newcat{ display:flex; gap:8px; }
@@ -554,6 +565,7 @@
 .qb-range .input{ height:38px; width:auto; min-width:0; padding:0 8px; }
 .qb-sec:has(.qb-range){ flex-wrap:wrap; }
 .qb-hrows{ display:flex; flex-direction:column; gap:8px; }
+@media (min-width:1400px){ .qb-hrows{ display:grid; grid-template-columns:repeat(auto-fill,minmax(480px,1fr)); } }
 .qb-hrow{ display:flex; flex-direction:column; gap:6px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--r-sm); }
 .qb-hrow:hover{ border-color:var(--qb); }
 .qb-hrow.is-void{ opacity:.65; }
@@ -563,7 +575,7 @@
 .qb-hrow__items em{ font-style:normal; color:var(--qb-ink); }
 
 /* ---------------------------------------------------- overview */
-.qb-over{ padding-top:14px; display:flex; flex-direction:column; gap:12px; max-width:1180px; }
+.qb-over{ padding-top:14px; display:flex; flex-direction:column; gap:12px; }
 #qbOverBody{ display:flex; flex-direction:column; gap:12px; }
 .qb-h{ font-size:17px; margin-top:6px; }
 .qb-sec--h{ justify-content:space-between; margin-top:6px; }
@@ -572,12 +584,16 @@
 @media (min-width:760px){ .qb-kpis{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
 .qb-billview .qb-kpis{ grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media (min-width:600px){ .qb-billview .qb-kpis{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (min-width:1100px){ .qb-billview .qb-kpis{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
+/* a row of tiles fills the width whether it holds seven or eight */
+@media (min-width:1700px){ .qb-over .qb-kpis{ grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); } }
 .qb-kpi{ display:flex; flex-direction:column; gap:2px; min-width:0; padding:12px 14px; text-align:left; border-radius:var(--r); background:var(--surface); border:1px solid var(--line); box-shadow:var(--sh-1); }
 .qb-kpi b{ font-family:var(--f-display); font-size:21px; font-weight:800; letter-spacing:-.02em; overflow-wrap:anywhere; }
 .qb-kpi__l{ font-size:12.5px; font-weight:700; color:var(--ink-2); }
 .qb-kpi__s{ font-size:11.5px; font-weight:600; color:var(--ink-3); }
 .qb-kpi--go{ cursor:pointer; }
 .qb-kpi--go:hover{ border-color:var(--qb); }
+@media (min-width:1100px){ .qb-moneyrows{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px 48px; } }
 .qb-trow--net{ color:var(--ink); font-weight:800; padding-top:4px; border-top:1px dashed var(--line); }
 
 :root{ --qb-chart-1:#2563EB; --qb-chart-2:#E8833A; }
@@ -585,6 +601,7 @@
 :root[data-theme="dark"]{ --qb-chart-1:#5B8DEF; --qb-chart-2:#C9782A; }
 .qb-charts{ display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
 @media (min-width:860px){ .qb-charts{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (min-width:1500px){ .qb-charts{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
 .qb-chart{ margin:0; display:flex; flex-direction:column; gap:8px; min-width:0; padding:14px; border-radius:var(--r-lg); background:var(--surface); border:1px solid var(--line); box-shadow:var(--sh-1); }
 .qb-chart figcaption{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
 .qb-chart figcaption b{ font-size:14.5px; }
@@ -617,10 +634,13 @@
 .qb-tablev th:first-child, .qb-table th:first-child{ text-align:left; }
 .qb-tablev thead th, .qb-table thead th{ font-size:11.5px; color:var(--ink-3); font-weight:800; position:sticky; top:0; background:var(--surface); }
 .qb-tables{ gap:16px; overflow-x:auto; }
+@media (min-width:1400px){ .qb-tables{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:32px; } }
 .qb-table caption{ text-align:left; font-size:13px; font-weight:800; padding-bottom:6px; color:var(--ink); }
 .qb-table tbody th{ color:var(--ink-2); }
 .qb-reports{ display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
 @media (min-width:860px){ .qb-reports{ grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; } }
+@media (min-width:1500px){ .qb-reports{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (min-width:1900px){ .qb-reports{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
 .qb-rank{ display:flex; flex-direction:column; gap:9px; }
 .qb-rank__t{ display:flex; justify-content:space-between; gap:10px; font-size:13.5px; }
 .qb-rank__t b{ font-weight:700; min-width:0; overflow-wrap:anywhere; }
@@ -636,6 +656,7 @@
 .qb-billview__no h2{ font-family:var(--f-mono); font-size:19px; letter-spacing:-.02em; }
 .qb-billview__grid{ display:grid; grid-template-columns:1fr; gap:14px; }
 @media (min-width:900px){ .qb-billview__grid{ grid-template-columns:minmax(0,1fr) 340px; align-items:start; } }
+@media (min-width:1400px){ .qb-billview__grid{ grid-template-columns:minmax(0,1fr) 420px; } }
 .qb-billview__side{ display:flex; flex-direction:column; gap:12px; }
 .qb-card2{ display:flex; flex-direction:column; gap:8px; padding:14px; border-radius:var(--r-lg); background:var(--surface); border:1px solid var(--line); box-shadow:var(--sh-1); }
 .qb-billview__pay{ font-size:14px; font-weight:600; color:var(--ink-2); }
@@ -689,7 +710,7 @@
 
 /* the preview is a scaled A4: smaller type, same structure */
 .inv--preview{ font-size:11.5px; }
-.qb-preview--full .inv--preview{ font-size:12.5px; padding:18px; }
+.qb-preview--full .inv--preview{ font-size:12.5px; padding:18px; max-width:860px; margin-inline:auto; }   /* the paper stays paper-shaped */
 
 /* print widths. A4/A5 fill the printable area; the rolls are the paper. */
 .inv--a4{ width:186mm; font-size:11pt; padding:0; box-shadow:none; border-radius:0; }
