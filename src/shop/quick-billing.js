@@ -15,7 +15,7 @@
      /billing/review            the full-screen bill preview (phones)
      /billing/bills             saved bills: search, history
      /billing/bills/<id>        one saved bill: reprint, labels, payment, void
-     /billing/products          stock: edit, adjust, archive, low stock
+     /billing/products          stock: table or grid, filters, edit, adjust
      /billing/categories        create, edit, reorder, delete-with-move
      /billing/customers         the customer list, filters, search
      /billing/customers/<id>    one customer: totals, history, payments
@@ -32,8 +32,10 @@
    ========================================================================== */
 (function (global) {
   'use strict';
-  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi;
+  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts;
   var esc = C.esc, inr = M.inr;
+
+  var PRODUCT_PAGE = 50;
 
   var DESK_MQ = global.matchMedia ? global.matchMedia('(min-width: 1100px)') : null;
   function isDesk() { return !!(DESK_MQ && DESK_MQ.matches); }
@@ -63,7 +65,8 @@
       filter: { cat: 'all', q: '' },
       cart: null, saving: false, saveError: null, lastSaved: null,
       bills: { items: [], cursor: null, q: '', from: 0, to: 0, range: '', loading: false, loaded: false, error: null, ticket: 0 },
-      prodFilter: { q: '', cat: 'all', show: 'active' },
+      prodFilter: PF.blankFilter(), prodView: 'table', prodPop: null, prodLimit: PRODUCT_PAGE, prodOpen: {},
+      prodCols: PF.readColumns(store('mpf.qb.columns')), prodFlash: null, stockEdit: null,
       billCache: {},
       compat: null,            /* the phone being matched at the counter */
       customers: { items: [], cursor: null, q: '', filter: 'all', since: 0, loading: false, loaded: false, error: null, ticket: 0 },
@@ -160,6 +163,7 @@
       case 'product-missing': return 'A product on this bill no longer exists. Remove it and add it again.';
       case 'category-exists': return 'A category with this name already exists.';
       case 'category-has-products': return 'This category still has ' + d.count + ' products. Choose where to move them.';
+      case 'stock-changed': return 'A bill changed this stock to ' + d.available + ' while you were editing. Check the number and save again.';
       case 'negative-stock': return 'Stock cannot go below zero (in stock: ' + d.available + ').';
       case 'image-type': case 'image-data': return 'That photo could not be used. Try a JPG or PNG.';
       case 'image-too-large': return 'That photo is too large. Try a smaller one.';
@@ -485,7 +489,8 @@
         icon: 'lock', brand: true,
         title: 'Sign in to use Quick Billing',
         text: 'Your products, stock and bills are saved to your own account and stay private to your shop.',
-        action: '<button class="btn qb-btn" data-qb="sign-in">' + icon('user') + 'Sign in</button>'
+        action: '<button class="btn qb-btn" data-qb="sign-in">' + icon('user') + 'Sign in</button>' +
+          '<a class="btn btn--ghost" href="/finder">Back to Mobile Parts Finder</a>'
       }) + '</div></div>';
       return;
     }
@@ -593,8 +598,7 @@
     };
     return '<div class="qb qb--' + view + (extraCls ? ' ' + extraCls : '') + '" id="qb">' +
       '<div class="qb-head"><div class="qb-head__in">' +
-      '<div class="qb-title"><span class="qb-title__ico">' + icon('receipt') + '</span>' +
-      '<div><h1>Quick Billing</h1><p>Your shop’s own stock, bills and customers</p></div></div>' +
+      '<div class="qb-title"><span class="qb-title__ico">' + icon('receipt') + '</span><h1>Quick Billing</h1></div>' +
       '<nav class="qb-tabs" aria-label="Quick Billing">' +
       tab('pos', '/billing', 'New Bill', 'receipt') +
       tab('bills', '/billing/bills', 'Bills', 'history') +
@@ -603,7 +607,7 @@
       tab('customers', '/billing/customers', 'Customers', 'user') +
       tab('overview', '/billing/overview', 'Overview', 'chart') +
       '</nav>' +
-      '<button class="btn qb-btn btn--sm qb-head__add" data-qb="add-product" aria-label="Add product">' + icon('plus') + '<span>Add product</span></button>' +
+      '<a class="qb-exit" href="/finder" aria-label="Leave Quick Billing">' + icon('close') + '<span>Exit</span></a>' +
       '</div></div>' +
       inner + '</div>';
   }
@@ -656,13 +660,7 @@
       .sort(function (a, b) { return b.soldCount - a.soldCount; }).slice(0, 8);
   }
 
-  function matches(p, q) {
-    if (!q) return true;
-    var hay = (p.name + ' ' + (p.shelf || '') + ' ' + (p.sku || '') + ' ' + catName(p.categoryId) + ' ' +
-      (p.master ? p.master.name : '') + ' ' +
-      (p.variants || []).map(function (v) { return variantLabel(v) + ' ' + (v.sku || ''); }).join(' ')).toLowerCase();
-    return q.toLowerCase().split(/\s+/).every(function (w) { return hay.indexOf(w) > -1; });
-  }
+  function matches(p, q) { return PF.matches(p, q, productCtx()); }
 
   function catalogHTML() {
     if (S.compat) return compatHTML();
@@ -1334,61 +1332,344 @@
   /* ============================================================== PRODUCTS */
   function renderProducts(page) {
     var f = S.prodFilter;
-    var low = S.products.filter(function (p) { return p.active && p.qty <= p.lowStockAt; }).length;
-    var unlinked = S.products.filter(needsLinks).length;
-    var opt = function (v, t) { return '<option value="' + esc(v) + '"' + (f.cat === v ? ' selected' : '') + '>' + esc(t) + '</option>'; };
-    var show = function (v, t, n) {
-      return '<button class="qb-chip' + (f.show === v ? ' is-on' : '') + '" data-qb="prod-show" data-id="' + v + '" aria-pressed="' + (f.show === v) + '">' + t + (n != null ? '<em>' + n + '</em>' : '') + '</button>';
+    var view = function (v, ic, text) {
+      var on = S.prodView === v;
+      return '<button type="button" class="' + (on ? 'is-on' : '') + '" data-qb="pv" data-id="' + v + '" aria-pressed="' + on + '" aria-label="' + text + ' view">' + icon(ic) + '<span>' + text + '</span></button>';
     };
     page.innerHTML = frame('products',
-      '<div class="qb-list shell">' +
-      '<div class="qb-list__head">' +
-      '<label class="qb-search">' + icon('search') + '<input id="qbProdQ" type="search" autocomplete="off" placeholder="Search name, shelf or SKU" value="' + esc(f.q) + '" data-qbi="prod-q" aria-label="Search products" /></label>' +
-      '<select class="input qb-catsel" data-qbi="prod-cat" aria-label="Category">' + opt('all', 'All categories') +
-      S.categories.map(function (c) { return opt(c.id, c.name); }).join('') + '</select>' +
+      '<div class="qb-pm">' +
+      '<div class="qb-pmbar">' +
+      '<label class="qb-pmsearch">' + icon('search') +
+      '<input id="qbProdQ" type="search" autocomplete="off" placeholder="Search product, model, SKU, shelf..." value="' + esc(f.q) + '" data-qbi="prod-q" aria-label="Search products" />' +
+      '<button type="button" class="qb-pmclear" id="qbProdClear" data-qb="pq-clear" aria-label="Clear search"' + (f.q ? '' : ' hidden') + '>' + icon('close') + '</button></label>' +
+      '<div class="qb-popw"><button type="button" class="qb-toolbtn" id="qbPopFiltersBtn" data-qb="pop" data-id="filters" aria-haspopup="dialog" aria-expanded="false">' + icon('filter') + '<span>Filters</span>' +
+      '<em class="qb-pmcount" id="qbPfCount"' + (PF.activeCount(f) ? '' : ' hidden') + '>' + PF.activeCount(f) + '</em></button>' +
+      '<div id="qbPopFilters"></div></div>' +
+      '<div class="qb-popw" id="qbColsWrap"' + (S.prodView === 'table' ? '' : ' hidden') + '><button type="button" class="qb-toolbtn" id="qbPopColsBtn" data-qb="pop" data-id="cols" aria-haspopup="dialog" aria-expanded="false" aria-label="Choose columns">' + icon('sliders') + '<span>Columns</span></button>' +
+      '<div id="qbPopCols"></div></div>' +
+      '<div class="qb-seg qb-seg--sm qb-pmview" id="qbProdView" role="group" aria-label="Product view">' + view('table', 'list', 'Table') + view('grid', 'grid', 'Grid') + '</div>' +
+      '<button type="button" class="btn qb-btn qb-pmadd" data-qb="add-product">' + icon('plus') + '<span>Add Product</span></button>' +
       '</div>' +
-      '<div class="qb-chips qb-chips--wrap">' + show('active', 'Active', activeProducts().length) + show('low', 'Low stock', low) +
-      (unlinked || f.show === 'links' ? show('links', 'Needs compatibility', unlinked) : '') +
-      show('archived', 'Archived', S.products.filter(function (p) { return !p.active; }).length) + '</div>' +
-      '<div id="qbProdList">' + productListHTML() + '</div></div>');
+      '<div class="qb-pmlist" id="qbProdList">' + productListHTML() + '</div></div>');
+    paintPops();
   }
 
+  function productCtx() {
+    return {
+      categoryName: catName,
+      brandName: function (id) { var b = SM.db && SM.db.brandById[id]; return b ? b.name : id; },
+      compatOn: function (id) { return compatOn(catById(id)); },
+      rupees: M.parseRupees
+    };
+  }
+  function shownProducts() { return PF.filterProducts(S.products, S.prodFilter, productCtx()); }
+
   function productListHTML() {
-    var f = S.prodFilter;
     if (!S.products.length) {
-      return C.state({ icon: 'box', title: 'No products yet', text: 'Add what you sell with a photo, price, shelf and quantity.',
-        action: '<button class="btn qb-btn btn--sm" data-qb="add-product">' + icon('plus') + 'Add product</button>' });
+      return C.state({ icon: 'box', title: 'No products yet', text: 'Add what you sell with a price, shelf and quantity.',
+        action: '<button class="btn qb-btn btn--sm" data-qb="add-product">' + icon('plus') + 'Add Product</button>' });
     }
-    var list = S.products.filter(function (p) {
-      if (f.show === 'archived' ? p.active : !p.active) return false;
-      if (f.show === 'low' && p.qty > p.lowStockAt) return false;
-      if (f.show === 'links' && !needsLinks(p)) return false;
-      if (f.cat !== 'all' && p.categoryId !== f.cat) return false;
-      return matches(p, f.q);
-    }).sort(function (a, b) { return a.name.localeCompare(b.name); });
-    if (!list.length) return '<div class="qb-empty">' + icon('search') + '<p>No products match these filters.</p></div>';
-    return '<div class="qb-prods">' + list.map(function (p) {
-      var st = stockState(p);
-      return '<div class="qb-prow' + (p.active ? '' : ' is-archived') + '">' + thumbHTML(p, 'qb-thumb--sm') +
-        '<div class="qb-prow__main"><b>' + esc(p.name) + '</b><span>' + esc(catName(p.categoryId)) +
-        (p.shelf ? ' · Shelf ' + esc(p.shelf) : '') + (p.sku ? ' · ' + esc(p.sku) : '') +
-        (hasVariants(p) ? ' · ' + p.variants.length + (p.variants.length === 1 ? ' variant' : ' variants') : '') + '</span>' +
-        (p.groupIds && p.groupIds.length
-          ? '<span class="qb-linked">' + p.groupIds.length + (p.groupIds.length === 1 ? ' compatibility group' : ' compatibility groups') + '</span>'
-          : needsLinks(p) ? '<span class="qb-linked qb-linked--need">Needs compatibility groups</span>' : '') +
-        '</div>' +
-        '<div class="qb-prow__nums"><b>' + (hasVariants(p) && p.variants.length > 1 ? 'From ' : '') + inr(p.pricePaise) + '</b>' +
-        '<span class="qb-stock qb-stock--' + st + '">' + (p.qty <= 0 ? 'Out of stock' : p.qty + ' in stock') + (st === 'low' ? ' · low' : '') + '</span></div>' +
-        '<div class="qb-prow__acts">' +
-        '<button class="btn btn--outline btn--sm" data-qb="edit-product" data-id="' + esc(p.id) + '">' + icon('edit') + '<span>Edit</span></button>' +
-        '<button class="btn btn--outline btn--sm" data-qb="stock" data-id="' + esc(p.id) + '">' + icon('box') + '<span>Stock</span></button>' +
-        (p.active
-          ? '<button class="btn btn--ghost btn--sm" data-qb="archive" data-id="' + esc(p.id) + '" aria-label="Archive ' + esc(p.name) + '">' + icon('inbox') + '<span>Archive</span></button>'
-          : '<button class="btn btn--ghost btn--sm" data-qb="restore" data-id="' + esc(p.id) + '">' + icon('refresh') + '<span>Restore</span></button>') +
-        '</div></div>';
+    var list = shownProducts();
+    if (!list.length) {
+      return '<div class="qb-empty">' + icon('search') + '<p>No products match this search and these filters.</p>' +
+        '<button class="btn btn--outline btn--sm" data-qb="pf-reset">Reset Filters</button></div>';
+    }
+    if (S.prodFlash) {
+      var at = list.map(function (p) { return p.id; }).indexOf(S.prodFlash);
+      if (at >= S.prodLimit) S.prodLimit = at + 1;
+    }
+    var page = list.slice(0, S.prodLimit);
+    return (S.prodView === 'grid' ? productGridHTML(page) : productTableHTML(page)) +
+      '<div class="qb-pmfoot"><span>Showing ' + page.length + ' of ' + list.length + (list.length === 1 ? ' product' : ' products') + '</span>' +
+      (page.length < list.length ? '<button class="btn btn--outline btn--sm" data-qb="prod-more">Show more</button>' : '') + '</div>';
+  }
+
+  function paintProductList() {
+    var box = document.querySelector('.qb-ptwrap,.qb-pgrid');
+    var top = box ? box.scrollTop : 0, left = box ? box.scrollLeft : 0;
+    paint('qbProdList', productListHTML());
+    box = document.querySelector('.qb-ptwrap,.qb-pgrid');
+    if (box) { box.scrollTop = top; box.scrollLeft = left; }
+    if (S.prodFlash) {
+      var row = document.querySelector('[data-pid="' + S.prodFlash + '"]');
+      if (row) { row.classList.add('is-new'); row.scrollIntoView({ block: 'center' }); }
+      else toast('Saved. The current search or filters hide this product.', 'info');
+      S.prodFlash = null;
+    }
+  }
+  function filterChanged() {
+    S.prodLimit = PRODUCT_PAGE;
+    var n = PF.activeCount(S.prodFilter);
+    var badge = el('qbPfCount');
+    if (badge) { badge.hidden = !n; badge.textContent = n; }
+    paintProductList();
+  }
+
+  /* ------------------------------------------------------- the table */
+  function dashIfEmpty(v) { return v ? esc(v) : '<span class="qb-pt__none" aria-label="None">—</span>'; }
+  function productLine(p) {
+    var master = p.master && p.master.name !== p.name ? p.master.name : '';
+    return [master, catName(p.categoryId)].filter(Boolean).join(' | ');
+  }
+  function groupsHTML(p) {
+    var n = (p.groupIds || []).length;
+    if (n) return '<span class="qb-gcount">' + n + (n === 1 ? ' Group' : ' Groups') + '</span>';
+    return compatOn(catById(p.categoryId)) ? '<span class="qb-gcount qb-gcount--need">No groups</span>' : '';
+  }
+  function levelHTML(level) {
+    if (level === 'in') return '';
+    return '<span class="qb-lvl qb-lvl--' + level + '">' + icon('alert') + (level === 'low' ? 'Low' : 'Out') + '</span>';
+  }
+  /* The number is the control. A variant's stock is changed on the variant's own
+     row, so the product's total only opens those rows. */
+  function stockCellHTML(p, v) {
+    var hasRows = hasVariants(p) && !v;
+    var qty = v ? v.qty : p.qty;
+    var level = v ? (qty <= 0 ? 'out' : qty <= p.lowStockAt ? 'low' : 'in') : PF.stockLevel(p);
+    var vid = v ? v.id : '';
+    var title = p.name + (v ? ' ' + variantLabel(v) : '');
+    var e = S.stockEdit;
+    if (e && e.id === p.id && e.vid === vid) {
+      return '<form class="qb-qtyedit" data-qbf="qty" novalidate>' +
+        '<input class="input qb-in" id="qbQtyIn" inputmode="numeric" autocomplete="off" maxlength="6" value="' + esc(e.value) + '" data-qbi="qty-edit" aria-label="New stock for ' + esc(title) + '"' + (e.busy ? ' disabled' : '') + ' />' +
+        '<button class="qb-qtyact" type="submit" aria-label="Save stock"' + (e.busy ? ' disabled' : '') + '>' + (e.busy ? '<span class="qb-spin qb-spin--dark"></span>' : icon('check')) + '</button>' +
+        '<button class="qb-qtyact" type="button" data-qb="qty-cancel" aria-label="Cancel"' + (e.busy ? ' disabled' : '') + '>' + icon('close') + '</button>' +
+        (e.error ? '<small class="qb-err" role="alert">' + esc(e.error) + '</small>' : '') + '</form>';
+    }
+    if (hasRows) {
+      var open = !!S.prodOpen[p.id];
+      return '<button type="button" class="qb-qtybtn" data-qb="pv-rows" data-id="' + esc(p.id) + '" aria-expanded="' + open + '" aria-label="' + qty + ' in stock across ' + p.variants.length + ' variants of ' + esc(p.name) + '">' + qty + icon(open ? 'chevronUp' : 'chevronDown') + '</button>' + levelHTML(level);
+    }
+    return '<button type="button" class="qb-qtybtn" data-qb="qty-edit" data-id="' + esc(p.id) + '" data-vid="' + esc(vid) + '" aria-label="Stock of ' + esc(title) + ' is ' + qty + '. Change it">' + qty + '</button>' + levelHTML(level);
+  }
+  function td(key, html, label, cls, blank) {
+    return '<td role="cell" class="c-' + key + (cls ? ' ' + cls : '') + (blank ? ' is-blank' : '') + '"' + (label ? ' data-l="' + label + '"' : '') + '>' + html + '</td>';
+  }
+  function productTableHTML(list) {
+    var on = S.prodCols;
+    var heads = [
+      ['category', 'Category'], ['sku', 'SKU'], ['compat', 'Compatibility'], ['price', 'Selling Price', 'c-num'],
+      ['cost', 'Purchase Price', 'c-num'], ['stock', 'Stock'], ['shelf', 'Shelf'], ['status', 'Status'], ['created', 'Created']
+    ].filter(function (h) { return on[h[0]]; });
+    var rowHTML = function (p) {
+      var multi = hasVariants(p) && p.variants.length > 1;
+      var cells = {
+        category: td('category', esc(catName(p.categoryId))),
+        sku: td('sku', dashIfEmpty(p.sku), 'SKU', '', !p.sku),
+        compat: td('compat', groupsHTML(p) || dashIfEmpty(''), '', '', !groupsHTML(p)),
+        price: td('price', (multi ? '<span class="qb-pt__from">From </span>' : '') + '<b>' + inr(p.pricePaise) + '</b>', '', 'c-num'),
+        cost: td('cost', p.costPaise == null ? dashIfEmpty('') : inr(p.costPaise), 'Cost', 'c-num', p.costPaise == null),
+        stock: td('stock', stockCellHTML(p), 'Stock'),
+        shelf: td('shelf', dashIfEmpty(p.shelf), 'Shelf', '', !p.shelf),
+        status: td('status', p.active ? '<span class="pill pill--ok">Active</span>' : '<span class="pill">Inactive</span>', '', '', p.active),
+        created: td('created', esc(dateOnly(p.createdAt)), 'Created')
+      };
+      var row = '<tr role="row" data-pid="' + esc(p.id) + '"' + (p.active ? '' : ' class="is-off"') + '>' +
+        td('product', '<div class="qb-pt__prod">' + (on.image ? thumbHTML(p, 'qb-thumb--xs') : '') +
+          '<div class="qb-pt__name"><b>' + esc(p.name) + '</b><span>' + esc(productLine(p)) + '</span></div></div>') +
+        heads.map(function (h) { return cells[h[0]]; }).join('') +
+        td('actions', '<button class="btn btn--outline btn--sm" data-qb="edit-product" data-id="' + esc(p.id) + '" aria-label="Edit ' + esc(p.name) + '">' + icon('edit') + '<span>Edit</span></button>' +
+          '<button class="iconbtn qb-pt__hist" data-qb="stock" data-id="' + esc(p.id) + '" title="Stock movements" aria-label="Stock movements for ' + esc(p.name) + '">' + icon('history') + '</button>') +
+        '</tr>';
+      if (!hasVariants(p) || !S.prodOpen[p.id]) return row;
+      return row + p.variants.map(function (v) {
+        var vc = {
+          category: td('category', ''),
+          sku: td('sku', dashIfEmpty(v.sku), 'SKU', '', !v.sku),
+          compat: td('compat', ''),
+          price: td('price', '<b>' + inr(v.pricePaise) + '</b>', '', 'c-num'),
+          cost: td('cost', v.costPaise == null ? dashIfEmpty('') : inr(v.costPaise), 'Cost', 'c-num', v.costPaise == null),
+          stock: td('stock', stockCellHTML(p, v), 'Stock'),
+          shelf: td('shelf', dashIfEmpty(v.shelf), 'Shelf', '', !v.shelf),
+          status: td('status', ''),
+          created: td('created', '')
+        };
+        return '<tr role="row" class="qb-pt__v">' + td('product', '<div class="qb-pt__vname">' + esc(variantLabel(v)) + '</div>') +
+          heads.map(function (h) { return vc[h[0]]; }).join('') + td('actions', '') + '</tr>';
+      }).join('');
+    };
+    return '<div class="qb-ptwrap"><table class="qb-pt" role="table" aria-label="Products"><thead role="rowgroup"><tr role="row">' +
+      '<th role="columnheader" scope="col" class="c-product">Product</th>' +
+      heads.map(function (h) { return '<th role="columnheader" scope="col" class="c-' + h[0] + (h[2] ? ' ' + h[2] : '') + '">' + h[1] + '</th>'; }).join('') +
+      '<th role="columnheader" scope="col" class="c-actions">Actions</th></tr></thead>' +
+      '<tbody role="rowgroup">' + list.map(rowHTML).join('') + '</tbody></table></div>';
+  }
+
+  /* -------------------------------------------------------- the grid */
+  function productGridHTML(list) {
+    return '<div class="qb-pgrid">' + list.map(function (p) {
+      var multi = hasVariants(p) && p.variants.length > 1;
+      var meta = [p.sku ? 'SKU ' + p.sku : '', p.shelf ? 'Shelf ' + p.shelf : ''].filter(Boolean).join(' · ');
+      return '<article class="qb-pc' + (p.active ? '' : ' is-off') + '" data-pid="' + esc(p.id) + '">' + thumbHTML(p, 'qb-thumb--grid') +
+        '<b class="qb-pc__name">' + esc(p.name) + '</b>' +
+        '<span class="qb-pc__meta">' + esc(catName(p.categoryId)) + (p.active ? '' : ' · Inactive') + '</span>' +
+        (meta ? '<span class="qb-pc__meta">' + esc(meta) + '</span>' : '') +
+        (groupsHTML(p) ? '<span class="qb-pc__meta">' + groupsHTML(p) + '</span>' : '') +
+        '<div class="qb-pc__row"><b class="qb-pc__price">' + (multi ? 'From ' : '') + inr(p.pricePaise) + '</b>' +
+        '<span class="qb-pc__stock">' + (hasVariants(p)
+          ? '<span class="qb-pc__total">' + p.qty + ' in stock</span>' + levelHTML(PF.stockLevel(p))
+          : stockCellHTML(p)) + '</span></div>' +
+        '<div class="qb-pc__acts"><button class="btn btn--outline btn--sm" data-qb="edit-product" data-id="' + esc(p.id) + '" aria-label="Edit ' + esc(p.name) + '">' + icon('edit') + '<span>Edit</span></button>' +
+        '<button class="iconbtn" data-qb="stock" data-id="' + esc(p.id) + '" title="Stock movements" aria-label="Stock movements for ' + esc(p.name) + '">' + icon('history') + '</button></div>' +
+        '</article>';
     }).join('') + '</div>';
   }
-  function paintProductList() { paint('qbProdList', productListHTML()); }
+
+  /* --------------------------------------------- changing stock in the row
+
+     Stock goes through the same adjustment as the stock sheet, so it lands in the
+     movement log as an adjustment and never as a sale. The figure the shop was
+     looking at travels with it: if a bill has moved the stock since, the server
+     refuses rather than overwrite that sale. */
+  function stockCurrent(e) {
+    var p = productById(e.id);
+    if (!p) return null;
+    if (!e.vid) return p.qty;
+    var v = variantOf(p, e.vid);
+    return v ? v.qty : null;
+  }
+  function focusQty() {
+    var box = el('qbQtyIn');
+    if (box) { box.focus(); box.select(); }
+  }
+  function startStockEdit(id, vid) {
+    var e = S.stockEdit;
+    if (e && e.busy) return;
+    if (e && !(e.id === id && e.vid === vid) && !confirmDropStock()) { focusQty(); return; }
+    var p = productById(id);
+    var v = vid ? variantOf(p, vid) : null;
+    S.stockEdit = { id: id, vid: vid, value: String(v ? v.qty : p.qty), adjustId: API.newId('a_'), sent: null, busy: false, error: '' };
+    paintProductList();
+    focusQty();
+  }
+  function stockEditDirty() {
+    var e = S.stockEdit;
+    return !!e && e.value.trim() !== String(stockCurrent(e));
+  }
+  function confirmDropStock() {
+    return !stockEditDirty() || global.confirm('Discard the stock change you have not saved?');
+  }
+  function endStockEdit() {
+    var e = S.stockEdit;
+    S.stockEdit = null;
+    paintProductList();
+    var again = e && document.querySelector('[data-qb="qty-edit"][data-id="' + e.id + '"][data-vid="' + e.vid + '"]');
+    if (again) again.focus();
+  }
+  function saveStockEdit() {
+    var e = S.stockEdit;
+    if (!e || e.busy) return;
+    var text = e.value.trim();
+    var cur = stockCurrent(e);
+    if (!/^\d{1,6}$/.test(text)) {
+      e.error = 'Enter a whole number, 0 or more';
+      paintProductList();
+      focusQty();
+      return;
+    }
+    var next = Number(text);
+    if (next === cur) { endStockEdit(); return; }
+    if (e.sent !== text) { e.adjustId = API.newId('a_'); e.sent = text; }
+    e.busy = true;
+    e.error = '';
+    paintProductList();
+    var uid = S.uid;
+    API.product({
+      action: 'adjust', productId: e.id, adjustId: e.adjustId, delta: next - cur, expectedQty: cur,
+      variantId: e.vid || undefined, note: 'Stock count'
+    }).then(function (r) {
+      if (S.uid !== uid) return;
+      upsertProduct(r.product);
+      var saved = e.vid ? variantOf(r.product, e.vid).qty : r.product.qty;
+      toast('Stock is now ' + saved, 'checkCircle');
+      if (S.stockEdit === e) endStockEdit(); else softAfterProductChange();
+    }, function (err) {
+      if (S.uid !== uid) return;
+      e.busy = false;
+      e.error = say(err);
+      if (err.code === 'stock-changed') {
+        /* someone else's sale is the true figure now, so that is what is shown */
+        var p = productById(e.id);
+        var v = e.vid ? variantOf(p, e.vid) : null;
+        if (v) { p.qty += err.data.available - v.qty; v.qty = err.data.available; }
+        else p.qty = err.data.available;
+        e.value = String(err.data.available);
+      }
+      paintProductList();
+      focusQty();
+    });
+  }
+
+  /* ------------------------------------------------- filters and columns */
+  function selectHTML(key, label, value, options) {
+    return '<label class="qb-pf"><span>' + label + '</span><select class="input qb-in" data-qbi="pf" data-k="' + key + '">' +
+      options.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === value ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') +
+      '</select></label>';
+  }
+  function filtersHTML() {
+    var f = S.prodFilter;
+    var opts = PF.options(S.products);
+    var ctxp = productCtx();
+    return '<div class="qb-pop" role="dialog" aria-label="Filter products">' +
+      '<div class="qb-pop__head"><b>Filters</b><button type="button" class="qb-link" data-qb="pf-clear">Clear All</button>' +
+      '<button type="button" class="qb-link" data-qb="pf-reset">Reset Filters</button></div>' +
+      '<div class="qb-pop__grid">' +
+      selectHTML('status', 'Status', f.status, [['all', 'All Statuses'], ['active', 'Active'], ['inactive', 'Inactive']]) +
+      selectHTML('stock', 'Stock', f.stock, [['all', 'All Stock Statuses'], ['in', 'In Stock'], ['low', 'Low Stock'], ['out', 'Out of Stock']]) +
+      selectHTML('cat', 'Category', f.cat, [['all', 'All Categories']].concat(S.categories.map(function (c) { return [c.id, c.name]; }))) +
+      selectHTML('compat', 'Compatibility', f.compat, [['all', 'All Products'], ['has', 'Has Compatibility Groups'], ['none', 'No Compatibility Groups']]) +
+      (opts.brands.length ? selectHTML('brand', 'Brand', f.brand, [['all', 'All Brands']].concat(opts.brands.map(function (b) { return [b, ctxp.brandName(b)]; }))) : '') +
+      (opts.shelves.length ? selectHTML('shelf', 'Shelf', f.shelf, [['all', 'All Shelves']].concat(opts.shelves.map(function (s) { return [s, s]; }))) : '') +
+      '<label class="qb-pf"><span>Price from ₹</span><input class="input qb-in" inputmode="decimal" autocomplete="off" value="' + esc(f.min) + '" data-qbi="pf-price" data-k="min" /></label>' +
+      '<label class="qb-pf"><span>Price to ₹</span><input class="input qb-in" inputmode="decimal" autocomplete="off" value="' + esc(f.max) + '" data-qbi="pf-price" data-k="max" /></label>' +
+      '</div></div>';
+  }
+  function columnsHTML() {
+    return '<div class="qb-pop qb-pop--cols" role="dialog" aria-label="Choose columns">' +
+      '<div class="qb-pop__head"><b>Columns</b><button type="button" class="qb-link" data-qb="pc-reset">Reset</button></div>' +
+      '<label class="qb-check is-fixed"><input type="checkbox" checked disabled />Product name</label>' +
+      PF.COLUMNS.map(function (c) {
+        return '<label class="qb-check"><input type="checkbox" data-qbi="pc" data-k="' + c.key + '"' + (S.prodCols[c.key] ? ' checked' : '') + ' />' + c.label + '</label>';
+      }).join('') + '</div>';
+  }
+  function paintPops() {
+    var open = S.prodPop;
+    paint('qbPopFilters', open === 'filters' ? filtersHTML() : '');
+    paint('qbPopCols', open === 'cols' ? columnsHTML() : '');
+    [['qbPopFiltersBtn', 'filters'], ['qbPopColsBtn', 'cols']].forEach(function (b) {
+      var btn = el(b[0]);
+      if (btn) btn.setAttribute('aria-expanded', String(open === b[1]));
+    });
+  }
+  function openPop(which) {
+    S.prodPop = S.prodPop === which ? null : which;
+    paintPops();
+    var first = S.prodPop && document.querySelector('.qb-pop select, .qb-pop input:not([disabled])');
+    if (first) first.focus();
+  }
+  function closePop() {
+    var which = S.prodPop;
+    if (!which) return;
+    S.prodPop = null;
+    paintPops();
+    var btn = el(which === 'filters' ? 'qbPopFiltersBtn' : 'qbPopColsBtn');
+    if (btn) btn.focus();
+  }
+  function setProductView(v) {
+    if (S.prodView === v) return;
+    if (!confirmDropStock()) { focusQty(); return; }
+    S.stockEdit = null;
+    S.prodView = v;
+    Array.prototype.forEach.call(document.querySelectorAll('#qbProdView button'), function (b) {
+      var on = b.getAttribute('data-id') === v;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+    var cols = el('qbColsWrap');
+    if (cols) cols.hidden = v !== 'table';
+    if (S.prodPop === 'cols') { S.prodPop = null; paintPops(); }
+    paintProductList();
+  }
 
   /* ============================================================ CATEGORIES */
   function renderCategories(page) {
@@ -1940,6 +2221,11 @@
     cu.filter = filter; cu.since = since || 0; cu.range = label || ''; cu.q = ''; cu.loaded = false;
     go('/billing/customers');
   }
+  function showProducts(filter) {
+    S.prodFilter = Object.assign(PF.blankFilter(), filter);
+    S.prodLimit = PRODUCT_PAGE;
+    go('/billing/products');
+  }
   function drill(id) {
     var d = S.overview.data;
     var today = (d && d.todayKey) || istDay();
@@ -1952,8 +2238,8 @@
       case 'cust-repeat': showCustomers('repeat'); break;
       case 'cust-new-today': showCustomers('new', dayStart(today), 'New customers today'); break;
       case 'cust-new-month': showCustomers('new', dayStart(month), 'New customers this month'); break;
-      case 'stock-low': S.prodFilter = { q: '', cat: 'all', show: 'low' }; go('/billing/products'); break;
-      case 'stock-out': S.prodFilter = { q: '', cat: 'all', show: 'low' }; go('/billing/products'); break;
+      case 'stock-low': showProducts({ stock: 'low' }); break;
+      case 'stock-out': showProducts({ stock: 'out' }); break;
     }
   }
 
@@ -2090,7 +2376,7 @@
       fieldHTML('qbFDesc', 'description', 'Description', false, '<textarea class="input qb-in qb-notes" id="qbFDesc" name="description" rows="2" maxlength="300" placeholder="Optional">' + esc(v.description) + '</textarea>') +
       '<div class="qb-form__row">' +
       fieldHTML('qbFLow', 'low', 'Low-stock alert at', false, '<input class="input qb-in" id="qbFLow" name="low" inputmode="numeric" autocomplete="off" value="' + esc(v.low) + '" />') +
-      fieldHTML('qbFStatus', 'status', 'Status', false, '<select class="input qb-in" id="qbFStatus" name="status"><option value="active"' + (v.active ? ' selected' : '') + '>Active</option><option value="inactive"' + (v.active ? '' : ' selected') + '>Archived</option></select>') +
+      fieldHTML('qbFStatus', 'status', 'Status', false, '<select class="input qb-in" id="qbFStatus" name="status"><option value="active"' + (v.active ? ' selected' : '') + '>Active</option><option value="inactive"' + (v.active ? '' : ' selected') + '>Inactive</option></select>') +
       '</div>' +
       '<button type="submit" hidden></button>' +
       '</form>' +
@@ -2481,6 +2767,7 @@
       } else {
         toast(sh.mode === 'edit' ? 'Product updated' : 'Added “' + r.product.name + '”', 'checkCircle');
         closeSheet();
+        if (sh.mode !== 'edit') S.prodFlash = r.product.id;
       }
       softAfterProductChange();
     }, function (err) {
@@ -2503,7 +2790,8 @@
       if (!el('qbCatalog') || !document.querySelector('.qb-quickadd')) { rerender(); return; }
       paintCatalog();
       if (el('qbLines')) paint('qbLines', linesHTML(draft()));
-    } else if (v === 'products' || v === 'categories') rerender();
+    } else if (v === 'products') paintProductList();
+    else if (v === 'categories') rerender();
     else if (v === 'overview') paint('qbOverBody', overviewBodyHTML());
   }
 
@@ -2924,6 +3212,7 @@
 
   /* ================================================================ EVENTS */
   function onClick(e) {
+    if (S && S.prodPop && e.target.closest && !e.target.closest('.qb-pop,[data-qb="pop"]')) closePop();
     var t = e.target.closest && e.target.closest('[data-qb]');
     if (!t || !onBilling()) return;
     if (t.disabled || t.getAttribute('aria-disabled') === 'true') {
@@ -3104,18 +3393,37 @@
       }
       case 'link-preview': togglePreview(id); break;
       case 'stock': openStockSheet(id); break;
-      case 'archive': case 'restore': {
-        var ap = productById(id);
-        if (!ap) break;
-        if (a === 'archive' && !global.confirm('Archive “' + ap.name + '”? It disappears from the counter but stays on old bills, and you can restore it.')) break;
-        API.product({ action: 'archive', productId: id, archived: a === 'archive' }).then(function (r) {
-          upsertProduct(r.product);
-          toast(a === 'archive' ? 'Archived' : 'Restored', 'checkCircle');
-          softAfterProductChange();
-        }, function (er) { toast(say(er), 'alert'); });
+      case 'pop': openPop(id); break;
+      case 'pv': setProductView(id); break;
+      case 'pv-rows': S.prodOpen[id] = !S.prodOpen[id]; paintProductList(); break;
+      case 'prod-more': S.prodLimit += PRODUCT_PAGE; paintProductList(); break;
+      case 'pq-clear': {
+        S.prodFilter.q = '';
+        var pq = el('qbProdQ');
+        if (pq) { pq.value = ''; pq.focus(); }
+        t.hidden = true;
+        filterChanged();
         break;
       }
-      case 'prod-show': S.prodFilter.show = id; rerender(); break;
+      case 'pf-clear': case 'pf-reset': {
+        var kept = S.prodFilter.q;
+        S.prodFilter = a === 'pf-clear' ? PF.clearedFilter() : PF.blankFilter();
+        if (a === 'pf-clear') S.prodFilter.q = kept;
+        var sq = el('qbProdQ'), sc = el('qbProdClear');
+        if (sq) sq.value = S.prodFilter.q;
+        if (sc) sc.hidden = !S.prodFilter.q;
+        if (S.prodPop) paintPops();
+        filterChanged();
+        break;
+      }
+      case 'pc-reset':
+        S.prodCols = PF.defaultColumns();
+        store('mpf.qb.columns', null);
+        paintPops();
+        paintProductList();
+        break;
+      case 'qty-edit': startStockEdit(id, t.getAttribute('data-vid') || ''); break;
+      case 'qty-cancel': endStockEdit(); break;
       case 'bills-more': loadBills(false); break;
       case 'bills-retry': loadBills(true); break;
       case 'record-payment': openPayment(id); break;
@@ -3126,12 +3434,12 @@
       case 'cat-suggest': catRequest({ action: 'suggested', names: [id] }, 'Category added'); break;
       case 'cat-edit': openCatForm(id); break;
       case 'cat-form-go': submitCatForm(); break;
-      case 'cat-links': S.prodFilter = { q: '', cat: id, show: 'links' }; go('/billing/products'); break;
+      case 'cat-links': showProducts({ cat: id, compat: 'none' }); break;
       case 'cat-up': moveCat(id, -1); break;
       case 'cat-down': moveCat(id, 1); break;
       case 'cat-delete': openCatDelete(id); break;
       case 'cat-delete-go': submitCatDelete(); break;
-      case 'cat-view': S.prodFilter.cat = id; S.prodFilter.show = 'active'; go('/billing/products'); break;
+      case 'cat-view': showProducts({ cat: id }); break;
       case 'bills-all': S.bills.from = 0; S.bills.to = 0; S.bills.range = ''; S.bills.loaded = false; rerender(); break;
       case 'cust-new': openCustomerForm(); break;
       case 'cust-edit': openCustomerForm(id); break;
@@ -3217,7 +3525,22 @@
         clearTimeout(billSearchTimer);
         billSearchTimer = setTimeout(function () { loadBills(true); }, 350);
         break;
-      case 'prod-q': S.prodFilter.q = t.value.trim(); paintProductList(); break;
+      case 'prod-q': {
+        S.prodFilter.q = t.value.trim();
+        var pc = el('qbProdClear');
+        if (pc) pc.hidden = !t.value;
+        clearTimeout(billSearchTimer);
+        billSearchTimer = setTimeout(filterChanged, 150);
+        break;
+      }
+      case 'pf-price':
+        S.prodFilter[t.getAttribute('data-k')] = t.value;
+        clearTimeout(billSearchTimer);
+        billSearchTimer = setTimeout(filterChanged, 250);
+        break;
+      case 'qty-edit':
+        if (S.stockEdit) { S.stockEdit.value = t.value; S.stockEdit.error = ''; }
+        break;
       case 'cust-q':
         S.customers.q = t.value.trim();
         clearTimeout(billSearchTimer);
@@ -3303,7 +3626,12 @@
         break;
       }
       case 'photo': onPhotoPicked(t); break;
-      case 'prod-cat': S.prodFilter.cat = t.value; paintProductList(); break;
+      case 'pf': S.prodFilter[t.getAttribute('data-k')] = t.value; filterChanged(); break;
+      case 'pc':
+        S.prodCols[t.getAttribute('data-k')] = t.checked;
+        store('mpf.qb.columns', JSON.stringify(S.prodCols));
+        paintProductList();
+        break;
     }
   }
 
@@ -3317,6 +3645,7 @@
     else if (k === 'void') submitVoid();
     else if (k === 'payment') submitPayment();
     else if (k === 'customer') submitCustomer();
+    else if (k === 'qty') saveStockEdit();
     else if (k === 'cat-form') submitCatForm();
     else if (k === 'cat-new') {
       var n = el('qbNewCat');
@@ -3329,6 +3658,8 @@
   function onKey(e) {
     if (!onBilling()) return;
     if (e.key === 'Escape' && S.sheet) { closeSheet(); return; }
+    if (e.key === 'Escape' && S.prodPop) { closePop(); return; }
+    if (e.key === 'Escape' && S.stockEdit && !S.stockEdit.busy) { endStockEdit(); return; }
     /* Enter in the custom-item row adds it, rather than doing nothing */
     if (e.key === 'Enter' && e.target && /^qbX(Name|Price|Qty)$/.test(e.target.id || '')) {
       e.preventDefault();

@@ -497,6 +497,11 @@ ul{ margin:0; padding:0; list-style:none; }
 @media (max-width:359px){ .tab{ font-size:9.5px; letter-spacing:0; } }
 .main{ flex:1 1 auto; padding-bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 20px); }
 @media (min-width:940px){ .main{ padding-bottom:48px; } }
+/* Quick Billing draws its own header, so the site's steps aside. This lives here
+   and not in quick-billing.css because that file loads after the route opens. */
+body.qb-workspace{ --topbar-h:0px; --tabbar-h:0px; }
+body.qb-workspace .topbar, body.qb-workspace .tabbar{ display:none; }
+body.qb-workspace .main{ padding-bottom:0; }
 
 /* ============================================================ BENCH HERO */
 .bench{
