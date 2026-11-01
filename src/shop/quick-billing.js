@@ -12,8 +12,8 @@
 
    ROUTES (all under /billing, rendered into the app's #page)
      /billing                   a new bill: the customer and what they are buying
-     /billing/review            what it comes to and how it was paid
-     /billing/invoice/<id>      the saved invoice: share, download, print
+     /billing/review            on a phone: what it comes to and how it was paid
+     /billing/invoice/<id>      on a phone: the saved invoice, to share or print
      /billing/bills             saved bills by date: search, filters, history
      /billing/bills/<id>        one saved bill: reprint, labels, payment, void
      /billing/products          stock: table or grid, filters, edit, adjust
@@ -44,8 +44,10 @@
 
   var METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'], ['other', 'Other']];
   var STATUSES = [['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['paid', 'Paid']];
-  /* UPI has a QR code rather than its logo: the project holds no licensed copy of the mark */
-  var METHOD_ICONS = { cash: 'banknote', upi: 'qrCode', card: 'creditCard', other: 'wallet' };
+  /* upi.png is NPCI's own artwork with its blank margins cut off. The other three
+     are this project's drawings. Card names no network: nothing here records which
+     networks a shop's card machine takes. */
+  var METHOD_LOGOS = { cash: '/assets/pay/cash.svg', upi: '/assets/pay/upi.png', card: '/assets/pay/card.svg', other: '/assets/pay/wallet.svg' };
   var BILL_STATUSES = [['all', 'All Statuses'], ['paid', 'Paid'], ['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['void', 'Void']];
   var SIZES = [['a4', 'A4'], ['a5', 'A5'], ['80', '80 mm'], ['58', '58 mm']];
   var VOID_REASONS = ['Customer returned the items', 'Wrong item or price', 'Duplicate bill', 'Other'];
@@ -71,7 +73,7 @@
       offers: [], offerSettings: {}, offerFilter: { q: '', status: 'all' }, offerKey: '',
       sales: { preset: 'month', from: '', to: '', data: null, loading: false, error: null, ticket: 0 },
       filter: { cat: 'all', q: '' }, catLimit: 60, pickQty: {}, lastAdd: null, custPicked: null,
-      cart: null, saving: false, saveError: null, priceEdit: {},
+      cart: null, saving: false, saveError: null, lastSaved: null, priceEdit: {},
       bills: { items: [], cursor: null, q: '', filter: blankBillFilter(), loading: false, loaded: false, error: null, ticket: 0 },
       prodFilter: PF.blankFilter(), prodView: 'table', prodPop: null, prodLimit: PRODUCT_PAGE, prodOpen: {},
       prodCols: PF.readColumns(store('mpf.qb.columns')), prodFlash: null, stockEdit: null,
@@ -88,8 +90,14 @@
   }
   reset(null);
 
-  var ctx = null;          /* app.js: { go, toast, signIn, routeName, page } */
+  var ctx = null;          /* app.js: { go, replace, toast, signIn, routeName, page } */
   var params = [];
+
+  /* The bill's two shapes. From this width a bill is one page in two columns. Below
+     it the columns stack, so each stage gets a page of its own. The choice is made
+     when drawing, not in CSS, so neither shape carries the other's controls. */
+  var WIDE = global.matchMedia('(min-width:1100px)');
+  function wide() { return WIDE.matches; }
 
   function toast(msg, ic) { if (ctx) ctx.toast(msg, ic); }
   function go(url) { if (ctx) ctx.go(url); }
@@ -589,7 +597,8 @@
   function renderView(page) {
     var v = viewName();
     if (v === 'pos') return renderPos(page);
-    if (v === 'review') return renderReview(page);
+    S.lastSaved = null;
+    if (v === 'review') return wide() ? ctx.replace('/billing') : renderReview(page);
     if (v === 'invoice') return renderInvoice(page, params[1]);
     if (v === 'bills') return renderBills(page);
     if (v === 'bill') return renderBillView(page, params[1]);
@@ -678,12 +687,22 @@
 
   /* ============================================================== NEW BILL
 
-     Three pages, each at its own address: who the bill is for and what they are
-     buying; what it comes to and how it was paid; the saved invoice. The draft
-     lives in S.cart between the first two, so going back and forward loses
-     nothing. It stays a draft until the server has saved it: the third page is
-     drawn from what the server sent back, never from what was on screen. */
+     On a desktop, one page: the customer and products on the left, the cart,
+     summary and payment on the right, and the saved invoice takes the form's place
+     without the address changing.
+
+     On a phone or tablet, three pages at their own addresses: who the bill is for
+     and what they are buying; what it comes to and how it was paid; the saved
+     invoice. The draft lives in S.cart between the first two, so going back and
+     forward loses nothing.
+
+     Either way it stays a draft until the server has saved it: the invoice is drawn
+     from what the server sent back, never from what was on screen. */
   function renderPos(page) {
+    if (wide() && S.lastSaved) {
+      page.innerHTML = frame('pos', invoicePageHTML(S.lastSaved));
+      return;
+    }
     page.innerHTML = frame('pos',
       '<div class="qb-nb">' +
       '<div class="qb-nb__main">' +
@@ -692,7 +711,7 @@
       '</div>' +
       '<div class="qb-nb__side" aria-label="Bill">' + billSideHTML() + '</div>' +
       '</div>' +
-      '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div>', 'qb--nb');
+      (wide() ? '' : '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div>'), 'qb--nb');
   }
 
   function catalogPaneHTML() {
@@ -1008,7 +1027,17 @@
 
   /* ----------------------------------------------- cart, summary, payment */
   function billSideHTML() {
-    return '<section class="qb-panel" id="qbBill" aria-label="Cart">' + billEditorHTML(draft()) + '</section>';
+    var d = draft();
+    return '<section class="qb-panel" id="qbBill" aria-label="Cart">' + billEditorHTML(d) + '</section>' +
+      (wide() ? billDetailsHTML(d) : '');
+  }
+
+  /* What the bill comes to and how it was paid: under the cart on a desktop, the
+     whole of the second page on a phone. */
+  function billDetailsHTML(d) {
+    return '<section class="qb-panel" id="qbSummary" aria-label="Bill summary">' + summaryHTML(d) + '</section>' +
+      '<section class="qb-panel qb-pay" id="qbPay" aria-label="Payment details">' + payHTML(d) + '</section>' +
+      '<div class="qb-acts" id="qbActs">' + actsHTML() + '</div>';
   }
 
   function billEditorHTML(d) {
@@ -1095,7 +1124,8 @@
 
   function summaryHTML(d) {
     var c = S.cart;
-    return '<div class="qb-sec"><h2>Bill summary</h2></div>' +
+    return '<div class="qb-sec"><h2>Bill Summary</h2>' +
+      (wide() ? '' : '<button class="qb-link qb-sec__end" data-qb="edit-bill">' + icon('edit') + 'Edit Bill</button>') + '</div>' +
       '<div class="qb-adj">' +
       '<div class="qb-field"><span class="qb-lab">Additional discount</span><div class="qb-inrow">' +
       '<div class="qb-seg qb-seg--sm" role="group" aria-label="Discount type">' +
@@ -1133,17 +1163,18 @@
       return '<button type="button" class="' + (cur === x[0] ? 'is-on' : '') + '" data-qb="' + act + '" data-id="' + x[0] + '" aria-pressed="' + (cur === x[0]) + '">' + inner + '</button>';
     };
     return '<div class="qb-sec"><h2>Payment</h2></div>' +
-      '<div class="qb-paym" role="group" aria-label="Payment method">' + METHODS.map(function (m) {
-        return option(m, c.payment.method, 'pay-method', icon(METHOD_ICONS[m[0]]) + '<span>' + m[1] + '</span>');
+      '<div class="' + (wide() ? 'qb-seg' : 'qb-paym') + '" role="group" aria-label="Payment method">' + METHODS.map(function (m) {
+        return option(m, c.payment.method, 'pay-method', wide() ? m[1]
+          : '<img src="' + METHOD_LOGOS[m[0]] + '" alt="" decoding="async" /><span>' + m[1] + '</span>');
       }).join('') + '</div>' +
       '<div class="qb-seg" role="group" aria-label="Payment status" id="qbStatus">' + STATUSES.map(function (s) {
         return option(s, c.payment.status, 'pay-status', s[1]);
       }).join('') + '</div>' +
-      '<div class="qb-field"><label class="qb-lab" for="qbRecv">Amount received</label>' +
+      '<div class="qb-recv"><div class="qb-field"><label class="qb-lab" for="qbRecv">Amount received</label>' +
       '<label class="qb-prefix"><span>₹</span><input class="input qb-in" id="qbRecv" inputmode="decimal" autocomplete="off" ' +
       'placeholder="' + (c.payment.status === 'paid' ? M.toInput(d.totals.totalPaise) + ' (full)' : '0') + '" value="' + esc(c.payment.received) + '" data-qbi="recv" /></label>' +
       '<small class="qb-err" data-err="recv">' + esc(d.errors.recv || '') + '</small></div>' +
-      '<div class="qb-bal" id="qbBal">' + balanceHTML(d) + '</div>';
+      '<div class="qb-bal" id="qbBal">' + balanceHTML(d) + '</div></div>';
   }
 
   function balanceHTML(d) {
@@ -1153,10 +1184,14 @@
   }
 
   function actsHTML() {
-    return S.saveError ? '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(S.saveError) + '</span></div>' : '';
+    var alert = S.saveError ? '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(S.saveError) + '</span></div>' : '';
+    if (!wide()) return alert;
+    return alert + '<button class="btn qb-btn btn--lg btn--block" id="qbConfirm" data-qb="confirm-bill"' + (S.cart.lines.length && !S.saving ? '' : ' disabled') + '>' +
+      (S.saving ? '<span class="qb-spin"></span>Saving the bill…' : icon('check') + 'Confirm Bill') + '</button>' +
+      (S.cart.lines.length ? '' : '<p class="qb-hint">Add a product or a custom item to start a bill.</p>');
   }
 
-  /* The bill's one action, at every width: Review Bill, then Confirm Bill. */
+  /* The bill's one action on a phone: Review Bill, then Confirm Bill. */
   function cartBarHTML() {
     var n = S.cart.lines.reduce(function (k, l) { return k + l.qty; }, 0);
     var d = draft();
@@ -1165,8 +1200,10 @@
       ? '<button class="qb-cartbar__go" id="qbConfirm" data-qb="confirm-bill"' + (S.saving ? ' disabled' : '') + '>' +
         (S.saving ? '<span class="qb-spin qb-spin--bar"></span>Saving…' : icon('check') + 'Confirm Bill') + '</button>'
       : '<button class="qb-cartbar__go" data-qb="review"' + (ready ? '' : ' disabled') + '>Review Bill' + icon('chevronRight') + '</button>';
-    return '<div class="qb-cartbar__in">' +
-      '<button class="qb-cartbar__t" data-qb="to-cart" aria-label="Go to the cart"><b>' + inr(d.totals.totalPaise) + '</b><em>' + n + (n === 1 ? ' item' : ' items') + '</em></button>' +
+    var sum = '<b>' + inr(d.totals.totalPaise) + '</b><em>' + n + (n === 1 ? ' item' : ' items') + '</em>';
+    return '<div class="qb-cartbar__in">' + (viewName() === 'review'
+      ? '<span class="qb-cartbar__t">' + sum + '</span>'
+      : '<button class="qb-cartbar__t" data-qb="to-cart" aria-label="Go to the cart">' + sum + '</button>') +
       act + '</div>';
   }
   function paintCartBar() { paint('qbCartBar', cartBarHTML()); }
@@ -1213,7 +1250,7 @@
       var box = document.querySelector('[data-price="' + l.key + '"]');
       if (box) box.hidden = priceHidden(l, r);
     });
-    if (el('qbRvItems')) paint('qbRvItems', reviewItemsHTML(d));
+
     paint('qbTotals', totalsHTML(d));
     paint('qbBal', balanceHTML(d));
     paint('qbActs', actsHTML(d));
@@ -1236,9 +1273,9 @@
 
   /* ================================================================ REVIEW
 
-     The second page: the bill as it stands, the additional discount, the tax and
-     the payment. Nothing is saved by being here, and Edit Items goes back to a
-     first page holding exactly what it held. */
+     The second page on a phone: what the bill comes to, the additional discount,
+     the tax and the payment, on one screen. Nothing is saved by being here, and
+     Edit Bill goes back to a first page holding exactly what it held. */
   function showErrors(d, msg) {
     toast(msg, 'alert');
     paintDerived(d);
@@ -1261,47 +1298,16 @@
   function renderReview(page) {
     /* an open tab or the Back button, after this bill was saved or cleared */
     if (!S.cart.lines.length) { ctx.replace('/billing'); return; }
-    var d = draft();
     page.innerHTML = frame('review',
-      '<div class="qb-nb">' +
-      '<div class="qb-nb__main">' +
-      '<h2 class="qb-rvtitle">Bill Review &amp; Payment</h2>' +
-      '<section class="qb-panel" id="qbRvItems" aria-label="Selected products">' + reviewItemsHTML(d) + '</section>' +
-      '</div>' +
-      '<div class="qb-nb__side">' +
-      '<section class="qb-panel" id="qbSummary" aria-label="Bill summary">' + summaryHTML(d) + '</section>' +
-      '<section class="qb-panel qb-pay" id="qbPay" aria-label="Payment details">' + payHTML(d) + '</section>' +
-      '<div class="qb-acts" id="qbActs">' + actsHTML() + '</div>' +
-      '</div></div>' +
-      '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div>', 'qb--nb');
-  }
-
-  function reviewItemsHTML(d) {
-    var c = S.cart, who = c.customer;
-    var n = c.lines.reduce(function (k, l) { return k + l.qty; }, 0);
-    var cell = function (k, v, cls) { return '<div' + (cls ? ' class="' + cls + '"' : '') + '><dt>' + k + '</dt><dd>' + v + '</dd></div>'; };
-    return '<div class="qb-sec"><h2>Selected products</h2><span class="qb-count">' + n + (n === 1 ? ' item' : ' items') + '</span>' +
-      '<button class="qb-link qb-sec__end" data-qb="edit-bill">' + icon('edit') + 'Edit Items</button></div>' +
-      '<div class="qb-rvwho"><span class="qb-lab">Customer</span><b>' + esc(who.name || who.mobile || 'Walk-in customer') + '</b>' +
-      (who.name && who.mobile ? '<span>' + esc(who.mobile) + '</span>' : '') + '</div>' +
-      '<ul class="qb-rvlines">' + c.lines.map(function (l, i) {
-        var r = d.offers.lines[i];
-        var stock = lineStock(l);
-        return '<li><b class="qb-rvline__name">' + esc(l.name) + (l.variantLabel ? ' (' + esc(l.variantLabel) + ')' : '') + '</b>' +
-          (l.modelName ? '<span class="qb-fits">Requested model: ' + esc(l.modelName) + '</span>' : '') +
-          r.applied.map(function (a) { return '<span class="qb-rvline__offer">' + icon('tag') + esc(a.name) + ' · ' + esc(OF.valueText(a, inr)) + '</span>'; }).join('') +
-          (stock && stock.used > stock.qty ? '<em class="qb-warn">Only ' + stock.qty + ' in stock</em>' : '') +
-          '<dl class="qb-rvnums">' + cell('Quantity', String(l.qty)) + cell('Original Price', inr(l.unitPaise || 0)) +
-          cell(l.qty > 1 ? 'Discount Each' : 'Discount', r.offerPaise ? '−' + inr(Math.round(r.offerPaise / l.qty)) : inr(0)) +
-          cell('Final Unit Price', inr(r.finalUnitPaise)) + cell('Line Total', inr(r.linePaise), 'qb-rvnums__sum') + '</dl></li>';
-      }).join('') + '</ul>';
+      '<div class="qb-rv">' + billDetailsHTML(draft()) + '</div>' +
+      '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div>');
   }
 
   /* ================================================================ SAVING */
   function saveBill() {
     if (S.saving) return;
     var d = draft();
-    if (firstPageErrors(d).length) { toast('Check the highlighted fields', 'alert'); go('/billing'); return; }
+    if (!wide() && firstPageErrors(d).length) { toast('Check the highlighted fields', 'alert'); go('/billing'); return; }
     if (!d.ok) { showErrors(d, 'Check the highlighted fields'); return; }
     var p = S.cart.lines.filter(function (l) { return l.productId && !productById(l.productId); })[0];
     if (p) { S.saveError = '“' + p.name + '” is no longer in your products. Remove it from the bill.'; paint('qbActs', actsHTML()); return; }
@@ -1342,8 +1348,13 @@
       toast(r.replayed ? 'Bill ' + bill.number + ' saved (it had already reached the server)' : 'Bill ' + bill.number + ' saved', 'checkCircle');
       load();
       if (onBilling()) {
-        /* in place of the review page: Back has no bill left to review */
-        ctx.replace('/billing/invoice/' + encodeURIComponent(bill.id));
+        if (wide()) {
+          S.lastSaved = bill;
+          rerender();
+        } else {
+          /* in place of the review page: Back has no bill left to review */
+          ctx.replace('/billing/invoice/' + encodeURIComponent(bill.id));
+        }
         global.scrollTo(0, 0);
       }
     }, function (err) {
@@ -1391,6 +1402,7 @@
   }
 
   function newBill() {
+    S.lastSaved = null;
     S.saveError = null;
     if (!S.cart.lines.length) S.cart = emptyCart();
     saveCart();
@@ -1401,9 +1413,10 @@
 
   /* ======================================================= THE SAVED INVOICE
 
-     The third page, at an address of its own, and a page from Bills. Everything
-     here reads the saved bill, fetched again after a refresh, so sharing, printing
-     and downloading can be repeated freely and never make another sale. */
+     In the form's place on a desktop, a third page of its own on a phone, and a
+     page from Bills. Everything here reads the saved bill, fetched again after a
+     refresh, so sharing, printing and downloading can be repeated freely and never
+     make another sale. */
   function invoiceActsHTML(b) {
     var id = esc(b.id);
     return '<button class="btn btn--outline" data-qb="inv-pdf" data-id="' + id + '">' + icon('install') + 'Download PDF</button>' +
@@ -1414,10 +1427,11 @@
   }
   function renderInvoice(page, id) {
     var b = billFor(page, id, 'invoice');
-    if (!b) return;
+    if (b) page.innerHTML = frame('invoice', invoicePageHTML(b));
+  }
+  function invoicePageHTML(b) {
     var isVoid = b.status === 'void';
-    page.innerHTML = frame('invoice',
-      '<div class="qb-invpage shell">' +
+    return '<div class="qb-invpage shell">' +
       '<div class="qb-invpage__head"><span class="qb-saved__ico">' + icon('checkCircle') + '</span>' +
       '<div class="grow"><h2>' + (isVoid ? 'Bill voided' : 'Bill saved') + '</h2>' +
       '<p>' + esc(b.number) + ' · ' + inr(b.totalPaise) + ' · ' + esc(isVoid ? 'VOID' : label(STATUSES, b.payment.status)) + '</p></div></div>' +
@@ -1427,7 +1441,7 @@
       '<div class="qb-done__more">' +
       '<button class="qb-link" data-qb="labels" data-id="' + esc(b.id) + '">' + icon('tag') + 'Print Product Labels</button>' +
       '<a class="qb-link" href="/billing/bills/' + encodeURIComponent(b.id) + '">' + icon('linkOut') + 'Open bill</a></div>' +
-      '</div>');
+      '</div>';
   }
 
   function billById(id) { return S.billCache[id]; }
@@ -4199,7 +4213,7 @@
       case 'pick-inc': setPick(id, (S.pickQty[id] || 1) + 1); break;
       case 'pick-dec': setPick(id, (S.pickQty[id] || 1) - 1); break;
       case 'cat-more': S.catLimit += 60; paint('qbCatalog', catalogHTML()); break;
-      case 'to-cart': { var cb = el('qbBill') || el('qbRvItems'); if (cb) cb.scrollIntoView({ block: 'start' }); break; }
+      case 'to-cart': { var cb = el('qbBill'); if (cb) cb.scrollIntoView({ block: 'start' }); break; }
       case 'pick-variant': {
         var sv = S.sheet;
         if (!sv || sv.type !== 'variant') break;
@@ -4796,6 +4810,15 @@
     if (viewName() === 'offers') rerender();
     else if ((viewName() === 'pos' || viewName() === 'review') && S.cart.lines.length) cartChanged(false);
   }, 30000);
+  /* A window dragged across the line, or a tablet turned: the bill stays, in the
+     shape that now fits. */
+  WIDE.addEventListener('change', function () {
+    if (!S || !S.loaded || !onBilling()) return;
+    var v = viewName();
+    if (v !== 'pos' && v !== 'review') return;
+    if (S.lastSaved && !wide()) { ctx.replace('/billing/invoice/' + encodeURIComponent(S.lastSaved.id)); return; }
+    rerender();
+  });
   ['mouseover', 'focusin'].forEach(function (type) {
     document.addEventListener(type, function (e) {
       var b = e.target.closest && e.target.closest('.qb-bar');
