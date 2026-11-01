@@ -130,7 +130,14 @@
    cart, summary and payment stay in view on the right, each column scrolling on
    its own. Below that everything stacks in the order the bill is made. */
 .qb-nb{ display:flex; flex-direction:column; gap:10px; padding:10px var(--pad) 0; }
-.qb-nb__main, .qb-nb__side{ display:flex; flex-direction:column; gap:10px; min-width:0; }
+.qb-nb__main, .qb-nb__side, .qb-nb__review{ display:flex; flex-direction:column; gap:10px; min-width:0; }
+.qb-nb__review:empty{ display:none; }
+#qbSummary{ scroll-margin-top:58px; }
+.qb-last{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:10px var(--pad) 0; padding:6px 10px 6px 12px; border-radius:var(--r-sm); background:var(--ok-bg); font-size:13px; }
+.qb-last:empty{ display:none; }
+.qb-last__t{ display:inline-flex; align-items:center; gap:6px; min-width:0; color:var(--ink-2); font-weight:600; }
+.qb-last__t svg{ width:16px; height:16px; flex:none; color:var(--ok); }
+.qb-last__t b{ font-family:var(--f-mono); font-weight:600; color:var(--ink); }
 .qb-nb__find{ display:flex; flex-direction:column; gap:8px; min-width:0; }
 .qb-panel{ display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:var(--r); background:var(--surface); border:1px solid var(--line); }
 .qb--nb{ padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
@@ -197,42 +204,52 @@
 .qb-sec{ display:flex; align-items:center; gap:10px; }
 .qb-sec h2{ font-size:15.5px; }
 .qb-count{ font-size:12px; font-weight:800; color:var(--ink-3); background:var(--surface-3); padding:2px 8px; border-radius:var(--r-pill); margin-right:auto; }
+.qb-sec__end{ margin-left:auto; }
 .qb-lines{ display:flex; flex-direction:column; gap:6px; }
-.qb-line{
-  display:grid; grid-template-columns:minmax(0,1fr) auto auto; grid-template-areas:"main main x" "qty price total";
-  gap:6px 10px; align-items:center; padding:8px 10px; border-radius:var(--r-sm); background:var(--surface-2); border:1px solid var(--line);
-}
+.qb-line{ display:flex; flex-direction:column; gap:6px; padding:8px 10px; border-radius:var(--r-sm); background:var(--surface-2); border:1px solid var(--line); }
 .qb-line.is-bad{ border-color:var(--bad); background:color-mix(in srgb, var(--bad-bg) 55%, var(--surface)); }
-.qb-line__main{ grid-area:main; min-width:0; display:flex; flex-direction:column; }
+.qb-line__top{ display:flex; align-items:flex-start; gap:8px; }
+.qb-line__main{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+.qb-line__offer:empty, .qb-line__deal:empty{ display:none; }
+.qb-line__row{ display:flex; align-items:center; gap:10px; }
+.qb-line__sum{ margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; min-width:70px; line-height:1.2; }
+.qb-line__sum em{ font-style:normal; font-size:11px; font-weight:700; color:var(--ink-3); }
+.qb-line__sum b{ font-family:var(--f-mono); font-size:14px; font-weight:600; }
+/* the price an item sells for leads; the one it came down from steps back */
+.qb-deal{ display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 8px; }
+.qb-deal__off{ font-style:normal; font-size:12.5px; font-weight:800; color:var(--ok); }
+.qb-deal__now{ font-family:var(--f-display); font-size:20px; font-weight:800; letter-spacing:-.02em; }
+.qb-deal__was{ margin-left:auto; font-size:12.5px; font-weight:600; color:var(--ink-3); text-decoration:line-through; }
 .qb-line__main b{ font-size:14px; font-weight:700; line-height:1.3; }
 .qb-line__main > span{ font-size:12px; color:var(--ink-3); font-weight:600; }
 .qb-line__main .qb-link{ font-size:12px; padding:0 2px; }
 .qb-line__main > .qb-fits{ color:var(--qb-ink); }
 .qb-tagc{ font-style:normal; font-weight:800; color:var(--amber-700); }
-.qb-line__x{ grid-area:x; width:32px; height:32px; border-radius:9px; display:grid; place-items:center; color:var(--ink-3); align-self:start; }
+.qb-line__x{ flex:none; width:32px; height:32px; border-radius:9px; display:grid; place-items:center; color:var(--ink-3); }
 .qb-line__x:hover{ background:var(--bad-bg); color:var(--bad); }
 .qb-line__x svg{ width:16px; height:16px; }
-.qb-qty{ grid-area:qty; display:inline-flex; align-items:center; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface-2); overflow:hidden; justify-self:start; }
+.qb-qty{ display:inline-flex; align-items:center; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface-2); overflow:hidden; }
 .qb-qty button{ width:36px; height:38px; display:grid; place-items:center; color:var(--ink-2); }
 .qb-qty button:hover{ background:var(--qb-050); color:var(--qb-ink); }
 .qb-qty button svg{ width:16px; height:16px; }
 .qb-qty__in{ width:46px; height:38px; border:0; border-inline:1px solid var(--line); background:var(--surface); text-align:center; font-weight:800; font-size:16px; outline:none; }
 .qb-qty__in:focus{ box-shadow:inset 0 0 0 2px var(--qb); }
-.qb-qty--form{ justify-self:stretch; display:flex; }
+.qb-qty--form{ display:flex; }
 .qb-qty--form .qb-qty__in{ flex:1 1 auto; width:auto; min-width:0; }
 .qb-qty--form button{ flex:none; height:40px; }
-.qb-price{ grid-area:price; display:flex; align-items:center; gap:2px; height:38px; padding:0 8px; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface); }
+.qb-price{ display:flex; align-items:center; gap:2px; height:38px; padding:0 8px; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface); }
 .qb-price span{ font-weight:800; color:var(--ink-3); }
 .qb-price input{ width:76px; border:0; background:transparent; outline:none; font-weight:700; font-size:16px; text-align:right; }
 .qb-price:focus-within{ border-color:var(--qb); box-shadow:0 0 0 3px color-mix(in srgb, var(--qb) 18%, transparent); }
-.qb-line__total{ grid-area:total; font-family:var(--f-mono); font-size:14px; text-align:right; min-width:70px; }
 @media (max-width:400px){
-  .qb-line{ gap:6px; padding:8px; }
+  .qb-line{ padding:8px; }
+  .qb-line__row{ gap:6px; }
   .qb-line .qb-qty button{ width:32px; }
   .qb-line .qb-qty__in{ width:38px; }
   .qb-price{ padding:0 6px; }
   .qb-price input{ width:58px; }
-  .qb-line__total{ min-width:0; font-size:13.5px; }
+  .qb-line__sum{ min-width:0; }
+  .qb-line__sum b{ font-size:13.5px; }
 }
 
 .qb-custom{ border:1px dashed var(--line); border-radius:var(--r-sm); }
@@ -267,29 +284,19 @@
 .qb-bal b.qb-good{ color:var(--ok); }
 .qb-bal b.qb-due{ color:var(--bad); }
 .qb-acts{ display:flex; flex-direction:column; gap:8px; }
+.qb-acts:empty{ display:none; }
 .qb-hint{ font-size:12.5px; color:var(--ink-3); text-align:center; font-weight:600; }
 .qb-size{ flex:none; }
 .qb-size select{ height:38px; width:auto; padding-left:10px; font-size:13.5px; }
 
-/* review */
-.qb-sheet .sheet__body.qb-review{ display:flex; flex-direction:column; gap:10px; }
-.qb-review__who{ display:flex; flex-direction:column; gap:1px; }
-.qb-review__who span:last-child:not(.qb-lab){ font-size:13px; color:var(--ink-2); font-weight:600; }
 .qb-review__items{ display:flex; flex-direction:column; }
 .qb-review__items li{ display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-bottom:1px solid var(--line-soft); font-size:14px; }
 .qb-review__items .grow{ display:flex; flex-direction:column; min-width:0; }
 .qb-review__items .grow span{ font-size:12px; font-weight:600; color:var(--ink-3); }
 .qb-review__items .grow .qb-fits{ color:var(--qb-ink); }
 .qb-review__items li > b{ font-family:var(--f-mono); font-weight:600; flex:none; }
-.qb-revfoot{ flex-direction:column; align-items:stretch; gap:8px; }
-.qb-revfoot__btns{ display:flex; gap:8px; }
-.qb-revfoot__btns .btn{ height:46px; }
 
 /* the saved invoice */
-.qb-done{ padding-top:10px; padding-bottom:16px; display:flex; flex-direction:column; gap:10px; }
-.qb-done__head{ display:flex; align-items:center; gap:10px; }
-.qb-done__head h2{ font-size:18px; }
-.qb-done__head p{ font-family:var(--f-mono); font-size:13px; color:var(--ink-2); }
 .qb-saved__ico{ width:42px; height:42px; flex:none; border-radius:13px; display:grid; place-items:center; background:var(--ok-bg); color:var(--ok); }
 .qb-saved__ico svg{ width:24px; height:24px; }
 .qb-invacts{ display:flex; flex-wrap:wrap; gap:8px; }
@@ -307,6 +314,29 @@
 }
 .btn.is-off{ opacity:.5; pointer-events:none; }
 
+/* The invoice after Confirm Bill opens the way a compatibility group does on a
+   phone: the same slide, the same panel, the same grab handle, the same scrim. Up
+   to that sheet's own limit it stays a bottom sheet; past it, the site's dialog. */
+.qb-invsheet{ gap:10px; background:var(--surface-2); }
+.qb-invfoot{ display:block; }
+.qb-invfoot .qb-invacts{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.qb-invfoot .qb-invprint{ display:contents; }
+.qb-invfoot .qb-invacts .btn{ height:40px; padding-inline:8px; }
+.qb-invfoot [data-qb="print-saved"]{ order:1; }
+.qb-invfoot .qb-size{ order:2; }
+.qb-invfoot .qb-size select{ width:100%; height:40px; }
+.qb-invfoot [data-qb="new-bill"]{ order:3; }
+@media (min-width:600px){ .qb-invfoot .qb-invacts{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:1179px){
+  .qb-sheet--invoice{
+    left:0; right:0; top:auto; bottom:0; transform:none; width:auto; max-height:92dvh;
+    border-radius:var(--r-xl) var(--r-xl) 0 0;
+    animation:gsheetup .32s cubic-bezier(.2,.9,.25,1);
+  }
+  .qb-sheet--invoice .sheet__grab{ display:block; }
+}
+@media (prefers-reduced-motion:reduce){ .qb-sheet--invoice{ animation:none; } }
+
 @media (min-width:1100px){
   .main:has(.qb--nb){ padding-bottom:0; }
   .qb--nb{ height:100dvh; display:flex; flex-direction:column; padding:0; }
@@ -318,7 +348,7 @@
   .qb-nb__main, .qb-nb__side{ min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:10px 14px 16px; }
   .qb-nb__main{ padding-left:22px; }
   .qb-nb__side{ padding-right:22px; background:var(--surface-2); border-left:1px solid var(--line); }
-  .qb-nb__side .qb-acts{ position:sticky; bottom:-16px; z-index:2; padding:8px 0 12px; margin-bottom:-12px; background:linear-gradient(to bottom, transparent, var(--surface-2) 12px); }
+  .qb-last{ flex:none; margin:8px 22px; }
   .qb-grid{ grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); }
   .qb-adj{ grid-template-columns:1fr 1fr; }
 }
@@ -327,23 +357,29 @@
   .qb-adj{ grid-template-columns:1fr 1fr; }
 }
 
-/* ---------------------------------------------- phone: the sticky summary */
+/* ------------------------------------- the sticky bar: the bill's one action
+   Over the page on a phone, and a band under the two columns on a desktop, where
+   nothing can scroll beneath it. */
 .qb-cartbar{ position:fixed; z-index:40; left:8px; right:8px; bottom:calc(8px + env(safe-area-inset-bottom)); }
-.qb-cartbar:empty{ display:none; }
 /* the keyboard is up, so the bar steps aside */
-.qb:has(input:focus, textarea:focus) .qb-cartbar{ display:none; }
-@media (min-width:1100px){ .qb-cartbar{ display:none; } }
+@media (pointer:coarse){ .qb:has(input:focus, textarea:focus) .qb-cartbar{ display:none; } }
 .qb-cartbar__in{ display:flex; align-items:center; gap:10px; min-height:54px; padding:6px 7px 6px 14px; border-radius:15px; background:var(--qb-grad); color:#fff; box-shadow:0 12px 28px -10px rgba(29,78,216,.65); }
+@media (min-width:1100px){
+  .qb-cartbar{ position:static; flex:none; padding:8px 22px; background:var(--surface); border-top:1px solid var(--line); }
+  .qb-cartbar__in{ width:max(420px, calc(36% - 28px)); margin-left:auto; box-shadow:none; }
+}
 .qb-cartbar__t{ display:flex; flex-direction:column; flex:1 1 auto; min-width:0; line-height:1.15; text-align:left; color:#fff; }
 .qb-cartbar__t b{ font-family:var(--f-display); font-size:18px; letter-spacing:-.02em; }
 .qb-cartbar__t em{ font-style:normal; font-size:12px; opacity:.88; font-weight:600; }
 .qb-cartbar__go{ display:inline-flex; align-items:center; gap:4px; font-weight:800; font-size:14px; background:#fff; color:#1D4ED8; height:42px; padding:0 12px 0 14px; border-radius:11px; flex:none; }
 .qb-cartbar__go svg{ width:16px; height:16px; }
+.qb-cartbar__go[disabled]{ background:rgba(255,255,255,.3); color:#fff; cursor:not-allowed; }
+.qb-spin--bar{ margin-right:4px; border-color:var(--qb-100); border-top-color:#1D4ED8; }
 
 /* ---------------------------------------------------------- sheets */
 .qb-sheet{ z-index:110; }
 @media (min-width:820px){
-  .qb-sheet--product, .qb-sheet--stock, .qb-sheet--void, .qb-sheet--payment, .qb-sheet--catdel, .qb-sheet--labels, .qb-sheet--variant, .qb-sheet--catform, .qb-sheet--customer, .qb-sheet--review, .qb-sheet--wa, .qb-sheet--offerview, .qb-sheet--offerset, .qb-sheet--lineoffers{ width:min(560px, calc(100vw - 48px)); }
+  .qb-sheet--product, .qb-sheet--stock, .qb-sheet--void, .qb-sheet--payment, .qb-sheet--catdel, .qb-sheet--labels, .qb-sheet--variant, .qb-sheet--catform, .qb-sheet--customer, .qb-sheet--billfilter, .qb-sheet--wa, .qb-sheet--offerview, .qb-sheet--offerset, .qb-sheet--lineoffers{ width:min(560px, calc(100vw - 48px)); }
   .qb-sheet--offer{ width:min(640px, calc(100vw - 48px)); }
 }
 .qb-sheet .sheet__head .qb-thumb{ width:42px; height:42px; }
@@ -397,7 +433,24 @@
 
 /* ---------------------------------------------------- lists */
 .qb-list{ padding-top:14px; display:flex; flex-direction:column; gap:12px; }
-.qb-list__head{ display:flex; gap:8px; flex-wrap:wrap; }
+.qb-list__head{ display:flex; align-items:center; gap:8px; }
+.qb-filterbtn{ position:relative; flex:none; width:46px; height:46px; display:grid; place-items:center; border-radius:var(--r); border:1px solid var(--line); background:var(--surface); color:var(--ink-2); box-shadow:var(--sh-1); }
+.qb-filterbtn svg{ width:19px; height:19px; }
+.qb-filterbtn:hover, .qb-filterbtn.is-on{ border-color:var(--qb); color:var(--qb-ink); }
+.qb-filterbtn .qb-pmcount{ position:absolute; top:-6px; right:-6px; }
+.qb-bgroup{ display:flex; flex-direction:column; gap:8px; margin-bottom:10px; }
+.qb-bgroup__head{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 18px; padding:0 2px; }
+.qb-bgroup__t{ display:flex; flex-direction:column; min-width:0; }
+.qb-bgroup__t h2{ font-size:15.5px; }
+.qb-bgroup__t span{ font-size:12px; font-weight:600; color:var(--ink-3); }
+.qb-bgroup__s{ display:flex; gap:18px; margin:0; }
+.qb-bgroup__s dt{ font-size:11px; font-weight:700; color:var(--ink-3); }
+.qb-bgroup__s dd{ margin:0; font-family:var(--f-mono); font-size:13.5px; font-weight:600; color:var(--ink); white-space:nowrap; }
+.qb-bgroup__none{ padding:2px; text-align:left; }
+@media (max-width:699px){
+  .qb-bgroup__s{ flex:1 1 100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .qb-bgroup__s dd{ font-size:13px; }
+}
 .qb-bills, .qb-cats{ display:flex; flex-direction:column; border:1px solid var(--line); border-radius:var(--r-lg); background:var(--surface); overflow:hidden; box-shadow:var(--sh-1); }
 .qb-brow{ display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:4px 12px; align-items:center; padding:12px 14px; border-bottom:1px solid var(--line-soft); }
 .qb-brow:last-child{ border-bottom:0; }
@@ -768,6 +821,18 @@
 .qb-ofstat{ display:flex; align-items:baseline; gap:8px; min-width:0; padding:8px 12px; border-radius:var(--r-sm); background:var(--surface); border:1px solid var(--line); }
 .qb-ofstat b{ font-family:var(--f-display); font-size:19px; font-weight:800; }
 .qb-ofstat span{ font-size:12px; font-weight:600; color:var(--ink-3); min-width:0; }
+.qb-sales{ display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:var(--r); background:var(--surface); border:1px solid var(--line); }
+.qb-sales .qb-sec{ justify-content:space-between; }
+.qb-sales .qb-count{ margin-right:0; }
+.qb-sales__dates{ margin-left:0; }
+.qb-salesgrid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+@media (min-width:760px){ .qb-salesgrid{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (min-width:1280px){ .qb-salesgrid{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
+.qb-salesgrid .qb-kpi{ padding:9px 11px; background:var(--surface-2); box-shadow:none; }
+.qb-salesgrid .qb-kpi b{ font-size:18px; }
+.qb-sales__note{ font-size:12px; font-weight:600; color:var(--ink-3); }
+.qb-sales__note b{ color:var(--ink); }
+#qbSalesBody{ display:flex; flex-direction:column; gap:8px; }
 .qb-ofbar{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .qb-ofbar .qb-pmsearch{ flex:1 1 280px; }
 .qb-ofwrap{ max-height:none; }
@@ -795,12 +860,11 @@
 
 /* an offer on a cart line */
 .qb-autooffers{ display:flex; align-items:center; gap:9px; font-size:13px; font-weight:700; color:var(--ink-2); cursor:pointer; }
-.qb-lineoffer{ display:flex; align-items:center; flex-wrap:wrap; gap:2px 8px; margin-top:3px; font-size:12px; font-weight:600; color:var(--ink-3); }
+.qb-lineoffer{ display:flex; align-items:center; flex-wrap:wrap; gap:2px 8px; font-size:12px; font-weight:600; color:var(--ink-3); }
 .qb-lineoffer b{ display:inline-flex; align-items:center; gap:3px; font-size:12px; font-weight:800; color:var(--ok); }
 .qb-lineoffer b svg{ width:12px; height:12px; }
 .qb-lineoffer em{ font-style:normal; color:var(--ink-2); }
 .qb-lineoffer .qb-link{ font-size:12px; padding:0 2px; }
-.qb-lineoffer__sum{ flex:1 1 100%; color:var(--ink-2); }
 .qb-hits .qb-hit .btn{ flex:none; }
 
 /* ---------------------------------------------------- one bill */

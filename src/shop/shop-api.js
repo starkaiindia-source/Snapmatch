@@ -157,6 +157,7 @@
     customer: function (id) { return request('customer', { query: { id: id } }); },
     customerSave: function (body) { return request('customer', { body: body }); },
     overview: function (query) { return request('overview', { query: query }); },
+    sales: function (query) { return request('sales', { query: query }); },
     newId: newId,
     prepareImage: prepareImage,
     retryable: retryable

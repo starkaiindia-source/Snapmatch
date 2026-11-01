@@ -34,11 +34,12 @@
   /** Basis points of an amount, half-up, as shop-money rounds a percentage. */
   function pctOf(paise, bp) { return Math.floor((paise * bp + 5000) / 10000); }
 
-  /** What an offer is at this moment: its stored status, then its dates. */
+  /** What an offer is at this moment. An end date that has passed outranks a pause. */
   function offerStatus(o, now) {
-    if (o.status === 'paused') return 'paused';
+    if (o.status === 'archived') return 'archived';
     if (o.status === 'expired') return 'expired';
     if (o.endAt && now > o.endAt) return 'expired';
+    if (o.status === 'paused') return 'paused';
     if (o.startAt && now < o.startAt) return 'scheduled';
     return 'active';
   }
@@ -213,8 +214,36 @@
     return inr(o.amountPaise) + ' OFF ' + (o.fixedMode === 'line' ? 'the line' : 'each');
   }
 
+  /**
+   * The six figures at the top of the Discounts & Offers page. Coverage counts
+   * only what is running now, each product and category once however many offers
+   * reach it. A category is covered by an offer on the category: an offer on one
+   * product in it covers that product, not the category.
+   *
+   * @param {Array} offers    the shop's offers
+   * @param {Array} products  its products on sale
+   */
+  function offerTally(offers, products, now) {
+    var t = { total: offers.length, active: 0, scheduled: 0, expired: 0, paused: 0, products: 0, categories: 0 };
+    var running = [];
+    offers.forEach(function (o) {
+      var st = offerStatus(o, now);
+      if (st in t) t[st] += 1;
+      if (st === 'active') running.push(o);
+    });
+    var cats = {};
+    running.forEach(function (o) {
+      if (o.target === 'category') (o.categoryIds || []).forEach(function (id) { cats[id] = 1; });
+    });
+    t.categories = Object.keys(cats).length;
+    t.products = products.filter(function (p) {
+      return running.some(function (o) { return covers(o, p); });
+    }).length;
+    return t;
+  }
+
   return {
     LEVELS: LEVELS, offerStatus: offerStatus, levelOn: levelOn, covers: covers,
-    amountOn: amountOn, applyOffers: applyOffers, valueText: valueText
+    amountOn: amountOn, applyOffers: applyOffers, valueText: valueText, offerTally: offerTally
   };
 });

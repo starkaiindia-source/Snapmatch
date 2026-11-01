@@ -106,6 +106,9 @@ const QUERY_CHUNK = 30;
 const STATS_VERSION = 1;
 const NEW_CUSTOMER_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const PREFIX_END = '\uf8ff';
+/* The Bills page adds its groups up from the rows, so a page has to be big enough
+   to hold a month of a busy counter. Each bill read counts against the Spark quota. */
+const MAX_BILL_PAGE = 300;
 
 /* ------------------------------------------------------------------ paths */
 const shopRef = uid => db().collection(C.SHOPS).doc(uid);
@@ -524,7 +527,7 @@ async function loadState(uid) {
     },
     categories,
     products,
-    offers: offers.docs.map(s => ({ s, d: owned(uid, s) })).filter(x => x.d).map(x => offerView(x.s.id, x.d)),
+    offers: offers.docs.map(s => ({ s, d: owned(uid, s) })).filter(x => x.d && x.d.status !== 'archived').map(x => offerView(x.s.id, x.d)),
     offerSettings: offerSettings(shop),
     suggestedCategories: SUGGESTED_CATEGORIES
   };
@@ -1718,7 +1721,7 @@ async function getBill(uid, billId) {
  * here needs an entry in firestore.indexes.json.
  */
 async function listBills(uid, query) {
-  const limit = Math.min(50, Math.max(5, Number(query.limit) || 20));
+  const limit = Math.min(MAX_BILL_PAGE, Math.max(5, Number(query.limit) || 20));
   const q = text(query.q, 60);
   const from = Number(query.from) || 0;
   const to = Number(query.to) || 0;
@@ -1784,6 +1787,13 @@ function idList(raw, read) {
   const list = Array.from(new Set((Array.isArray(raw) ? raw : []).map(read).filter(Boolean)));
   if (list.length > MAX_OFFER_TARGETS) throw bad('offer-target');
   return list;
+}
+
+/** An offer that can still be changed. A removed one is gone as far as the shop goes. */
+function liveOffer(uid, snap) {
+  const d = owned(uid, snap);
+  if (!d || d.status === 'archived') throw notFound('offer-not-found');
+  return d;
 }
 
 /** Everything about an offer that the form sets, checked. */
@@ -1900,8 +1910,7 @@ async function updateOffer(uid, body) {
   await checkOfferTargets(uid, fields);
   const ref = offerCol(uid).doc(id);
   return db().runTransaction(async tx => {
-    const cur = owned(uid, await tx.get(ref));
-    if (!cur) throw notFound('offer-not-found');
+    const cur = liveOffer(uid, await tx.get(ref));
     const patch = Object.assign({}, fields, {
       autoApply: body.autoApply === undefined ? cur.autoApply !== false : !!body.autoApply,
       updatedBy: uid, updatedAt: Date.now()
@@ -1919,8 +1928,7 @@ async function setOfferStatus(uid, body) {
   if (!status) throw bad('offer-status');
   const ref = offerCol(uid).doc(id);
   return db().runTransaction(async tx => {
-    const cur = owned(uid, await tx.get(ref));
-    if (!cur) throw notFound('offer-not-found');
+    const cur = liveOffer(uid, await tx.get(ref));
     const now = Date.now();
     if (status === 'active' && cur.endAt && now > cur.endAt) throw conflict('offer-ended');
     const patch = { status, updatedBy: uid, updatedAt: now };
@@ -1934,11 +1942,34 @@ async function setOfferAuto(uid, body) {
   if (!id) throw bad('offer-id');
   const ref = offerCol(uid).doc(id);
   return db().runTransaction(async tx => {
-    const cur = owned(uid, await tx.get(ref));
-    if (!cur) throw notFound('offer-not-found');
+    const cur = liveOffer(uid, await tx.get(ref));
     const patch = { autoApply: !!body.autoApply, updatedBy: uid, updatedAt: Date.now() };
     tx.update(ref, patch);
     return { offer: offerView(id, Object.assign({}, cur, patch)) };
+  });
+}
+
+/**
+ * Takes an offer off the shop's list for good: the Discounts & Offers page, its
+ * figures and new bills stop seeing it. The record stays, marked with who removed
+ * it and why, because a saved bill may name it. `reason` 'test-data' marks a record
+ * that was never a real offer. Removing twice changes nothing.
+ */
+async function archiveOffer(uid, body) {
+  const id = docId(body.offerId);
+  if (!id) throw bad('offer-id');
+  const reason = body.reason === 'test-data' ? 'test-data' : 'owner';
+  const ref = offerCol(uid).doc(id);
+  return db().runTransaction(async tx => {
+    const cur = owned(uid, await tx.get(ref));
+    if (!cur) throw notFound('offer-not-found');
+    if (cur.status === 'archived') return { offerId: id, replayed: true };
+    const now = Date.now();
+    tx.update(ref, {
+      status: 'archived', archivedFrom: cur.status, archivedReason: reason,
+      archivedBy: uid, archivedAt: now, updatedBy: uid, updatedAt: now
+    });
+    return { offerId: id, replayed: false };
   });
 }
 
@@ -2188,6 +2219,40 @@ async function overview(uid, query) {
   });
 }
 
+/**
+ * A day from before the days counted their discounted bills gets the counts from
+ * its own bills, once. In a transaction on the day, so a bill saved at the same
+ * moment makes this run again rather than being missed.
+ */
+function settleDiscounted(uid, day) {
+  const ref = dayCol(uid).doc(day);
+  return db().runTransaction(async tx => {
+    const cur = owned(uid, await tx.get(ref));
+    if (!cur || cur.discV) return cur;
+    const bills = await tx.get(billCol(uid).where('day', '==', day));
+    const counts = insights.discountedOf(bills.docs.filter(s => owned(uid, s)).map(s => s.data()));
+    tx.update(ref, counts);
+    return Object.assign({}, cur, counts);
+  });
+}
+
+/** The Sales Overview, from day documents: at most one read per day of the period. */
+async function salesOverview(uid, query) {
+  const today = insights.dayKey(Date.now());
+  const from = insights.isDay(query.from) ? query.from : today.slice(0, 8) + '01';
+  let to = insights.isDay(query.to) ? query.to : today;
+  if (to > today) to = today;
+  if (from > to) throw bad('range');
+  if (insights.daysBetween(from, to) > 366) throw bad('range-too-long');
+
+  const snap = await dayCol(uid).where('day', '>=', from).where('day', '<=', to).orderBy('day').get();
+  const days = await Promise.all(snap.docs.filter(s => owned(uid, s)).map(s => {
+    const d = s.data();
+    return !d.discV && d.discountPaise ? settleDiscounted(uid, d.day) : d;
+  }));
+  return Object.assign(insights.salesOverview(days.filter(Boolean)), { from, to });
+}
+
 module.exports = {
   ShopError, SUGGESTED_CATEGORIES, BILL_PREFIX,
   loadState,
@@ -2195,9 +2260,9 @@ module.exports = {
   createProduct, updateProduct, archiveProduct, adjustStock, listMoves,
   groupInfo, modelGroups, compatProducts,
   finaliseBill, updatePayment, voidBill, getBill, listBills, shareBill, sharedInvoice,
-  createOffer, updateOffer, setOfferStatus, setOfferAuto, saveOfferSettings,
+  createOffer, updateOffer, setOfferStatus, setOfferAuto, archiveOffer, saveOfferSettings,
   createCustomer, updateCustomer, listCustomers, getCustomer,
-  overview,
+  overview, salesOverview,
   /* exported for tests */
   _internal: { text, clientId, decodeImage, settle, mobile }
 };

@@ -12,7 +12,7 @@
 
    ROUTES (all under /billing, rendered into the app's #page)
      /billing                   a whole new bill, from customer to saved invoice
-     /billing/bills             saved bills: search, history
+     /billing/bills             saved bills by date: search, filters, history
      /billing/bills/<id>        one saved bill: reprint, labels, payment, void
      /billing/products          stock: table or grid, filters, edit, adjust
      /billing/offers            discounts for a category, a product or a variant
@@ -32,13 +32,17 @@
    ========================================================================== */
 (function (global) {
   'use strict';
-  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts, SH = SM.shopShare, OF = SM.shopOffers;
+  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts, SH = SM.shopShare, OF = SM.shopOffers, PD = SM.shopPeriods;
   var esc = C.esc, inr = M.inr;
 
   var PRODUCT_PAGE = 50;
+  /* One read per bill. A page has to hold a month of a counter, because the groups
+     on the Bills page are added up from the rows. */
+  var BILL_PAGE = 300;
 
   var METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'], ['other', 'Other']];
   var STATUSES = [['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['paid', 'Paid']];
+  var BILL_STATUSES = [['all', 'All Statuses'], ['paid', 'Paid'], ['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['void', 'Void']];
   var SIZES = [['a4', 'A4'], ['a5', 'A5'], ['80', '80 mm'], ['58', '58 mm']];
   var VOID_REASONS = ['Customer returned the items', 'Wrong item or price', 'Duplicate bill', 'Other'];
   var ADJUST_REASONS = ['Stock received', 'Damaged / faulty', 'Stock count correction', 'Other'];
@@ -54,15 +58,17 @@
 
   /* ---------------------------------------------------------------- state */
   var S;
+  function blankBillFilter() { return { period: '', from: '', to: '', status: 'all', label: '' }; }
   function reset(uid) {
     S = {
       uid: uid || null,
       loaded: false, loading: null, loadError: null,
       categories: [], products: [], suggested: [], billCount: 0,
       offers: [], offerSettings: {}, offerFilter: { q: '', status: 'all' }, offerKey: '',
+      sales: { preset: 'month', from: '', to: '', data: null, loading: false, error: null, ticket: 0 },
       filter: { cat: 'all', q: '' }, catLimit: 60, pickQty: {}, lastAdd: null, custPicked: null,
-      cart: null, saving: false, saveError: null, lastSaved: null,
-      bills: { items: [], cursor: null, q: '', from: 0, to: 0, range: '', loading: false, loaded: false, error: null, ticket: 0 },
+      cart: null, saving: false, saveError: null, lastSaved: null, reviewing: false, priceEdit: {},
+      bills: { items: [], cursor: null, q: '', filter: blankBillFilter(), loading: false, loaded: false, error: null, ticket: 0 },
       prodFilter: PF.blankFilter(), prodView: 'table', prodPop: null, prodLimit: PRODUCT_PAGE, prodOpen: {},
       prodCols: PF.readColumns(store('mpf.qb.columns')), prodFlash: null, stockEdit: null,
       billCache: {},
@@ -170,6 +176,7 @@
       case 'offer-dates': return 'Check the dates: the end has to come after the start, and a time needs a date.';
       case 'offer-too-large': return 'The discount is larger than the price of “' + (d.name || 'a chosen product') + '”.';
       case 'offer-ended': return 'This offer’s end date has passed. Edit the dates to run it again.';
+      case 'offer-not-found': return 'This offer no longer exists.';
       case 'negative-stock': return 'Stock cannot go below zero (in stock: ' + d.available + ').';
       case 'image-type': case 'image-data': return 'That photo could not be used. Try a JPG or PNG.';
       case 'image-too-large': return 'That photo is too large. Try a smaller one.';
@@ -377,7 +384,7 @@
   }
   function when(ms) {
     try {
-      return new Date(ms).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return new Date(ms).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
     } catch (e) { return new Date(ms).toISOString().slice(0, 16).replace('T', ' '); }
   }
   function pct(bp) { return (bp / 100).toFixed(2).replace(/\.?0+$/, '') + '%'; }
@@ -665,17 +672,14 @@
 
   /* ============================================================== NEW BILL
 
-     One page on one route: who it is for, what they are buying, what it comes
-     to, how it was paid. Review is a drawer over the page and the saved invoice
-     takes the form's place, so nothing here changes the URL. A draft is only a
-     draft until the server has saved it: the invoice is drawn from what the
-     server sent back, never from what was on screen. */
+     One page on one route. It opens on who the bill is for and what they are
+     buying. Review Bill adds what it comes to and how it was paid to the same
+     page, and the saved invoice opens in a bottom sheet over it, so nothing here
+     changes the URL. A draft is only a draft until the server has saved it: the
+     invoice is drawn from what the server sent back, never from what was on screen. */
   function renderPos(page) {
-    if (S.lastSaved) {
-      page.innerHTML = frame('pos', invoiceDoneHTML(S.lastSaved), 'qb--done');
-      return;
-    }
     page.innerHTML = frame('pos',
+      '<div class="qb-last" id="qbLast">' + lastSavedHTML() + '</div>' +
       '<div class="qb-nb">' +
       '<div class="qb-nb__main">' +
       '<section class="qb-panel" id="qbCustSec" aria-label="Customer details">' + customerSecHTML() + '</section>' +
@@ -1001,9 +1005,15 @@
   function billSideHTML() {
     var d = draft();
     return '<section class="qb-panel" id="qbBill" aria-label="Cart">' + billEditorHTML(d) + '</section>' +
-      '<section class="qb-panel" aria-label="Bill summary">' + summaryHTML(d) + '</section>' +
+      '<div class="qb-nb__review" id="qbReview">' + reviewSecHTML(d) + '</div>';
+  }
+
+  /* Nothing here exists until Review Bill is pressed. */
+  function reviewSecHTML(d) {
+    if (!S.reviewing) return '';
+    return '<section class="qb-panel" id="qbSummary" aria-label="Bill summary">' + summaryHTML(d) + '</section>' +
       '<section class="qb-panel qb-pay" id="qbPay" aria-label="Payment details">' + payHTML(d) + '</section>' +
-      '<div class="qb-acts" id="qbActs">' + actsHTML(d) + '</div>';
+      '<div class="qb-acts" id="qbActs">' + actsHTML() + '</div>';
   }
 
   function billEditorHTML(d) {
@@ -1028,21 +1038,39 @@
       var over = stock && stock.used > stock.qty;
       var err = d.errors['line:' + l.key];
       return '<div class="qb-line' + (err || over ? ' is-bad' : '') + '" data-key="' + esc(l.key) + '">' +
-        '<div class="qb-line__main"><b>' + esc(l.name) + (l.variantLabel ? ' · ' + esc(l.variantLabel) : '') + '</b>' +
+        '<div class="qb-line__top"><div class="qb-line__main"><b>' + esc(l.name) + (l.variantLabel ? ' · ' + esc(l.variantLabel) : '') + '</b>' +
         (l.modelName ? '<span class="qb-fits">Requested model: ' + esc(l.modelName) + '</span>' : '') + '<span>' +
         (l.productId ? (l.shelf ? 'Shelf ' + esc(l.shelf) : catName(p && p.categoryId)) : '<em class="qb-tagc">Custom item</em>') +
         (over ? ' · <em class="qb-warn">only ' + stock.qty + ' in stock</em>' : '') +
         (!l.productId ? ' · <button class="qb-link" data-qb="custom-save" data-id="' + esc(l.key) + '">Save as product</button>' : '') +
-        '</span><div data-offer="' + esc(l.key) + '">' + lineOfferHTML(l, r) + '</div></div>' +
-        '<div class="qb-qty" role="group" aria-label="Quantity">' +
+        '</span></div>' +
+        '<button class="qb-line__x" data-qb="remove" data-id="' + esc(l.key) + '" aria-label="Remove ' + esc(l.name) + '">' + icon('close') + '</button></div>' +
+        '<div class="qb-line__offer" data-offer="' + esc(l.key) + '">' + lineOfferHTML(l, r) + '</div>' +
+        '<div class="qb-line__deal" data-deal="' + esc(l.key) + '">' + lineDealHTML(l, r) + '</div>' +
+        '<div class="qb-line__row"><div class="qb-qty" role="group" aria-label="Quantity">' +
         '<button data-qb="qty-dec" data-id="' + esc(l.key) + '" aria-label="Decrease">' + icon('minus') + '</button>' +
         '<input class="qb-qty__in" inputmode="numeric" autocomplete="off" value="' + l.qty + '" data-qbi="line-qty" data-id="' + esc(l.key) + '" aria-label="Quantity of ' + esc(l.name) + '" />' +
         '<button data-qb="qty-inc" data-id="' + esc(l.key) + '" aria-label="Increase">' + icon('plus') + '</button></div>' +
-        '<label class="qb-price"><span>₹</span><input inputmode="decimal" autocomplete="off" value="' + esc(l.priceText) + '" data-qbi="line-price" data-id="' + esc(l.key) + '" aria-label="Price of ' + esc(l.name) + '" /></label>' +
-        '<b class="qb-line__total" data-total="' + esc(l.key) + '">' + (l.unitPaise == null ? '—' : M.format(r.linePaise)) + '</b>' +
-        '<button class="qb-line__x" data-qb="remove" data-id="' + esc(l.key) + '" aria-label="Remove ' + esc(l.name) + '">' + icon('close') + '</button>' +
+        '<label class="qb-price" data-price="' + esc(l.key) + '"' + (priceHidden(l, r) ? ' hidden' : '') + '><span>₹</span><input inputmode="decimal" autocomplete="off" value="' + esc(l.priceText) + '" data-qbi="line-price" data-id="' + esc(l.key) + '" aria-label="Original price of ' + esc(l.name) + '" /></label>' +
+        '<span class="qb-line__sum"><em>Line Total</em><b data-total="' + esc(l.key) + '">' + (l.unitPaise == null ? '—' : inr(r.linePaise)) + '</b></span></div>' +
         '</div>';
     }).join('');
+  }
+
+  /* An offer's line shows what the item now sells for. The price it came down
+     from can still be changed, but only by asking: it is no longer the price. */
+  function priceHidden(l, r) { return !!r.offerPaise && !S.priceEdit[l.key] && l.unitPaise != null; }
+
+  function dealTag(l, r) {
+    var a = r.applied[0];
+    if (r.applied.length === 1 && a.kind === 'percent' && !a.maxPaise) return (a.percentBp / 100) + '% OFF';
+    return inr(Math.round(r.offerPaise / l.qty)) + ' OFF';
+  }
+  function lineDealHTML(l, r) {
+    if (!r || !r.offerPaise || l.unitPaise == null) return '';
+    return '<span class="qb-deal"><em class="qb-deal__off">' + esc(dealTag(l, r)) + '</em>' +
+      '<b class="qb-deal__now">' + inr(r.finalUnitPaise) + '</b>' +
+      '<s class="qb-deal__was" aria-label="Original price ' + inr(l.unitPaise) + '">' + inr(l.unitPaise) + '</s></span>';
   }
 
   function customFormHTML() {
@@ -1072,13 +1100,13 @@
 
   function summaryHTML(d) {
     var c = S.cart;
-    return '<div class="qb-sec"><h2>Bill summary</h2></div>' +
+    return '<div class="qb-sec"><h2>Bill summary</h2><button class="qb-link qb-sec__end" data-qb="edit-bill">' + icon('chevronLeft') + 'Edit items</button></div>' +
       '<div class="qb-adj">' +
-      '<div class="qb-field"><span class="qb-lab">Discount</span><div class="qb-inrow">' +
+      '<div class="qb-field"><span class="qb-lab">Additional discount</span><div class="qb-inrow">' +
       '<div class="qb-seg qb-seg--sm" role="group" aria-label="Discount type">' +
       '<button class="' + (c.discount.mode === 'amount' ? 'is-on' : '') + '" data-qb="disc-mode" data-id="amount" aria-pressed="' + (c.discount.mode === 'amount') + '">₹</button>' +
       '<button class="' + (c.discount.mode === 'percent' ? 'is-on' : '') + '" data-qb="disc-mode" data-id="percent" aria-pressed="' + (c.discount.mode === 'percent') + '">%</button></div>' +
-      '<input class="input qb-in" id="qbDisc" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(c.discount.text) + '" data-qbi="disc" aria-label="Discount" /></div>' +
+      '<input class="input qb-in" id="qbDisc" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(c.discount.text) + '" data-qbi="disc" aria-label="Additional discount" /></div>' +
       '<small class="qb-err" data-err="disc">' + esc(d.errors.disc || '') + '</small></div>' +
       '<div class="qb-field" id="qbTax">' + taxHTML(d) + '</div>' +
       '</div>' +
@@ -1094,10 +1122,11 @@
   function totalsHTML(d) {
     var t = d.totals, c = S.cart;
     var row = function (k, v, cls) { return '<div class="qb-trow' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + v + '</b></div>'; };
-    return row(t.offerPaise ? 'Original subtotal' : 'Subtotal', inr(t.originalSubtotalPaise)) +
-      (t.offerPaise ? row('Product discounts', '−' + inr(t.offerPaise)) : '') +
-      (t.discountPaise ? row('Bill discount', '−' + inr(t.discountPaise)) : '') +
-      (c.tax.on && d.tax.rateBp ? row(esc(d.tax.label) + ' ' + pct(d.tax.rateBp) + (d.tax.inclusive ? ' (included)' : ''), (d.tax.inclusive ? '' : '+') + inr(t.taxPaise)) : '') +
+    var taxed = c.tax.on && d.tax.rateBp;
+    return row('Original subtotal', inr(t.originalSubtotalPaise)) +
+      row('Product discounts', (t.offerPaise ? '−' : '') + inr(t.offerPaise)) +
+      row('Additional discount', (t.discountPaise ? '−' : '') + inr(t.discountPaise)) +
+      row(taxed ? esc(d.tax.label) + ' ' + pct(d.tax.rateBp) + (d.tax.inclusive ? ' (included)' : '') : 'Tax', (taxed && !d.tax.inclusive ? '+' : '') + inr(t.taxPaise)) +
       row('Final total', inr(t.totalPaise), 'qb-trow--grand') +
       row('Amount paid', inr(Math.min(d.pay.receivedPaise, t.totalPaise))) +
       row('Outstanding balance', inr(d.pay.balancePaise));
@@ -1127,19 +1156,21 @@
   }
 
   function actsHTML() {
-    return (S.saveError ? '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(S.saveError) + '</span></div>' : '') +
-      '<button class="btn qb-btn btn--lg btn--block" data-qb="review"' + (S.cart.lines.length ? '' : ' disabled') + '>' + icon('check') + 'Review Bill</button>' +
-      (S.cart.lines.length ? '' : '<p class="qb-hint">Add a product or a custom item to start a bill.</p>');
+    return S.saveError ? '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(S.saveError) + '</span></div>' : '';
   }
 
-  /* The sticky bar on a phone. It only summarises: the controls are on the page. */
+  /* The bill's one action, at every width: Review Bill, then Confirm Bill. */
   function cartBarHTML() {
     var n = S.cart.lines.reduce(function (k, l) { return k + l.qty; }, 0);
-    if (!n) return '';
     var d = draft();
+    var ready = S.cart.lines.some(function (l) { return l.unitPaise != null; });
+    var act = S.reviewing
+      ? '<button class="qb-cartbar__go" id="qbConfirm" data-qb="confirm-bill"' + (S.saving ? ' disabled' : '') + '>' +
+        (S.saving ? '<span class="qb-spin qb-spin--bar"></span>Saving…' : icon('check') + 'Confirm Bill') + '</button>'
+      : '<button class="qb-cartbar__go" data-qb="review"' + (ready ? '' : ' disabled') + '>Review Bill' + icon('chevronRight') + '</button>';
     return '<div class="qb-cartbar__in">' +
       '<button class="qb-cartbar__t" data-qb="to-cart" aria-label="Go to the cart"><b>' + inr(d.totals.totalPaise) + '</b><em>' + n + (n === 1 ? ' item' : ' items') + '</em></button>' +
-      '<button class="qb-cartbar__go" data-qb="review">Review Bill' + icon('chevronRight') + '</button></div>';
+      act + '</div>';
   }
   function paintCartBar() { paint('qbCartBar', cartBarHTML()); }
 
@@ -1147,6 +1178,8 @@
   /** `structure` true: lines were added or removed, so the list is redrawn. */
   function cartChanged(structure) {
     saveCart();
+    if (S.reviewing && !S.cart.lines.length) closeReview();
+    if (S.lastSaved && S.cart.lines.length) { S.lastSaved = null; paint('qbLast', ''); }
     var d = draft();
     if (structure) {
       paint('qbLines', linesHTML(d));
@@ -1177,9 +1210,13 @@
     S.cart.lines.forEach(function (l, i) {
       var r = d.offers.lines[i];
       var t = document.querySelector('[data-total="' + l.key + '"]');
-      if (t) t.textContent = l.unitPaise == null ? '—' : M.format(r.linePaise);
+      if (t) t.textContent = l.unitPaise == null ? '—' : inr(r.linePaise);
       var o = document.querySelector('[data-offer="' + l.key + '"]');
       if (o) o.innerHTML = lineOfferHTML(l, r);
+      var deal = document.querySelector('[data-deal="' + l.key + '"]');
+      if (deal) deal.innerHTML = lineDealHTML(l, r);
+      var box = document.querySelector('[data-price="' + l.key + '"]');
+      if (box) box.hidden = priceHidden(l, r);
     });
     paint('qbTotals', totalsHTML(d));
     paint('qbBal', balanceHTML(d));
@@ -1203,70 +1240,47 @@
 
   /* ================================================================ REVIEW
 
-     A drawer over the page. Opening it changes nothing: the cart stays a draft,
-     no stock moves and the form behind it stays as it was. */
-  function reviewHTML() {
-    var c = S.cart, d = draft(), t = d.totals, who = c.customer;
-    var row = function (k, v, cls) { return '<div class="qb-trow' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + v + '</b></div>'; };
-    return '<div class="sheet__grab"></div>' +
-      '<div class="sheet__head"><h3 class="t-h3 grow">Review Bill</h3>' +
-      '<button class="iconbtn" data-qb="edit-bill" aria-label="Close">' + icon('close') + '</button></div>' +
-      '<div class="sheet__body qb-review">' +
-      '<div class="qb-review__who"><span class="qb-lab">Customer</span>' +
-      (who.name || who.mobile
-        ? '<b>' + esc(who.name || who.mobile) + '</b>' + (who.name && who.mobile ? '<span>' + esc(who.mobile) + '</span>' : '')
-        : '<b>Walk-in customer</b>') + '</div>' +
-      '<ul class="qb-review__items">' + c.lines.map(function (l, i) {
-        var u = l.unitPaise == null ? 0 : l.unitPaise;
-        var r = d.offers.lines[i];
-        return '<li><div class="grow"><b>' + esc(l.name) + (l.variantLabel ? ' (' + esc(l.variantLabel) + ')' : '') + '</b>' +
-          (l.modelName ? '<span class="qb-fits">Requested model: ' + esc(l.modelName) + '</span>' : '') +
-          r.applied.map(function (a) { return '<span class="qb-fits">Offer: ' + esc(a.name) + ' (' + esc(OF.valueText(a, inr)) + ')</span>'; }).join('') +
-          '<span>' + l.qty + ' × ' + inr(u) + (r.offerPaise ? ' · Discount ' + inr(r.offerPaise) + ' · Final ' + inr(r.finalUnitPaise) + ' each' : '') + '</span></div><b>' + inr(r.linePaise) + '</b></li>';
-      }).join('') + '</ul>' +
-      '<div class="qb-totals">' + row(t.offerPaise ? 'Original subtotal' : 'Subtotal', inr(t.originalSubtotalPaise)) +
-      (t.offerPaise ? row('Product discounts', '−' + inr(t.offerPaise)) : '') +
-      (t.discountPaise ? row('Bill discount', '−' + inr(t.discountPaise)) : '') +
-      (c.tax.on && d.tax.rateBp ? row(esc(d.tax.label) + ' ' + pct(d.tax.rateBp) + (d.tax.inclusive ? ' (included)' : ''), inr(t.taxPaise)) : '') +
-      row('Final total', inr(t.totalPaise), 'qb-trow--grand') +
-      row('Amount paid', inr(Math.min(d.pay.receivedPaise, t.totalPaise))) +
-      row('Outstanding balance', inr(d.pay.balancePaise)) +
-      row('Payment', esc(label(METHODS, c.payment.method)) + ' · ' + esc(label(STATUSES, d.pay.status))) + '</div>' +
-      '</div>' +
-      '<div class="sheet__foot qb-revfoot" id="qbRevFoot">' + reviewFootHTML() + '</div>';
-  }
-  function reviewFootHTML() {
-    return (S.saveError ? '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(S.saveError) + '</span></div>' : '') +
-      '<div class="qb-revfoot__btns"><button class="btn btn--outline" data-qb="edit-bill"' + (S.saving ? ' disabled' : '') + '>' + icon('edit') + 'Edit Bill</button>' +
-      '<button class="btn qb-btn grow" id="qbConfirm" data-qb="confirm-bill"' + (S.saving ? ' disabled' : '') + '>' +
-      (S.saving ? '<span class="qb-spin"></span>Saving the bill…' : icon('check') + 'Confirm Bill') + '</button></div>';
+     The second stage of the same page. Review Bill adds the summary, the
+     additional discount, the tax and the payment under the cart. Nothing is saved
+     by it, and going back keeps the cart and the customer as they are. */
+  function showErrors(d, msg) {
+    toast(msg, 'alert');
+    paintDerived(d);
+    var bad = document.querySelector('.qb-nb .qb-err:not(:empty), .qb-line.is-bad');
+    if (bad) bad.scrollIntoView({ block: 'center' });
   }
   function openReview() {
     var d = draft();
-    if (!d.ok) {
-      toast(S.cart.lines.length ? 'Check the highlighted fields' : 'Add something to the bill first', 'alert');
-      paintDerived(d);
-      var bad = document.querySelector('.qb-nb .qb-err:not(:empty), .qb-line.is-bad');
-      if (bad) bad.scrollIntoView({ block: 'center' });
-      return;
-    }
+    if (!S.cart.lines.length) { toast('Add something to the bill first', 'alert'); return; }
+    /* what is wrong further down is put right there, so it does not stop the page opening */
+    var above = Object.keys(d.errors).filter(function (k) { return !/^(disc|tax|recv)$/.test(k); });
+    if (above.length) { showErrors(d, 'Check the highlighted fields'); return; }
     S.saveError = null;
-    S.sheet = { type: 'review', busy: false };
-    openSheet('review', reviewHTML(), 'Review Bill');
+    S.reviewing = true;
+    paint('qbReview', reviewSecHTML(d));
+    paintCartBar();
+    var sec = el('qbSummary');
+    if (sec) sec.scrollIntoView({ block: 'start' });
+  }
+  function closeReview() {
+    S.reviewing = false;
+    S.saveError = null;
+    paint('qbReview', '');
+    paintCartBar();
   }
 
   /* ================================================================ SAVING */
   function saveBill() {
     if (S.saving) return;
     var d = draft();
-    if (!d.ok) { closeSheet(); openReview(); return; }
+    if (!d.ok) { showErrors(d, 'Check the highlighted fields'); return; }
     var p = S.cart.lines.filter(function (l) { return l.productId && !productById(l.productId); })[0];
-    if (p) { S.saveError = '“' + p.name + '” is no longer in your products. Remove it from the bill.'; paint('qbRevFoot', reviewFootHTML()); return; }
+    if (p) { S.saveError = '“' + p.name + '” is no longer in your products. Remove it from the bill.'; paint('qbActs', actsHTML()); return; }
 
     S.saving = true;
     S.saveError = null;
-    if (S.sheet) S.sheet.busy = true;
-    paint('qbRevFoot', reviewFootHTML());
+    paint('qbActs', actsHTML());
+    paintCartBar();
     var uid = S.uid;
     API.bill(billPayload(d)).then(function (r) {
       if (S.uid !== uid) return;
@@ -1284,51 +1298,73 @@
         });
       }
       S.billCount = Math.max(S.billCount, bill.seq || 0);
-      markFiguresStale();
+      markFiguresStale(bill);
       S.cart = emptyCart();
       S.compat = null;
       S.filter.q = '';
       S.pickQty = {};
       S.custPicked = null;
+      S.reviewing = false;
+      S.priceEdit = {};
       saveCart();
       S.lastSaved = bill;
       S.saving = false;
-      if (S.sheet) S.sheet.busy = false;
       /* replayed: an earlier attempt of THIS bill had already reached the
          server (a double tap, or a reply lost to the connection) — it is the
          same bill, saved once */
       toast(r.replayed ? 'Bill ' + bill.number + ' saved (it had already reached the server)' : 'Bill ' + bill.number + ' saved', 'checkCircle');
       load();
       if (onBilling()) {
-        closeSheet();
         rerender();
         global.scrollTo(0, 0);
+        openInvoiceSheet(bill);
       }
     }, function (err) {
       if (S.uid !== uid) return;
       S.saving = false;
-      if (S.sheet) S.sheet.busy = false;
       S.saveError = say(err);
       if (err.code === 'insufficient-stock' || err.code === 'product-archived' || err.code === 'product-missing' || err.code === 'offers-changed') load();
       if (onBilling()) {
-        /* the amounts in the drawer are no longer the bill: back to the page */
-        if (err.code === 'offers-changed') closeSheet();
-        paint('qbRevFoot', reviewFootHTML());
         paintDerived();
         if (err.code === 'insufficient-stock') paint('qbLines', linesHTML(draft()));
+        var why = el('qbActs');
+        if (why) why.scrollIntoView({ block: 'center' });
       }
     });
   }
 
-  /** Anything that changes a bill changes these; they are read again when next shown. */
-  function markFiguresStale() {
-    S.bills.loaded = false;
+  /**
+   * Anything that changes a bill changes these; they are read again when next
+   * shown. The bill itself is put straight into a loaded list, so going back to
+   * Bills after a sale does not read the whole list again.
+   */
+  function markFiguresStale(bill) {
+    listBill(bill);
     S.customers.loaded = false;
     S.customerCache = {};
     S.overview.data = null;
+    S.sales.data = null;
+  }
+  function listBill(bill) {
+    var b = S.bills;
+    if (!b.loaded || b.q) { b.loaded = false; return; }
+    var pay = bill.payment || {};
+    var row = {
+      id: bill.id, number: bill.number, seq: bill.seq, status: bill.status, totalPaise: bill.totalPaise,
+      paymentStatus: pay.status, paymentMethod: pay.method, customerId: bill.customerId || null,
+      customerName: (bill.customer && bill.customer.name) || '', customerMobile: (bill.customer && bill.customer.mobile) || '',
+      itemCount: (bill.items || []).reduce(function (n, i) { return n + i.qty; }, 0),
+      receivedPaise: Math.min(pay.receivedPaise || 0, bill.totalPaise),
+      balancePaise: bill.status === 'void' ? 0 : pay.balancePaise || 0,
+      discountPaise: (bill.discountPaise || 0) + (bill.offerDiscountPaise || 0),
+      createdAt: bill.createdAt
+    };
+    for (var i = 0; i < b.items.length; i++) if (b.items[i].id === bill.id) { b.items[i] = row; return; }
+    b.items.unshift(row);
   }
 
   function newBill() {
+    closeSheet();
     S.lastSaved = null;
     S.saveError = null;
     if (!S.cart.lines.length) S.cart = emptyCart();
@@ -1340,27 +1376,38 @@
 
   /* ======================================================= THE SAVED INVOICE
 
-     Shown in the form's place as soon as the server has saved the bill, and
-     again from Bills. Everything here reads the saved bill, so sharing, printing
-     and downloading can be repeated freely and never make another sale. */
+     A bottom sheet over New Bill as soon as the server has saved the bill, and a
+     page from Bills. Everything here reads the saved bill, so sharing, printing
+     and downloading can be repeated freely and never make another sale. Closing
+     the sheet leaves the bill as saved; the strip on New Bill opens it again. */
   function invoiceActsHTML(b) {
     var id = esc(b.id);
     return '<button class="btn qb-btn" data-qb="inv-wa" data-id="' + id + '">' + icon('share') + 'WhatsApp Share</button>' +
-      '<button class="btn btn--outline" data-qb="inv-pdf" data-id="' + id + '">' + icon('install') + 'Download Invoice</button>' +
+      '<button class="btn btn--outline" data-qb="inv-share" data-id="' + id + '">' + icon('share') + 'Share Invoice</button>' +
+      '<button class="btn btn--outline" data-qb="inv-pdf" data-id="' + id + '">' + icon('install') + 'Download PDF</button>' +
       '<span class="qb-invprint">' + sizeSelectHTML('qbSize') +
       '<button class="btn btn--outline" data-qb="print-saved" data-id="' + id + '">' + icon('printer') + 'Print Invoice</button></span>';
   }
-  function invoiceDoneHTML(b) {
-    return '<div class="qb-done shell">' +
-      '<div class="qb-done__head"><span class="qb-saved__ico">' + icon('checkCircle') + '</span>' +
-      '<div class="grow"><h2>Bill saved</h2><p>' + esc(b.number) + ' · ' + inr(b.totalPaise) + ' · ' + esc(label(STATUSES, b.payment.status)) + '</p></div>' +
-      '<button class="btn qb-btn" data-qb="new-bill">' + icon('plus') + 'New Bill</button></div>' +
-      '<div class="qb-invacts">' + invoiceActsHTML(b) + '</div>' +
-      '<div class="qb-preview qb-preview--full">' + invoiceHTML(b, 'preview') + '</div>' +
+  function invoiceSheetHTML(b) {
+    return '<div class="sheet__grab"></div><div class="sheet__head"><span class="qb-saved__ico">' + icon('checkCircle') + '</span>' +
+      '<div class="grow"><h3 class="t-h3">Bill saved</h3><span class="qb-sub">' + esc(b.number) + ' · ' + inr(b.totalPaise) + ' · ' + esc(label(STATUSES, b.payment.status)) + '</span></div>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-invsheet"><div class="qb-preview qb-preview--full">' + invoiceHTML(b, 'preview') + '</div>' +
       '<div class="qb-done__more">' +
       '<button class="qb-link" data-qb="labels" data-id="' + esc(b.id) + '">' + icon('tag') + 'Print Product Labels</button>' +
-      '<a class="qb-link" href="/billing/bills/' + encodeURIComponent(b.id) + '">' + icon('linkOut') + 'Open bill</a></div>' +
-      '</div>';
+      '<a class="qb-link" href="/billing/bills/' + encodeURIComponent(b.id) + '">' + icon('linkOut') + 'Open bill</a></div></div>' +
+      '<div class="sheet__foot qb-invfoot"><div class="qb-invacts">' + invoiceActsHTML(b) +
+      '<button class="btn btn--outline" data-qb="new-bill">' + icon('plus') + 'New Bill</button></div></div>';
+  }
+  function openInvoiceSheet(b) {
+    S.sheet = { type: 'invoice', billId: b.id };
+    openSheet('invoice', invoiceSheetHTML(b), 'Invoice ' + b.number);
+  }
+  function lastSavedHTML() {
+    var b = S.lastSaved;
+    if (!b) return '';
+    return '<span class="qb-last__t">' + icon('checkCircle') + '<b>' + esc(b.number) + ' saved</b><span>' + inr(b.totalPaise) + '</span></span>' +
+      '<button class="qb-link" data-qb="inv-open" data-id="' + esc(b.id) + '">Open invoice</button>';
   }
 
   function billById(id) { return S.billCache[id] || S.lastSaved; }
@@ -1416,7 +1463,7 @@
   }
   function openWhatsApp(b) {
     var c = b.customer || {};
-    var sh = { type: 'wa', billId: b.id, to: c.whatsapp || c.mobile || '', text: shareMessage(b, ''), loading: true, linkFailed: false };
+    var sh = { type: 'wa', billId: b.id, to: c.whatsapp || c.mobile || '', text: shareMessage(b, ''), loading: true, linkFailed: false, back: fromInvoice() };
     S.sheet = sh;
     openSheet('wa',
       '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">Share on WhatsApp</h3>' +
@@ -1424,7 +1471,7 @@
       '<div class="sheet__body qb-form">' +
       fieldHTML('qbWaTo', 'wato', 'WhatsApp number', false, '<input class="input qb-in" id="qbWaTo" type="tel" inputmode="tel" autocomplete="off" value="' + esc(sh.to) + '" placeholder="Leave empty to choose in WhatsApp" data-qbi="wa-to" />') +
       fieldHTML('qbWaText', 'watext', 'Message', false, '<textarea class="input qb-in qb-notes" id="qbWaText" rows="11" data-qbi="wa-text">' + esc(sh.text) + '</textarea>') +
-      '<small class="qb-help" id="qbWaNote">You press send in WhatsApp. The message carries a link to the invoice; WhatsApp cannot attach a PDF by link, so use Download Invoice or Share PDF for the file.</small>' +
+      '<small class="qb-help" id="qbWaNote">You press send in WhatsApp. The message carries a link to the invoice; WhatsApp cannot attach a PDF by link, so use Download PDF or Share PDF for the file.</small>' +
       '</div><div class="sheet__foot" id="qbWaFoot">' + waFootHTML() + '</div>', 'Share on WhatsApp');
     API.bill({ action: 'share', billId: b.id }).then(function (r) {
       if (S.sheet !== sh) return;
@@ -1450,17 +1497,129 @@
     });
   }
 
-  /* ============================================================ BILLS LIST */
+  /* Share Invoice: the PDF through the phone's own share sheet where it can carry
+     a file, otherwise the invoice's link. Nothing here says it was sent, because
+     only the person sharing knows that. */
+  function copyLink(url) {
+    var clip = global.navigator.clipboard;
+    if (!clip) { toast('Could not copy the link here. Use WhatsApp Share instead.', 'alert'); return; }
+    clip.writeText(url).then(function () {
+      toast('Invoice link copied. Paste it where you want to send it.', 'checkCircle');
+    }, function () { toast('Could not copy the link here. Use WhatsApp Share instead.', 'alert'); });
+  }
+  function shareInvoice(b) {
+    var title = 'Invoice ' + b.number;
+    var bail = function (err) {
+      if (err && err.name !== 'AbortError') toast('Could not open sharing here. Download the invoice instead.', 'alert');
+    };
+    if (canShareFile()) {
+      global.navigator.share({ files: [invoiceFile(b)], title: title, text: shareMessage(b, '') }).catch(bail);
+      return;
+    }
+    API.bill({ action: 'share', billId: b.id }).then(function (r) {
+      var url = global.location.origin + '/i/' + r.token;
+      if (!global.navigator.share) { copyLink(url); return; }
+      global.navigator.share({ title: title, text: shareMessage(b, ''), url: url }).catch(function (err) {
+        if (err && err.name === 'NotAllowedError') copyLink(url); else bail(err);
+      });
+    }, function (err) { toast(say(err), 'alert'); });
+  }
+
+  /* ============================================================ BILLS LIST
+
+     Every matching bill, by date, once. The figures on a group are added up from
+     the rows under it, so they always describe what is on screen. Search goes to
+     the server; a date range too, because it decides which bills to read; and the
+     rest is decided here over the rows that came back. */
   function renderBills(page) {
     var b = S.bills;
+    var n = billFilterCount();
     page.innerHTML = frame('bills',
       '<div class="qb-list shell">' +
       '<div class="qb-list__head"><label class="qb-search">' + icon('search') +
-      '<input id="qbBillQ" type="search" autocomplete="off" placeholder="Bill number, customer name or mobile" value="' + esc(b.q) + '" data-qbi="bills-q" aria-label="Search bills" /></label></div>' +
-      (b.range ? '<div class="qb-compatbar"><span class="qb-compatbar__l">Showing</span><b>' + esc(b.range) + '</b>' +
-        '<button class="qb-link" data-qb="bills-all">' + icon('close') + 'All bills</button></div>' : '') +
+      '<input id="qbBillQ" type="search" autocomplete="off" placeholder="Bill number, customer name or mobile" value="' + esc(b.q) + '" data-qbi="bills-q" aria-label="Search bills" /></label>' +
+      '<button type="button" class="qb-filterbtn' + (n ? ' is-on' : '') + '" data-qb="bills-filter" aria-label="Filter bills' + (n ? ', ' + n + ' active' : '') + '">' + icon('filter') +
+      (n ? '<em class="qb-pmcount">' + n + '</em>' : '') + '</button></div>' +
       '<div id="qbBillList">' + billListHTML() + '</div></div>');
     if (!b.loaded && !b.loading) loadBills(true);
+  }
+
+  function billFilterCount() {
+    var f = S.bills.filter;
+    return (f.period ? 1 : 0) + (f.status !== 'all' ? 1 : 0);
+  }
+  /** The chosen dates, as moments and as words, or null for all dates. */
+  function billRange() {
+    var f = S.bills.filter;
+    if (!f.period) return null;
+    var p = f.period === 'custom' ? { from: f.from, to: f.to } : PD.period(f.period, Date.now());
+    return {
+      fromMs: p.from ? PD.dayStart(p.from) : 0,
+      toMs: PD.dayStart(PD.addDays(p.to, 1)),
+      title: f.label || PD.periodName(f.period) || 'Custom Date Range',
+      range: p.from ? PD.rangeName(p.from, p.to) : 'Up to ' + PD.dayName(p.to)
+    };
+  }
+  function shownBills() {
+    var b = S.bills, st = b.filter.status, range = billRange();
+    return b.items.filter(function (x) {
+      if (st !== 'all' && PD.statusOf(x) !== st) return false;
+      return !range || (x.createdAt >= range.fromMs && x.createdAt < range.toMs);
+    });
+  }
+  function resetBillFilter() {
+    var b = S.bills;
+    if (b.filter.period || b.q) b.loaded = false;
+    b.filter = blankBillFilter();
+    b.q = '';
+    closeSheet();
+    rerender();
+  }
+
+  function openBillFilter() {
+    var f = S.bills.filter;
+    S.sheet = { type: 'billfilter', period: f.period, from: f.from, to: f.to, status: f.status };
+    openSheet('billfilter',
+      '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">Filter bills</h3>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-form" id="qbBFBody">' + billFilterBodyHTML() + '</div>' +
+      '<div class="sheet__foot"><button class="btn btn--ghost" data-qb="bf-reset">Reset Filters</button>' +
+      '<button class="btn qb-btn grow" data-qb="bf-go">' + icon('check') + 'Show bills</button></div>', 'Filter bills');
+  }
+  function billFilterBodyHTML() {
+    var sh = S.sheet;
+    var chips = function (list, cur, act, name) {
+      return '<div class="qb-chips qb-chips--wrap" role="group" aria-label="' + name + '">' + list.map(function (x) {
+        var on = cur === x[0];
+        return '<button type="button" class="qb-chip' + (on ? ' is-on' : '') + '" data-qb="' + act + '" data-id="' + x[0] + '" aria-pressed="' + on + '">' + x[1] + '</button>';
+      }).join('') + '</div>';
+    };
+    return '<span class="qb-lab">Date</span>' +
+      chips([['', 'All Dates']].concat(PD.PERIODS, [['custom', 'Custom Date Range']]), sh.period, 'bf-date', 'Date') +
+      (sh.period === 'custom'
+        ? '<div class="qb-form__row">' +
+          fieldHTML('qbBFFrom', 'bffrom', 'From', false, '<input class="input qb-in" type="date" id="qbBFFrom" value="' + esc(sh.from) + '" data-qbi="bf-from" />') +
+          fieldHTML('qbBFTo', 'bfto', 'To', false, '<input class="input qb-in" type="date" id="qbBFTo" value="' + esc(sh.to) + '" data-qbi="bf-to" />') +
+          '</div><small class="qb-err" id="qbBFErr"></small>'
+        : '') +
+      '<span class="qb-lab">Payment status</span>' +
+      chips(BILL_STATUSES, sh.status, 'bf-status', 'Payment status');
+  }
+  function applyBillFilter() {
+    var sh = S.sheet, b = S.bills;
+    if (!sh || sh.type !== 'billfilter') return;
+    var from = sh.period === 'custom' ? sh.from : '';
+    var to = sh.period === 'custom' ? sh.to : '';
+    if (sh.period === 'custom') {
+      if (!from && !to) { paint('qbBFErr', 'Choose a start date, an end date or both.'); return; }
+      if (!to) to = PD.dayKey(Date.now());
+      if (from > to) { var swap = from; from = to; to = swap; }
+    }
+    var f = b.filter;
+    if (sh.period !== f.period || from !== f.from || to !== f.to) b.loaded = false;
+    b.filter = { period: sh.period, from: from, to: to, status: sh.status, label: '' };
+    closeSheet();
+    rerender();
   }
 
   function loadBills(fresh) {
@@ -1470,7 +1629,8 @@
     b.loading = true;
     if (fresh) { b.items = []; b.cursor = null; }
     paint('qbBillList', billListHTML());
-    API.bills({ q: b.q, from: b.q ? null : b.from || null, to: b.q ? null : b.to || null, cursor: fresh ? null : b.cursor }).then(function (r) {
+    var range = b.q ? null : billRange();
+    API.bills({ q: b.q, limit: BILL_PAGE, from: range ? range.fromMs : null, to: range ? range.toMs : null, cursor: fresh ? null : b.cursor }).then(function (r) {
       if (ticket !== b.ticket || S.uid !== uid) return;
       b.items = fresh ? r.bills : b.items.concat(r.bills);
       b.cursor = r.nextCursor;
@@ -1492,22 +1652,46 @@
       return C.state({ icon: 'alert', title: 'Could not load bills', text: say(b.error),
         action: '<button class="btn btn--outline btn--sm" data-qb="bills-retry">' + icon('refresh') + 'Try again</button>' });
     }
-    if (!b.items.length) {
+    var rows = shownBills();
+    var more = b.cursor
+      ? '<div class="qb-more"><button class="btn btn--outline" data-qb="bills-more"' + (b.loading ? ' disabled' : '') + '>' +
+        (b.loading ? 'Loading…' : 'Load older bills') + '</button></div><p class="qb-hint">The totals above cover the bills loaded so far.</p>'
+      : '';
+    var filtered = !!(b.q || billFilterCount());
+    if (!rows.length) {
       if (b.loading) return C.skelRows(5);
-      return C.state({ icon: 'receipt', title: b.q ? 'No bills match “' + b.q + '”' : b.range ? 'No bills in this period' : 'No bills yet',
-        text: b.q ? 'Search by bill number (QB-0012 or 12), customer name, or mobile number.' : 'Saved bills appear here, newest first.',
-        action: b.q ? '' : '<a class="btn qb-btn btn--sm" href="/billing">' + icon('plus') + 'New Bill</a>' });
+      if (!filtered) {
+        return C.state({ icon: 'receipt', title: 'No bills yet', text: 'Saved bills appear here, newest first.',
+          action: '<a class="btn qb-btn btn--sm" href="/billing">' + icon('plus') + 'New Bill</a>' });
+      }
+      return C.state({ icon: 'receipt', title: b.q ? 'No bills match “' + b.q + '”' : 'No bills match these filters',
+        text: b.q ? 'Search by bill number (QB-0012 or 12), customer name, or mobile number.' : 'Try a different date or payment status.',
+        action: '<button class="btn btn--outline btn--sm" data-qb="bills-reset">Reset Filters</button>' }) + more;
     }
-    return '<div class="qb-bills">' + b.items.map(function (x) {
-      var st = x.status === 'void' ? 'void' : x.paymentStatus;
-      return '<a class="qb-brow" href="/billing/bills/' + encodeURIComponent(x.id) + '">' +
-        '<span class="qb-brow__no">' + esc(x.number) + '</span>' +
-        '<span class="qb-brow__who"><b>' + esc(x.customerName || 'Walk-in') + '</b>' +
-        '<span>' + esc(when(x.createdAt)) + ' · ' + x.itemCount + (x.itemCount === 1 ? ' item' : ' items') + (x.customerMobile ? ' · ' + esc(x.customerMobile) : '') + '</span></span>' +
-        '<span class="qb-brow__amt">' + inr(x.totalPaise) + statusPill(st) + '</span></a>';
-    }).join('') + '</div>' +
-      (b.cursor ? '<div class="qb-more"><button class="btn btn--outline" data-qb="bills-more"' + (b.loading ? ' disabled' : '') + '>' +
-        (b.loading ? 'Loading…' : 'Load older bills') + '</button></div>' : '');
+    var range = billRange();
+    var groups = range
+      ? [{ title: range.title, range: range.range, rows: rows.slice().sort(function (x, y) { return y.createdAt - x.createdAt; }), stats: PD.billStats(rows) }]
+      : PD.groupBills(rows, Date.now()).filter(function (g) { return g.rows.length || (g.id === 'today' && !filtered); });
+    return groups.map(billGroupHTML).join('') + more;
+  }
+
+  function billGroupHTML(g) {
+    var s = g.stats;
+    var fig = function (k, v) { return '<div><dt>' + k + '</dt><dd>' + inr(v) + '</dd></div>'; };
+    var count = s.bills + (s.bills === 1 ? ' Bill' : ' Bills') + (s.voids ? ' · ' + s.voids + ' Void' : '');
+    return '<section class="qb-bgroup" aria-label="' + esc(g.title) + '">' +
+      '<header class="qb-bgroup__head"><div class="qb-bgroup__t"><h2>' + esc(g.title) + '</h2>' +
+      '<span>' + esc([g.range, count].filter(Boolean).join(' · ')) + '</span></div>' +
+      '<dl class="qb-bgroup__s">' + fig('Total Sales', s.salesPaise) + fig('Collected', s.collectedPaise) + fig('Outstanding', s.outstandingPaise) + '</dl></header>' +
+      (g.rows.length ? '<div class="qb-bills">' + g.rows.map(billRowHTML).join('') + '</div>' : '<p class="qb-hint qb-bgroup__none">No bills yet today.</p>') +
+      '</section>';
+  }
+  function billRowHTML(x) {
+    return '<a class="qb-brow" href="/billing/bills/' + encodeURIComponent(x.id) + '">' +
+      '<span class="qb-brow__no">' + esc(x.number) + '</span>' +
+      '<span class="qb-brow__who"><b>' + esc(x.customerName || 'Walk-in') + '</b>' +
+      '<span>' + esc(when(x.createdAt)) + ' · ' + x.itemCount + (x.itemCount === 1 ? ' item' : ' items') + (x.customerMobile ? ' · ' + esc(x.customerMobile) : '') + '</span></span>' +
+      '<span class="qb-brow__amt">' + inr(x.totalPaise) + statusPill(PD.statusOf(x)) + '</span></a>';
   }
 
   function statusPill(st) {
@@ -1957,14 +2141,7 @@
   }
 
   function renderOffers(page) {
-    var now = S.offers.map(offerState);
-    var tally = function (st) { return now.filter(function (x) { return x === st; }).length; };
-    var live = S.offers.filter(function (o) { return offerState(o) === 'active'; });
-    var productIds = {}, categoryIds = {};
-    live.forEach(function (o) {
-      offerProducts(o).forEach(function (p) { productIds[p.id] = 1; });
-      if (o.target === 'category') o.categoryIds.forEach(function (c) { categoryIds[c] = 1; });
-    });
+    var t = OF.offerTally(S.offers, activeProducts(), Date.now());
     var stat = function (label, n) { return '<div class="qb-ofstat"><b>' + n + '</b><span>' + label + '</span></div>'; };
     var f = S.offerFilter;
     page.innerHTML = frame('offers',
@@ -1972,9 +2149,10 @@
       '<div class="qb-ofhead"><h2>Discounts &amp; Offers</h2>' +
       '<button class="btn btn--outline btn--sm" data-qb="of-settings">' + icon('sliders') + '<span>Offer settings</span></button>' +
       '<button class="btn qb-btn btn--sm" data-qb="of-new">' + icon('plus') + 'Create New Offer</button></div>' +
-      '<div class="qb-ofstats">' + stat('Total Offers', S.offers.length) + stat('Active Offers', tally('active')) +
-      stat('Scheduled Offers', tally('scheduled')) + stat('Expired Offers', tally('expired')) +
-      stat('Products Covered', Object.keys(productIds).length) + stat('Categories Covered', Object.keys(categoryIds).length) + '</div>' +
+      '<div class="qb-ofstats">' + stat('Total Offers', t.total) + stat('Active Offers', t.active) +
+      stat('Scheduled Offers', t.scheduled) + stat('Expired Offers', t.expired) +
+      stat('Products Covered', t.products) + stat('Categories Covered', t.categories) + '</div>' +
+      '<section class="qb-sales" id="qbSales" aria-label="Sales Overview">' + salesHTML() + '</section>' +
       '<div class="qb-ofbar"><label class="qb-pmsearch">' + icon('search') +
       '<input id="qbOfferQ" type="search" autocomplete="off" placeholder="Search offer, product, category, SKU, variant..." value="' + esc(f.q) + '" data-qbi="of-search" aria-label="Search offers" /></label>' +
       '<div class="qb-chips" role="group" aria-label="Offer status">' + OFFER_TABS.map(function (t) {
@@ -1982,6 +2160,71 @@
         return '<button class="qb-chip' + (on ? ' is-on' : '') + '" data-qb="of-tab" data-id="' + t[0] + '" aria-pressed="' + on + '">' + t[1] + '</button>';
       }).join('') + '</div></div>' +
       '<div id="qbOfferList">' + offerListHTML() + '</div></div>');
+    if (!S.sales.data && !S.sales.loading && !S.sales.error) loadSales();
+  }
+
+  /* -------------------------------------------------------- the sales overview
+
+     From the server's own record of each day, so these are the figures the
+     Overview adds up: confirmed bills only, voids taken back off. */
+  function salesRange() {
+    var s = S.sales;
+    return s.preset === 'custom' ? { from: s.from, to: s.to } : PD.period(s.preset, Date.now());
+  }
+  function loadSales() {
+    var s = S.sales, r = salesRange(), uid = S.uid;
+    var ticket = ++s.ticket;
+    s.error = null;
+    if (!r.from || !r.to) { s.loading = false; paint('qbSalesBody', salesBodyHTML()); return; }
+    s.loading = true;
+    paint('qbSalesBody', salesBodyHTML());
+    API.sales({ from: r.from, to: r.to }).then(function (data) {
+      if (ticket !== s.ticket || S.uid !== uid) return;
+      s.data = data;
+    }, function (err) {
+      if (ticket !== s.ticket || S.uid !== uid) return;
+      s.error = err;
+    }).then(function () {
+      if (ticket !== s.ticket) return;
+      s.loading = false;
+      paint('qbSalesBody', salesBodyHTML());
+    });
+  }
+  function salesHTML() {
+    var s = S.sales;
+    var r = salesRange();
+    return '<div class="qb-sec"><h2>Sales Overview</h2><span class="qb-count">' + esc(r.from && r.to ? PD.rangeName(r.from, r.to) : 'Choose dates') + '</span></div>' +
+      '<div class="qb-chips" role="group" aria-label="Reporting period">' + PD.PERIODS.concat([['custom', 'Custom']]).map(function (p) {
+        var on = s.preset === p[0];
+        return '<button class="qb-chip' + (on ? ' is-on' : '') + '" data-qb="sales-preset" data-id="' + p[0] + '" aria-pressed="' + on + '">' + p[1] + '</button>';
+      }).join('') + '</div>' +
+      (s.preset === 'custom'
+        ? '<div class="qb-range qb-sales__dates"><label>From <input class="input" type="date" id="qbSalesFrom" value="' + esc(s.from) + '" data-qbi="sales-range" /></label>' +
+          '<label>To <input class="input" type="date" id="qbSalesTo" value="' + esc(s.to) + '" data-qbi="sales-range" /></label></div>'
+        : '') +
+      '<div id="qbSalesBody">' + salesBodyHTML() + '</div>';
+  }
+  function salesBodyHTML() {
+    var s = S.sales, x = s.data;
+    if (s.error) {
+      return C.state({ icon: 'alert', title: 'Could not load the sales figures', text: say(s.error),
+        action: '<button class="btn btn--outline btn--sm" data-qb="sales-retry">' + icon('refresh') + 'Try again</button>' });
+    }
+    if (s.loading || !x) {
+      if (!s.loading && s.preset === 'custom') return '<p class="qb-hint">Choose both dates to see this period.</p>';
+      return '<div class="qb-salesgrid">' + [0, 1, 2, 3, 4, 5].map(function () { return '<div class="qb-kpi"><div class="skel" style="height:44px"></div></div>'; }).join('') + '</div>';
+    }
+    var kpi = function (k, v, sub) {
+      return '<div class="qb-kpi"><span class="qb-kpi__l">' + k + '</span><b>' + v + '</b>' + (sub ? '<span class="qb-kpi__s">' + sub + '</span>' : '') + '</div>';
+    };
+    return '<div class="qb-salesgrid">' +
+      kpi('Total Sales', inr(x.salesPaise), x.bills + (x.bills === 1 ? ' confirmed bill' : ' confirmed bills')) +
+      kpi('Discounted Sales', inr(x.discountedSalesPaise), 'on bills with a discount') +
+      kpi('Total Discount Given', inr(x.discountPaise), 'offers and additional discounts') +
+      kpi('Discounted Bills', String(x.discountedBills), 'of ' + x.bills + (x.bills === 1 ? ' bill' : ' bills')) +
+      kpi('Average Discount', inr(x.averageDiscountPaise), 'per discounted bill') +
+      kpi('Discount Sales Contribution', pct(x.contributionBp), 'of total sales') + '</div>' +
+      '<p class="qb-sales__note">Collected in this period: <b>' + inr(x.collectedPaise) + '</b>. Sales are what confirmed bills came to, whether or not they are paid. Collected is the money received, and void bills count in neither.</p>';
   }
 
   function offerHay(o) {
@@ -2012,6 +2255,7 @@
         var st = offerState(o);
         var over = st === 'expired';
         var running = st === 'active' || st === 'scheduled';
+        var ended = !!o.endAt && Date.now() > o.endAt;
         return '<tr role="row"' + (over ? ' class="is-off"' : '') + '>' +
           td('product', '<div class="qb-pt__name"><b>' + esc(o.name) + '</b>' + (o.description ? '<span>' + esc(o.description) + '</span>' : '') + '</div>') +
           cell('value', '<b>' + esc(OF.valueText(o, inr)) + '</b>') +
@@ -2023,7 +2267,7 @@
           td('actions', '<button class="qb-link" data-qb="of-view" data-id="' + esc(o.id) + '">View</button>' +
             '<button class="qb-link" data-qb="of-edit" data-id="' + esc(o.id) + '">Edit</button>' +
             (running ? '<button class="qb-link" data-qb="of-status" data-id="' + esc(o.id) + '" data-to="paused">Pause</button>' : '') +
-            (st === 'paused' || (over && o.status !== 'active') ? '<button class="qb-link" data-qb="of-status" data-id="' + esc(o.id) + '" data-to="active">Activate</button>' : '') +
+            ((st === 'paused' || over) && !ended ? '<button class="qb-link" data-qb="of-status" data-id="' + esc(o.id) + '" data-to="active">Activate</button>' : '') +
             (over ? '' : '<button class="qb-link qb-danger" data-qb="of-status" data-id="' + esc(o.id) + '" data-to="expired">Expire</button>')) +
           '</tr>';
       }).join('') + '</tbody></table></div>';
@@ -2043,7 +2287,7 @@
   /** The cart reads the offers afresh, so a change here reaches an open bill at once. */
   function offersMoved() {
     S.offerKey = activeOfferKey();
-    if (S.cart && S.cart.lines.length && viewName() === 'pos' && !S.lastSaved) cartChanged(false);
+    if (S.cart && S.cart.lines.length && viewName() === 'pos') cartChanged(false);
   }
   function activeOfferKey() {
     return S.offers.filter(function (o) { return offerState(o) === 'active'; }).map(function (o) { return o.id; }).sort().join();
@@ -2257,8 +2501,20 @@
         return '<li><div class="grow"><b>' + esc(p.name) + '</b><span>' + esc(catName(p.categoryId)) + '</span></div><b>' + inr(p.pricePaise) +
           (off ? ' → ' + inr(p.pricePaise - off) : '') + '</b></li>';
       }).join('') + '</ul>' : '<p class="qb-sub">No active product is covered right now.</p>') +
-      '</div><div class="sheet__foot"><button class="btn btn--outline grow" data-qb="of-edit" data-id="' + esc(o.id) + '">' + icon('edit') + 'Edit Offer</button></div>',
+      '</div><div class="sheet__foot"><button class="btn btn--ghost qb-danger" data-qb="of-remove" data-id="' + esc(o.id) + '">Remove</button>' +
+      '<button class="btn btn--outline grow" data-qb="of-edit" data-id="' + esc(o.id) + '">' + icon('edit') + 'Edit Offer</button></div>',
       o.name);
+  }
+  function removeOffer(id) {
+    var o = offerById(id);
+    if (!o || !global.confirm('Remove “' + o.name + '” from your offers? It stops applying to new bills. Saved bills keep their discount.')) return;
+    API.offer({ action: 'remove', offerId: id }).then(function () {
+      S.offers = S.offers.filter(function (x) { return x.id !== id; });
+      closeSheet();
+      toast('Offer removed', 'checkCircle');
+      paintOffers();
+      offersMoved();
+    }, function (e) { toast(say(e), 'alert'); });
   }
 
   function openOfferSettings() {
@@ -2305,19 +2561,23 @@
 
   /* --------------------------------------------------- offers on a cart line */
   function lineOfferHTML(l, r) {
-    if (!r) return '';
+    if (!r || !r.options.length) return '';
+    var key = esc(l.key);
+    var btn = function (act, text, cls) { return '<button type="button" class="qb-link' + (cls || '') + '" data-qb="' + act + '" data-id="' + key + '">' + text + '</button>'; };
     var usable = r.options.filter(function (o) { return o.state !== 'blocked'; });
-    if (!r.options.length) return '';
-    var more = '<button type="button" class="qb-link" data-qb="line-offers" data-id="' + esc(l.key) + '">' +
-      (r.applied.length ? 'Offers' : usable.length ? 'Apply Offer' : 'Why no offer?') + '</button>';
+    if (l.offerPick === 'none') {
+      return '<span class="qb-lineoffer qb-lineoffer--idle">Offer cancelled' + (usable.length ? btn('line-restore', 'Apply Offer Again') : '') + '</span>';
+    }
     if (!r.applied.length) {
-      return '<span class="qb-lineoffer qb-lineoffer--idle">' + (usable.length ? usable.length + (usable.length === 1 ? ' offer available' : ' offers available') : 'Offer not applied') + more + '</span>';
+      return '<span class="qb-lineoffer qb-lineoffer--idle">' + (usable.length ? usable.length + (usable.length === 1 ? ' offer available' : ' offers available') : 'Offer not applied') +
+        btn('line-offers', usable.length ? 'Apply Offer' : 'Why no offer?') + '</span>';
     }
     var each = Math.round(r.offerPaise / l.qty);
-    return '<span class="qb-lineoffer">' + r.applied.map(function (a) {
-      return '<b>' + icon('tag') + esc(a.name) + '</b><em>' + esc(OF.valueText(a, inr)) + '</em>';
-    }).join('') + more +
-      '<span class="qb-lineoffer__sum">Original ' + inr(l.unitPaise) + ' · Discount ' + inr(each) + (l.qty > 1 ? ' each' : '') + ' · Final ' + inr(r.finalUnitPaise) + (l.qty > 1 ? ' each' : '') + '</span></span>';
+    return '<span class="qb-lineoffer">' + r.applied.map(function (a) { return '<b>' + icon('tag') + esc(a.name) + '</b>'; }).join('') +
+      '<em>' + inr(each) + ' off' + (l.qty > 1 ? ' each' : '') + '</em>' +
+      btn('line-cancel', 'Cancel Offer', ' qb-danger') +
+      (r.options.length > 1 ? btn('line-offers', 'Offers') : '') +
+      (S.priceEdit[l.key] ? '' : btn('line-price-edit', 'Edit price')) + '</span>';
   }
   function openLineOffers(key) {
     var l = lineByKey(key);
@@ -2886,7 +3146,8 @@
   /* --------------------------------------------------------- the drill-downs */
   function showBills(from, to, label) {
     var b = S.bills;
-    b.from = dayStart(from); b.to = dayStart(dayShift(to, 1)); b.range = label; b.q = ''; b.loaded = false;
+    b.filter = { period: 'custom', from: from, to: to, status: 'all', label: label };
+    b.q = ''; b.loaded = false;
     go('/billing/bills');
   }
   function showCustomers(filter, since, label) {
@@ -2945,6 +3206,14 @@
     var host = el('overlay');
     if (host && host.querySelector('.qb-sheet')) host.innerHTML = '';
     document.body.style.overflow = '';
+  }
+  /* A sheet opened from the invoice sheet goes back to it, not to the page. */
+  function fromInvoice() { return S.sheet && S.sheet.type === 'invoice' ? S.sheet.billId : null; }
+  function dismissSheet() {
+    var back = S.sheet && S.sheet.back;
+    closeSheet();
+    var b = back && !(S.sheet) && billById(back);
+    if (b) openInvoiceSheet(b);
   }
 
   /* ----------------------------------------------- Quick Product Add / Edit
@@ -3686,7 +3955,7 @@
     API.bill({ action: 'void', billId: sh.id, reason: reason }).then(function (r) {
       sh.busy = false;
       S.billCache[sh.id] = r.bill;
-      markFiguresStale();
+      markFiguresStale(r.bill);
       closeSheet();
       toast(r.bill.number + ' voided · stock restored', 'checkCircle');
       load();
@@ -3729,7 +3998,7 @@
     API.bill({ action: 'payment', billId: sh.id, payment: { method: sh.method, status: M.statusFor(b.totalPaise, v), receivedPaise: v } }).then(function (r) {
       sh.busy = false;
       S.billCache[sh.id] = r.bill;
-      markFiguresStale();
+      markFiguresStale(r.bill);
       closeSheet();
       toast('Payment saved · ' + label(STATUSES, r.bill.payment.status), 'checkCircle');
       rerender();
@@ -4005,11 +4274,16 @@
       case 'print-saved': { var sb = billById(id); if (sb) printInvoice(sb, S.printSize); break; }
       case 'inv-pdf': { var pb = billById(id); if (pb) downloadInvoice(pb); break; }
       case 'inv-wa': { var wb = billById(id); if (wb) openWhatsApp(wb); break; }
+      case 'inv-share': { var hb = billById(id); if (hb) shareInvoice(hb); break; }
+      case 'inv-open': { var ob = billById(id); if (ob) openInvoiceSheet(ob); break; }
       case 'wa-file': shareFile(); break;
       case 'new-bill': newBill(); break;
       case 'labels': {
         var lb = billById(id);
-        if (lb) openLabels(labelEntriesFromBill(lb), 'Print Product Labels · ' + lb.number);
+        if (!lb) break;
+        var lblBack = fromInvoice();
+        openLabels(labelEntriesFromBill(lb), 'Print Product Labels · ' + lb.number);
+        if (S.sheet) S.sheet.back = lblBack;
         break;
       }
       case 'lbl-layout':
@@ -4021,9 +4295,9 @@
         if (a === 'pp-method' && S.sheet) S.sheet.method = id;
         break;
       case 'lbl-print': printChosenLabels(); break;
-      case 'close-sheet': closeSheet(); break;
+      case 'close-sheet': dismissSheet(); break;
       case 'review': openReview(); break;
-      case 'edit-bill': closeSheet(); break;
+      case 'edit-bill': { closeReview(); var eb = el('qbBill'); if (eb) eb.scrollIntoView({ block: 'start' }); break; }
       case 'add-product': openProductForm('create'); break;
       case 'edit-product': openProductForm('edit', id); break;
       case 'product-save': submitProduct(id === 'again'); break;
@@ -4081,6 +4355,13 @@
       case 'of-new': openOfferForm(); break;
       case 'of-edit': closeSheet(); openOfferForm(id); break;
       case 'of-view': openOfferView(id); break;
+      case 'of-remove': removeOffer(id); break;
+      case 'sales-preset':
+        S.sales.preset = id; S.sales.data = null; S.sales.error = null; S.sales.loading = false; S.sales.ticket++;
+        paint('qbSales', salesHTML());
+        loadSales();
+        break;
+      case 'sales-retry': loadSales(); break;
       case 'of-settings': openOfferSettings(); break;
       case 'of-settings-go': submitOfferSettings(); break;
       case 'of-save': submitOffer(); break;
@@ -4117,6 +4398,19 @@
         paint('qbOChosen', offerChosenHTML());
         break;
       case 'line-offers': openLineOffers(id); break;
+      case 'line-cancel':
+        if (line) { line.offerPick = 'none'; cartChanged(false); }
+        break;
+      case 'line-restore':
+        if (line) restoreOffer(line);
+        break;
+      case 'line-price-edit': {
+        S.priceEdit[id] = true;
+        paintDerived();
+        var pin = document.querySelector('[data-qbi="line-price"][data-id="' + id + '"]');
+        if (pin) pin.focus();
+        break;
+      }
       case 'line-pick': {
         var lp = S.sheet && S.sheet.key ? lineByKey(S.sheet.key) : null;
         if (lp) { lp.offerPick = id || null; closeSheet(); cartChanged(false); }
@@ -4159,6 +4453,11 @@
       case 'pp-go': submitPayment(); break;
       case 'void': openVoid(id); break;
       case 'void-go': submitVoid(); break;
+      case 'bills-filter': openBillFilter(); break;
+      case 'bills-reset': case 'bf-reset': resetBillFilter(); break;
+      case 'bf-go': applyBillFilter(); break;
+      case 'bf-date': S.sheet.period = id; paint('qbBFBody', billFilterBodyHTML()); break;
+      case 'bf-status': S.sheet.status = id; paint('qbBFBody', billFilterBodyHTML()); break;
       case 'cat-suggest-all': catRequest({ action: 'suggested' }, function (r) { return r.created.length ? r.created.length + ' categories added' : 'You already have them all'; }); break;
       case 'cat-suggest': catRequest({ action: 'suggested', names: [id] }, 'Category added'); break;
       case 'cat-edit': openCatForm(id); break;
@@ -4169,7 +4468,6 @@
       case 'cat-delete': openCatDelete(id); break;
       case 'cat-delete-go': submitCatDelete(); break;
       case 'cat-view': showProducts({ cat: id }); break;
-      case 'bills-all': S.bills.from = 0; S.bills.to = 0; S.bills.range = ''; S.bills.loaded = false; rerender(); break;
       case 'cust-new': openCustomerForm(); break;
       case 'cust-edit': openCustomerForm(id); break;
       case 'cust-go': submitCustomer(); break;
@@ -4211,6 +4509,18 @@
     S.cart.lines = S.cart.lines.filter(function (l) { return l.key !== key; });
     S.saveError = null;
     cartChanged(true);
+  }
+
+  /* Back to what the rules give the line. If they give it nothing, because this
+     offer does not apply itself, the offer that was usable is chosen for it. */
+  function restoreOffer(l) {
+    l.offerPick = null;
+    var r = draft().offers.lines[S.cart.lines.indexOf(l)];
+    if (!r.applied.length) {
+      var open = r.options.filter(function (o) { return o.state === 'available'; })[0];
+      if (open) l.offerPick = open.id;
+    }
+    cartChanged(false);
   }
 
   var billSearchTimer = null;
@@ -4282,6 +4592,8 @@
         billSearchTimer = setTimeout(filterChanged, 150);
         break;
       }
+      case 'bf-from': if (S.sheet) S.sheet.from = t.value; break;
+      case 'bf-to': if (S.sheet) S.sheet.to = t.value; break;
       case 'of-search':
         S.offerFilter.q = t.value.trim();
         clearTimeout(billSearchTimer);
@@ -4378,6 +4690,15 @@
         loadOverview();
         break;
       }
+      case 'sales-range': {
+        var sr = S.sales;
+        sr.from = (el('qbSalesFrom') || {}).value || '';
+        sr.to = (el('qbSalesTo') || {}).value || '';
+        if (sr.from && sr.to && sr.from > sr.to) { var st = sr.from; sr.from = sr.to; sr.to = st; }
+        paint('qbSales', salesHTML());
+        loadSales();
+        break;
+      }
       case 'hist-range': {
         var ch = S.customerCache[params[1]];
         if (ch) paint('qbCustHist', historyHTML(ch.bills, (el('qbHistFrom') || {}).value || '', (el('qbHistTo') || {}).value || ''));
@@ -4438,7 +4759,7 @@
 
   function onKey(e) {
     if (!onBilling()) return;
-    if (e.key === 'Escape' && S.sheet) { closeSheet(); return; }
+    if (e.key === 'Escape' && S.sheet) { dismissSheet(); return; }
     if (e.key === 'Escape' && S.prodPop) { closePop(); return; }
     if (e.key === 'Escape' && S.stockEdit && !S.stockEdit.busy) { endStockEdit(); return; }
     /* Enter in the custom-item row adds it, rather than doing nothing */
@@ -4460,7 +4781,7 @@
     if (key === S.offerKey) return;
     S.offerKey = key;
     if (viewName() === 'offers') rerender();
-    else if (viewName() === 'pos' && !S.lastSaved && S.cart.lines.length) cartChanged(false);
+    else if (viewName() === 'pos' && S.cart.lines.length) cartChanged(false);
   }, 30000);
   ['mouseover', 'focusin'].forEach(function (type) {
     document.addEventListener(type, function (e) {
