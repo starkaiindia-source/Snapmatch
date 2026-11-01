@@ -15,6 +15,7 @@
      /billing/bills             saved bills: search, history
      /billing/bills/<id>        one saved bill: reprint, labels, payment, void
      /billing/products          stock: table or grid, filters, edit, adjust
+     /billing/offers            discounts for a category, a product or a variant
      /billing/categories        create, edit, reorder, delete-with-move
      /billing/customers         the customer list, filters, search
      /billing/customers/<id>    one customer: totals, history, payments
@@ -31,7 +32,7 @@
    ========================================================================== */
 (function (global) {
   'use strict';
-  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts, SH = SM.shopShare;
+  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts, SH = SM.shopShare, OF = SM.shopOffers;
   var esc = C.esc, inr = M.inr;
 
   var PRODUCT_PAGE = 50;
@@ -58,6 +59,7 @@
       uid: uid || null,
       loaded: false, loading: null, loadError: null,
       categories: [], products: [], suggested: [], billCount: 0,
+      offers: [], offerSettings: {}, offerFilter: { q: '', status: 'all' }, offerKey: '',
       filter: { cat: 'all', q: '' }, catLimit: 60, pickQty: {}, lastAdd: null, custPicked: null,
       cart: null, saving: false, saveError: null, lastSaved: null,
       bills: { items: [], cursor: null, q: '', from: 0, to: 0, range: '', loading: false, loaded: false, error: null, ticket: 0 },
@@ -160,6 +162,14 @@
       case 'category-exists': return 'A category with this name already exists.';
       case 'category-has-products': return 'This category still has ' + d.count + ' products. Choose where to move them.';
       case 'stock-changed': return 'A bill changed this stock to ' + d.available + ' while you were editing. Check the number and save again.';
+      case 'offers-changed': return 'An offer changed while this bill was open, so the total is now ' + M.inr(d.totalPaise) + '. Check the bill and confirm again.';
+      case 'offer-name': return 'Give the offer a name.';
+      case 'offer-value': return 'Enter a discount above zero. A percentage cannot be more than 100.';
+      case 'offer-max': return 'Enter the maximum discount as an amount, or leave it empty.';
+      case 'offer-target': return 'Choose what the offer applies to. Something chosen may no longer exist.';
+      case 'offer-dates': return 'Check the dates: the end has to come after the start, and a time needs a date.';
+      case 'offer-too-large': return 'The discount is larger than the price of “' + (d.name || 'a chosen product') + '”.';
+      case 'offer-ended': return 'This offer’s end date has passed. Edit the dates to run it again.';
       case 'negative-stock': return 'Stock cannot go below zero (in stock: ' + d.available + ').';
       case 'image-type': case 'image-data': return 'That photo could not be used. Try a JPG or PNG.';
       case 'image-too-large': return 'That photo is too large. Try a smaller one.';
@@ -179,7 +189,8 @@
       discount: { mode: 'amount', text: '' },
       tax: { on: false, rate: '18', inclusive: false, label: 'GST' },
       customer: { id: '', name: '', mobile: '', whatsapp: '', address: '', gstin: '', notes: '' },
-      payment: { method: 'cash', status: 'paid', received: '' }
+      payment: { method: 'cash', status: 'paid', received: '' },
+      autoOffers: null          /* null: this bill follows the shop's setting */
     };
   }
   function cartKey() { return 'mpf.qb.cart.' + S.uid; }
@@ -199,7 +210,8 @@
           discount: Object.assign(e.discount, c.discount),
           tax: Object.assign(e.tax, c.tax),
           customer: Object.assign(e.customer, sessionCustomer()),
-          payment: Object.assign(e.payment, c.payment)
+          payment: Object.assign(e.payment, c.payment),
+          autoOffers: c.autoOffers == null ? null : !!c.autoOffers
         };
       }
     } catch (err) { /* a corrupt draft is replaced, not trusted */ }
@@ -208,7 +220,7 @@
   function saveCart() {
     if (!S.uid || !S.cart) return;
     var c = S.cart;
-    store(cartKey(), JSON.stringify({ fid: c.fid, lines: c.lines, discount: c.discount, tax: c.tax, payment: c.payment }));
+    store(cartKey(), JSON.stringify({ fid: c.fid, lines: c.lines, discount: c.discount, tax: c.tax, payment: c.payment, autoOffers: c.autoOffers }));
     try { global.sessionStorage.setItem(cartKey(), JSON.stringify(c.customer)); } catch (e) { /* private mode */ }
   }
   function lineByKey(k) { for (var i = 0; i < S.cart.lines.length; i++) if (S.cart.lines[i].key === k) return S.cart.lines[i]; return null; }
@@ -260,9 +272,25 @@
 
   /* What the bill comes to, from what is on screen. Display never fails: an
      unreadable price counts as zero here and is flagged; Save is what refuses. */
+  function autoOffers() {
+    var a = S.cart.autoOffers;
+    return a == null ? S.offerSettings.billAutoApply !== false : a;
+  }
   function draft() {
     var c = S.cart;
-    var lines = c.lines.map(function (l) { return { unitPaise: l.unitPaise == null ? 0 : l.unitPaise, qty: l.qty }; });
+    var offers = OF.applyOffers({
+      offers: S.offers, settings: S.offerSettings, auto: autoOffers(), now: Date.now(),
+      lines: c.lines.map(function (l) {
+        var p = l.productId ? productById(l.productId) : null;
+        return {
+          key: l.key, productId: l.productId, variantId: l.variantId || null, categoryId: p ? p.categoryId : null,
+          unitPaise: l.unitPaise == null ? 0 : l.unitPaise, qty: l.qty, pick: l.offerPick || undefined
+        };
+      })
+    });
+    var lines = c.lines.map(function (l, i) {
+      return { unitPaise: l.unitPaise == null ? 0 : l.unitPaise, qty: l.qty, offerPaise: offers.lines[i].offerPaise };
+    });
     var dt = String(c.discount.text || '').trim();
     var dv = dt ? (c.discount.mode === 'percent' ? M.parsePercent(dt) : M.parseRupees(dt)) : 0;
     var discount = { mode: c.discount.mode, value: dv == null ? 0 : dv };
@@ -293,7 +321,7 @@
     var gst = String(cust.gstin || '').trim();
     if (gst && !/^[0-9A-Za-z]{15}$/.test(gst)) errors.cgstin = 'A GSTIN has 15 letters and numbers';
     var ok = c.lines.length > 0 && Object.keys(errors).length === 0;
-    return { totals: totals, pay: pay, discount: discount, tax: tax, received: rv || 0, errors: errors, ok: ok };
+    return { totals: totals, offers: offers, pay: pay, discount: discount, tax: tax, received: rv || 0, errors: errors, ok: ok };
   }
 
   /* The same rule the server applies: "Paid" with nothing typed is paid in
@@ -323,6 +351,10 @@
       }),
       discount: d.discount,
       tax: c.tax.on ? d.tax : { rateBp: 0 },
+      /* what the shop chose. The server works the offers out for itself, and the
+         total is sent so it can say so if its answer is not what was on screen */
+      offers: { auto: autoOffers(), picks: c.lines.map(function (l) { return l.offerPick || null; }) },
+      expectedTotalPaise: d.totals.totalPaise,
       payment: { method: c.payment.method, status: c.payment.status, receivedPaise: d.received },
       customer: {
         id: c.customer.id || undefined, name: c.customer.name, mobile: c.customer.mobile, whatsapp: c.customer.whatsapp,
@@ -382,7 +414,9 @@
     var rows = (b.items || []).map(function (it, i) {
       var meta = [it.shelf ? 'Shelf ' + it.shelf : '', it.sku || ''].filter(Boolean).join(' · ');
       var title = it.name + (it.variantLabel ? ' (' + it.variantLabel + ')' : '');
-      var fits = it.selectedModelName ? '<span class="inv__dim">For ' + esc(it.selectedModelName) + '</span>' : '';
+      var fits = (it.selectedModelName ? '<span class="inv__dim">For ' + esc(it.selectedModelName) + '</span>' : '') +
+        (it.offers || []).map(function (o) { return '<span class="inv__dim">Offer: ' + esc(o.name) + ' (' + esc(OF.valueText(o, inr)) + ')</span>'; }).join('') +
+        (it.offerPaise ? '<span class="inv__dim">Discount ' + M.format(it.offerPaise) + ' · Final ' + M.format(it.finalUnitPaise) + ' each</span>' : '');
       if (thermal) {
         return '<tr><td colspan="2"><b>' + esc(title) + '</b>' + fits + '<br><span class="inv__dim">' +
           it.qty + ' × ' + M.format(it.unitPaise) + '</span></td><td class="inv__num">' + M.format(it.totalPaise) + '</td></tr>';
@@ -401,11 +435,14 @@
     var t = function (k, v, cls) { return '<div class="inv__t' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + v + '</b></div>'; };
     var tax = b.tax || {};
     var pay = b.payment || {};
+    var offerOff = b.offerDiscountPaise || 0;
     var totals = '<div class="inv__totals">' +
-      t('Subtotal', M.format(b.subtotalPaise || 0)) +
-      (b.discountPaise ? t('Discount' + (b.discount && b.discount.mode === 'percent' ? ' (' + pct(b.discount.value) + ')' : ''), '−' + M.format(b.discountPaise)) : '') +
+      t('Subtotal', M.format(b.originalSubtotalPaise || b.subtotalPaise || 0)) +
+      (offerOff ? t('Product discounts', '−' + M.format(offerOff)) : '') +
+      (b.discountPaise ? t('Bill discount' + (b.discount && b.discount.mode === 'percent' ? ' (' + pct(b.discount.value) + ')' : ''), '−' + M.format(b.discountPaise)) : '') +
       (tax.rateBp ? t(esc(tax.label || 'Tax') + ' ' + pct(tax.rateBp) + (tax.inclusive ? ' (incl.)' : ''), (tax.inclusive ? '' : '+') + M.format(b.taxPaise || 0)) : '') +
       t('Total', inr(b.totalPaise || 0), 'inv__grand') +
+      (offerOff ? t('Total discount', M.format(offerOff + (b.discountPaise || 0))) : '') +
       t('Amount paid', M.format(Math.min(pay.receivedPaise || 0, b.totalPaise || 0))) +
       t('Balance due', M.format(pay.balancePaise || 0), pay.balancePaise ? 'inv__due' : '') +
       (pay.changePaise ? t('Change', M.format(pay.changePaise)) : '') +
@@ -535,7 +572,7 @@
     var p = params[0];
     if (p === 'bills') return params[1] ? 'bill' : 'bills';
     if (p === 'customers') return params[1] ? 'customer' : 'customers';
-    if (p === 'products' || p === 'categories' || p === 'overview') return p;
+    if (p === 'products' || p === 'offers' || p === 'categories' || p === 'overview') return p;
     return 'pos';
   }
 
@@ -546,6 +583,7 @@
     if (v === 'bills') return renderBills(page);
     if (v === 'bill') return renderBillView(page, params[1]);
     if (v === 'products') return renderProducts(page);
+    if (v === 'offers') return renderOffers(page);
     if (v === 'categories') return renderCategories(page);
     if (v === 'customers') return renderCustomers(page);
     if (v === 'customer') return renderCustomer(page, params[1]);
@@ -564,6 +602,9 @@
       S.billCount = (r.shop && r.shop.billCount) || 0;
       S.customerCount = (r.shop && r.shop.customerCount) || 0;
       S.outstandingPaise = (r.shop && r.shop.outstandingPaise) || 0;
+      S.offers = r.offers || [];
+      S.offerSettings = r.offerSettings || {};
+      S.offerKey = activeOfferKey();
       S.loaded = true;
       S.loadError = null;
     }, function (err) {
@@ -584,7 +625,7 @@
     var v = viewName();
     if (v === 'pos') {
       paintCatalog();
-      paintCartBar();
+      paintDerived();
       /* fresh stock can change which lines are over it — but a line being
          typed in is left alone */
       var lines = el('qbLines');
@@ -612,6 +653,7 @@
       tab('pos', '/billing', 'New Bill', 'receipt') +
       tab('bills', '/billing/bills', 'Bills', 'history') +
       tab('products', '/billing/products', 'Products', 'box') +
+      tab('offers', '/billing/offers', 'Discounts &amp; Offers', 'tag') +
       tab('categories', '/billing/categories', 'Categories', 'layers') +
       tab('customers', '/billing/customers', 'Customers', 'user') +
       tab('overview', '/billing/overview', 'Overview', 'chart') +
@@ -969,6 +1011,7 @@
     var count = c.lines.reduce(function (n, l) { return n + l.qty; }, 0);
     return '<div class="qb-sec"><h2>Cart</h2><span class="qb-count" id="qbCount">' + count + (count === 1 ? ' item' : ' items') + '</span>' +
       (c.lines.length ? '<button class="qb-link" data-qb="clear-cart">' + icon('trash') + 'Clear</button>' : '') + '</div>' +
+      '<label class="qb-autooffers"><span class="qb-switch"><input type="checkbox" data-qbi="bill-auto"' + (autoOffers() ? ' checked' : '') + ' /><i></i></span>Auto Apply Discounts &amp; Offers</label>' +
       '<div class="qb-lines" id="qbLines">' + linesHTML(d) + '</div>' +
       customFormHTML();
   }
@@ -978,8 +1021,9 @@
     if (!c.lines.length) {
       return '<div class="qb-empty qb-empty--bill">' + icon('receipt') + '<p>Search above and add a product to the bill.</p></div>';
     }
-    return c.lines.map(function (l) {
+    return c.lines.map(function (l, i) {
       var p = l.productId ? productById(l.productId) : null;
+      var r = d.offers.lines[i];
       var stock = lineStock(l);
       var over = stock && stock.used > stock.qty;
       var err = d.errors['line:' + l.key];
@@ -989,13 +1033,13 @@
         (l.productId ? (l.shelf ? 'Shelf ' + esc(l.shelf) : catName(p && p.categoryId)) : '<em class="qb-tagc">Custom item</em>') +
         (over ? ' · <em class="qb-warn">only ' + stock.qty + ' in stock</em>' : '') +
         (!l.productId ? ' · <button class="qb-link" data-qb="custom-save" data-id="' + esc(l.key) + '">Save as product</button>' : '') +
-        '</span></div>' +
+        '</span><div data-offer="' + esc(l.key) + '">' + lineOfferHTML(l, r) + '</div></div>' +
         '<div class="qb-qty" role="group" aria-label="Quantity">' +
         '<button data-qb="qty-dec" data-id="' + esc(l.key) + '" aria-label="Decrease">' + icon('minus') + '</button>' +
         '<input class="qb-qty__in" inputmode="numeric" autocomplete="off" value="' + l.qty + '" data-qbi="line-qty" data-id="' + esc(l.key) + '" aria-label="Quantity of ' + esc(l.name) + '" />' +
         '<button data-qb="qty-inc" data-id="' + esc(l.key) + '" aria-label="Increase">' + icon('plus') + '</button></div>' +
         '<label class="qb-price"><span>₹</span><input inputmode="decimal" autocomplete="off" value="' + esc(l.priceText) + '" data-qbi="line-price" data-id="' + esc(l.key) + '" aria-label="Price of ' + esc(l.name) + '" /></label>' +
-        '<b class="qb-line__total" data-total="' + esc(l.key) + '">' + (l.unitPaise == null ? '—' : M.format(l.unitPaise * l.qty)) + '</b>' +
+        '<b class="qb-line__total" data-total="' + esc(l.key) + '">' + (l.unitPaise == null ? '—' : M.format(r.linePaise)) + '</b>' +
         '<button class="qb-line__x" data-qb="remove" data-id="' + esc(l.key) + '" aria-label="Remove ' + esc(l.name) + '">' + icon('close') + '</button>' +
         '</div>';
     }).join('');
@@ -1050,8 +1094,9 @@
   function totalsHTML(d) {
     var t = d.totals, c = S.cart;
     var row = function (k, v, cls) { return '<div class="qb-trow' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + v + '</b></div>'; };
-    return row('Subtotal', inr(t.subtotalPaise)) +
-      (t.discountPaise ? row('Discount', '−' + inr(t.discountPaise)) : '') +
+    return row(t.offerPaise ? 'Original subtotal' : 'Subtotal', inr(t.originalSubtotalPaise)) +
+      (t.offerPaise ? row('Product discounts', '−' + inr(t.offerPaise)) : '') +
+      (t.discountPaise ? row('Bill discount', '−' + inr(t.discountPaise)) : '') +
       (c.tax.on && d.tax.rateBp ? row(esc(d.tax.label) + ' ' + pct(d.tax.rateBp) + (d.tax.inclusive ? ' (included)' : ''), (d.tax.inclusive ? '' : '+') + inr(t.taxPaise)) : '') +
       row('Final total', inr(t.totalPaise), 'qb-trow--grand') +
       row('Amount paid', inr(Math.min(d.pay.receivedPaise, t.totalPaise))) +
@@ -1117,7 +1162,6 @@
     } else {
       S.cart.lines.forEach(function (l) {
         var t = document.querySelector('[data-total="' + l.key + '"]');
-        if (t) t.textContent = l.unitPaise == null ? '—' : M.format(l.unitPaise * l.qty);
         var row = t && t.closest('.qb-line');
         if (row) row.classList.toggle('is-bad', l.unitPaise == null);
       });
@@ -1130,6 +1174,13 @@
   /** Everything computed from the cart that holds no input being typed in. */
   function paintDerived(d) {
     d = d || draft();
+    S.cart.lines.forEach(function (l, i) {
+      var r = d.offers.lines[i];
+      var t = document.querySelector('[data-total="' + l.key + '"]');
+      if (t) t.textContent = l.unitPaise == null ? '—' : M.format(r.linePaise);
+      var o = document.querySelector('[data-offer="' + l.key + '"]');
+      if (o) o.innerHTML = lineOfferHTML(l, r);
+    });
     paint('qbTotals', totalsHTML(d));
     paint('qbBal', balanceHTML(d));
     paint('qbActs', actsHTML(d));
@@ -1165,14 +1216,17 @@
       (who.name || who.mobile
         ? '<b>' + esc(who.name || who.mobile) + '</b>' + (who.name && who.mobile ? '<span>' + esc(who.mobile) + '</span>' : '')
         : '<b>Walk-in customer</b>') + '</div>' +
-      '<ul class="qb-review__items">' + c.lines.map(function (l) {
+      '<ul class="qb-review__items">' + c.lines.map(function (l, i) {
         var u = l.unitPaise == null ? 0 : l.unitPaise;
+        var r = d.offers.lines[i];
         return '<li><div class="grow"><b>' + esc(l.name) + (l.variantLabel ? ' (' + esc(l.variantLabel) + ')' : '') + '</b>' +
           (l.modelName ? '<span class="qb-fits">Requested model: ' + esc(l.modelName) + '</span>' : '') +
-          '<span>' + l.qty + ' × ' + inr(u) + '</span></div><b>' + inr(u * l.qty) + '</b></li>';
+          r.applied.map(function (a) { return '<span class="qb-fits">Offer: ' + esc(a.name) + ' (' + esc(OF.valueText(a, inr)) + ')</span>'; }).join('') +
+          '<span>' + l.qty + ' × ' + inr(u) + (r.offerPaise ? ' · Discount ' + inr(r.offerPaise) + ' · Final ' + inr(r.finalUnitPaise) + ' each' : '') + '</span></div><b>' + inr(r.linePaise) + '</b></li>';
       }).join('') + '</ul>' +
-      '<div class="qb-totals">' + row('Subtotal', inr(t.subtotalPaise)) +
-      (t.discountPaise ? row('Discount', '−' + inr(t.discountPaise)) : '') +
+      '<div class="qb-totals">' + row(t.offerPaise ? 'Original subtotal' : 'Subtotal', inr(t.originalSubtotalPaise)) +
+      (t.offerPaise ? row('Product discounts', '−' + inr(t.offerPaise)) : '') +
+      (t.discountPaise ? row('Bill discount', '−' + inr(t.discountPaise)) : '') +
       (c.tax.on && d.tax.rateBp ? row(esc(d.tax.label) + ' ' + pct(d.tax.rateBp) + (d.tax.inclusive ? ' (included)' : ''), inr(t.taxPaise)) : '') +
       row('Final total', inr(t.totalPaise), 'qb-trow--grand') +
       row('Amount paid', inr(Math.min(d.pay.receivedPaise, t.totalPaise))) +
@@ -1255,8 +1309,10 @@
       S.saving = false;
       if (S.sheet) S.sheet.busy = false;
       S.saveError = say(err);
-      if (err.code === 'insufficient-stock' || err.code === 'product-archived' || err.code === 'product-missing') load();
+      if (err.code === 'insufficient-stock' || err.code === 'product-archived' || err.code === 'product-missing' || err.code === 'offers-changed') load();
       if (onBilling()) {
+        /* the amounts in the drawer are no longer the bill: back to the page */
+        if (err.code === 'offers-changed') closeSheet();
         paint('qbRevFoot', reviewFootHTML());
         paintDerived();
         if (err.code === 'insufficient-stock') paint('qbLines', linesHTML(draft()));
@@ -1311,6 +1367,7 @@
   function pdfWords(b) {
     return {
       money: M.format, when: when,
+      offer: function (o) { return o.name + ' (' + OF.valueText(o, inr) + ')'; },
       method: label(METHODS, b.payment.method), status: label(STATUSES, b.payment.status)
     };
   }
@@ -1847,6 +1904,443 @@
     if (cols) cols.hidden = v !== 'table';
     if (S.prodPop === 'cols') { S.prodPop = null; paintPops(); }
     paintProductList();
+  }
+
+  /* ==================================================== DISCOUNTS & OFFERS
+
+     An offer points at categories, products or variants by id and holds no copy
+     of them, so a product added to a category later is covered by the category's
+     offer. Offers are never deleted: a bill keeps its own copy of what it was
+     given, and an offer that is over is marked so. */
+  var OFFER_TABS = [['all', 'All Offers'], ['active', 'Active'], ['scheduled', 'Scheduled'], ['expired', 'Expired'], ['paused', 'Paused']];
+  var OFFER_STATES = { active: ['pill--ok', 'Active'], scheduled: ['pill--warn', 'Scheduled'], expired: ['', 'Expired'], paused: ['', 'Paused'] };
+  var WHY_NOT = {
+    'too-large': 'The discount is larger than this item’s price.',
+    'min-qty': 'The minimum quantity has not been reached.',
+    'min-bill': 'The bill is below this offer’s minimum.',
+    'no-value': 'It comes to nothing on this price.',
+    'bill-auto-off': 'Auto Apply is off for this bill.',
+    'offer-auto-off': 'This offer’s Auto Apply is off.',
+    removed: 'You removed the offer from this item.',
+    'other-chosen': 'You chose another offer for this item.'
+  };
+  var LEVEL_NAMES = { variant: 'Variant', product: 'Product', category: 'Category' };
+
+  function offerById(id) { return S.offers.filter(function (o) { return o.id === id; })[0] || null; }
+  function offerState(o) { return OF.offerStatus(o, Date.now()); }
+  function upsertOffer(o) {
+    for (var i = 0; i < S.offers.length; i++) if (S.offers[i].id === o.id) { S.offers[i] = o; return; }
+    S.offers.unshift(o);
+  }
+  function offerPill(o) {
+    var st = OFFER_STATES[offerState(o)];
+    return '<span class="pill ' + st[0] + '">' + st[1] + '</span>';
+  }
+  function offerProducts(o) { return activeProducts().filter(function (p) { return OF.covers(o, p); }); }
+  function appliesToText(o) {
+    if (o.target === 'category') return o.categoryIds.map(catName).join(', ');
+    if (o.target === 'product') {
+      return o.productIds.map(function (id) { var p = productById(id); return p ? p.name : 'A removed product'; }).join(', ');
+    }
+    return o.variants.map(function (v) {
+      var p = productById(v.productId);
+      var x = p && variantOf(p, v.variantId);
+      return p ? p.name + (x ? ' (' + variantLabel(x) + ')' : '') : 'A removed product';
+    }).join(', ');
+  }
+  function validityText(o) {
+    var day = function (d, t) { return dayName(d) + ' ' + d.slice(0, 4) + (t ? ', ' + t : ''); };
+    if (!o.startDate && !o.endDate) return 'Ongoing';
+    if (!o.endDate) return 'From ' + day(o.startDate, o.startTime);
+    if (!o.startDate) return 'Until ' + day(o.endDate, o.endTime);
+    return day(o.startDate, o.startTime) + ' – ' + day(o.endDate, o.endTime);
+  }
+
+  function renderOffers(page) {
+    var now = S.offers.map(offerState);
+    var tally = function (st) { return now.filter(function (x) { return x === st; }).length; };
+    var live = S.offers.filter(function (o) { return offerState(o) === 'active'; });
+    var productIds = {}, categoryIds = {};
+    live.forEach(function (o) {
+      offerProducts(o).forEach(function (p) { productIds[p.id] = 1; });
+      if (o.target === 'category') o.categoryIds.forEach(function (c) { categoryIds[c] = 1; });
+    });
+    var stat = function (label, n) { return '<div class="qb-ofstat"><b>' + n + '</b><span>' + label + '</span></div>'; };
+    var f = S.offerFilter;
+    page.innerHTML = frame('offers',
+      '<div class="qb-of shell">' +
+      '<div class="qb-ofhead"><h2>Discounts &amp; Offers</h2>' +
+      '<button class="btn btn--outline btn--sm" data-qb="of-settings">' + icon('sliders') + '<span>Offer settings</span></button>' +
+      '<button class="btn qb-btn btn--sm" data-qb="of-new">' + icon('plus') + 'Create New Offer</button></div>' +
+      '<div class="qb-ofstats">' + stat('Total Offers', S.offers.length) + stat('Active Offers', tally('active')) +
+      stat('Scheduled Offers', tally('scheduled')) + stat('Expired Offers', tally('expired')) +
+      stat('Products Covered', Object.keys(productIds).length) + stat('Categories Covered', Object.keys(categoryIds).length) + '</div>' +
+      '<div class="qb-ofbar"><label class="qb-pmsearch">' + icon('search') +
+      '<input id="qbOfferQ" type="search" autocomplete="off" placeholder="Search offer, product, category, SKU, variant..." value="' + esc(f.q) + '" data-qbi="of-search" aria-label="Search offers" /></label>' +
+      '<div class="qb-chips" role="group" aria-label="Offer status">' + OFFER_TABS.map(function (t) {
+        var on = f.status === t[0];
+        return '<button class="qb-chip' + (on ? ' is-on' : '') + '" data-qb="of-tab" data-id="' + t[0] + '" aria-pressed="' + on + '">' + t[1] + '</button>';
+      }).join('') + '</div></div>' +
+      '<div id="qbOfferList">' + offerListHTML() + '</div></div>');
+  }
+
+  function offerHay(o) {
+    var names = offerProducts(o).map(function (p) {
+      return p.name + ' ' + p.sku + ' ' + catName(p.categoryId) + ' ' + (p.variants || []).map(function (v) { return variantLabel(v) + ' ' + v.sku; }).join(' ');
+    }).join(' ');
+    return (o.name + ' ' + appliesToText(o) + ' ' + names).toLowerCase();
+  }
+  function offerListHTML() {
+    var f = S.offerFilter;
+    if (!S.offers.length) {
+      return C.state({ icon: 'tag', title: 'No offers yet', text: 'Create an offer for a category, a product or one variant, and it applies itself on New Bill.',
+        action: '<button class="btn qb-btn btn--sm" data-qb="of-new">' + icon('plus') + 'Create New Offer</button>' });
+    }
+    var words = f.q.toLowerCase().split(/\s+/).filter(Boolean);
+    var list = S.offers.filter(function (o) {
+      if (f.status !== 'all' && offerState(o) !== f.status) return false;
+      if (!words.length) return true;
+      var hay = offerHay(o);
+      return words.every(function (w) { return hay.indexOf(w) > -1; });
+    }).sort(function (a, b) { return b.createdAt - a.createdAt; });
+    if (!list.length) return '<div class="qb-empty">' + icon('search') + '<p>No offers match this search and filter.</p></div>';
+    var cell = function (key, html, label) { return td(key, html, label); };
+    return '<div class="qb-ptwrap qb-ofwrap"><table class="qb-pt" role="table" aria-label="Offers"><thead role="rowgroup"><tr role="row">' +
+      ['Offer Name', 'Discount', 'Applies To', 'Products Covered', 'Validity', 'Auto Apply', 'Status', 'Actions'].map(function (h, i) {
+        return '<th role="columnheader" scope="col" class="' + (i === 0 ? 'c-product' : i === 7 ? 'c-actions' : '') + '">' + h + '</th>';
+      }).join('') + '</tr></thead><tbody role="rowgroup">' + list.map(function (o) {
+        var st = offerState(o);
+        var over = st === 'expired';
+        var running = st === 'active' || st === 'scheduled';
+        return '<tr role="row"' + (over ? ' class="is-off"' : '') + '>' +
+          td('product', '<div class="qb-pt__name"><b>' + esc(o.name) + '</b>' + (o.description ? '<span>' + esc(o.description) + '</span>' : '') + '</div>') +
+          cell('value', '<b>' + esc(OF.valueText(o, inr)) + '</b>') +
+          cell('target', '<span class="qb-ofapply"><em>' + LEVEL_NAMES[o.target] + '</em> ' + esc(appliesToText(o)) + '</span>') +
+          cell('count', String(offerProducts(o).length), 'Products') +
+          cell('valid', esc(validityText(o))) +
+          cell('auto', '<label class="qb-switch"><input type="checkbox" data-qbi="of-auto" data-id="' + esc(o.id) + '"' + (o.autoApply ? ' checked' : '') + ' aria-label="Auto Apply for ' + esc(o.name) + '" /><i></i></label>', 'Auto Apply') +
+          cell('status', offerPill(o)) +
+          td('actions', '<button class="qb-link" data-qb="of-view" data-id="' + esc(o.id) + '">View</button>' +
+            '<button class="qb-link" data-qb="of-edit" data-id="' + esc(o.id) + '">Edit</button>' +
+            (running ? '<button class="qb-link" data-qb="of-status" data-id="' + esc(o.id) + '" data-to="paused">Pause</button>' : '') +
+            (st === 'paused' || (over && o.status !== 'active') ? '<button class="qb-link" data-qb="of-status" data-id="' + esc(o.id) + '" data-to="active">Activate</button>' : '') +
+            (over ? '' : '<button class="qb-link qb-danger" data-qb="of-status" data-id="' + esc(o.id) + '" data-to="expired">Expire</button>')) +
+          '</tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function paintOffers() {
+    if (onBilling() && viewName() === 'offers') rerender();
+  }
+
+  function changeOffer(body, ok) {
+    return API.offer(body).then(function (r) {
+      upsertOffer(r.offer);
+      toast(ok, 'checkCircle');
+      paintOffers();
+      offersMoved();
+    }, function (e) { toast(say(e), 'alert'); paintOffers(); });
+  }
+  /** The cart reads the offers afresh, so a change here reaches an open bill at once. */
+  function offersMoved() {
+    S.offerKey = activeOfferKey();
+    if (S.cart && S.cart.lines.length && viewName() === 'pos' && !S.lastSaved) cartChanged(false);
+  }
+  function activeOfferKey() {
+    return S.offers.filter(function (o) { return offerState(o) === 'active'; }).map(function (o) { return o.id; }).sort().join();
+  }
+
+  /* ---------------------------------------------------------- the offer form */
+  function openOfferForm(id) {
+    var o = id ? offerById(id) : null;
+    S.sheet = {
+      type: 'offer', mode: o ? 'edit' : 'create', id: o ? o.id : API.newId('o_'), busy: false,
+      kind: o ? o.kind : 'percent', fixedMode: (o && o.fixedMode) || 'unit',
+      target: o ? o.target : 'category',
+      categoryIds: o ? o.categoryIds.slice() : [],
+      productIds: o ? o.productIds.slice() : [],
+      variants: o ? o.variants.map(function (v) { return { productId: v.productId, variantId: v.variantId }; }) : [],
+      q: '', variantProduct: null
+    };
+    var v = o || {};
+    var row = function () { return '<div class="qb-form__row">' + Array.prototype.join.call(arguments, '') + '</div>'; };
+    var sec = function (n, t) { return '<h4 class="qb-fsec">' + n + '. ' + t + '</h4>'; };
+    openSheet('offer',
+      '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">' + (o ? 'Edit offer' : 'Create New Offer') + '</h3>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<form class="sheet__body qb-form" id="qbOfferForm" data-qbf="offer" novalidate>' +
+      '<div class="qb-ok qb-ok--bad" id="qbOFail" hidden></div>' +
+      sec(1, 'Basic information') +
+      fieldHTML('qbOName', 'oname', 'Offer name', true, '<input class="input qb-in" id="qbOName" maxlength="80" autocomplete="off" placeholder="e.g. Tempered Glass 10% OFF" value="' + esc(v.name || '') + '" />') +
+      fieldHTML('qbODesc', 'odesc', 'Internal description', false, '<input class="input qb-in" id="qbODesc" maxlength="300" autocomplete="off" placeholder="Optional. Customers do not see this." value="' + esc(v.description || '') + '" />') +
+      sec(2, 'Discount') +
+      '<div id="qbOValue">' + offerValueHTML(v) + '</div>' +
+      sec(3, 'Applies to') +
+      '<div id="qbOTarget">' + offerTargetHTML() + '</div>' +
+      sec(4, 'Validity') +
+      '<small class="qb-help">Leave the dates empty for an ongoing offer. Times are Indian Standard Time.</small>' +
+      row(fieldHTML('qbOStartD', 'ostart', 'Start date', false, '<input class="input qb-in" type="date" id="qbOStartD" value="' + esc(v.startDate || '') + '" />'),
+        fieldHTML('qbOStartT', 'ostartt', 'Start time', false, '<input class="input qb-in" type="time" id="qbOStartT" value="' + esc(v.startTime || '') + '" />')) +
+      row(fieldHTML('qbOEndD', 'oend', 'End date', false, '<input class="input qb-in" type="date" id="qbOEndD" value="' + esc(v.endDate || '') + '" />'),
+        fieldHTML('qbOEndT', 'oendt', 'End time', false, '<input class="input qb-in" type="time" id="qbOEndT" value="' + esc(v.endTime || '') + '" />')) +
+      sec(5, 'Eligibility') +
+      row(fieldHTML('qbOMinQ', 'ominq', 'Minimum quantity', false, '<input class="input qb-in" id="qbOMinQ" inputmode="numeric" autocomplete="off" value="' + esc(v.minQty || 1) + '" />'),
+        fieldHTML('qbOMinB', 'ominb', 'Minimum bill value', false, '<label class="qb-prefix"><span>₹</span><input class="input qb-in" id="qbOMinB" inputmode="decimal" autocomplete="off" placeholder="None" value="' + (v.minBillPaise ? esc(M.toInput(v.minBillPaise)) : '') + '" /></label>')) +
+      sec(6, 'Priority and stacking') +
+      row(fieldHTML('qbOPrio', 'oprio', 'Priority', false, '<input class="input qb-in" id="qbOPrio" inputmode="numeric" autocomplete="off" value="' + esc(v.priority || 100) + '" /><small class="qb-help">A lower number wins.</small>'),
+        '<label class="qb-check qb-ofcheck"><input type="checkbox" id="qbOStack"' + (v.stackable ? ' checked' : '') + ' />Can combine with other offers</label>') +
+      '<small class="qb-help">Combining only happens when it is switched on in Offer settings.</small>' +
+      sec(7, 'Auto Apply') +
+      '<label class="qb-check"><input type="checkbox" id="qbOAuto"' + ((o ? o.autoApply : S.offerSettings.autoApplyDefault !== false) ? ' checked' : '') + ' />Apply this offer automatically on New Bill</label>' +
+      '<label class="qb-check"><input type="checkbox" id="qbOPaused"' + (o && o.status === 'paused' ? ' checked' : '') + ' />Save as paused</label>' +
+      '<button type="submit" hidden></button></form>' +
+      '<div class="sheet__foot"><button class="btn btn--ghost" data-qb="close-sheet">Cancel</button>' +
+      '<button class="btn qb-btn grow" id="qbOGo" data-qb="of-save">' + icon('check') + 'Save Offer</button></div>',
+      o ? 'Edit offer' : 'Create New Offer');
+  }
+
+  function offerValueHTML(v) {
+    var sh = S.sheet;
+    var seg = function (key, val, text) {
+      return '<button type="button" class="' + (sh[key] === val ? 'is-on' : '') + '" data-qb="of-seg" data-id="' + val + '" data-k="' + key + '" aria-pressed="' + (sh[key] === val) + '">' + text + '</button>';
+    };
+    var pct = sh.kind === 'percent';
+    var quick = (pct ? ['5', '10', '15', '20'] : ['20', '50', '100']).map(function (n) {
+      return '<button type="button" class="qb-chip" data-qb="of-quick" data-id="' + n + '">' + (pct ? n + '%' : '₹' + n) + '</button>';
+    }).join('');
+    var valueNow = (el('qbOValueIn') || {}).value;
+    var value = valueNow != null ? valueNow : (pct ? (v.percentBp ? String(v.percentBp / 100) : '') : (v.amountPaise ? M.toInput(v.amountPaise) : ''));
+    var maxNow = (el('qbOMax') || {}).value;
+    var max = maxNow != null ? maxNow : (v.maxPaise ? M.toInput(v.maxPaise) : '');
+    return '<div class="qb-seg" role="group" aria-label="Discount type">' + seg('kind', 'percent', 'Percentage') + seg('kind', 'fixed', 'Fixed amount') + '</div>' +
+      '<div class="qb-ofquick">' + quick + '</div>' +
+      '<div class="qb-form__row">' +
+      fieldHTML('qbOValueIn', 'ovalue', pct ? 'Percentage off' : 'Amount off', true,
+        '<label class="' + (pct ? 'qb-suffix' : 'qb-prefix') + '">' + (pct ? '' : '<span>₹</span>') + '<input class="input qb-in" id="qbOValueIn" inputmode="decimal" autocomplete="off" value="' + esc(value) + '" />' + (pct ? '<span>%</span>' : '') + '</label>') +
+      (pct
+        ? fieldHTML('qbOMax', 'omax', 'Maximum discount per line', false, '<label class="qb-prefix"><span>₹</span><input class="input qb-in" id="qbOMax" inputmode="decimal" autocomplete="off" placeholder="No limit" value="' + esc(max) + '" /></label>')
+        : '<div class="qb-ff"><span class="qb-lab">Applies</span><div class="qb-seg" role="group" aria-label="How the fixed amount applies">' + seg('fixedMode', 'unit', 'Per unit') + seg('fixedMode', 'line', 'Per line') + '</div></div>') +
+      '</div>';
+  }
+
+  function offerTargetHTML() {
+    var sh = S.sheet;
+    var seg = function (val, text) {
+      return '<button type="button" class="' + (sh.target === val ? 'is-on' : '') + '" data-qb="of-target" data-id="' + val + '" aria-pressed="' + (sh.target === val) + '">' + text + '</button>';
+    };
+    var head = '<div class="qb-seg" role="group" aria-label="What the offer applies to">' + seg('category', 'Category') + seg('product', 'Product') + seg('variant', 'Variant') + '</div>' +
+      '<small class="qb-err" data-ferr="otarget"></small><div data-ff="otarget"></div>';
+    if (sh.target === 'category') {
+      return head + '<small class="qb-help">Products added to a chosen category later are covered too.</small>' +
+        '<div class="qb-ofcats">' + S.categories.map(function (c) {
+          return '<label class="qb-check"><input type="checkbox" data-qbi="of-cat" data-id="' + esc(c.id) + '"' + (sh.categoryIds.indexOf(c.id) > -1 ? ' checked' : '') + ' />' + esc(c.name) + '</label>';
+        }).join('') + '</div>';
+    }
+    return head + '<input class="input qb-in" id="qbOFind" type="search" autocomplete="off" value="' + esc(sh.q) + '" data-qbi="of-find" aria-label="Search products" placeholder="' +
+      (sh.target === 'product' ? 'Search a product, SKU or shelf' : 'Search a product that has variants') + '" />' +
+      '<div class="qb-hits" id="qbOHits">' + offerHitsHTML() + '</div>' +
+      '<div id="qbOChosen">' + offerChosenHTML() + '</div>';
+  }
+  function offerHitsHTML() {
+    var sh = S.sheet;
+    if (sh.target === 'variant' && sh.variantProduct) {
+      var p = productById(sh.variantProduct);
+      return '<div class="qb-picked"><span class="grow"><b>' + esc(p.name) + '</b><span>Choose the variants</span></span>' +
+        '<button type="button" class="qb-link" data-qb="of-var-back">Change</button></div>' +
+        p.variants.map(function (v) {
+          var on = sh.variants.some(function (x) { return x.productId === p.id && x.variantId === v.id; });
+          return '<label class="qb-check"><input type="checkbox" data-qbi="of-var" data-id="' + esc(v.id) + '"' + (on ? ' checked' : '') + ' />' + esc(variantLabel(v)) + ' · ' + inr(v.pricePaise) + '</label>';
+        }).join('');
+    }
+    if (sh.q.length < 1) return '';
+    var list = activeProducts().filter(function (p) { return (sh.target !== 'variant' || hasVariants(p)) && matches(p, sh.q); }).slice(0, 8);
+    if (!list.length) return '<p class="qb-sub">No product matches “' + esc(sh.q) + '”.</p>';
+    return list.map(function (p) {
+      var on = sh.target === 'product' && sh.productIds.indexOf(p.id) > -1;
+      return '<button type="button" class="qb-hit' + (on ? ' is-on' : '') + '" data-qb="' + (sh.target === 'product' ? 'of-prod' : 'of-var-prod') + '" data-id="' + esc(p.id) + '" aria-pressed="' + on + '">' +
+        thumbHTML(p, 'qb-thumb--xs') + '<span class="grow"><b>' + esc(p.name) + '</b><span>' + esc(catName(p.categoryId)) + (p.sku ? ' · ' + esc(p.sku) : '') + ' · ' + inr(p.pricePaise) + '</span></span></button>';
+    }).join('');
+  }
+  function offerChosenHTML() {
+    var sh = S.sheet;
+    var rows = sh.target === 'product'
+      ? sh.productIds.map(function (id) { var p = productById(id); return { key: id, text: p ? p.name : 'A removed product' }; })
+      : sh.variants.map(function (v) {
+        var p = productById(v.productId);
+        var x = p && variantOf(p, v.variantId);
+        return { key: v.productId + '|' + v.variantId, text: (p ? p.name : 'A removed product') + (x ? ' (' + variantLabel(x) + ')' : '') };
+      });
+    if (!rows.length) return '';
+    return '<span class="qb-lab">Chosen <em>(' + rows.length + ')</em></span><div class="qb-ofchosen">' + rows.map(function (r) {
+      return '<span class="qb-chip">' + esc(r.text) + '<button type="button" data-qb="of-drop" data-id="' + esc(r.key) + '" aria-label="Remove ' + esc(r.text) + '">' + icon('close') + '</button></span>';
+    }).join('') + '</div>';
+  }
+
+  function submitOffer() {
+    var sh = S.sheet;
+    if (!sh || sh.type !== 'offer' || sh.busy) return;
+    var val = function (id) { var n = el(id); return n ? n.value.trim() : ''; };
+    var name = val('qbOName').replace(/\s+/g, ' ');
+    var pct = sh.kind === 'percent';
+    var valueText = val('qbOValueIn');
+    var percentBp = pct ? M.parsePercent(valueText) : null;
+    var amountPaise = pct ? null : M.parseRupees(valueText);
+    var maxText = pct ? val('qbOMax') : '';
+    var maxPaise = maxText ? M.parseRupees(maxText) : null;
+    var minBillText = val('qbOMinB');
+    var minBillPaise = minBillText ? M.parseRupees(minBillText) : 0;
+    var minQtyText = val('qbOMinQ') || '1';
+    var prioText = val('qbOPrio') || '100';
+    var targetEmpty = sh.target === 'category' ? !sh.categoryIds.length : sh.target === 'product' ? !sh.productIds.length : !sh.variants.length;
+    var startD = val('qbOStartD'), startT = val('qbOStartT'), endD = val('qbOEndD'), endT = val('qbOEndT');
+
+    var bad = [];
+    var check = function (key, id, msg) { formError(key, msg); if (msg) bad.push(id); };
+    check('oname', 'qbOName', name ? '' : 'Give the offer a name');
+    check('ovalue', 'qbOValueIn', pct
+      ? (percentBp && percentBp <= 10000 ? '' : 'Enter a percentage above 0, up to 100')
+      : (amountPaise > 0 ? '' : 'Enter an amount, e.g. 50'));
+    if (pct) check('omax', 'qbOMax', maxText && !(maxPaise > 0) ? 'Enter an amount, or leave it empty' : '');
+    check('ostartt', 'qbOStartT', startT && !startD ? 'Choose a start date too' : '');
+    check('oendt', 'qbOEndT', endT && !endD ? 'Choose an end date too' : '');
+    check('ominq', 'qbOMinQ', /^\d{1,4}$/.test(minQtyText) && Number(minQtyText) >= 1 ? '' : 'Enter a whole number, 1 or more');
+    check('ominb', 'qbOMinB', minBillPaise == null ? 'Enter an amount, or leave it empty' : '');
+    check('oprio', 'qbOPrio', /^\d{1,3}$/.test(prioText) && Number(prioText) >= 1 ? '' : 'Enter a number from 1 to 999');
+    var targetErr = document.querySelector('[data-ferr="otarget"]');
+    if (targetErr) targetErr.textContent = targetEmpty ? 'Choose what this offer applies to' : '';
+    if (targetEmpty) bad.push('qbOTarget');
+    if (bad.length) { var f = el(bad[0]); if (f) { f.scrollIntoView({ block: 'center' }); if (f.focus) f.focus(); } return; }
+
+    var body = {
+      action: sh.mode === 'edit' ? 'update' : 'create', offerId: sh.id, name: name, description: val('qbODesc'),
+      kind: sh.kind, percentBp: percentBp, amountPaise: amountPaise, fixedMode: sh.fixedMode, maxPaise: maxPaise,
+      target: sh.target, categoryIds: sh.categoryIds, productIds: sh.productIds, variants: sh.variants,
+      startDate: startD, startTime: startT, endDate: endD, endTime: endT,
+      minQty: Number(minQtyText), minBillPaise: minBillPaise, priority: Number(prioText),
+      stackable: !!(el('qbOStack') && el('qbOStack').checked), autoApply: !!(el('qbOAuto') && el('qbOAuto').checked),
+      status: el('qbOPaused') && el('qbOPaused').checked ? 'paused' : 'active'
+    };
+    sh.busy = true;
+    var go2 = el('qbOGo'); if (go2) go2.disabled = true;
+    API.offer(body).then(function (r) {
+      sh.busy = false;
+      upsertOffer(r.offer);
+      closeSheet();
+      toast(sh.mode === 'edit' ? 'Offer saved' : 'Offer “' + r.offer.name + '” created', 'checkCircle');
+      paintOffers();
+      offersMoved();
+    }, function (e) {
+      sh.busy = false;
+      if (go2) go2.disabled = false;
+      var box = el('qbOFail');
+      if (box) { box.hidden = false; box.innerHTML = icon('alert') + '<span>' + esc(say(e)) + '</span>'; box.scrollIntoView({ block: 'center' }); }
+    });
+  }
+
+  function openOfferView(id) {
+    var o = offerById(id);
+    if (!o) return;
+    var row = function (k, v) { return v ? '<div class="qb-trow"><span>' + k + '</span><span>' + esc(v) + '</span></div>' : ''; };
+    var covered = offerProducts(o);
+    S.sheet = { type: 'offerview' };
+    openSheet('offerview',
+      '<div class="sheet__grab"></div><div class="sheet__head"><div class="grow"><h3 class="t-h3">' + esc(o.name) + '</h3></div>' + offerPill(o) +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-form"><div class="qb-rows">' +
+      row('Description', o.description) + row('Discount', OF.valueText(o, inr)) +
+      row('Applies to', LEVEL_NAMES[o.target] + ': ' + appliesToText(o)) + row('Validity', validityText(o)) +
+      row('Minimum quantity', o.minQty > 1 ? String(o.minQty) : '') + row('Minimum bill value', o.minBillPaise ? inr(o.minBillPaise) : '') +
+      row('Priority', String(o.priority)) + row('Combines with others', o.stackable ? 'Yes' : 'No') +
+      row('Auto Apply', o.autoApply ? 'On' : 'Off') + row('Created', when(o.createdAt)) + row('Last changed', when(o.updatedAt)) + '</div>' +
+      '<span class="qb-lab">Products covered <em>(' + covered.length + ')</em></span>' +
+      (covered.length ? '<ul class="qb-review__items">' + covered.slice(0, 30).map(function (p) {
+        var off = OF.amountOn(o, p.pricePaise, 1);
+        return '<li><div class="grow"><b>' + esc(p.name) + '</b><span>' + esc(catName(p.categoryId)) + '</span></div><b>' + inr(p.pricePaise) +
+          (off ? ' → ' + inr(p.pricePaise - off) : '') + '</b></li>';
+      }).join('') + '</ul>' : '<p class="qb-sub">No active product is covered right now.</p>') +
+      '</div><div class="sheet__foot"><button class="btn btn--outline grow" data-qb="of-edit" data-id="' + esc(o.id) + '">' + icon('edit') + 'Edit Offer</button></div>',
+      o.name);
+  }
+
+  function openOfferSettings() {
+    var s = S.offerSettings;
+    S.sheet = { type: 'offerset', busy: false };
+    openSheet('offerset',
+      '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">Offer settings</h3>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<form class="sheet__body qb-form" data-qbf="offer-settings" novalidate>' +
+      '<label class="qb-check"><input type="checkbox" id="qbSDefault"' + (s.autoApplyDefault !== false ? ' checked' : '') + ' />New offers start with Auto Apply on</label>' +
+      '<small class="qb-help">Offers already saved keep their own setting.</small>' +
+      '<label class="qb-check"><input type="checkbox" id="qbSBill"' + (s.billAutoApply !== false ? ' checked' : '') + ' />New bills start with Auto Apply on</label>' +
+      '<small class="qb-help">Switching it on one bill changes that bill only.</small>' +
+      '<label class="qb-check"><input type="checkbox" id="qbSStack"' + (s.stacking ? ' checked' : '') + ' />Allow offers to combine on one item</label>' +
+      '<small class="qb-help">Off: an item gets one offer. On: offers marked to combine are taken one after another.</small>' +
+      '<div class="qb-ff"><label class="qb-lab" for="qbSOrder">When several offers fit one item</label>' +
+      '<select class="input qb-in" id="qbSOrder"><option value="specific"' + (s.order !== 'priority' ? ' selected' : '') + '>Most specific wins: variant, product, category</option>' +
+      '<option value="priority"' + (s.order === 'priority' ? ' selected' : '') + '>Lowest priority number wins</option></select></div>' +
+      '<small class="qb-err" id="qbSErr"></small><button type="submit" hidden></button></form>' +
+      '<div class="sheet__foot"><button class="btn btn--ghost" data-qb="close-sheet">Cancel</button>' +
+      '<button class="btn qb-btn grow" id="qbSGo" data-qb="of-settings-go">' + icon('check') + 'Save settings</button></div>', 'Offer settings');
+  }
+  function submitOfferSettings() {
+    var sh = S.sheet;
+    if (!sh || sh.type !== 'offerset' || sh.busy) return;
+    var on = function (id) { return !!(el(id) && el(id).checked); };
+    sh.busy = true;
+    var go2 = el('qbSGo'); if (go2) go2.disabled = true;
+    API.offer({
+      action: 'settings', autoApplyDefault: on('qbSDefault'), billAutoApply: on('qbSBill'),
+      stacking: on('qbSStack'), order: (el('qbSOrder') || {}).value
+    }).then(function (r) {
+      sh.busy = false;
+      S.offerSettings = r.offerSettings;
+      closeSheet();
+      toast('Offer settings saved', 'checkCircle');
+      offersMoved();
+    }, function (e) {
+      sh.busy = false;
+      if (go2) go2.disabled = false;
+      var er = el('qbSErr'); if (er) er.textContent = say(e);
+    });
+  }
+
+  /* --------------------------------------------------- offers on a cart line */
+  function lineOfferHTML(l, r) {
+    if (!r) return '';
+    var usable = r.options.filter(function (o) { return o.state !== 'blocked'; });
+    if (!r.options.length) return '';
+    var more = '<button type="button" class="qb-link" data-qb="line-offers" data-id="' + esc(l.key) + '">' +
+      (r.applied.length ? 'Offers' : usable.length ? 'Apply Offer' : 'Why no offer?') + '</button>';
+    if (!r.applied.length) {
+      return '<span class="qb-lineoffer qb-lineoffer--idle">' + (usable.length ? usable.length + (usable.length === 1 ? ' offer available' : ' offers available') : 'Offer not applied') + more + '</span>';
+    }
+    var each = Math.round(r.offerPaise / l.qty);
+    return '<span class="qb-lineoffer">' + r.applied.map(function (a) {
+      return '<b>' + icon('tag') + esc(a.name) + '</b><em>' + esc(OF.valueText(a, inr)) + '</em>';
+    }).join('') + more +
+      '<span class="qb-lineoffer__sum">Original ' + inr(l.unitPaise) + ' · Discount ' + inr(each) + (l.qty > 1 ? ' each' : '') + ' · Final ' + inr(r.finalUnitPaise) + (l.qty > 1 ? ' each' : '') + '</span></span>';
+  }
+  function openLineOffers(key) {
+    var l = lineByKey(key);
+    if (!l) return;
+    S.sheet = { type: 'lineoffers', key: key };
+    openSheet('lineoffers', lineOffersHTML(l), 'Offers for this item');
+  }
+  function lineOffersHTML(l) {
+    var d = draft();
+    var r = d.offers.lines[S.cart.lines.indexOf(l)];
+    return '<div class="sheet__grab"></div><div class="sheet__head"><div class="grow"><h3 class="t-h3">Offers</h3><span class="qb-sub">' + esc(l.name) + (l.variantLabel ? ' · ' + esc(l.variantLabel) : '') + '</span></div>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-form"><div class="qb-hits">' + r.options.map(function (o) {
+        var line = o.state === 'applied' ? 'Applied on this item'
+          : o.why === 'lost' ? 'Not applied: “' + o.beatenBy + '” has higher priority'
+          : (WHY_NOT[o.why] || 'Available');
+        return '<div class="qb-hit' + (o.state === 'applied' ? ' is-on' : '') + '"><span class="grow"><b>' + esc(o.name) + '</b><span>' + LEVEL_NAMES[o.level] + ' offer · ' + esc(line) + '</span></span>' +
+          (o.discountPaise ? '<b class="qb-hit__n">−' + inr(o.discountPaise) + '</b>' : '') +
+          (o.state === 'available' ? '<button type="button" class="btn btn--outline btn--sm" data-qb="line-pick" data-id="' + esc(o.id) + '">Apply</button>' : '') +
+          (o.state === 'applied' ? '<button type="button" class="btn btn--ghost btn--sm" data-qb="line-pick" data-id="none">Remove</button>' : '') + '</div>';
+      }).join('') + '</div>' +
+      (l.offerPick ? '<button type="button" class="qb-link" data-qb="line-pick" data-id="">Go back to the automatic choice</button>' : '') +
+      '</div>';
   }
 
   /* ============================================================ CATEGORIES */
@@ -3584,6 +4078,50 @@
       }
       case 'link-preview': togglePreview(id); break;
       case 'stock': openStockSheet(id); break;
+      case 'of-new': openOfferForm(); break;
+      case 'of-edit': closeSheet(); openOfferForm(id); break;
+      case 'of-view': openOfferView(id); break;
+      case 'of-settings': openOfferSettings(); break;
+      case 'of-settings-go': submitOfferSettings(); break;
+      case 'of-save': submitOffer(); break;
+      case 'of-tab': S.offerFilter.status = id; rerender(); break;
+      case 'of-status': {
+        var to = t.getAttribute('data-to');
+        var oo = offerById(id);
+        if (to === 'expired' && !global.confirm('End “' + (oo && oo.name) + '” now? It stops applying to new bills. Saved bills keep their discount.')) break;
+        changeOffer({ action: 'status', offerId: id, status: to }, to === 'paused' ? 'Offer paused' : to === 'active' ? 'Offer activated' : 'Offer ended');
+        break;
+      }
+      case 'of-seg':
+        S.sheet[t.getAttribute('data-k')] = id;
+        paint('qbOValue', offerValueHTML({}));
+        break;
+      case 'of-quick': { var ov = el('qbOValueIn'); if (ov) ov.value = id; break; }
+      case 'of-target':
+        S.sheet.target = id; S.sheet.q = ''; S.sheet.variantProduct = null;
+        paint('qbOTarget', offerTargetHTML());
+        break;
+      case 'of-prod': {
+        var ids = S.sheet.productIds, at = ids.indexOf(id);
+        if (at > -1) ids.splice(at, 1); else ids.push(id);
+        paint('qbOHits', offerHitsHTML());
+        paint('qbOChosen', offerChosenHTML());
+        break;
+      }
+      case 'of-var-prod': S.sheet.variantProduct = id; paint('qbOHits', offerHitsHTML()); break;
+      case 'of-var-back': S.sheet.variantProduct = null; paint('qbOHits', offerHitsHTML()); break;
+      case 'of-drop':
+        S.sheet.productIds = S.sheet.productIds.filter(function (x) { return x !== id; });
+        S.sheet.variants = S.sheet.variants.filter(function (x) { return x.productId + '|' + x.variantId !== id; });
+        paint('qbOHits', offerHitsHTML());
+        paint('qbOChosen', offerChosenHTML());
+        break;
+      case 'line-offers': openLineOffers(id); break;
+      case 'line-pick': {
+        var lp = S.sheet && S.sheet.key ? lineByKey(S.sheet.key) : null;
+        if (lp) { lp.offerPick = id || null; closeSheet(); cartChanged(false); }
+        break;
+      }
       case 'pop': openPop(id); break;
       case 'pv': setProductView(id); break;
       case 'pv-rows': S.prodOpen[id] = !S.prodOpen[id]; paintProductList(); break;
@@ -3744,6 +4282,14 @@
         billSearchTimer = setTimeout(filterChanged, 150);
         break;
       }
+      case 'of-search':
+        S.offerFilter.q = t.value.trim();
+        clearTimeout(billSearchTimer);
+        billSearchTimer = setTimeout(function () { paint('qbOfferList', offerListHTML()); }, 150);
+        break;
+      case 'of-find':
+        if (S.sheet) { S.sheet.q = t.value.trim(); S.sheet.variantProduct = null; paint('qbOHits', offerHitsHTML()); }
+        break;
       case 'pf-price':
         S.prodFilter[t.getAttribute('data-k')] = t.value;
         clearTimeout(billSearchTimer);
@@ -3838,6 +4384,27 @@
         break;
       }
       case 'photo': onPhotoPicked(t); break;
+      case 'bill-auto':
+        /* this bill only: the shop's setting and each offer's stay as they are */
+        S.cart.autoOffers = t.checked;
+        cartChanged(false);
+        break;
+      case 'of-auto':
+        changeOffer({ action: 'auto', offerId: t.getAttribute('data-id'), autoApply: t.checked }, t.checked ? 'Auto Apply on' : 'Auto Apply off');
+        break;
+      case 'of-cat': {
+        var cats = S.sheet.categoryIds, cid = t.getAttribute('data-id'), ci = cats.indexOf(cid);
+        if (t.checked && ci < 0) cats.push(cid);
+        if (!t.checked && ci > -1) cats.splice(ci, 1);
+        break;
+      }
+      case 'of-var': {
+        var sh = S.sheet, vid = t.getAttribute('data-id');
+        sh.variants = sh.variants.filter(function (x) { return !(x.productId === sh.variantProduct && x.variantId === vid); });
+        if (t.checked) sh.variants.push({ productId: sh.variantProduct, variantId: vid });
+        paint('qbOChosen', offerChosenHTML());
+        break;
+      }
       case 'pf': S.prodFilter[t.getAttribute('data-k')] = t.value; filterChanged(); break;
       case 'pc':
         S.prodCols[t.getAttribute('data-k')] = t.checked;
@@ -3858,6 +4425,8 @@
     else if (k === 'payment') submitPayment();
     else if (k === 'customer') submitCustomer();
     else if (k === 'qty') saveStockEdit();
+    else if (k === 'offer') submitOffer();
+    else if (k === 'offer-settings') submitOfferSettings();
     else if (k === 'cat-form') submitCatForm();
     else if (k === 'cat-new') {
       var n = el('qbNewCat');
@@ -3885,6 +4454,14 @@
   document.addEventListener('change', onChange);
   document.addEventListener('submit', onSubmit);
   document.addEventListener('keydown', onKey);
+  setInterval(function () {
+    if (!S || !S.loaded || !onBilling()) return;
+    var key = activeOfferKey();
+    if (key === S.offerKey) return;
+    S.offerKey = key;
+    if (viewName() === 'offers') rerender();
+    else if (viewName() === 'pos' && !S.lastSaved && S.cart.lines.length) cartChanged(false);
+  }, 30000);
   ['mouseover', 'focusin'].forEach(function (type) {
     document.addEventListener(type, function (e) {
       var b = e.target.closest && e.target.closest('.qb-bar');

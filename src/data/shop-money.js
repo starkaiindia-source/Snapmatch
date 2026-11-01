@@ -105,7 +105,9 @@
   /**
    * The whole bill, from its lines and its adjustments.
    *
-   * @param {Array<{unitPaise:number, qty:number}>} lines
+   * @param {Array<{unitPaise:number, qty:number, offerPaise?:number}>} lines
+   *        offerPaise: what an offer takes off the line. Everything below it
+   *        works on what the offers left.
    * @param {{mode?:'amount'|'percent', value?:number}} [discount]
    *        amount: paise off the subtotal; percent: basis points of it.
    *        Never more than the subtotal.
@@ -121,7 +123,7 @@
    */
   function computeBill(lines, discount, tax, receivedPaise) {
     var out = {
-      ok: true, lineTotals: [], subtotalPaise: 0, discountPaise: 0, taxablePaise: 0,
+      ok: true, lineTotals: [], originalSubtotalPaise: 0, offerPaise: 0, subtotalPaise: 0, discountPaise: 0, taxablePaise: 0,
       taxPaise: 0, totalPaise: 0, receivedPaise: 0, balancePaise: 0, changePaise: 0
     };
     var fail = function (error, line) {
@@ -137,9 +139,13 @@
       if (!isInt(l.unitPaise) || l.unitPaise < 0 || l.unitPaise > MAX_UNIT_PAISE) return fail('price', i);
       if (!isInt(l.qty) || l.qty < 1 || l.qty > MAX_QTY) return fail('qty', i);
       var t = l.unitPaise * l.qty;
-      out.lineTotals.push(t);
-      out.subtotalPaise += t;
-      if (out.subtotalPaise > MAX_BILL_PAISE) return fail('total-too-large', i);
+      var off = l.offerPaise == null ? 0 : l.offerPaise;
+      if (!isInt(off) || off < 0 || off > t) return fail('offer', i);
+      out.lineTotals.push(t - off);
+      out.originalSubtotalPaise += t;
+      out.offerPaise += off;
+      out.subtotalPaise += t - off;
+      if (out.originalSubtotalPaise > MAX_BILL_PAISE) return fail('total-too-large', i);
     }
 
     var d = discount || {};

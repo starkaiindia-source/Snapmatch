@@ -944,3 +944,247 @@ test('a voided bill says so on its link', async () => {
   const html = (await openLink(w, token)).body;
   assert.ok(html.includes('class="void"'));
 });
+
+/* ======================================================== discounts & offers */
+
+async function offerWorld() {
+  const w = world();
+  const { byName } = await categories(w, w.tokA);
+  const glass = ok(await w.post(w.tokA, 'product', {
+    action: 'create', productId: cid('p'), name: 'Realme 5 Tempered Glass Clear', categoryId: byName['Tempered Glass'].id,
+    pricePaise: 29900, qty: 30
+  })).product;
+  const phone = ok(await w.post(w.tokA, 'product', {
+    action: 'create', productId: cid('p'), name: 'vivo Y20', categoryId: byName.Mobiles.id, master: { id: 'vivo-y20', kind: 'phone' },
+    variants: [
+      { id: 'var_small', ram: '3 GB', storage: '32 GB', pricePaise: 899900, qty: 5 },
+      { id: 'var_large', ram: '4 GB', storage: '64 GB', pricePaise: 1099900, qty: 5 }
+    ]
+  })).product;
+  const makeOffer = extra => w.post(w.tokA, 'offer', Object.assign({
+    action: 'create', offerId: cid('o'), name: 'Glass 10%', kind: 'percent', percentBp: 1000,
+    target: 'category', categoryIds: [byName['Tempered Glass'].id]
+  }, extra));
+  const sell = (lines, extra) => w.post(w.tokA, 'bill', Object.assign({
+    action: 'finalise', finalisationId: cid('f'), lines, payment: { method: 'cash', status: 'paid' }
+  }, extra));
+  return { w, byName, glass, phone, makeOffer, sell };
+}
+
+test('an offer is saved once and shown back in the shop state', async () => {
+  const { w, makeOffer } = await offerWorld();
+  const offerId = cid('o');
+  const a = ok(await makeOffer({ offerId }));
+  const b = ok(await makeOffer({ offerId }));
+  assert.equal(b.replayed, true);
+  assert.equal(a.offer.id, b.offer.id);
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.equal(st.offers.length, 1);
+  assert.equal(st.offers[0].createdBy, 'shopAAAAAA');
+  assert.equal(st.offers[0].autoApply, true);
+  assert.deepEqual(st.offerSettings, { autoApplyDefault: true, billAutoApply: true, stacking: false, order: 'specific' });
+});
+
+test('an offer is checked before it is saved', async () => {
+  const { makeOffer, glass, phone } = await offerWorld();
+  const code = async extra => (await makeOffer(extra)).body.error;
+  assert.equal(await code({ name: '' }), 'offer-name');
+  assert.equal(await code({ percentBp: 0 }), 'offer-value');
+  assert.equal(await code({ percentBp: 10001 }), 'offer-value');
+  assert.equal(await code({ kind: 'fixed', amountPaise: 0 }), 'offer-value');
+  assert.equal(await code({ maxPaise: -1 }), 'offer-max');
+  assert.equal(await code({ categoryIds: [] }), 'offer-target');
+  assert.equal(await code({ categoryIds: ['not-a-category'] }), 'offer-target');
+  assert.equal(await code({ target: 'product', productIds: ['nope'] }), 'offer-target');
+  assert.equal(await code({ target: 'variant', variants: [{ productId: phone.id, variantId: 'var_gone' }] }), 'offer-target');
+  assert.equal(await code({ startTime: '10:00' }), 'offer-dates');
+  assert.equal(await code({ startDate: '2026-12-02', endDate: '2026-12-01' }), 'offer-dates');
+  const big = await makeOffer({ kind: 'fixed', amountPaise: 30000, fixedMode: 'unit', target: 'product', productIds: [glass.id] });
+  assert.equal(big.body.error, 'offer-too-large');
+});
+
+test('dates are read in Indian time', async () => {
+  const { makeOffer } = await offerWorld();
+  const o = ok(await makeOffer({ startDate: '2026-12-01', startTime: '09:30', endDate: '2026-12-02' })).offer;
+  assert.equal(o.startAt, Date.parse('2026-12-01T09:30:00+05:30'));
+  assert.equal(o.endAt, Date.parse('2026-12-02T23:59:59.999+05:30'));
+});
+
+test('a category offer reaches a bill, and the bill keeps what it was given', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  const o = ok(await makeOffer()).offer;
+  const bill = ok(await sell([{ productId: glass.id, qty: 2, unitPaise: 29900 }], { expectedTotalPaise: 53820 })).bill;
+  const it = bill.items[0];
+  assert.equal(it.unitPaise, 29900, 'the original price');
+  assert.equal(it.offerPaise, 5980);
+  assert.equal(it.finalUnitPaise, 26910);
+  assert.equal(it.totalPaise, 53820);
+  assert.equal(it.offers[0].id, o.id);
+  assert.equal(it.offers[0].name, 'Glass 10%');
+  assert.equal(bill.originalSubtotalPaise, 59800);
+  assert.equal(bill.offerDiscountPaise, 5980);
+  assert.equal(bill.subtotalPaise, 53820);
+  assert.equal(bill.discountPaise, 0, 'an offer is not a bill discount');
+  assert.equal(bill.totalPaise, 53820);
+  assert.equal(bill.payment.receivedPaise, 53820);
+});
+
+test('a product added to the category later is covered', async () => {
+  const { w, byName, makeOffer, sell } = await offerWorld();
+  ok(await makeOffer());
+  const later = ok(await w.post(w.tokA, 'product', {
+    action: 'create', productId: cid('p'), name: 'Redmi 9 Glass', categoryId: byName['Tempered Glass'].id, pricePaise: 20000, qty: 4
+  })).product;
+  assert.equal(ok(await sell([{ productId: later.id, qty: 1, unitPaise: 20000 }])).bill.offerDiscountPaise, 2000);
+});
+
+test('a variant offer leaves the other variants alone', async () => {
+  const { phone, makeOffer, sell } = await offerWorld();
+  ok(await makeOffer({ name: 'Large only', target: 'variant', variants: [{ productId: phone.id, variantId: 'var_large' }] }));
+  const large = ok(await sell([{ productId: phone.id, variantId: 'var_large', qty: 1, unitPaise: 1099900 }])).bill;
+  assert.equal(large.offerDiscountPaise, 109990);
+  const small = ok(await sell([{ productId: phone.id, variantId: 'var_small', qty: 1, unitPaise: 899900 }])).bill;
+  assert.equal(small.offerDiscountPaise, 0);
+});
+
+test('the server decides, whatever the browser says', async () => {
+  const { glass, makeOffer, sell } = await offerWorld();
+  const paused = ok(await makeOffer({ name: 'Paused', status: 'paused', percentBp: 9000 })).offer;
+  const plain = { productId: glass.id, qty: 1, unitPaise: 29900, offerPaise: 29900, offers: [{ id: 'fake' }] };
+
+  const tricked = ok(await sell([plain], { offers: { auto: true, picks: [paused.id] } })).bill;
+  assert.equal(tricked.offerDiscountPaise, 0, 'a paused offer cannot be chosen, and a typed discount is ignored');
+  assert.equal(tricked.totalPaise, 29900);
+});
+
+test('a total the server does not agree with is refused and nothing is saved', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  ok(await makeOffer());
+  const r = await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }], { expectedTotalPaise: 29900 });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'offers-changed');
+  assert.equal(r.body.totalPaise, 26910);
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.equal(st.products.find(p => p.id === glass.id).qty, 30, 'no stock moved');
+  assert.equal(st.shop.billCount, 0, 'no bill number was used');
+});
+
+test('Auto Apply off on a bill stops the offer for that bill only', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  const o = ok(await makeOffer()).offer;
+  const off = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }], { offers: { auto: false } })).bill;
+  assert.equal(off.offerDiscountPaise, 0);
+  const on = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }])).bill;
+  assert.equal(on.offerDiscountPaise, 2990);
+  const chosen = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }], { offers: { auto: false, picks: [o.id] } })).bill;
+  assert.equal(chosen.offerDiscountPaise, 2990, 'it can still be applied by hand');
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.equal(st.offers[0].autoApply, true);
+  assert.equal(st.offerSettings.billAutoApply, true);
+});
+
+test('an offer with its own Auto Apply off is not applied by itself', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  const o = ok(await makeOffer()).offer;
+  ok(await w.post(w.tokA, 'offer', { action: 'auto', offerId: o.id, autoApply: false }));
+  assert.equal(ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }])).bill.offerDiscountPaise, 0);
+});
+
+test('the shop default sets new offers and leaves saved ones alone', async () => {
+  const { w, makeOffer } = await offerWorld();
+  const kept = ok(await makeOffer()).offer;
+  ok(await w.post(w.tokA, 'offer', { action: 'settings', autoApplyDefault: false, billAutoApply: true, stacking: true, order: 'priority' }));
+  const fresh = ok(await makeOffer({ name: 'Second' })).offer;
+  assert.equal(fresh.autoApply, false);
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.equal(st.offers.find(o => o.id === kept.id).autoApply, true);
+  assert.equal(st.offerSettings.stacking, true);
+  assert.equal(st.offerSettings.order, 'priority');
+});
+
+test('pausing, ending and editing reach new bills and never old ones', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  const o = ok(await makeOffer()).offer;
+  const line = [{ productId: glass.id, qty: 1, unitPaise: 29900 }];
+  const old = ok(await sell(line)).bill;
+
+  ok(await w.post(w.tokA, 'offer', Object.assign({}, o, { action: 'update', offerId: o.id, name: 'Renamed', percentBp: 5000, status: 'active' })));
+  const dearer = ok(await sell(line)).bill;
+  assert.equal(dearer.offerDiscountPaise, 14950);
+
+  ok(await w.post(w.tokA, 'offer', { action: 'status', offerId: o.id, status: 'paused' }));
+  assert.equal(ok(await sell(line)).bill.offerDiscountPaise, 0);
+  ok(await w.post(w.tokA, 'offer', { action: 'status', offerId: o.id, status: 'active' }));
+  assert.equal(ok(await sell(line)).bill.offerDiscountPaise, 14950);
+  ok(await w.post(w.tokA, 'offer', { action: 'status', offerId: o.id, status: 'expired' }));
+  assert.equal(ok(await sell(line)).bill.offerDiscountPaise, 0);
+
+  const again = ok(await w.get(w.tokA, 'bill', { id: old.id })).bill;
+  assert.equal(again.items[0].offers[0].name, 'Glass 10%');
+  assert.equal(again.offerDiscountPaise, 2990);
+  assert.equal(again.totalPaise, 26910);
+});
+
+test('an offer past its end date cannot be switched back on', async () => {
+  const { w, makeOffer } = await offerWorld();
+  const o = ok(await makeOffer({ startDate: '2020-01-01', endDate: '2020-01-02' })).offer;
+  const r = await w.post(w.tokA, 'offer', { action: 'status', offerId: o.id, status: 'active' });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.error, 'offer-ended');
+});
+
+test('another shop cannot see or change an offer', async () => {
+  const { w, makeOffer } = await offerWorld();
+  const o = ok(await makeOffer()).offer;
+  await categories(w, w.tokB);
+  assert.equal(ok(await w.get(w.tokB, 'state')).offers.length, 0);
+  assert.equal((await w.post(w.tokB, 'offer', { action: 'status', offerId: o.id, status: 'paused' })).status, 404);
+  assert.equal((await w.post(w.tokB, 'offer', { action: 'auto', offerId: o.id, autoApply: false })).status, 404);
+  assert.equal(ok(await w.get(w.tokA, 'state')).offers[0].status, 'active');
+});
+
+test('another shop cannot aim an offer at my products', async () => {
+  const { w, glass } = await offerWorld();
+  await categories(w, w.tokB);
+  const r = await w.post(w.tokB, 'offer', {
+    action: 'create', offerId: cid('o'), name: 'Theft', kind: 'percent', percentBp: 1000, target: 'product', productIds: [glass.id]
+  });
+  assert.equal(r.body.error, 'offer-target');
+});
+
+test('bill discount and tax come after the offers, once each', async () => {
+  const { glass, makeOffer, sell } = await offerWorld();
+  ok(await makeOffer());
+  const bill = ok(await sell([{ productId: glass.id, qty: 2, unitPaise: 29900 }], {
+    discount: { mode: 'amount', value: 1000 }, tax: { rateBp: 1800, label: 'GST' }
+  })).bill;
+  assert.equal(bill.originalSubtotalPaise, 59800);
+  assert.equal(bill.offerDiscountPaise, 5980);
+  assert.equal(bill.discountPaise, 1000);
+  assert.equal(bill.taxPaise, 9508);
+  assert.equal(bill.totalPaise, 62328);
+});
+
+test('the Overview counts an offer as a discount, and a void takes it back', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  ok(await makeOffer());
+  const bill = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }])).bill;
+  let o = ok(await w.get(w.tokA, 'overview', {}));
+  assert.equal(o.today.grossPaise, 29900);
+  assert.equal(o.today.discountPaise, 2990);
+  assert.equal(o.today.netPaise, 26910);
+  assert.equal(o.products[0].revenuePaise, 26910);
+  ok(await w.post(w.tokA, 'bill', { action: 'void', billId: bill.id, reason: 'Wrong item' }));
+  o = ok(await w.get(w.tokA, 'overview', {}));
+  assert.equal(o.today.grossPaise, 0);
+  assert.equal(o.today.discountPaise, 0);
+});
+
+test('the shared invoice shows the offer and leaves out the rest', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  ok(await makeOffer());
+  const bill = ok(await sell([{ productId: glass.id, qty: 2, unitPaise: 29900 }])).bill;
+  const { token } = ok(await w.post(w.tokA, 'bill', { action: 'share', billId: bill.id }));
+  const html = (await openLink(w, token)).body;
+  ['Offer: Glass 10% (10% OFF)', 'Discount 59.80', 'Final 269.10', 'Product discounts', '538.20'].forEach(s => assert.ok(html.includes(s), s));
+});

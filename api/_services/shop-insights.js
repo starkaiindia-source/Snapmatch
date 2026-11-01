@@ -87,11 +87,16 @@ function eachItem(bill, sign, d) {
   });
 }
 
+/* Before any discount, and every discount: an offer and a bill discount are both
+   money the shop chose not to charge. A bill from before offers has neither field. */
+const grossOf = bill => bill.originalSubtotalPaise || bill.subtotalPaise || 0;
+const discountsOf = bill => (bill.discountPaise || 0) + (bill.offerDiscountPaise || 0);
+
 /** What a bill puts on the day it was made. `customer` is {id, isNew} or null. */
 function addBill(d, bill, customer) {
   d.bills += 1;
-  d.grossPaise += bill.subtotalPaise || 0;
-  d.discountPaise += bill.discountPaise || 0;
+  d.grossPaise += grossOf(bill);
+  d.discountPaise += discountsOf(bill);
   d.taxPaise += bill.taxPaise || 0;
   d.netPaise += bill.totalPaise || 0;
   eachItem(bill, 1, d);
@@ -116,8 +121,8 @@ function removeBill(d, bill) {
   d.bills = Math.max(0, d.bills - 1);
   d.voids += 1;
   d.voidedPaise += bill.totalPaise || 0;
-  d.grossPaise -= bill.subtotalPaise || 0;
-  d.discountPaise -= bill.discountPaise || 0;
+  d.grossPaise -= grossOf(bill);
+  d.discountPaise -= discountsOf(bill);
   d.taxPaise -= bill.taxPaise || 0;
   d.netPaise -= bill.totalPaise || 0;
   eachItem(bill, -1, d);

@@ -203,6 +203,8 @@
       var lines = wrap(g, title, right - 460 - (MARGIN + 50));
       /* a file goes to the customer, so the shelf stays out of it */
       var extra = [it.selectedModelName ? 'For ' + it.selectedModelName : '', it.sku || ''].filter(Boolean);
+      (it.offers || []).forEach(function (o) { extra.push('Offer: ' + words.offer(o)); });
+      if (it.offerPaise) extra.push('Discount ' + words.money(it.offerPaise) + ' · Final ' + words.money(it.finalUnitPaise) + ' each');
       room(lines.length * 32 + extra.length * 28 + 30);
       put(g, i + 1, MARGIN, y, 22, { color: DIM });
       put(g, it.qty, right - 400, y, 24, { align: 'right' });
@@ -216,7 +218,7 @@
     });
 
     /* what it came to */
-    room(330);
+    room(400);
     var pay = bill.payment || {};
     var tax = bill.tax || {};
     var row = function (label, value, opts) {
@@ -226,8 +228,9 @@
       put(g, value, right, y, size, { bold: opts.bold, align: 'right', color: opts.color });
       y += size + 14;
     };
-    row('Subtotal', words.money(bill.subtotalPaise || 0));
-    if (bill.discountPaise) row('Discount', '−' + words.money(bill.discountPaise));
+    row('Subtotal', words.money(bill.originalSubtotalPaise || bill.subtotalPaise || 0));
+    if (bill.offerDiscountPaise) row('Product discounts', '−' + words.money(bill.offerDiscountPaise));
+    if (bill.discountPaise) row('Bill discount', '−' + words.money(bill.discountPaise));
     if (tax.rateBp) {
       row((tax.label || 'Tax') + ' ' + (tax.rateBp / 100) + '%' + (tax.inclusive ? ' (incl.)' : ''),
         (tax.inclusive ? '' : '+') + words.money(bill.taxPaise || 0));
@@ -236,6 +239,7 @@
     g.fillRect(right - 480, y - 18, 480, 4);
     y += 22;
     row('Total', '₹' + words.money(bill.totalPaise || 0), { size: 32, bold: true });
+    if (bill.offerDiscountPaise) row('Total discount', words.money(bill.offerDiscountPaise + (bill.discountPaise || 0)));
     row('Amount paid', words.money(Math.min(pay.receivedPaise || 0, bill.totalPaise || 0)));
     row('Balance due', words.money(pay.balancePaise || 0), pay.balancePaise ? { color: '#B42318', bold: true } : null);
     put(g, words.status + ' · ' + words.method, right, y + 6, 22, { color: DIM, align: 'right' });
