@@ -49,6 +49,10 @@
     /* a till receipt with a torn foot — the bottom tab's POS mark */
     receipt: '<path d="M6 2.8h12a1 1 0 0 1 1 1v17.4l-2.4-1.5-2.3 1.5-2.3-1.5-2.3 1.5-2.3-1.5L5 21.2V3.8a1 1 0 0 1 1-1Z"/><path d="M8.6 7.6h6.8M8.6 11h6.8M8.6 14.4h4"/>',
     printer: '<path d="M7 9V3.5h10V9"/><rect x="3.5" y="9" width="17" height="8" rx="2"/><path d="M7 14.5h10v6H7z"/><path d="M17.2 11.8h.1"/>',
+    banknote: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 12h.01M18 12h.01"/>',
+    creditCard: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/><path d="M6.5 15h4"/>',
+    wallet: '<path d="M18 7.5V5.8A1.8 1.8 0 0 0 16.2 4H6a2.5 2.5 0 0 0 0 5h13.2a1.3 1.3 0 0 1 1.3 1.3v8.2a1.5 1.5 0 0 1-1.5 1.5H6a2.5 2.5 0 0 1-2.5-2.5v-10"/><circle cx="16.5" cy="14.5" r="1"/>',
+    qrCode: '<rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1"/><path d="M14 14h2.5v2.5M20.5 14v.01M14 20.5h.01M17.5 20.5h3v-3"/>',
     box: '<path d="m12 3 8 4.2v9.6L12 21l-8-4.2V7.2L12 3Z"/><path d="m4 7.2 8 4.3 8-4.3M12 11.5V21"/>',
     trash: '<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.2h5v2.3"/><path d="M6.5 6.5 7.4 20h9.2l.9-13.5"/><path d="M10.3 10.5v6M13.7 10.5v6"/>',
     edit: '<path d="M4 20h4.2L19.4 8.8a2 2 0 0 0 0-2.8l-1.4-1.4a2 2 0 0 0-2.8 0L4 15.8V20Z"/><path d="m13.6 6.2 4.2 4.2"/>',

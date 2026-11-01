@@ -230,7 +230,7 @@
     };
     row('Subtotal', words.money(bill.originalSubtotalPaise || bill.subtotalPaise || 0));
     if (bill.offerDiscountPaise) row('Product discounts', '−' + words.money(bill.offerDiscountPaise));
-    if (bill.discountPaise) row('Bill discount', '−' + words.money(bill.discountPaise));
+    if (bill.discountPaise) row('Additional discount', '−' + words.money(bill.discountPaise));
     if (tax.rateBp) {
       row((tax.label || 'Tax') + ' ' + (tax.rateBp / 100) + '%' + (tax.inclusive ? ' (incl.)' : ''),
         (tax.inclusive ? '' : '+') + words.money(bill.taxPaise || 0));
