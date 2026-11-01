@@ -343,7 +343,8 @@
 /* ---------------------------------------------------------- sheets */
 .qb-sheet{ z-index:110; }
 @media (min-width:820px){
-  .qb-sheet--product, .qb-sheet--stock, .qb-sheet--void, .qb-sheet--payment, .qb-sheet--catdel, .qb-sheet--labels, .qb-sheet--variant, .qb-sheet--catform, .qb-sheet--customer, .qb-sheet--review, .qb-sheet--wa{ width:min(560px, calc(100vw - 48px)); }
+  .qb-sheet--product, .qb-sheet--stock, .qb-sheet--void, .qb-sheet--payment, .qb-sheet--catdel, .qb-sheet--labels, .qb-sheet--variant, .qb-sheet--catform, .qb-sheet--customer, .qb-sheet--review, .qb-sheet--wa, .qb-sheet--offerview, .qb-sheet--offerset, .qb-sheet--lineoffers{ width:min(560px, calc(100vw - 48px)); }
+  .qb-sheet--offer{ width:min(640px, calc(100vw - 48px)); }
 }
 .qb-sheet .sheet__head .qb-thumb{ width:42px; height:42px; }
 
@@ -756,6 +757,51 @@
 .qb-rank__bar{ display:block; height:6px; margin-top:3px; border-radius:0 4px 4px 0; background:var(--surface-3); overflow:hidden; }
 .qb-rank__bar i{ display:block; height:100%; min-width:2px; border-radius:0 4px 4px 0; background:var(--qb-chart-1); }
 
+
+/* ---------------------------------------------------- discounts & offers */
+.qb-of{ padding-top:10px; display:flex; flex-direction:column; gap:10px; }
+.qb-ofhead{ display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.qb-ofhead h2{ font-size:18px; margin-right:auto; }
+.qb-ofhead .btn svg{ width:15px; height:15px; }
+.qb-ofstats{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+@media (min-width:760px){ .qb-ofstats{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
+.qb-ofstat{ display:flex; align-items:baseline; gap:8px; min-width:0; padding:8px 12px; border-radius:var(--r-sm); background:var(--surface); border:1px solid var(--line); }
+.qb-ofstat b{ font-family:var(--f-display); font-size:19px; font-weight:800; }
+.qb-ofstat span{ font-size:12px; font-weight:600; color:var(--ink-3); min-width:0; }
+.qb-ofbar{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.qb-ofbar .qb-pmsearch{ flex:1 1 280px; }
+.qb-ofwrap{ max-height:none; }
+.qb-pt td.c-target{ white-space:normal; min-width:200px; max-width:360px; }
+.qb-ofapply em{ font-style:normal; font-size:11px; font-weight:800; color:var(--ink-3); margin-right:2px; }
+.qb-pt td.c-valid{ white-space:normal; min-width:120px; font-size:12.5px; }
+.qb-pt td.c-actions .qb-link{ margin-left:2px; }
+.qb-switch{ position:relative; display:inline-block; width:38px; height:22px; flex:none; cursor:pointer; }
+.qb-switch input{ position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; }
+.qb-switch i{ display:block; width:100%; height:100%; border-radius:99px; background:var(--line); transition:background .15s; }
+.qb-switch i::after{ content:""; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:var(--surface); box-shadow:var(--sh-1); transition:transform .15s; }
+.qb-switch input:checked + i{ background:var(--qb); }
+.qb-switch input:checked + i::after{ transform:translateX(16px); }
+.qb-switch input:focus-visible + i{ outline:2px solid var(--qb); outline-offset:2px; }
+.qb-fsec{ margin-top:6px; padding-top:10px; border-top:1px solid var(--line-soft); font-size:14px; font-weight:800; }
+.qb-fsec:first-of-type{ margin-top:0; padding-top:0; border-top:0; }
+.qb-ofquick{ display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
+.qb-ofquick .qb-chip{ height:32px; padding:0 12px; }
+.qb-ofcats{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 12px; margin-top:6px; }
+.qb-ofcheck{ align-self:center; }
+.qb-ofchosen{ display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+.qb-ofchosen .qb-chip{ height:auto; min-height:32px; white-space:normal; padding:4px 6px 4px 11px; }
+.qb-ofchosen button{ width:22px; height:22px; display:grid; place-items:center; border-radius:6px; color:var(--ink-3); }
+.qb-ofchosen svg{ width:13px; height:13px; }
+
+/* an offer on a cart line */
+.qb-autooffers{ display:flex; align-items:center; gap:9px; font-size:13px; font-weight:700; color:var(--ink-2); cursor:pointer; }
+.qb-lineoffer{ display:flex; align-items:center; flex-wrap:wrap; gap:2px 8px; margin-top:3px; font-size:12px; font-weight:600; color:var(--ink-3); }
+.qb-lineoffer b{ display:inline-flex; align-items:center; gap:3px; font-size:12px; font-weight:800; color:var(--ok); }
+.qb-lineoffer b svg{ width:12px; height:12px; }
+.qb-lineoffer em{ font-style:normal; color:var(--ink-2); }
+.qb-lineoffer .qb-link{ font-size:12px; padding:0 2px; }
+.qb-lineoffer__sum{ flex:1 1 100%; color:var(--ink-2); }
+.qb-hits .qb-hit .btn{ flex:none; }
 
 /* ---------------------------------------------------- one bill */
 .qb-billview{ padding-top:12px; display:flex; flex-direction:column; gap:12px; }

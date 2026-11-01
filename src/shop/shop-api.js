@@ -151,6 +151,8 @@
       return request('model-groups', { query: { modelId: modelId, partCategory: partCategory } });
     },
     compat: function (modelId) { return request('compat', { query: { modelId: modelId } }); },
+    /* a new offer carries its own id, so sending it twice makes one offer */
+    offer: function (body) { return withRetry('offer', { body: body }, body.action === 'create' ? 3 : 0); },
     customers: function (query) { return request('customers', { query: query }); },
     customer: function (id) { return request('customer', { query: { id: id } }); },
     customerSave: function (body) { return request('customer', { body: body }); },

@@ -149,6 +149,9 @@ const SHOP_BILLS = 'bills';
 const SHOP_CUSTOMERS = 'customers';
 /** shops/{uid}/days/{YYYY-MM-DD} — one trading day's figures, written with its bills. */
 const SHOP_DAYS = 'days';
+/* shops/{uid}/offers/{id}. An offer refers to categories, products and variants
+   by id. It is never deleted: a bill keeps its own copy of what it was given. */
+const SHOP_OFFERS = 'offers';
 
 /* A shared invoice link: token -> whose bill. Top level because whoever opens one
    has no account to find a shop by. Written and read only by the server. */
@@ -176,7 +179,7 @@ module.exports = {
   APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
   COMPAT_CATEGORIES,
   ADMIN_AUDIT_LOG, RATE_LIMITS, SEARCH_USAGE,
-  SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS, SHOP_CUSTOMERS, SHOP_DAYS, INVOICE_LINKS,
+  SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS, SHOP_CUSTOMERS, SHOP_DAYS, SHOP_OFFERS, INVOICE_LINKS,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG
 };

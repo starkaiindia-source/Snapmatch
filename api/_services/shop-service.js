@@ -77,6 +77,7 @@ const money = require('../../src/data/shop-money');
 const insights = require('./shop-insights');
 const search = require('./search-service');
 const { invoicePage } = require('./shop-invoice-page');
+const offerEngine = require('../../src/data/shop-offers');
 const entitlements = require('./entitlement-service');
 const { TIERS } = require('../_schema/entitlement');
 const { CATALOG_VERSION, DEVICE_KINDS, STANDARD_CATEGORIES, SUGGESTED_CATEGORIES } = require('../_schema/shop-standard');
@@ -132,6 +133,7 @@ async function transaction(name, run, options) {
   }
 }
 
+const offerCol = uid => shopRef(uid).collection(C.SHOP_OFFERS);
 const moveCol = (uid, productId) => prodCol(uid).doc(productId).collection(C.SHOP_STOCK_MOVES);
 const custCol = uid => shopRef(uid).collection(C.SHOP_CUSTOMERS);
 const dayCol = uid => shopRef(uid).collection(C.SHOP_DAYS);
@@ -257,6 +259,42 @@ function customerView(id, d) {
   };
 }
 
+const OFFER_SETTINGS = { autoApplyDefault: true, billAutoApply: true, stacking: false, order: 'specific' };
+const MAX_OFFER_TARGETS = 200;
+
+function offerSettings(shop) {
+  return Object.assign({}, OFFER_SETTINGS, shop && shop.offerSettings);
+}
+
+function offerView(id, d) {
+  return {
+    id,
+    name: d.name,
+    description: d.description || '',
+    kind: d.kind,
+    percentBp: d.percentBp || null,
+    amountPaise: d.amountPaise || null,
+    fixedMode: d.fixedMode || 'unit',
+    maxPaise: d.maxPaise || null,
+    target: d.target,
+    categoryIds: d.categoryIds || [],
+    productIds: d.productIds || [],
+    variants: d.variants || [],
+    startDate: d.startDate || '', startTime: d.startTime || '',
+    endDate: d.endDate || '', endTime: d.endTime || '',
+    startAt: d.startAt || null,
+    endAt: d.endAt || null,
+    minQty: d.minQty || 1,
+    minBillPaise: d.minBillPaise || 0,
+    priority: d.priority || 100,
+    stackable: !!d.stackable,
+    autoApply: d.autoApply !== false,
+    status: d.status,
+    createdBy: d.createdBy || null, updatedBy: d.updatedBy || null,
+    createdAt: d.createdAt, updatedAt: d.updatedAt
+  };
+}
+
 function billSummary(id, d) {
   return {
     id,
@@ -272,7 +310,7 @@ function billSummary(id, d) {
     itemCount: (d.items || []).reduce((n, i) => n + i.qty, 0),
     receivedPaise: d.payment ? Math.min(d.payment.receivedPaise || 0, d.totalPaise) : 0,
     balancePaise: (d.payment && d.status !== 'void' && d.payment.balancePaise) || 0,
-    discountPaise: d.discountPaise || 0,
+    discountPaise: (d.discountPaise || 0) + (d.offerDiscountPaise || 0),
     createdAt: d.createdAt
   };
 }
@@ -468,8 +506,8 @@ async function loadState(uid) {
   if ((first.catalogV || 0) < CATALOG_VERSION) await ensureCatalog(uid);
   if ((first.statsV || 0) < STATS_VERSION) await ensureStats(uid);
 
-  const [shopSnap, cats, prods] = await Promise.all([
-    shopRef(uid).get(), catCol(uid).get(), prodCol(uid).get()
+  const [shopSnap, cats, prods, offers] = await Promise.all([
+    shopRef(uid).get(), catCol(uid).get(), prodCol(uid).get(), offerCol(uid).get()
   ]);
   const shop = owned(uid, shopSnap) || {};
   const categories = cats.docs
@@ -486,6 +524,8 @@ async function loadState(uid) {
     },
     categories,
     products,
+    offers: offers.docs.map(s => ({ s, d: owned(uid, s) })).filter(x => x.d).map(x => offerView(x.s.id, x.d)),
+    offerSettings: offerSettings(shop),
     suggestedCategories: SUGGESTED_CATEGORIES
   };
 }
@@ -1276,6 +1316,8 @@ async function finaliseBill(uid, body) {
     notes: text(typed.notes, 300)
   };
   const customerInput = Object.assign({}, customer, { id: typed.id ? docId(typed.id) : '' });
+  const wanted = body.offers || {};
+  const offerPicks = Array.isArray(wanted.picks) ? wanted.picks : [];
 
   const billRef = billCol(uid).doc(fid);
   const productIds = Array.from(new Set(lines.filter(l => l.productId).map(l => l.productId)));
@@ -1295,6 +1337,7 @@ async function finaliseBill(uid, body) {
     const catName = new Map(cats.map(c => [c.id, c.d.name]));
     const who = await findCustomer(tx, uid, customerInput);
     const daySnap = await tx.get(dayCol(uid).doc(today));
+    const offerSnap = await tx.get(offerCol(uid).where('status', '==', 'active'));
 
     const products = new Map();
     productSnaps.forEach((s, i) => {
@@ -1332,7 +1375,25 @@ async function finaliseBill(uid, body) {
     });
     if (shortfalls.length) throw conflict('insufficient-stock', { shortfalls });
 
-    const totals = money.computeBill(lines, adj.discount, adj.tax, 0);
+    /* The offers are worked out here, from this shop's own offers and products.
+       What the browser showed is only compared against the answer. */
+    const priced = offerEngine.applyOffers({
+      now,
+      auto: wanted.auto !== false,
+      settings: offerSettings(owned(uid, shopSnap)),
+      offers: offerSnap.docs.map(s => ({ s, d: owned(uid, s) })).filter(x => x.d).map(x => offerView(x.s.id, x.d)),
+      lines: lines.map((l, i) => ({
+        productId: l.productId, variantId: l.variantId || null, unitPaise: l.unitPaise, qty: l.qty,
+        categoryId: l.productId ? products.get(l.productId).categoryId : null,
+        pick: offerPicks[i] === 'none' ? 'none' : (docId(offerPicks[i]) || undefined)
+      }))
+    });
+    const totals = money.computeBill(
+      lines.map((l, i) => Object.assign({}, l, { offerPaise: priced.lines[i].offerPaise })), adj.discount, adj.tax, 0);
+    if (!totals.ok) throw moneyError(totals);
+    if (Number.isInteger(body.expectedTotalPaise) && body.expectedTotalPaise !== totals.totalPaise) {
+      throw conflict('offers-changed', { totalPaise: totals.totalPaise });
+    }
     const payment = settle(totals.totalPaise, adj.payment);
     if (!money.isInt(payment.receivedPaise) || payment.receivedPaise < 0 ||
         payment.receivedPaise > money.MAX_BILL_PAISE * 2) throw bad('bill-received');
@@ -1357,6 +1418,10 @@ async function finaliseBill(uid, body) {
         sku: p ? ((v && v.sku) || p.sku || '') : '',
         categoryName: p ? (catName.get(p.categoryId) || '') : '',
         unitPaise: l.unitPaise,
+        offerPaise: priced.lines[i].offerPaise,
+        finalUnitPaise: priced.lines[i].finalUnitPaise,
+        /* The bill's own copy, so editing or pausing an offer cannot reach it. */
+        offers: priced.lines[i].applied,
         listPaise: p ? (v ? v.pricePaise : p.pricePaise) : null,
         costPaise: cost == null ? null : cost,
         qty: l.qty,
@@ -1397,6 +1462,9 @@ async function finaliseBill(uid, body) {
       status: 'final',
       day: today,
       items,
+      originalSubtotalPaise: totals.originalSubtotalPaise,
+      offerDiscountPaise: totals.offerPaise,
+      offersAuto: wanted.auto !== false,
       subtotalPaise: totals.subtotalPaise,
       discount: adj.discount,
       discountPaise: totals.discountPaise,
@@ -1694,6 +1762,198 @@ async function listBills(uid, query) {
   };
 }
 
+/* ================================================================== OFFERS
+
+   Created, edited, paused and ended here. Which offer a bill gets is decided in
+   src/data/shop-offers.js, by the same code the cart runs. */
+
+const IST = '+05:30';
+
+function offerMoment(date, time, field, fallback) {
+  if (!blank(time) && blank(date)) throw bad('offer-dates', { field });
+  if (blank(date)) return { date: '', time: '', at: null };
+  const d = String(date);
+  const t = blank(time) ? '' : String(time);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || (t && !/^\d{2}:\d{2}$/.test(t))) throw bad('offer-dates', { field });
+  const at = Date.parse(d + 'T' + (t || fallback) + IST);
+  if (!Number.isFinite(at)) throw bad('offer-dates', { field });
+  return { date: d, time: t, at };
+}
+
+function idList(raw, read) {
+  const list = Array.from(new Set((Array.isArray(raw) ? raw : []).map(read).filter(Boolean)));
+  if (list.length > MAX_OFFER_TARGETS) throw bad('offer-target');
+  return list;
+}
+
+/** Everything about an offer that the form sets, checked. */
+function offerFields(body) {
+  const name = text(body.name, 80);
+  if (!name) throw bad('offer-name');
+  const kind = body.kind === 'fixed' ? 'fixed' : 'percent';
+  const out = {
+    name, description: text(body.description, 300), kind,
+    percentBp: null, amountPaise: null, fixedMode: 'unit', maxPaise: null
+  };
+  if (kind === 'percent') {
+    out.percentBp = int(body.percentBp, 1, 10000);
+    if (out.percentBp == null) throw bad('offer-value');
+    if (!blank(body.maxPaise)) {
+      out.maxPaise = int(body.maxPaise, 1, money.MAX_UNIT_PAISE);
+      if (out.maxPaise == null) throw bad('offer-max');
+    }
+  } else {
+    out.amountPaise = int(body.amountPaise, 1, money.MAX_UNIT_PAISE);
+    if (out.amountPaise == null) throw bad('offer-value');
+    out.fixedMode = body.fixedMode === 'line' ? 'line' : 'unit';
+  }
+
+  out.target = ['category', 'product', 'variant'].includes(body.target) ? body.target : null;
+  if (!out.target) throw bad('offer-target');
+  out.categoryIds = out.target === 'category' ? idList(body.categoryIds, docId) : [];
+  out.productIds = out.target === 'product' ? idList(body.productIds, docId) : [];
+  const seen = new Set();
+  out.variants = out.target !== 'variant' ? [] : (Array.isArray(body.variants) ? body.variants : []).map(v => ({
+    productId: docId(v && v.productId), variantId: docId(v && v.variantId)
+  })).filter(v => {
+    const key = v.productId + '|' + v.variantId;
+    if (!v.productId || !v.variantId || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (out.variants.length > MAX_OFFER_TARGETS) throw bad('offer-target');
+  if (!out.categoryIds.length && !out.productIds.length && !out.variants.length) throw bad('offer-target');
+
+  const start = offerMoment(body.startDate, body.startTime, 'start', '00:00:00'.slice(0, 5));
+  const end = offerMoment(body.endDate, body.endTime, 'end', '23:59');
+  out.startDate = start.date; out.startTime = start.time; out.startAt = start.at;
+  out.endDate = end.date; out.endTime = end.time;
+  /* an end with no time runs to the end of that minute; with one, to the minute named */
+  out.endAt = end.at == null ? null : end.at + 59999;
+  if (out.startAt != null && out.endAt != null && out.endAt <= out.startAt) throw bad('offer-dates', { field: 'end' });
+
+  out.minQty = int(blank(body.minQty) ? 1 : body.minQty, 1, money.MAX_QTY);
+  if (out.minQty == null) throw bad('offer-min-qty');
+  out.minBillPaise = int(blank(body.minBillPaise) ? 0 : body.minBillPaise, 0, money.MAX_BILL_PAISE);
+  if (out.minBillPaise == null) throw bad('offer-min-bill');
+  out.priority = int(blank(body.priority) ? 100 : body.priority, 1, 999);
+  if (out.priority == null) throw bad('offer-priority');
+  out.stackable = !!body.stackable;
+  out.status = body.status === 'paused' ? 'paused' : 'active';
+  return out;
+}
+
+/** Every category, product and variant named has to be this shop's own. */
+async function checkOfferTargets(uid, o) {
+  if (o.target === 'category') {
+    const snaps = await Promise.all(o.categoryIds.map(id => catCol(uid).doc(id).get()));
+    if (snaps.some(s => !owned(uid, s))) throw bad('offer-target');
+    return;
+  }
+  const ids = o.target === 'product' ? o.productIds : Array.from(new Set(o.variants.map(v => v.productId)));
+  const snaps = await Promise.all(ids.map(id => prodCol(uid).doc(id).get()));
+  const products = new Map();
+  snaps.forEach((s, i) => {
+    const d = owned(uid, s);
+    if (!d) throw bad('offer-target');
+    products.set(ids[i], d);
+  });
+  const tooLarge = (price, name) => {
+    if (o.kind === 'fixed' && o.fixedMode === 'unit' && o.amountPaise > price) throw bad('offer-too-large', { name });
+  };
+  if (o.target === 'product') {
+    products.forEach(p => tooLarge(p.pricePaise, p.name));
+    return;
+  }
+  o.variants.forEach(v => {
+    const p = products.get(v.productId);
+    const found = (p.variants || []).find(x => x.id === v.variantId);
+    if (!found) throw bad('offer-target');
+    tooLarge(found.pricePaise, p.name);
+  });
+}
+
+async function createOffer(uid, body) {
+  const id = clientId(body.offerId);
+  if (!id) throw bad('offer-id');
+  const fields = offerFields(body);
+  await checkOfferTargets(uid, fields);
+  const ref = offerCol(uid).doc(id);
+  return db().runTransaction(async tx => {
+    const before = owned(uid, await tx.get(ref));
+    if (before) return { offer: offerView(id, before), replayed: true };
+    const shop = owned(uid, await tx.get(shopRef(uid))) || {};
+    const now = Date.now();
+    const d = Object.assign({ ownerUid: uid }, fields, {
+      autoApply: body.autoApply === undefined ? offerSettings(shop).autoApplyDefault : !!body.autoApply,
+      createdBy: uid, updatedBy: uid, createdAt: now, updatedAt: now
+    });
+    tx.set(ref, d);
+    return { offer: offerView(id, d), replayed: false };
+  });
+}
+
+async function updateOffer(uid, body) {
+  const id = docId(body.offerId);
+  if (!id) throw bad('offer-id');
+  const fields = offerFields(body);
+  await checkOfferTargets(uid, fields);
+  const ref = offerCol(uid).doc(id);
+  return db().runTransaction(async tx => {
+    const cur = owned(uid, await tx.get(ref));
+    if (!cur) throw notFound('offer-not-found');
+    const patch = Object.assign({}, fields, {
+      autoApply: body.autoApply === undefined ? cur.autoApply !== false : !!body.autoApply,
+      updatedBy: uid, updatedAt: Date.now()
+    });
+    tx.update(ref, patch);
+    return { offer: offerView(id, Object.assign({}, cur, patch)) };
+  });
+}
+
+/** Pause, resume or end an offer. New bills see the change at once; old bills never do. */
+async function setOfferStatus(uid, body) {
+  const id = docId(body.offerId);
+  if (!id) throw bad('offer-id');
+  const status = ['active', 'paused', 'expired'].includes(body.status) ? body.status : null;
+  if (!status) throw bad('offer-status');
+  const ref = offerCol(uid).doc(id);
+  return db().runTransaction(async tx => {
+    const cur = owned(uid, await tx.get(ref));
+    if (!cur) throw notFound('offer-not-found');
+    const now = Date.now();
+    if (status === 'active' && cur.endAt && now > cur.endAt) throw conflict('offer-ended');
+    const patch = { status, updatedBy: uid, updatedAt: now };
+    tx.update(ref, patch);
+    return { offer: offerView(id, Object.assign({}, cur, patch)) };
+  });
+}
+
+async function setOfferAuto(uid, body) {
+  const id = docId(body.offerId);
+  if (!id) throw bad('offer-id');
+  const ref = offerCol(uid).doc(id);
+  return db().runTransaction(async tx => {
+    const cur = owned(uid, await tx.get(ref));
+    if (!cur) throw notFound('offer-not-found');
+    const patch = { autoApply: !!body.autoApply, updatedBy: uid, updatedAt: Date.now() };
+    tx.update(ref, patch);
+    return { offer: offerView(id, Object.assign({}, cur, patch)) };
+  });
+}
+
+/** The shop's defaults. A saved offer keeps its own Auto Apply whatever these say. */
+async function saveOfferSettings(uid, body) {
+  const settings = {
+    autoApplyDefault: !!body.autoApplyDefault,
+    billAutoApply: !!body.billAutoApply,
+    stacking: !!body.stacking,
+    order: body.order === 'priority' ? 'priority' : 'specific'
+  };
+  await shopRef(uid).set({ ownerUid: uid, offerSettings: settings, updatedAt: Date.now() }, { merge: true });
+  return { offerSettings: settings };
+}
+
 /* ========================================================= SHARED INVOICES
 
    A link a shop can put in a WhatsApp message. Whoever holds it sees that one
@@ -1935,6 +2195,7 @@ module.exports = {
   createProduct, updateProduct, archiveProduct, adjustStock, listMoves,
   groupInfo, modelGroups, compatProducts,
   finaliseBill, updatePayment, voidBill, getBill, listBills, shareBill, sharedInvoice,
+  createOffer, updateOffer, setOfferStatus, setOfferAuto, saveOfferSettings,
   createCustomer, updateCustomer, listCustomers, getCustomer,
   overview,
   /* exported for tests */

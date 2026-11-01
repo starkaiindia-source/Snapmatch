@@ -11,6 +11,7 @@
      POST /api/shop/bill              { action: finalise | payment | void | share }
      GET  /api/shop/bill?id=          one saved bill
      GET  /api/shop/bills?q=&cursor=  bill history, or a search
+     POST /api/shop/offer             { action: create | update | status | auto | settings }
      POST /api/shop/customer          { action: create | update }
      GET  /api/shop/customer?id=      one customer and their bills
      GET  /api/shop/customers?q=&filter=&cursor=  the customer list
@@ -60,6 +61,13 @@ const POSTS = {
     payment: shop.updatePayment,
     void: shop.voidBill,
     share: shop.shareBill
+  },
+  offer: {
+    create: shop.createOffer,
+    update: shop.updateOffer,
+    status: shop.setOfferStatus,
+    auto: shop.setOfferAuto,
+    settings: shop.saveOfferSettings
   },
   customer: {
     create: shop.createCustomer,

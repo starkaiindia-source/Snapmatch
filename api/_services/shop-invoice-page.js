@@ -11,6 +11,7 @@
 'use strict';
 
 const money = require('../../src/data/shop-money');
+const offers = require('../../src/data/shop-offers');
 
 const METHODS = { cash: 'Cash', upi: 'UPI', card: 'Card', other: 'Other' };
 const STATUSES = { unpaid: 'Unpaid', partial: 'Partially Paid', paid: 'Paid' };
@@ -68,7 +69,9 @@ function invoicePage(bill, shop) {
   const rows = (bill.items || []).map(it => {
     const name = it.name + (it.variantLabel ? ' (' + it.variantLabel + ')' : '');
     return '<tr><td><b>' + esc(name) + '</b>' +
-      (it.selectedModelName ? '<span class="dim">For ' + esc(it.selectedModelName) + '</span>' : '') + '</td>' +
+      (it.selectedModelName ? '<span class="dim">For ' + esc(it.selectedModelName) + '</span>' : '') +
+      (it.offers || []).map(o => '<span class="dim">Offer: ' + esc(o.name) + ' (' + esc(offers.valueText(o, money.inr)) + ')</span>').join('') +
+      (it.offerPaise ? '<span class="dim">Discount ' + money.format(it.offerPaise) + ' · Final ' + money.format(it.finalUnitPaise) + ' each</span>' : '') + '</td>' +
       '<td class="num">' + esc(it.qty) + '</td>' +
       '<td class="num">' + money.format(it.unitPaise) + '</td>' +
       '<td class="num">' + money.format(it.totalPaise) + '</td></tr>';
@@ -95,10 +98,12 @@ function invoicePage(bill, shop) {
       : '') +
     '<table><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>' +
     '<tbody>' + rows + '</tbody></table>' +
-    '<div class="totals">' + t('Subtotal', money.format(bill.subtotalPaise || 0)) +
-    (bill.discountPaise ? t('Discount', '−' + money.format(bill.discountPaise)) : '') +
+    '<div class="totals">' + t('Subtotal', money.format(bill.originalSubtotalPaise || bill.subtotalPaise || 0)) +
+    (bill.offerDiscountPaise ? t('Product discounts', '−' + money.format(bill.offerDiscountPaise)) : '') +
+    (bill.discountPaise ? t('Bill discount', '−' + money.format(bill.discountPaise)) : '') +
     (tax.rateBp ? t((tax.label || 'Tax') + ' ' + (tax.rateBp / 100) + '%' + (tax.inclusive ? ' (incl.)' : ''), money.format(bill.taxPaise || 0)) : '') +
     t('Total', money.inr(bill.totalPaise || 0), 'grand') +
+    (bill.offerDiscountPaise ? t('Total discount', money.format(bill.offerDiscountPaise + (bill.discountPaise || 0))) : '') +
     t('Amount paid', money.format(paid)) +
     t('Balance due', money.format(pay.balancePaise || 0), pay.balancePaise ? 'due' : '') + '</div>' +
     '<div class="pay">' + esc(STATUSES[pay.status] || pay.status) + ' · ' + esc(METHODS[pay.method] || pay.method) + '</div>' +
