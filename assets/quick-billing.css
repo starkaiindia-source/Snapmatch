@@ -130,14 +130,7 @@
    cart, summary and payment stay in view on the right, each column scrolling on
    its own. Below that everything stacks in the order the bill is made. */
 .qb-nb{ display:flex; flex-direction:column; gap:10px; padding:10px var(--pad) 0; }
-.qb-nb__main, .qb-nb__side, .qb-nb__review{ display:flex; flex-direction:column; gap:10px; min-width:0; }
-.qb-nb__review:empty{ display:none; }
-#qbSummary{ scroll-margin-top:58px; }
-.qb-last{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:10px var(--pad) 0; padding:6px 10px 6px 12px; border-radius:var(--r-sm); background:var(--ok-bg); font-size:13px; }
-.qb-last:empty{ display:none; }
-.qb-last__t{ display:inline-flex; align-items:center; gap:6px; min-width:0; color:var(--ink-2); font-weight:600; }
-.qb-last__t svg{ width:16px; height:16px; flex:none; color:var(--ok); }
-.qb-last__t b{ font-family:var(--f-mono); font-weight:600; color:var(--ink); }
+.qb-nb__main, .qb-nb__side{ display:flex; flex-direction:column; gap:10px; min-width:0; }
 .qb-nb__find{ display:flex; flex-direction:column; gap:8px; min-width:0; }
 .qb-panel{ display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:var(--r); background:var(--surface); border:1px solid var(--line); }
 .qb--nb{ padding-bottom:calc(84px + env(safe-area-inset-bottom)); }
@@ -279,6 +272,12 @@
 .qb-trow--grand{ margin:3px 0; padding-top:6px; border-top:1px dashed var(--line); color:var(--ink); font-weight:800; font-size:15px; }
 .qb-trow--grand b{ font-family:var(--f-display); font-size:20px; font-weight:800; letter-spacing:-.02em; color:var(--qb-ink); }
 .qb-pay{ gap:6px; }
+/* how it was paid: four cards, each with its own mark */
+.qb-paym{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+.qb-paym button{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-height:62px; padding:8px 4px; border-radius:var(--r-sm); border:1px solid var(--line); background:var(--surface-2); font-size:13px; font-weight:700; color:var(--ink-2); transition:border-color .14s, background .14s, color .14s; }
+.qb-paym svg{ width:24px; height:24px; flex:none; }
+.qb-paym button:hover{ border-color:var(--ink-3); color:var(--ink); }
+.qb-paym button.is-on{ border-color:var(--qb); background:var(--qb-050); color:var(--qb-ink); box-shadow:inset 0 0 0 1px var(--qb); }
 .qb-bal{ display:flex; justify-content:space-between; align-items:baseline; padding:8px 10px; border-radius:var(--r-sm); background:var(--surface-3); font-weight:700; font-size:13.5px; color:var(--ink-2); }
 .qb-bal b{ font-family:var(--f-display); font-size:17px; letter-spacing:-.02em; color:var(--ink); }
 .qb-bal b.qb-good{ color:var(--ok); }
@@ -296,7 +295,32 @@
 .qb-review__items .grow .qb-fits{ color:var(--qb-ink); }
 .qb-review__items li > b{ font-family:var(--f-mono); font-weight:600; flex:none; }
 
-/* the saved invoice */
+/* the second page */
+.qb-rvtitle{ font-size:18px; }
+.qb-rvwho{ display:flex; align-items:baseline; flex-wrap:wrap; gap:0 8px; padding-bottom:6px; border-bottom:1px solid var(--line-soft); font-size:14px; }
+.qb-rvwho span:last-child:not(.qb-lab){ font-size:13px; font-weight:600; color:var(--ink-2); }
+.qb-rvlines{ display:flex; flex-direction:column; }
+.qb-rvlines li{ display:flex; flex-direction:column; gap:2px; padding:8px 0; border-bottom:1px solid var(--line-soft); }
+.qb-rvlines li:last-child{ border-bottom:0; padding-bottom:0; }
+.qb-rvline__name{ font-size:14px; font-weight:700; line-height:1.3; }
+.qb-rvlines .qb-fits{ font-size:12px; }
+.qb-rvline__offer{ display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:800; color:var(--ok); }
+.qb-rvline__offer svg{ width:12px; height:12px; flex:none; }
+.qb-rvnums{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px 8px; margin:4px 0 0; }
+.qb-rvnums dt{ font-size:11px; font-weight:700; color:var(--ink-3); }
+.qb-rvnums dd{ margin:0; font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
+.qb-rvnums__sum{ grid-column:span 2; text-align:right; }
+.qb-rvnums__sum dd{ font-family:var(--f-display); font-size:16px; font-weight:800; letter-spacing:-.02em; }
+@media (min-width:700px){
+  .qb-rvnums{ grid-template-columns:repeat(5,minmax(0,1fr)); }
+  .qb-rvnums__sum{ grid-column:auto; }
+}
+
+/* the third page */
+.qb-invpage{ padding-top:10px; padding-bottom:16px; display:flex; flex-direction:column; gap:10px; }
+.qb-invpage__head{ display:flex; align-items:center; gap:10px; }
+.qb-invpage__head h2{ font-size:18px; }
+.qb-invpage__head p{ font-family:var(--f-mono); font-size:13px; color:var(--ink-2); }
 .qb-saved__ico{ width:42px; height:42px; flex:none; border-radius:13px; display:grid; place-items:center; background:var(--ok-bg); color:var(--ok); }
 .qb-saved__ico svg{ width:24px; height:24px; }
 .qb-invacts{ display:flex; flex-wrap:wrap; gap:8px; }
@@ -314,28 +338,14 @@
 }
 .btn.is-off{ opacity:.5; pointer-events:none; }
 
-/* The invoice after Confirm Bill opens the way a compatibility group does on a
-   phone: the same slide, the same panel, the same grab handle, the same scrim. Up
-   to that sheet's own limit it stays a bottom sheet; past it, the site's dialog. */
-.qb-invsheet{ gap:10px; background:var(--surface-2); }
-.qb-invfoot{ display:block; }
-.qb-invfoot .qb-invacts{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-.qb-invfoot .qb-invprint{ display:contents; }
-.qb-invfoot .qb-invacts .btn{ height:40px; padding-inline:8px; }
-.qb-invfoot [data-qb="print-saved"]{ order:1; }
-.qb-invfoot .qb-size{ order:2; }
-.qb-invfoot .qb-size select{ width:100%; height:40px; }
-.qb-invfoot [data-qb="new-bill"]{ order:3; }
-@media (min-width:600px){ .qb-invfoot .qb-invacts{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
-@media (max-width:1179px){
-  .qb-sheet--invoice{
-    left:0; right:0; top:auto; bottom:0; transform:none; width:auto; max-height:92dvh;
-    border-radius:var(--r-xl) var(--r-xl) 0 0;
-    animation:gsheetup .32s cubic-bezier(.2,.9,.25,1);
-  }
-  .qb-sheet--invoice .sheet__grab{ display:block; }
+@media (max-width:699px){
+  .qb-invpage .qb-invacts{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .qb-invpage .qb-invprint{ display:contents; }
+  .qb-invpage .qb-invacts .btn{ padding-inline:8px; }
+  .qb-invpage .qb-size{ order:1; }
+  .qb-invpage .qb-size select{ width:100%; height:42px; }
+  .qb-invpage [data-qb="new-bill"]{ order:2; }
 }
-@media (prefers-reduced-motion:reduce){ .qb-sheet--invoice{ animation:none; } }
 
 @media (min-width:1100px){
   .main:has(.qb--nb){ padding-bottom:0; }
@@ -348,7 +358,6 @@
   .qb-nb__main, .qb-nb__side{ min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:10px 14px 16px; }
   .qb-nb__main{ padding-left:22px; }
   .qb-nb__side{ padding-right:22px; background:var(--surface-2); border-left:1px solid var(--line); }
-  .qb-last{ flex:none; margin:8px 22px; }
   .qb-grid{ grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); }
   .qb-adj{ grid-template-columns:1fr 1fr; }
 }

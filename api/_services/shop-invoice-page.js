@@ -100,7 +100,7 @@ function invoicePage(bill, shop) {
     '<tbody>' + rows + '</tbody></table>' +
     '<div class="totals">' + t('Subtotal', money.format(bill.originalSubtotalPaise || bill.subtotalPaise || 0)) +
     (bill.offerDiscountPaise ? t('Product discounts', '−' + money.format(bill.offerDiscountPaise)) : '') +
-    (bill.discountPaise ? t('Bill discount', '−' + money.format(bill.discountPaise)) : '') +
+    (bill.discountPaise ? t('Additional discount', '−' + money.format(bill.discountPaise)) : '') +
     (tax.rateBp ? t((tax.label || 'Tax') + ' ' + (tax.rateBp / 100) + '%' + (tax.inclusive ? ' (incl.)' : ''), money.format(bill.taxPaise || 0)) : '') +
     t('Total', money.inr(bill.totalPaise || 0), 'grand') +
     (bill.offerDiscountPaise ? t('Total discount', money.format(bill.offerDiscountPaise + (bill.discountPaise || 0))) : '') +

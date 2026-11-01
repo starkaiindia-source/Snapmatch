@@ -612,6 +612,7 @@
   function billingCtx() {
     return {
       go: go,
+      replace: redirect,
       toast: toast,
       routeName: function () { return state.route.name; },
       page: function () { return document.getElementById('page'); },
