@@ -1299,7 +1299,7 @@
     /* an open tab or the Back button, after this bill was saved or cleared */
     if (!S.cart.lines.length) { ctx.replace('/billing'); return; }
     page.innerHTML = frame('review',
-      '<div class="qb-rv">' + billDetailsHTML(draft()) + '</div>' +
+      '<div class="qb-rv"><div class="qb-rv__in">' + billDetailsHTML(draft()) + '</div></div>' +
       '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div>');
   }
 
