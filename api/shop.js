@@ -11,11 +11,12 @@
      POST /api/shop/bill              { action: finalise | payment | void | share }
      GET  /api/shop/bill?id=          one saved bill
      GET  /api/shop/bills?q=&cursor=  bill history, or a search
-     POST /api/shop/offer             { action: create | update | status | auto | settings }
+     POST /api/shop/offer             { action: create | update | status | auto | remove | settings }
      POST /api/shop/customer          { action: create | update }
      GET  /api/shop/customer?id=      one customer and their bills
      GET  /api/shop/customers?q=&filter=&cursor=  the customer list
      GET  /api/shop/overview?from=&to=  the dashboard
+     GET  /api/shop/sales?from=&to=   Discounts & Offers' Sales Overview
      GET  /i/<token>                  one shared invoice, as a page. The only
                                       section with no sign-in: see below
 
@@ -67,6 +68,7 @@ const POSTS = {
     update: shop.updateOffer,
     status: shop.setOfferStatus,
     auto: shop.setOfferAuto,
+    remove: shop.archiveOffer,
     settings: shop.saveOfferSettings
   },
   customer: {
@@ -85,7 +87,8 @@ const GETS = {
   bills: (uid, q) => shop.listBills(uid, q),
   customer: (uid, q) => shop.getCustomer(uid, q),
   customers: (uid, q) => shop.listCustomers(uid, q),
-  overview: (uid, q) => shop.overview(uid, q)
+  overview: (uid, q) => shop.overview(uid, q),
+  sales: (uid, q) => shop.salesOverview(uid, q)
 };
 
 function sectionFrom(req) {

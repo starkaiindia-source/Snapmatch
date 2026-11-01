@@ -34,6 +34,11 @@ const JS = [
   /* Quick Billing: fetched on demand by the hosted app, inlined here so the
      single-file build has it without a server to fetch from */
   'src/data/shop-money.js',
+  'src/data/shop-products.js',
+  'src/data/shop-offers.js',
+  'src/data/shop-periods.js',
+  'src/data/shop-share.js',
+  'src/data/shop-pdf.js',
   'src/shop/shop-api.js',
   'src/shop/quick-billing.js',
   'src/app.js'

@@ -162,10 +162,81 @@ test('paused, expired and future offers are never applied', () => {
 
 test('an offer knows what it is at any moment', () => {
   assert.equal(O.offerStatus(offer('x'), NOW), 'active');
-  assert.equal(O.offerStatus(offer('x', { status: 'paused', endAt: NOW - HOUR }), NOW), 'paused');
+  assert.equal(O.offerStatus(offer('x', { status: 'paused' }), NOW), 'paused');
+  assert.equal(O.offerStatus(offer('x', { status: 'paused', startAt: NOW + HOUR }), NOW), 'paused');
+  assert.equal(O.offerStatus(offer('x', { status: 'paused', endAt: NOW - HOUR }), NOW), 'expired', 'its validity has ended');
   assert.equal(O.offerStatus(offer('x', { endAt: NOW - 1 }), NOW), 'expired');
   assert.equal(O.offerStatus(offer('x', { endAt: NOW }), NOW), 'active');
   assert.equal(O.offerStatus(offer('x', { startAt: NOW + 1 }), NOW), 'scheduled');
+  assert.equal(O.offerStatus(offer('x', { status: 'archived' }), NOW), 'archived');
+});
+
+test('a removed offer is never applied', () => {
+  const r = first([offer('gone', { status: 'archived' })], glass);
+  assert.equal(r.offerPaise, 0);
+  assert.equal(r.options.length, 0);
+});
+
+test('the six figures count what is true now', () => {
+  const products = [{ id: 'p1', categoryId: 'glass' }, { id: 'p2', categoryId: 'phones' }, { id: 'p3', categoryId: 'covers' }];
+  const t = O.offerTally([
+    offer('running'),
+    offer('same-category'),
+    offer('same-product', { target: 'product', categoryIds: [], productIds: ['p1'] }),
+    offer('variant', { target: 'variant', categoryIds: [], variants: [{ productId: 'p2', variantId: 'v2' }] }),
+    offer('paused', { status: 'paused', categoryIds: ['covers'] }),
+    offer('later', { startAt: NOW + HOUR, categoryIds: ['covers'] }),
+    offer('over', { endAt: NOW - HOUR, categoryIds: ['covers'] }),
+    offer('ended', { status: 'expired', categoryIds: ['covers'] })
+  ], products, NOW);
+  assert.deepEqual(t, { total: 8, active: 4, scheduled: 1, expired: 2, paused: 1, products: 2, categories: 1 });
+});
+
+test('an offer that is not running covers nothing', () => {
+  const t = O.offerTally([offer('over', { status: 'expired', target: 'product', categoryIds: [], productIds: ['p1'] })], [{ id: 'p1', categoryId: 'glass' }], NOW);
+  assert.deepEqual(t, { total: 1, active: 0, scheduled: 0, expired: 1, paused: 0, products: 0, categories: 0 });
+});
+
+test('a mixed cart: each line is priced alone, then tax on what is left', () => {
+  const offers = [offer('glass'), offer('charger', { kind: 'fixed', percentBp: null, amountPaise: 5000, fixedMode: 'unit', categoryIds: ['chargers'] })];
+  const lines = [
+    Object.assign({}, glass, { qty: 2 }),
+    { key: 'c', productId: 'p3', variantId: null, categoryId: 'covers', unitPaise: 19900, qty: 1 },
+    { key: 'd', productId: 'p4', variantId: null, categoryId: 'chargers', unitPaise: 49900, qty: 1 },
+    { key: 'e', productId: 'p5', variantId: null, categoryId: 'cables', unitPaise: 9900, qty: 3 }
+  ];
+  const total = (r) => M.computeBill(
+    lines.map((l, i) => Object.assign({}, l, { offerPaise: r.lines[i].offerPaise })),
+    { mode: 'amount', value: 0 }, { rateBp: 1800 }, 0);
+
+  const all = price(offers, lines);
+  assert.deepEqual(all.lines.map(l => l.offerPaise), [5980, 0, 5000, 0]);
+  const t = total(all);
+  assert.equal(t.originalSubtotalPaise, 59800 + 19900 + 49900 + 29700);
+  assert.equal(t.offerPaise, 10980);
+  assert.equal(t.subtotalPaise, 148320);
+  assert.equal(t.taxPaise, 26698);
+  assert.equal(t.totalPaise, 175018);
+
+  /* cancelling the glass offer changes the glass line and nothing else */
+  const cancelled = price(offers, lines.map((l, i) => (i === 0 ? Object.assign({}, l, { pick: 'none' }) : l)));
+  assert.deepEqual(cancelled.lines.map(l => l.offerPaise), [0, 0, 5000, 0]);
+  assert.equal(cancelled.lines[0].linePaise, 59800);
+  const after = total(cancelled);
+  assert.equal(after.subtotalPaise, 154300);
+  assert.equal(after.taxPaise, 27774);
+  assert.equal(after.totalPaise, 182074);
+
+  /* and it can be applied again */
+  const again = price(offers, lines.map((l, i) => (i === 0 ? Object.assign({}, l, { pick: 'glass' }) : l)));
+  assert.deepEqual(again.lines.map(l => l.offerPaise), [5980, 0, 5000, 0]);
+});
+
+test('inclusive tax leaves the discounted total alone, so nothing is taxed twice', () => {
+  const r = price([offer('glass')], [glass]);
+  const t = M.computeBill([Object.assign({}, glass, { offerPaise: r.lines[0].offerPaise })], {}, { rateBp: 1800, inclusive: true }, 0);
+  assert.equal(t.totalPaise, 26910);
+  assert.equal(t.taxPaise, 4105);
 });
 
 test('a minimum quantity counts the same product across lines', () => {

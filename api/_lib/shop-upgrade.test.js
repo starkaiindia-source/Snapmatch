@@ -1180,6 +1180,114 @@ test('the Overview counts an offer as a discount, and a void takes it back', asy
   assert.equal(o.today.discountPaise, 0);
 });
 
+test('a removed offer leaves the shop state, its figures and new bills, and the record stays', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  const a = ok(await makeOffer({ name: 'Test record' })).offer;
+  const keep = ok(await makeOffer({ name: 'A real offer', percentBp: 500 })).offer;
+  const sold = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }], { offers: { auto: true, picks: [a.id] } })).bill;
+  assert.equal(sold.items[0].offers[0].name, 'Test record');
+
+  ok(await w.post(w.tokA, 'offer', { action: 'remove', offerId: a.id, reason: 'test-data' }));
+  const again = ok(await w.post(w.tokA, 'offer', { action: 'remove', offerId: a.id, reason: 'owner' }));
+  assert.equal(again.replayed, true);
+
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.deepEqual(st.offers.map(o => o.id), [keep.id], 'only the real offer is listed');
+
+  const doc = w.fs.read('shops/shopAAAAAA/offers/' + a.id);
+  assert.equal(doc.status, 'archived');
+  assert.equal(doc.archivedReason, 'test-data');
+  assert.equal(doc.archivedFrom, 'active');
+  assert.equal(doc.archivedBy, 'shopAAAAAA');
+
+  const next = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }], { offers: { auto: true, picks: [a.id] } })).bill;
+  assert.equal(next.items[0].offers[0].id, keep.id, 'naming a removed offer does not bring it back');
+
+  const before = ok(await w.get(w.tokA, 'bill', { id: sold.id })).bill;
+  assert.equal(before.items[0].offers[0].name, 'Test record', 'a saved bill keeps its own copy');
+
+  for (const body of [
+    { action: 'status', offerId: a.id, status: 'active' },
+    { action: 'auto', offerId: a.id, autoApply: true }
+  ]) assert.equal((await w.post(w.tokA, 'offer', body)).body.error, 'offer-not-found');
+});
+
+test('one shop cannot remove another shop\'s offer', async () => {
+  const { w, makeOffer } = await offerWorld();
+  const o = ok(await makeOffer()).offer;
+  const r = await w.post(w.tokB, 'offer', { action: 'remove', offerId: o.id });
+  assert.equal(r.status, 404);
+  assert.equal(ok(await w.get(w.tokA, 'state')).offers.length, 1);
+});
+
+test('the Sales Overview adds up confirmed bills and leaves voids out', async () => {
+  const { w, glass, makeOffer, sell } = await offerWorld();
+  ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }]));                    /* no discount */
+  ok(await makeOffer());
+  const off = ok(await sell([{ productId: glass.id, qty: 2, unitPaise: 29900 }], {       /* 59.80 + 10.00 off */
+    discount: { mode: 'amount', value: 1000 },
+    payment: { method: 'cash', status: 'partial', receivedPaise: 20000 }
+  })).bill;
+  const gone = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }])).bill;  /* voided below */
+
+  let x = ok(await w.get(w.tokA, 'sales', {}));
+  assert.equal(x.bills, 3);
+  assert.equal(x.discountedBills, 2);
+  ok(await w.post(w.tokA, 'bill', { action: 'void', billId: gone.id, reason: 'Wrong item' }));
+
+  x = ok(await w.get(w.tokA, 'sales', {}));
+  assert.equal(x.bills, 2);
+  assert.equal(x.salesPaise, 29900 + off.totalPaise);
+  assert.equal(x.discountedBills, 1);
+  assert.equal(x.discountedSalesPaise, off.totalPaise);
+  assert.equal(x.discountPaise, 5980 + 1000);
+  assert.equal(x.averageDiscountPaise, 6980);
+  assert.equal(x.contributionBp, Math.round(off.totalPaise * 10000 / x.salesPaise));
+  assert.equal(x.collectedPaise, 29900 + 20000, 'what is still owed is not collected, and the void was refunded');
+});
+
+test('a day from before the counts gets them from its own bills, once', async () => {
+  const { w, sell, glass } = await offerWorld();
+  ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }]));
+  const day = '2026-01-15';
+  const base = { ownerUid: 'shopAAAAAA', day, status: 'final', createdAt: Date.parse('2026-01-15T06:00:00Z'), payment: { method: 'cash', status: 'paid', receivedPaise: 9000 } };
+  w.fs.seed('shops/shopAAAAAA/bills/old1', Object.assign({}, base, { seq: 90, totalPaise: 9000, discountPaise: 1000 }));
+  w.fs.seed('shops/shopAAAAAA/bills/old2', Object.assign({}, base, { seq: 91, totalPaise: 5000, discountPaise: 0 }));
+  w.fs.seed('shops/shopAAAAAA/bills/old3', Object.assign({}, base, { seq: 92, totalPaise: 4000, discountPaise: 500, status: 'void' }));
+  w.fs.seed('shops/shopAAAAAA/days/' + day, {
+    ownerUid: 'shopAAAAAA', day, bills: 2, netPaise: 14000, discountPaise: 1000, collectedPaise: 14000, refundedPaise: 0
+  });
+
+  const x = ok(await w.get(w.tokA, 'sales', { from: day, to: day }));
+  assert.equal(x.salesPaise, 14000);
+  assert.equal(x.discountedBills, 1);
+  assert.equal(x.discountedSalesPaise, 9000);
+
+  const saved = w.fs.read('shops/shopAAAAAA/days/' + day);
+  assert.equal(saved.discV, 1);
+  assert.equal(saved.discBills, 1);
+  assert.equal(saved.bills, 2, 'the rest of the day is left as it was');
+});
+
+test('the Sales Overview refuses a period that makes no sense', async () => {
+  const { w } = await offerWorld();
+  assert.equal((await w.get(w.tokA, 'sales', { from: '2026-05-02', to: '2026-05-01' })).body.error, 'range');
+  assert.equal((await w.get(w.tokA, 'sales', { from: '2024-01-01', to: '2026-01-01' })).body.error, 'range-too-long');
+  assert.equal((await w.get(null, 'sales', {})).status, 401);
+});
+
+test('a bill page can hold a month of bills, and no more than the ceiling', async () => {
+  const { w, glass, sell } = await offerWorld();
+  for (let i = 0; i < 6; i++) ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }]));
+  const all = ok(await w.get(w.tokA, 'bills', { limit: 300 }));
+  assert.equal(all.bills.length, 6);
+  assert.equal(all.nextCursor, null);
+  const page = ok(await w.get(w.tokA, 'bills', { limit: 5 }));
+  assert.equal(page.bills.length, 5);
+  assert.ok(page.nextCursor);
+  ['receivedPaise', 'balancePaise', 'paymentStatus', 'createdAt'].forEach(k => assert.ok(k in page.bills[0], k));
+});
+
 test('the shared invoice shows the offer and leaves out the rest', async () => {
   const { w, glass, makeOffer, sell } = await offerWorld();
   ok(await makeOffer());

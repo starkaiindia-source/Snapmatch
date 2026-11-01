@@ -34,35 +34,17 @@
    ========================================================================== */
 'use strict';
 
-const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
+const { dayKey, isDay, dayStart, addDays, daysBetween } = require('../../src/data/shop-periods');
 
-/** "2026-10-31", in India, for a moment in time. */
-function dayKey(ms) {
-  return new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 10);
-}
-
-function isDay(s) {
-  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T00:00:00Z'));
-}
-
-/** The moment an Indian trading day begins, as epoch milliseconds. */
-function dayStart(day) { return Date.parse(day + 'T00:00:00Z') - IST_OFFSET_MS; }
-
-function addDays(day, n) {
-  return new Date(Date.parse(day + 'T00:00:00Z') + n * DAY_MS).toISOString().slice(0, 10);
-}
-
-function daysBetween(from, to) {
-  return Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / DAY_MS) + 1;
-}
-
+/* discV marks a day that counts its discounted bills. A day from before that has
+   no such counts: discountedOf() below works them out from its bills, once. */
 function emptyDay(day, ownerUid) {
   return {
     ownerUid, day,
     bills: 0, voids: 0, items: 0, walkIns: 0,
     grossPaise: 0, discountPaise: 0, taxPaise: 0, netPaise: 0, costPaise: 0,
     voidedPaise: 0, collectedPaise: 0, refundedPaise: 0,
+    discV: 1, discBills: 0, discNetPaise: 0,
     methods: {}, customers: {}, newCustomers: {},
     products: {}, categories: {}, models: {}
   };
@@ -92,6 +74,22 @@ function eachItem(bill, sign, d) {
 const grossOf = bill => bill.originalSubtotalPaise || bill.subtotalPaise || 0;
 const discountsOf = bill => (bill.discountPaise || 0) + (bill.offerDiscountPaise || 0);
 
+function countDiscounted(d, bill, sign) {
+  if (!d.discV || !discountsOf(bill)) return;
+  d.discBills += sign;
+  d.discNetPaise += sign * (bill.totalPaise || 0);
+}
+
+/** What addBill would have counted, over a day's saved bills. */
+function discountedOf(bills) {
+  const live = bills.filter(b => b.status !== 'void' && discountsOf(b));
+  return {
+    discV: 1,
+    discBills: live.length,
+    discNetPaise: live.reduce((n, b) => n + (b.totalPaise || 0), 0)
+  };
+}
+
 /** What a bill puts on the day it was made. `customer` is {id, isNew} or null. */
 function addBill(d, bill, customer) {
   d.bills += 1;
@@ -99,6 +97,7 @@ function addBill(d, bill, customer) {
   d.discountPaise += discountsOf(bill);
   d.taxPaise += bill.taxPaise || 0;
   d.netPaise += bill.totalPaise || 0;
+  countDiscounted(d, bill, 1);
   eachItem(bill, 1, d);
   if (customer) {
     d.customers[customer.id] = (d.customers[customer.id] || 0) + (bill.totalPaise || 0);
@@ -125,6 +124,7 @@ function removeBill(d, bill) {
   d.discountPaise -= discountsOf(bill);
   d.taxPaise -= bill.taxPaise || 0;
   d.netPaise -= bill.totalPaise || 0;
+  countDiscounted(d, bill, -1);
   eachItem(bill, -1, d);
   if (bill.customerId) {
     const left = (d.customers[bill.customerId] || 0) - (bill.totalPaise || 0);
@@ -146,6 +146,31 @@ function totals(days) {
   t.collectedNetPaise = t.collectedPaise - t.refundedPaise;
   t.averageBillPaise = t.bills ? Math.round(t.netPaise / t.bills) : 0;
   return t;
+}
+
+/**
+ * The Discounts & Offers page's Sales Overview, over a list of days.
+ *
+ *   salesPaise            what confirmed bills came to; a voided bill is off its day
+ *   discountedSalesPaise  the part of that on bills that carried any discount
+ *   discountPaise         offers and bill discounts together, each counted once
+ *   collectedPaise        money received in the period, less refunds: a balance
+ *                         paid today on last month's bill counts today
+ */
+function salesOverview(days) {
+  const t = totals(days);
+  const discountedBills = days.reduce((n, d) => n + (d.discBills || 0), 0);
+  const discountedSalesPaise = days.reduce((n, d) => n + (d.discNetPaise || 0), 0);
+  return {
+    salesPaise: t.netPaise,
+    bills: t.bills,
+    discountedSalesPaise,
+    discountPaise: t.discountPaise,
+    discountedBills,
+    averageDiscountPaise: discountedBills ? Math.round(t.discountPaise / discountedBills) : 0,
+    contributionBp: t.netPaise > 0 ? Math.round(discountedSalesPaise * 10000 / t.netPaise) : 0,
+    collectedPaise: t.collectedNetPaise
+  };
 }
 
 /**
@@ -311,5 +336,5 @@ function earliestNeeded(from, to, today) {
 
 module.exports = {
   dayKey, isDay, dayStart, addDays, daysBetween, emptyDay,
-  addBill, addCollected, removeBill, totals, customerMetrics, change, overview, earliestNeeded
+  addBill, addCollected, removeBill, totals, discountedOf, salesOverview, customerMetrics, change, overview, earliestNeeded
 };
