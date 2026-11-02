@@ -106,6 +106,7 @@
         'Anything not written here, it will not make up.</p>' + trainingHTML() + '</div>' +
         '<div class="adm__card"><h2>Try a message</h2><p class="adm__hint">Shows the reply it would write. Nothing is sent to anyone.</p>' +
         '<form id="arTest" class="ar-form"><textarea name="text" rows="2" maxlength="1000" placeholder="realme 5 ku indha temper match aaguma?"></textarea>' +
+        '<input name="caption" maxlength="2000" placeholder="Caption of the post, if the comment is on one">' +
         '<div class="ar-row"><select name="kind"><option value="comment">As a comment</option><option value="dm">As a message</option></select>' +
         '<button class="adm__btn adm__btn--primary" type="submit">Write a reply</button></div></form><div id="arResult"></div></div>' +
         '<div class="adm__card"><h2>Inbox</h2><div id="arInbox">' + inboxHTML() + '</div></div>';
@@ -278,7 +279,7 @@
       } else if (f.id === 'arTest') {
         if (!f.elements.text.value.trim()) return;
         el('arResult').innerHTML = '<p class="adm__none">Writing…</p>';
-        ADM.api.autoReplyAction({ action: 'test', text: f.elements.text.value, kind: f.elements.kind.value }).then(function (r) {
+        ADM.api.autoReplyAction({ action: 'test', text: f.elements.text.value, kind: f.elements.kind.value, caption: f.elements.caption.value }).then(function (r) {
           el('arResult').innerHTML = resultHTML(r);
         }, function (err) {
           el('arResult').innerHTML = resultHTML({ ok: false, reason: err.message });

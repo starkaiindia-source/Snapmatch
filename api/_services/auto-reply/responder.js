@@ -11,6 +11,11 @@
    else. A wrong fitment on a public comment sells a glass that does not fit, so a
    question with no recorded answer goes to a person instead of to a guess.
 
+   "Will this fit my phone?" is the dangerous one, because "this" is the post. The
+   phones in the caption are checked against the customer's phone here, and the model
+   is handed a YES or a NO. With no phone in the caption there is nothing to compare,
+   and the model is told it may list what shares a part but may not say yes.
+
    HOW MANY NAMES GO OUT
 
    The full fitment list is what the site sells. A reply carries at most
@@ -35,9 +40,11 @@ const { redact } = require('../../_schema/analytics-event');
 
 /* Meta's limit for a message is 1000 BYTES, and a Tamil letter is three of them. */
 const MAX_DM_BYTES = 1000;
+const AI_TIMEOUT_MS = 15000;
 const MAX_COMMENT_CHARS = 500;
 const MAX_NGRAM = 6;
 const MAX_MODELS = 3;
+const MAX_POST_PHONES = 20;
 const MAX_GROUPS = 3;
 
 const SCHEMA = {
@@ -58,7 +65,7 @@ const SCHEMA = {
  * catalogue, longest first, and only an exact hit counts: a near miss is a question
  * to ask the customer, not a phone to answer about.
  */
-function phonesIn(text) {
+function phonesIn(text, max = MAX_MODELS) {
   const words = String(text || '').replace(/[^\p{L}\p{N}+ ]/gu, ' ').split(/\s+/).filter(Boolean);
   const used = new Array(words.length).fill(false);
   const found = new Map();
@@ -72,7 +79,7 @@ function phonesIn(text) {
       for (let i = at; i < at + size; i++) used[i] = true;
     }
   }
-  return Array.from(found.values()).slice(0, MAX_MODELS);
+  return Array.from(found.values()).slice(0, max);
 }
 
 /* The part the customer asked about first, then the rest. */
@@ -89,6 +96,14 @@ function shared(g, phone, maxNames) {
   return 'same part as ' + others.slice(0, maxNames).join(', ') + (count > maxNames ? ` and ${count - maxNames} more` : '');
 }
 
+/** Does this phone take the same part as a phone in the post? Asked of the full group. */
+function matchesPost(phone, category, post) {
+  const names = post.map(p => p.name).join(', ');
+  const same = post.some(p => p.id === phone.id ||
+    category.groups.some(g => g.members.some(m => m.id === phone.id) && g.members.some(m => m.id === p.id)));
+  return `This post is about ${names}. Does ${phone.name} take the same ${category.categoryName}? ${same ? 'YES' : 'NO'}.`;
+}
+
 /**
  * What the catalogue says about these phones, as lines the model may repeat.
  *
@@ -96,7 +111,7 @@ function shared(g, phone, maxNames) {
  * here, before the model or anyone else sees it. In production the groups are in
  * Firestore: the bundled index has the phones but not what fits them.
  */
-async function factsFor(phones, text, maxNames) {
+async function factsFor(phones, text, maxNames, post) {
   const site = search.loadIndex().categories;
   const lines = await Promise.all(phones.map(async phone => {
     const compat = await entitlements.deviceGroupsForUser(phone.id, TIERS.PAID);
@@ -104,11 +119,12 @@ async function factsFor(phones, text, maxNames) {
       const known = site && site.get(c.categoryId);
       return Object.assign({}, c, { categoryName: known ? known.name : c.categoryName });
     });
+    const ordered = byRelevance(named, text);
     const groups = [];
-    byRelevance(named, text).forEach(c => c.groups.forEach(g => groups.push(`${c.categoryName}: ${shared(g, phone, maxNames)}.`)));
-    return groups.length
-      ? `${phone.name}\n` + groups.slice(0, MAX_GROUPS).map(g => '- ' + g).join('\n')
-      : `${phone.name}\n- Nothing is recorded for this phone yet.`;
+    ordered.forEach(c => c.groups.forEach(g => groups.push(`${c.categoryName}: ${shared(g, phone, maxNames)}.`)));
+    if (!groups.length) return `${phone.name}\n- Nothing is recorded for this phone yet.`;
+    const answer = post && post.length ? [matchesPost(phone, ordered[0], post)] : [];
+    return `${phone.name}\n` + answer.concat(groups.slice(0, MAX_GROUPS)).map(g => '- ' + g).join('\n');
   }));
   return lines.join('\n');
 }
@@ -124,6 +140,7 @@ Rules:
 - If they do not answer the question, set needs_human true and write this in the customer's language: ${s.handoff}
 - If the customer asks about a phone and FACTS names none, ask for the exact brand and model.
 - If FACTS says nothing is recorded for a phone, that is not a no. Set needs_human true.
+- FACTS says which phones share a part with each other. It does not know what this post sells unless it has a line asking "Does ... take the same ...?". Follow that YES or NO. With no such line, never say this product fits: list the phones that share the part and ask which phone the customer has.
 - Reply in the language and script the customer used. Tamil written in English letters gets Tamil in English letters.
 - ${kind === 'comment' ? 'This is a public comment: at most two short sentences.' : 'This is a private message: at most five short lines.'}
 - Complaints, refunds and order problems: set needs_human true.
@@ -154,13 +171,14 @@ function userPrompt({ text, caption, history, facts }) {
  */
 async function draft({ text, kind, settings, gemini, model, caption, history }) {
   const clean = redact(String(text || '')).slice(0, 1000);
+  const asked = phonesIn(clean);
+  const post = phonesIn(redact(String(caption || '')), MAX_POST_PHONES);
   /* the caption names the phone when the comment only says "price?" */
-  const phones = phonesIn(clean).concat(clean.length < 60 ? phonesIn(caption || '') : []);
-  const unique = Array.from(new Map(phones.map(p => [p.id, p])).values()).slice(0, MAX_MODELS);
-  const facts = await factsFor(unique, clean, settings.maxNames);
+  const unique = asked.length ? asked : clean.length < 60 ? post.slice(0, MAX_MODELS) : [];
+  const facts = await factsFor(unique, clean, settings.maxNames, asked.length ? post : []);
 
   const r = await gemini.interact({
-    model, system: systemPrompt(settings, kind), schema: SCHEMA, thinkingLevel: 'low', maxOutputTokens: 800, timeoutMs: 7000,
+    model, system: systemPrompt(settings, kind), schema: SCHEMA, thinkingLevel: 'low', maxOutputTokens: 800, timeoutMs: AI_TIMEOUT_MS,
     input: [{ type: 'text', text: userPrompt({ text: clean, caption: redact(String(caption || '')).slice(0, 800), history, facts }) }]
   });
   if (!r.ok) return { ok: false, kind: r.kind, reason: r.reason };

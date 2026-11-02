@@ -164,6 +164,31 @@ test('the facts carry at most the names allowed, and no part code', async () => 
   });
 });
 
+test('"will this fit" is answered from the groups, against the phones in the post', async () => {
+  const search = require('../_services/search-service');
+  const [phone] = responder.phonesIn('realme 5');
+  const compat = search.compatibilityFor(phone.id);
+  const glass = compat.categories.filter(c => /guard|glass/i.test(c.categoryName))[0];
+  const member = glass && glass.groups[0].members.filter(m => m.id !== phone.id)[0];
+  if (!member) return;                     /* the fitment file is not in every checkout */
+  const sameGlass = await responder.factsFor([phone], 'temper', 2, [{ id: member.id, name: member.name }]);
+  assert.match(sameGlass, /take the same .*\? YES\./);
+  const stranger = await responder.factsFor([phone], 'temper', 2, [{ id: 'not-in-this-group', name: 'Another Phone' }]);
+  assert.match(stranger, /take the same .*\? NO\./);
+  assert.ok(!/take the same/.test(await responder.factsFor([phone], 'temper', 2, [])));
+});
+
+test('a reply to a comment is told what the post is about', async () => {
+  await fresh();
+  const n = network();
+  try {
+    await deliver(commentEvent('realme 5 ku match aaguma'));
+    const prompt = n.model()[0].body;
+    assert.ok(prompt.includes('Realme 5 tempered glass'), 'the caption reaches the model');
+    assert.ok(prompt.includes('take the same'), 'with the answer worked out');
+  } finally { n.restore(); }
+});
+
 test('a phone with no record says so, rather than saying nothing fits', async () => {
   const phone = { id: 'not-a-real-model', name: 'Nokia 0000' };
   assert.equal(await responder.factsFor([phone], 'glass', 3), 'Nokia 0000\n- Nothing is recorded for this phone yet.');

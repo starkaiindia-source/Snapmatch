@@ -60,7 +60,7 @@ async function act(req, res, admin) {
     }
     case 'test': {
       if (typeof input.text !== 'string' || !input.text.trim()) return bad(res, 'text is required');
-      return ok(res, await replies.tryReply({ text: input.text, kind: input.kind }));
+      return ok(res, await replies.tryReply({ text: input.text, kind: input.kind, caption: input.caption }));
     }
     case 'subscribe': {
       const r = await replies.subscribe();
