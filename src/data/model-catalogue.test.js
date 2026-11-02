@@ -113,7 +113,7 @@ test('an expected release is not reported as a release', () => {
 /* --------------------------------------------------------------------- image */
 test('a model keeps the image URL the export gave it', () => {
   const imgAt = col('img'), idAt = col('id');
-  const kept = BUNDLE.models.filter(r => r[imgAt] && !/\/smartphone\.jpg$/.test(r[imgAt]) && r[idAt] !== 'realme-x9-pro');
+  const kept = BUNDLE.models.filter(r => r[imgAt] && !/\/smartphone\.jpg$/.test(r[imgAt]) && ['realme-x9-pro', 'cubot-x1'].indexOf(r[idAt]) < 0);
   assert.ok(kept.length > 4000);
   kept.forEach(r => assert.equal(SM.db.modelById[r[idAt]].image, r[imgAt], r[idAt]));
 });
@@ -127,6 +127,7 @@ test('the generic silhouette is not a photograph of anything', () => {
 
 test('no model shows a photograph of another brand', () => {
   assert.equal(SM.db.modelById['realme-x9-pro'].image, null);
+  assert.equal(SM.db.modelById['cubot-x1'].image, null);
   const brandsByUrl = {};
   SM.db.models.filter(m => m.image).forEach(m => {
     (brandsByUrl[m.image] = brandsByUrl[m.image] || new Set()).add(m.brandId);
