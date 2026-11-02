@@ -1,5 +1,5 @@
 /* ============================================================================
-   GET  /api/admin/auto-reply?view=overview|check
+   GET  /api/admin/auto-reply?view=overview|check|history
    POST /api/admin/auto-reply {action}   save, test, send, discard, retry, subscribe, poll
    ----------------------------------------------------------------------------
    The owner's page for answering the Instagram account. A section of the one admin
@@ -37,7 +37,10 @@ module.exports = async function handler(req, res) {
     if (req.method !== 'GET' && req.method !== 'POST') return notAllowed(res);
     const admin = await requirePermission(req, res, PERMISSIONS.AUTO_REPLY_MANAGE);
     if (!admin) return;
-    if (req.method === 'GET') return ok(res, (req.query || {}).view === 'check' ? await replies.liveCheck() : await replies.overview());
+    const view = (req.query || {}).view;
+    if (req.method === 'GET') {
+      return ok(res, view === 'check' ? await replies.liveCheck() : view === 'history' ? await replies.history() : await replies.overview());
+    }
     return await act(req, res, admin);
   } catch (err) {
     if (err instanceof replies.GraphError) return json(res, 502, { error: err.message, kind: err.kind });

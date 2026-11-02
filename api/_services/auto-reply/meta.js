@@ -172,6 +172,23 @@ function createMetaClient(opts = {}) {
   }
 
   /**
+   * The account's past: recent posts with their comments and the account's replies
+   * under them, and recent conversations. For the owner to read, never stored.
+   */
+  async function history() {
+    const account = login === 'instagram' ? 'me' : igUserId;
+    const reply = '{id,text,timestamp,username,from}';
+    const media = await call('GET', `${account}/media`, { params: {
+      fields: `id,caption,media_product_type,timestamp,permalink,comments_count,comments.limit(50){id,text,timestamp,username,from,replies.limit(10)${reply}}`,
+      limit: 40
+    } });
+    const talks = await call('GET', `${account}/conversations`, { params: {
+      platform: 'instagram', fields: 'updated_time,messages.limit(30){id,message,created_time,from}', limit: 50
+    } });
+    return { media: media.data || [], conversations: talks.data || [] };
+  }
+
+  /**
    * Comments and messages since a moment, read rather than delivered. Meta only
    * delivers a stranger's comment or message to an app with Advanced Access, and
    * reading the account's own inbox needs only what this app has.
@@ -245,7 +262,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, replyToComment, sendMessage, sendCard, privateReply, privateCard, caption, recent, username, connectWebhook, subscribe, check };
+  return { login, host, replyToComment, sendMessage, sendCard, privateReply, privateCard, caption, recent, history, username, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };

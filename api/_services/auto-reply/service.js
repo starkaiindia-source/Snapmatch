@@ -405,6 +405,13 @@ async function overview() {
   return { settings, connection: connection(), events: list, scopes: SCOPES };
 }
 
+/** The account's recent posts, comments and conversations, read for the owner. */
+async function history() {
+  const c = credentials();
+  if (!c.token) return { media: [], conversations: [] };
+  return metaClient(c).history();
+}
+
 async function liveCheck() {
   const c = credentials();
   if (!c.token) return { errors: [{ step: 'token', kind: 'unconfigured', message: 'No Instagram access token is set.' }] };
@@ -466,6 +473,6 @@ async function retry(id) {
 }
 
 module.exports = {
-  DEFAULTS, MODES, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, subscribe,
+  DEFAULTS, MODES, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, history, subscribe,
   tryReply, sendDraft, discard, retry, GraphError
 };
