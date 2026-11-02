@@ -48,6 +48,7 @@
     { path: '/admin/instagram', id: 'igImporter', label: 'Instagram Data Importer', permission: 'instagram.read', group: 'Instagram data' },
     { path: '/admin/instagram/sources', id: 'igSources', label: 'Instagram Sources', permission: 'instagram.read', group: 'Instagram data' },
     { path: '/admin/instagram/groups', id: 'igGroups', label: 'Compatibility Management', permission: 'instagram.read', group: 'Instagram data' },
+    { path: '/admin/auto-reply', id: 'autoReply', label: 'Auto Reply', permission: 'autoreply.manage' },
     { path: '/admin/settings', id: 'settings', label: 'Settings', permission: 'admins.read' }
   ];
 
@@ -222,7 +223,7 @@
      why it is worth getting right rather than trusting the fallback. */
   function iconFor(id) {
     return { dashboard: 'grid', users: 'user', missingModels: 'inbox',
-             ai: 'cpu', settings: 'sliders',
+             ai: 'cpu', settings: 'sliders', autoReply: 'mail',
              igImporter: 'camera', igSources: 'share', igGroups: 'layers' }[id] || 'grid';
   }
 
@@ -250,6 +251,7 @@
 
     highlight(name === 'users' && parts[1] ? 'users'
       : name === 'instagram' ? ({ sources: 'igSources', groups: 'igGroups', review: 'igGroups' }[parts[1]] || 'igImporter')
+      : name === 'auto-reply' ? 'autoReply'
       : name);
     page.innerHTML = '';
     global.scrollTo(0, 0);
@@ -272,6 +274,10 @@
     if (name === 'ai') {
       if (!can('ai.read')) return denied(page);
       return ADM.pages.ai.render(page, ctx);
+    }
+    if (name === 'auto-reply') {
+      if (!can('autoreply.manage')) return denied(page);
+      return ADM.pages.autoReply.render(page, ctx);
     }
     if (name === 'instagram') {
       if (!can('instagram.read')) return denied(page);

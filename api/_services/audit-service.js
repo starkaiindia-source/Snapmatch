@@ -99,6 +99,9 @@ const ACTIONS = {
   INSTAGRAM_JOB_CONTINUED: 'instagram.job_continued',
   INSTAGRAM_EVIDENCE_ADDED: 'instagram.evidence_added',
   INSTAGRAM_PROVIDERS_VERIFIED: 'instagram.providers_verified',
+  AUTO_REPLY_SETTINGS_SAVED: 'auto_reply.settings_saved',
+  AUTO_REPLY_SUBSCRIBED: 'auto_reply.subscribed',
+  AUTO_REPLY_SENT: 'auto_reply.sent',
 
   /* An administrator changing what an account is entitled to, by hand. Each
      is written in the SAME transaction as the change it describes (see

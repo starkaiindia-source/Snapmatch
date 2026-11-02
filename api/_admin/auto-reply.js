@@ -1,0 +1,89 @@
+/* ============================================================================
+   GET  /api/admin/auto-reply?view=overview|check
+   POST /api/admin/auto-reply {action}   save, test, send, discard, retry, subscribe
+   ----------------------------------------------------------------------------
+   The owner's page for answering the Instagram account. A section of the one admin
+   function, like every other: the project is at Vercel Hobby's 12-function limit.
+
+   One permission, autoreply.manage, on every request. Only the owner's role holds
+   it: a reply from here goes out in public under the brand's name.
+
+   `check` and `test` cost a call to Meta or to the model, so neither runs unless
+   the page asks. No token or secret leaves this file. The verify token does, to
+   the owner, because the owner has to paste it into Meta's dashboard, and it can
+   only be used to confirm this address.
+   ========================================================================== */
+'use strict';
+
+const { requirePermission } = require('../_lib/admin-auth');
+const { PERMISSIONS } = require('../_schema/roles');
+const { ok, bad, json, fail, notAllowed, body } = require('../_lib/http');
+const audit = require('../_services/audit-service');
+const replies = require('../_services/auto-reply/service');
+
+const WORDS = {
+  'not-open': 'This one was already dealt with.',
+  missing: 'This message no longer exists.',
+  empty: 'There is nothing to send.',
+  'too-long': 'This reply is longer than Instagram allows.',
+  'blocked-word': 'This reply contains a blocked word.',
+  'unknown-link': 'This reply has a link that is not in your allowed links.'
+};
+
+const validId = v => (typeof v === 'string' && /^[0-9a-f]{32}$/.test(v) ? v : null);
+
+module.exports = async function handler(req, res) {
+  try {
+    if (req.method !== 'GET' && req.method !== 'POST') return notAllowed(res);
+    const admin = await requirePermission(req, res, PERMISSIONS.AUTO_REPLY_MANAGE);
+    if (!admin) return;
+    if (req.method === 'GET') return ok(res, (req.query || {}).view === 'check' ? await replies.liveCheck() : await replies.overview());
+    return await act(req, res, admin);
+  } catch (err) {
+    if (err instanceof replies.GraphError) return json(res, 502, { error: err.message, kind: err.kind });
+    return fail(res, err, 'admin-auto-reply');
+  }
+};
+
+async function act(req, res, admin) {
+  const input = body(req);
+  const id = validId(input.id);
+  const done = async (action, targetId, detail) => audit.record({
+    actorUid: admin.uid, actorRole: admin.role, action, targetType: 'auto_reply', targetId, detail, now: Date.now()
+  });
+
+  switch (input.action) {
+    case 'save': {
+      const settings = await replies.saveSettings(input.settings || {}, admin.uid);
+      await done(audit.ACTIONS.AUTO_REPLY_SETTINGS_SAVED, 'instagram', { mode: settings.mode, comments: settings.comments, dms: settings.dms });
+      return ok(res, { settings });
+    }
+    case 'test': {
+      if (typeof input.text !== 'string' || !input.text.trim()) return bad(res, 'text is required');
+      return ok(res, await replies.tryReply({ text: input.text, kind: input.kind }));
+    }
+    case 'subscribe': {
+      const r = await replies.subscribe();
+      await done(audit.ACTIONS.AUTO_REPLY_SUBSCRIBED, 'instagram', r);
+      return ok(res, r);
+    }
+    case 'send': {
+      if (!id) return bad(res, 'id is required');
+      const r = await replies.sendDraft(id, input.reply, admin.uid);
+      if (!r.ok) return json(res, 409, { error: r.message || WORDS[r.code] || r.code, code: r.code });
+      await done(audit.ACTIONS.AUTO_REPLY_SENT, id, {});
+      return ok(res, r);
+    }
+    case 'discard': {
+      if (!id) return bad(res, 'id is required');
+      return ok(res, { discarded: await replies.discard(id) });
+    }
+    case 'retry': {
+      if (!id) return bad(res, 'id is required');
+      const r = await replies.retry(id);
+      return r.ok ? ok(res, r) : json(res, 409, { error: WORDS[r.code] || r.code, code: r.code });
+    }
+    default:
+      return bad(res, 'unknown action');
+  }
+}
