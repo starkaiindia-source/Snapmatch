@@ -60,7 +60,7 @@ const responder = require('./responder');
 
 const WEBHOOK_URL = 'https://www.mobilepartsfinder.com/api/instagram-webhook';
 const MODES = ['off', 'review', 'auto'];
-const OPEN = ['queued', 'draft', 'needs_human', 'failed'];
+const OPEN = ['queued', 'working', 'draft', 'needs_human', 'failed'];
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 /* A delivery stops starting new events after this. What it leaves stays queued. */
