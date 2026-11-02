@@ -193,18 +193,20 @@ function createMetaClient(opts = {}) {
    * delivers a stranger's comment or message to an app with Advanced Access, and
    * reading the account's own inbox needs only what this app has.
    */
+  /* the read every minute is how anything arrives, so a slow Meta is waited for */
+  const READ_WAIT_MS = 12000;
   async function recent(sinceMs) {
     const account = login === 'instagram' ? 'me' : igUserId;
     const out = { comments: [], messages: [] };
     const media = await call('GET', `${account}/media`, {
-      params: { fields: 'id,comments.limit(25){id,text,timestamp,username,from,parent_id}', limit: 10 }
+      params: { fields: 'id,comments.limit(25){id,text,timestamp,username,from,parent_id}', limit: 10 }, wait: READ_WAIT_MS
     });
     (media.data || []).forEach(m => ((m.comments && m.comments.data) || []).forEach(c => {
       const at = Date.parse(c.timestamp) || 0;
       if (at >= sinceMs) out.comments.push({ id: c.id, text: c.text || '', at, from: Object.assign({ username: c.username }, c.from || {}), mediaId: m.id, parentId: c.parent_id || null });
     }));
     const talks = await call('GET', `${account}/conversations`, {
-      params: { platform: 'instagram', fields: 'messages.limit(5){id,message,created_time,from}', limit: 10 }
+      params: { platform: 'instagram', fields: 'messages.limit(5){id,message,created_time,from}', limit: 10 }, wait: READ_WAIT_MS
     });
     (talks.data || []).forEach(t => ((t.messages && t.messages.data) || []).forEach(m => {
       const at = Date.parse(m.created_time) || 0;
