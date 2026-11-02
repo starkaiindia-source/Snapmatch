@@ -46,6 +46,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { waitUntil } = require('@vercel/functions');
 const { db } = require('../../_lib/firebase');
 const C = require('../../_schema/collections');
 const { consume } = require('../../_lib/rate-limit');
@@ -73,6 +74,13 @@ const LIST_LIMIT = 50;
 const FIRST_LOOKBACK_MS = 2 * HOUR_MS;
 const READ_OVERLAP_MS = 2 * 60 * 1000;
 const POLL_EVERY_MS = 60 * 1000;
+/* Between the minute's reads, messages are read again this often, so a chat moves
+   at the pace of a chat. Only on Vercel, where the function may outlive its answer. */
+const QUICK_READ_MS = 15 * 1000;
+const QUICK_READS = 3;
+/* someone who wrote this recently may still be typing: their messages wait a moment
+   and are answered together */
+const SETTLE_MS = 8 * 1000;
 const MEMORY = 3;
 
 const DEFAULTS = {
@@ -432,8 +440,10 @@ async function work(id, ev, settings, c, now) {
     const said = await feedback.answer(ev, now).catch(() => null);
     if (said) return sendFeedbackReply(id, said, settings, c);
   }
-  /* asking for the app is answered with the app, even in the middle of an order */
-  if (settings.iosLink && responder.asksForIos(ev.text, settings.appKeywords)) return sendIos(id, ev, settings, c);
+  /* asking for the app is answered with the app, even in the middle of an order;
+     "iPhone 14 Pro Max 3 boxes" in an order is a phone, not the app */
+  const ordering = selling && sales.parseOrder(ev.raw || ev.text, settings).length > 0;
+  if (!ordering && settings.iosLink && responder.asksForIos(ev.text, settings.appKeywords)) return sendIos(id, ev, settings, c);
   if (settings.appLink && responder.asksForApp(ev.text, settings.appKeywords)) return sendLink(id, ev, settings, c);
   if (settings.salesOn) {
     const sold = await sellStep(id, ev, settings, c, now);
@@ -480,16 +490,44 @@ async function receive(rawBody, signature) {
   return { status: 200, body: { received: true } };
 }
 
-/** Takes each event once and answers it, until the time runs out. */
+/**
+ * Takes each event once and answers it, until the time runs out. Oldest first, as
+ * the customer wrote them. Messages one person sent close together are one thought,
+ * "iPhone 14 Pro Max" then "3 boxes", so they are answered as one, by the last of
+ * them; and someone who wrote a moment ago is left until they stop typing.
+ */
 async function handle(list, settings, c, started) {
+  const sorted = list.slice().sort((a, b) => (a.sentAt || 0) - (b.sentAt || 0));
+  const newest = new Map();
+  sorted.forEach(ev => { if (ev.kind === 'dm') newest.set(ev.senderId, Math.max(newest.get(ev.senderId) || 0, ev.sentAt || 0)); });
+  const typing = id => started - (newest.get(id) || 0) < SETTLE_MS;
+  const groups = [];
+  const bySender = new Map();
+  for (const ev of sorted) {
+    if (ev.kind === 'dm' && typing(ev.senderId)) continue;
+    if (ev.kind === 'dm' && bySender.has(ev.senderId)) { bySender.get(ev.senderId).push(ev); continue; }
+    const g = [ev];
+    groups.push(g);
+    if (ev.kind === 'dm') bySender.set(ev.senderId, g);
+  }
   let done = 0;
-  for (const ev of list) {
-    const now = Date.now();
-    if (!(await claim(ev, now)) || now - started > BUDGET_MS) continue;
-    done++;
-    /* a failure on one event must not stop the others */
-    await work(ev.id, Object.assign({}, ev, { raw: ev.text, text: redact(ev.text).slice(0, 1000) }), settings, c, now)
-      .catch(err => finish(ev.id, { status: 'failed', error: String(err.message).slice(0, 300), errorKind: 'error' }));
+  for (const g of groups) {
+    if (Date.now() - started > BUDGET_MS) break;
+    const fresh = [];
+    for (const ev of g) if (await claim(ev, Date.now())) fresh.push(ev);
+    if (!fresh.length) continue;
+    /* a request for the app, said among other things, is still its own question */
+    const separate = fresh.length > 1 && fresh.some(ev => responder.asksForApp(ev.text, settings.appKeywords) || responder.asksForIos(ev.text, settings.appKeywords));
+    const runs = separate || fresh.length === 1 ? fresh.map(ev => [ev]) : [fresh];
+    for (const run of runs) {
+      const last = run[run.length - 1];
+      for (const ev of run.slice(0, -1)) await finish(ev.id, { status: 'merged', mergedInto: last.id });
+      const raw = run.map(ev => ev.text).filter(Boolean).join('\n');
+      done++;
+      /* a failure on one event must not stop the others */
+      await work(last.id, Object.assign({}, last, { raw, text: redact(raw).slice(0, 1000) }), settings, c, Date.now())
+        .catch(err => finish(last.id, { status: 'failed', error: String(err.message).slice(0, 300), errorKind: 'error' }));
+    }
   }
   return done;
 }
@@ -539,16 +577,32 @@ async function poll() {
 
   const settings = await loadSettings();
   if (settings.mode === 'off') return { status: 200, body: { polled: false, reason: 'off' } };
+  const body = await readOnce(settings, c, now, false);
+  /* the quick reads go on after the answer, so the caller is not kept waiting */
+  if (process.env.VERCEL) {
+    waitUntil((async () => {
+      for (let i = 0; i < QUICK_READS; i++) {
+        await new Promise(r => setTimeout(r, QUICK_READ_MS));
+        await readOnce(settings, c, Date.now(), true).catch(err => console.warn('[auto-reply] quick read failed', err.message));
+      }
+    })());
+  }
+  return { status: 200, body };
+}
+
+/* One read of the account and everything it brings. `quick` reads messages only,
+   and leaves follow-ups and comments to the minute's full read. */
+async function readOnce(settings, c, now, quick) {
   const last = await pollRef().get();
   const since = last.exists && last.data().readAt ? last.data().readAt - READ_OVERLAP_MS : now - FIRST_LOOKBACK_MS;
   const meta = metaClient(c);
-  const read = await meta.recent(since);
+  const read = await meta.recent(since, { dmsOnly: quick });
   const me = await meta.username().catch(() => '');
   const list = events.fromRead(read, c.igUserId, String(me).toLowerCase());
-  const answered = await handle(list, settings, c, now) + await catchUp(settings, c, now);
-  const followed = await salesTick(settings, c, now) + await feedbackTick(settings, c, now);
-  await pollRef().set({ readAt: now, found: list.length, answered, followed });
-  return { status: 200, body: { polled: true, found: list.length, answered, followed } };
+  const answered = await handle(list, settings, c, now) + (quick ? 0 : await catchUp(settings, c, now));
+  const followed = quick ? 0 : await salesTick(settings, c, now) + await feedbackTick(settings, c, now);
+  if (!quick) await pollRef().set({ readAt: now, found: list.length, answered, followed });
+  return { polled: true, found: list.length, answered, followed };
 }
 
 /* ------------------------------------------------------------ admin page */

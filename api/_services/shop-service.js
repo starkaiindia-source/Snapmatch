@@ -2161,7 +2161,7 @@ async function sharedInvoice(query) {
   if (!bill || bill.shareToken !== token) throw notFound('invoice-not-found');
   /* an order bill still unpaid carries its QR and a button that pays it */
   const qr = bill.brand && bill.payment && bill.payment.status !== 'paid' ? await settings.orderQrFor(uid, billId) : null;
-  const pay = qr ? { upiUri: qr.upiUri || '', image: qr.upiUri ? '/i/' + token + '/qr.png' : qr.imageUrl } : null;
+  const pay = qr ? { upiUri: qr.upiUri || '', image: qr.upiUri ? '/i/' + token + '/qr.png' : qr.imageUrl, statusUrl: '/i/' + token + '/status' } : null;
   return invoicePage(bill, settings.invoiceHeader(await settings.storeOf(uid)), { pay });
 }
 

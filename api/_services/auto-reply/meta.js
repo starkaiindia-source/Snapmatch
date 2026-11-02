@@ -202,10 +202,11 @@ function createMetaClient(opts = {}) {
    */
   /* the read every minute is how anything arrives, so a slow Meta is waited for */
   const READ_WAIT_MS = 12000;
-  async function recent(sinceMs) {
+  async function recent(sinceMs, opts) {
     const account = login === 'instagram' ? 'me' : igUserId;
     const out = { comments: [], messages: [] };
-    const media = await call('GET', `${account}/media`, {
+    /* messages only: the quick reads between the minute's full one */
+    const media = opts && opts.dmsOnly ? { data: [] } : await call('GET', `${account}/media`, {
       params: { fields: 'id,comments.limit(25){id,text,timestamp,username,from,parent_id}', limit: 10 }, wait: READ_WAIT_MS
     });
     (media.data || []).forEach(m => ((m.comments && m.comments.data) || []).forEach(c => {

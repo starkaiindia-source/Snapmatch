@@ -94,7 +94,8 @@ const TEMPER = /\b(?:temper|tempered|glass|guard|cover|display|combo|9\s?h)\b|ро
 function asksForIos(text, keywords) {
   const t = String(text || '');
   if (!IOS_WORDS.test(t) || TEMPER.test(t)) return false;
-  return APP_WORDS.test(t) || LINK_WORDS.test(t) || saysKeyword(t, keywords) || t.trim().split(/\s+/).length <= 3;
+  /* "iphone" alone asks for the app; "iphone 14 pro max" names a phone */
+  return APP_WORDS.test(t) || LINK_WORDS.test(t) || saysKeyword(t, keywords) || (t.trim().split(/\s+/).length <= 3 && !/\d/.test(t));
 }
 
 /**

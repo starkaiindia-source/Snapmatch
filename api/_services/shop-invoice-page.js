@@ -131,7 +131,7 @@ function invoicePage(bill, shop, opts) {
       (payQr.upiUri ? '<a class="btn" href="' + esc(payQr.upiUri) + '">Pay with UPI app</a>' : '') +
       '<p>Scan with GPay, PhonePe or any UPI app, or tap the button on this phone. The payment is confirmed here and in your chat automatically.</p></section>' +
       /* asks every few seconds whether Razorpay has the money, and says so here */
-      '<script>(function(){var u=location.pathname.replace(/\/+$/,"")+"/status",n=0;' +
+      '<script>(function(){var u=' + JSON.stringify(payQr.statusUrl || '').replace(/</g, '\\u003c') + ',n=0;if(!u)return;' +
       'function done(){var q=document.getElementById("payq");if(q)q.innerHTML="<h2>\u2705 Payment received</h2><p>Thank you! Your order is being packed.</p>";' +
       'var s=document.querySelector(".pay");if(s)s.textContent="Paid \u00b7 UPI";}' +
       'function ask(){if(++n>240)return;fetch(u,{cache:"no-store"}).then(function(r){return r.json()}).then(function(d){if(d&&d.paid)done();else setTimeout(ask,5000)},function(){setTimeout(ask,8000)})}' +

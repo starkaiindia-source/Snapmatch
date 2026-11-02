@@ -73,12 +73,14 @@ function parse(payload) {
  */
 function fromRead(read, ownerId, ownName) {
   const own = from => String(from.id) === String(ownerId) || (ownName && String(from.username || '').toLowerCase() === ownName);
-  const comments = read.comments.filter(c => !own(c.from)).map(c => comment({
+  /* when it was written, so a burst of messages is answered in the order sent */
+  const when = (ev, at) => (ev ? Object.assign(ev, { sentAt: at || 0 }) : ev);
+  const comments = read.comments.filter(c => !own(c.from)).map(c => when(comment({
     id: c.id, from: c.from, text: c.text, media: { id: c.mediaId }, parent_id: c.parentId
-  }, ownerId));
-  const messages = read.messages.filter(m => !own(m.from)).map(m => message({
+  }, ownerId), c.at));
+  const messages = read.messages.filter(m => !own(m.from)).map(m => when(message({
     sender: { id: m.from.id }, message: { mid: m.id, text: m.text }
-  }, ownerId));
+  }, ownerId), m.at));
   return comments.concat(messages).filter(Boolean);
 }
 
