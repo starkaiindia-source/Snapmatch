@@ -295,20 +295,25 @@ async function handle(list, settings, c, started) {
   return done;
 }
 
-/* An event claimed but cut short by the time limit. Taken in a transaction, so a
-   read and a press of Try again cannot both answer it. */
+/* An event claimed but cut short by the time limit, or left working by a run that
+   stopped. Taken in a transaction, so a read and a press of Try again cannot both
+   answer it, and a working one only once it has been still for a while. */
+const STALE_MS = 2 * 60 * 1000;
+const waiting = (e, now) => e.status === 'queued' || (e.status === 'working' && now - (e.updatedAt || e.at || 0) > STALE_MS);
+
 async function takeQueued(id) {
   const ref = eventCol().doc(id);
   return db().runTransaction(async tx => {
     const snap = await tx.get(ref);
-    if (!snap.exists || snap.data().status !== 'queued') return null;
-    tx.update(ref, { status: 'working', updatedAt: Date.now() });
+    const now = Date.now();
+    if (!snap.exists || !waiting(snap.data(), now)) return null;
+    tx.update(ref, { status: 'working', updatedAt: now });
     return snap.data();
   });
 }
 
 async function catchUp(settings, c, started) {
-  const snap = await eventCol().where('status', '==', 'queued').limit(MAX_PER_DELIVERY).get();
+  const snap = await eventCol().where('status', 'in', ['queued', 'working']).limit(MAX_PER_DELIVERY).get();
   let done = 0;
   for (const doc of snap.docs) {
     if (Date.now() - started > BUDGET_MS) break;
@@ -421,7 +426,7 @@ async function retry(id) {
   const snap = await eventCol().doc(id).get();
   if (!snap.exists) return { ok: false, code: 'missing' };
   const ev = snap.data();
-  if (['queued', 'failed'].indexOf(ev.status) < 0) return { ok: false, code: 'not-open' };
+  if (ev.status !== 'failed' && !waiting(ev, Date.now())) return { ok: false, code: 'not-open' };
   await work(id, ev, await loadSettings(), credentials(), Date.now());
   return { ok: true };
 }

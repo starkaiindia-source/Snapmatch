@@ -538,6 +538,19 @@ test('what a read had no time for is answered by the next one', async () => {
   } finally { r.restore(); }
 });
 
+test('an event left working by a run that stopped is taken up once it has been still', async () => {
+  await fresh({ appLink: 'https://play.google.com/store/apps/details?id=x' });
+  const r = reader([], []);
+  try {
+    const col = fake.db.collection('autoReplyEvents');
+    await col.doc('b'.repeat(32)).set({ kind: 'dm', targetId: 'f1', senderId: 'f1', text: 'link', status: 'working', at: 1, updatedAt: Date.now() - 600000 });
+    await col.doc('c'.repeat(32)).set({ kind: 'dm', targetId: 'f2', senderId: 'f2', text: 'link', status: 'working', at: 1, updatedAt: Date.now() });
+    assert.equal((await poll()).body.answered, 1, 'the one still being worked on is left alone');
+    const byId = Object.fromEntries((await col.get()).docs.map(d => [d.id[0], d.data().status]));
+    assert.deepEqual(byId, { b: 'sent', c: 'working' });
+  } finally { r.restore(); }
+});
+
 test('with Auto Reply off, a read spends nothing', async () => {
   await fresh({ mode: 'off' });
   const r = reader([], []);
