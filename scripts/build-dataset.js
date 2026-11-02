@@ -19,6 +19,8 @@
    Inputs
      data/raw/xlsx_models.json         22 brand sheets, 4,933 models
                                        (written by scripts/import-xlsx.py)
+     data/raw/added_models.json        models added since, same row shape
+                                       (scripts/merge-dashboard-catalogue.js)
      <src>/battery_export.json         Battery
      <src>/back_cover_export.json      Back Cover
      <src>/cc_board_export.json        CC Board
@@ -181,6 +183,25 @@ function readWorkbook() {
   );
 }
 
+/* One catalogue model from one workbook-shaped row. The sheet the row came
+   from is kept verbatim: a model can only ever belong to the brand of its own
+   sheet. */
+function modelFromRow(r) {
+  const sheet = r.sheet || r.brand;
+  const brand = BRAND_FIX[sheet] || sheet;
+  const name = String(r.name).trim();
+  const d = parseDate(r.release);
+  return {
+    id: slug(name), brand, brandId: slug(brand), sourceSheet: sheet, name,
+    nameLower: name.toLowerCase(),
+    tokens: tokens(name, brand),
+    releaseDate: d.iso, releaseYear: d.year,
+    sizeInch: num(r.size), heightMm: num(r.h), widthMm: num(r.w),
+    screenCm2: num(r.scr), bodyRatio: num(r.ratio), batteryMah: num(r.mah),
+    gsmarenaUrl: r.gsm || null, image: r.img || null
+  };
+}
+
 /* ================================================================== build */
 function build() {
   const report = { source: SRC, startedAt: new Date().toISOString(), anomalies: {}, counts: {} };
@@ -193,25 +214,10 @@ function build() {
 
   const brandRenames = {};
   raw.forEach(r => {
-    /* The sheet the row came from, verbatim. A model can only ever belong to
-       the brand of its own sheet. */
-    const sheet = r.sheet || r.brand;
-    const brand = BRAND_FIX[sheet] || sheet;
-    if (brand !== sheet) brandRenames[sheet] = brand;
-
-    const name = String(r.name).trim();
-    const id = slug(name);
+    const m = modelFromRow(r);
+    if (m.brand !== m.sourceSheet) brandRenames[m.sourceSheet] = m.brand;
+    const { id, name } = m;
     if (models.has(id)) { dupNames.push(name); return; }
-    const d = parseDate(r.release);
-    const m = {
-      id, brand, brandId: slug(brand), sourceSheet: sheet, name,
-      nameLower: name.toLowerCase(),
-      tokens: tokens(name, brand),
-      releaseDate: d.iso, releaseYear: d.year,
-      sizeInch: num(r.size), heightMm: num(r.h), widthMm: num(r.w),
-      screenCm2: num(r.scr), bodyRatio: num(r.ratio), batteryMah: num(r.mah),
-      gsmarenaUrl: r.gsm || null, image: r.img || null
-    };
     models.set(id, m);
     const lk = loose(name);
     if (!byLoose.has(lk)) byLoose.set(lk, id);
@@ -353,6 +359,28 @@ function build() {
       });
     });
   });
+
+  /* ---- 2-bis. models added to the catalogue since the workbook ----
+
+     data/raw/added_models.json, written by scripts/merge-dashboard-catalogue.js
+     in the workbook's own row shape. Read only AFTER the groups above, so the
+     baseline resolves exactly as it always did: an export name that reached a
+     workbook device by its loose key cannot be captured by a newer device
+     whose strict id happens to equal that name. A workbook device always wins
+     its id; an added row that repeats one is reported, never merged in. */
+  const addedFile = path.join(__dirname, '..', 'data', 'raw', 'added_models.json');
+  if (fs.existsSync(addedFile)) {
+    const skipped = [];
+    let added = 0;
+    JSON.parse(fs.readFileSync(addedFile, 'utf8')).forEach(r => {
+      const m = modelFromRow(r);
+      if (models.has(m.id)) { skipped.push(m.name); return; }
+      models.set(m.id, m);
+      added++;
+    });
+    report.counts.modelsAdded = added;
+    report.anomalies.addedModelsAlreadyInWorkbook = skipped;
+  }
 
   /* ---- 2a. the ledger, replayed over the baseline ----
 
@@ -770,4 +798,4 @@ function findDuplicateAssignments(modelGroups) {
 /* Run as a script; required (by its tests) it only exports these. */
 if (require.main === module) build();
 
-module.exports = { applyApprovedOverlay, findDuplicateAssignments };
+module.exports = { applyApprovedOverlay, findDuplicateAssignments, modelFromRow, slug, loose, CATEGORIES };

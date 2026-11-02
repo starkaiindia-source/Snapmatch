@@ -135,7 +135,8 @@
 
      GSMArena serves one generic silhouette, smartphone.jpg, for handsets it has
      no photograph of, and 15 models across eight brands point at it. Realme X9
-     Pro points at the Oppo Reno5 Pro+. Both are dropped here, where the record
+     Pro points at the Oppo Reno5 Pro+, and Cubot X1 (added from the device
+     list merged in November 2026) at the Oukitel BT80. All are dropped here, where the record
      is read, so every screen falls back the same way and the catalogue itself
      stays as the owner exported it.
 
@@ -143,7 +144,7 @@
      they are sibling variants of one handset (vivo Y03 and Y03t) sharing a
      press shot, which is what the source intends. */
   var NOT_A_MODEL_PHOTO = /\/smartphone\.jpg$/i;
-  var WRONG_MODEL_PHOTO = { 'realme-x9-pro': 1 };
+  var WRONG_MODEL_PHOTO = { 'realme-x9-pro': 1, 'cubot-x1': 1 };
 
   function modelImage(id, url) {
     if (!url || NOT_A_MODEL_PHOTO.test(url) || WRONG_MODEL_PHOTO[id]) return null;
