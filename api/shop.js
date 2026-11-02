@@ -17,6 +17,10 @@
      GET  /api/shop/customers?q=&filter=&cursor=  the customer list
      GET  /api/shop/overview?from=&to=  the dashboard
      GET  /api/shop/sales?from=&to=   Discounts & Offers' Sales Overview
+     GET  /api/shop/settings          store, staff and Razorpay. Owner only
+     POST /api/shop/settings          { action: store | staff-add | staff-remove | staff-join | razorpay | razorpay-off }
+     GET  /api/shop/qr?id=            has this UPI QR been paid
+     POST /api/shop/qr                { action: create | close }
      GET  /i/<token>                  one shared invoice, as a page. The only
                                       section with no sign-in: see below
 
@@ -26,8 +30,9 @@
 
    EVERY SECTION BUT ONE NEEDS A SIGNED-IN USER, and the shop is that user. The
    uid comes from the verified ID token and from nowhere else — no body field,
-   query parameter or header can name a different shop. The service builds
-   every Firestore path from it.
+   query parameter or header can name a different shop. A token stands for the
+   owner's shop or, for someone the owner added as staff, for that shop (see
+   shop-settings.js). The service builds every Firestore path from that.
 
    The exception is `invoice`, the link a shop sends a customer. The customer has
    no account, so an unguessable token stands in for one, and it opens that one
@@ -41,6 +46,7 @@
 
 const { ok, json, fail, notAllowed, requireUser, body } = require('./_lib/http');
 const shop = require('./_services/shop-service');
+const settings = require('./_services/shop-settings');
 
 const POSTS = {
   category: {
@@ -72,6 +78,18 @@ const POSTS = {
     remove: shop.archiveOffer,
     settings: shop.saveOfferSettings
   },
+  settings: {
+    store: settings.saveStore,
+    'staff-add': settings.addStaff,
+    'staff-remove': settings.removeStaff,
+    'staff-join': settings.answerInvite,
+    razorpay: settings.connectRazorpay,
+    'razorpay-off': settings.disconnectRazorpay
+  },
+  qr: {
+    create: settings.createQr,
+    close: settings.closeQr
+  },
   customer: {
     create: shop.createCustomer,
     update: shop.updateCustomer
@@ -79,7 +97,9 @@ const POSTS = {
 };
 
 const GETS = {
-  state: (uid) => shop.loadState(uid),
+  state: (uid, q, who) => shop.loadState(uid, q, who),
+  settings: (uid, q, who) => settings.loadSettings(uid, q, who),
+  qr: (uid, q) => settings.qrStatus(uid, q),
   moves: (uid, q) => shop.listMoves(uid, q.productId),
   group: (uid, q) => shop.groupInfo(uid, q),
   'model-groups': (uid, q) => shop.modelGroups(uid, q),
@@ -136,13 +156,16 @@ module.exports = async function handler(req, res) {
     const user = await requireUser(req, res);
     if (!user) return;
 
-    if (isGet) return ok(res, await GETS[section](user.uid, req.query || {}));
+    const who = await settings.actorFor(user);
+    if (isGet) return ok(res, await GETS[section](who.shopUid, req.query || {}, who));
 
     const input = body(req);
     const action = typeof input.action === 'string' ? input.action : '';
     const run = has(POSTS[section], action) ? POSTS[section][action] : null;
     if (!run) return json(res, 400, { error: 'unknown action', action: action || null });
-    return ok(res, await run(user.uid, input));
+    /* written last, so nothing the browser sent can say who did this */
+    input.actor = who.actor;
+    return ok(res, await run(who.shopUid, input, who));
   } catch (err) {
     /* A refusal the service decided on — bad input, not found, out of stock —
        goes back with its own status and a machine-readable code the screen

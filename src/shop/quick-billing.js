@@ -47,6 +47,7 @@
   /* The phone's payment cards. upi.png is NPCI's own artwork, cut to the UPI mark.
      The rest are this project's drawings. Card names no network: nothing here
      records which networks a shop's card machine takes. */
+  var QR_POLL_MS = 4000;
   var METHOD_LOGOS = { cash: '/assets/pay/cash.svg', upi: '/assets/pay/upi.png', card: '/assets/pay/card.svg', netbanking: '/assets/pay/bank.svg' };
   function methodsHere() {
     return METHODS.filter(function (m) { return m[0] !== (wide() ? 'netbanking' : 'other'); });
@@ -75,6 +76,8 @@
       categories: [], products: [], suggested: [], billCount: 0,
       offers: [], offerSettings: {}, offerFilter: { q: '', status: 'all' }, offerKey: '',
       sales: { preset: 'month', from: '', to: '', data: null, loading: false, error: null, ticket: 0 },
+      store: null, me: null, razorpayOn: false,
+      settings: { data: null, loading: false, error: null, busy: false, keysOpen: false },
       filter: { cat: 'all', q: '' }, catLimit: 60, pickQty: {}, lastAdd: null, custPicked: null,
       cart: null, saving: false, saveError: null, lastSaved: null, priceEdit: {},
       bills: { items: [], cursor: null, q: '', filter: blankBillFilter(), loading: false, loaded: false, error: null, ticket: 0 },
@@ -173,6 +176,26 @@
       case 'group-category-off': return 'Turn compatibility on for this category before linking groups.';
       case 'too-many-groups': return 'A product can be linked to up to 30 groups.';
       case 'customer-missing': return 'This customer no longer exists. Choose another, or bill as walk-in.';
+      case 'owner-only': return 'Only the shop owner can change Settings.';
+      case 'store-name': return 'Enter the store name.';
+      case 'staff-email': return 'Enter the staff member’s Gmail address.';
+      case 'staff-name': return 'Enter the staff member’s name.';
+      case 'staff-self': return 'This is your own account. It is the owner already.';
+      case 'staff-taken': return 'This Gmail ID is already working in another shop.';
+      case 'staff-limit': return 'A shop can add up to 10 staff.';
+      case 'staff-missing': return 'This staff member was already removed.';
+      case 'razorpay-key-id': return 'The Key ID starts with rzp_live_ or rzp_test_. Copy it from Razorpay.';
+      case 'razorpay-key-secret': return 'Enter the Key Secret from Razorpay.';
+      case 'razorpay-webhook-secret': return 'This webhook secret is too long.';
+      case 'razorpay-keys': return 'Razorpay did not accept this Key ID and Key Secret.';
+      case 'razorpay-down': return 'Razorpay is not answering right now. Try again in a minute.';
+      case 'secrets-unavailable': return 'Keys cannot be stored safely on the server right now, so nothing was saved.';
+      case 'razorpay-off': return 'Razorpay is not connected. The owner can connect it in Settings.';
+      case 'razorpay-qr': return 'Razorpay did not make a QR. Check that QR Codes is enabled on your Razorpay account.';
+      case 'qr-amount-bad': return 'A QR needs an amount of at least ₹1.';
+      case 'qr-unpaid': return 'Razorpay has not reported this QR as paid.';
+      case 'qr-used': return 'This QR payment is already on another bill.';
+      case 'qr-amount': return 'The QR was paid ' + inr(d.amountPaise || 0) + ', which is not what this bill collects. Set the amount back, or mark it Partially Paid with that amount.';
       case 'customer-exists': return 'A customer with this mobile number already exists: ' + ((d.customer && d.customer.name) || 'open Customers to find them') + '.';
       case 'customer-mobile-taken': return 'Another customer already has this mobile number.';
       case 'customer-mobile': case 'customer-whatsapp': return 'Enter a full mobile number.';
@@ -404,7 +427,7 @@
          total is sent so it can say so if its answer is not what was on screen */
       offers: { auto: autoOffers(), picks: c.lines.map(function (l) { return l.offerPick || null; }) },
       expectedTotalPaise: d.totals.totalPaise,
-      payment: { method: c.payment.method, status: c.payment.status, receivedPaise: d.received },
+      payment: { method: c.payment.method, status: c.payment.status, receivedPaise: d.received, qrId: c.payment.qr ? c.payment.qr.id : undefined },
       emi: d.emi && d.emi.plan ? { months: d.emi.plan.months, rateBp: d.emi.plan.rateBp, method: d.emi.plan.method, firstDue: d.emi.plan.firstDue } : undefined,
       customer: {
         id: c.customer.id || undefined, name: c.customer.name, mobile: c.customer.mobile, whatsapp: c.customer.whatsapp,
@@ -415,6 +438,14 @@
 
   /* ============================================================== INVOICE */
   function shopInfo() {
+    /* the shop's own details, which staff see too: their profile is not the shop's */
+    var t = S.store;
+    if (t) {
+      return {
+        name: t.name || 'My Shop', place: [t.address, t.city, t.state, t.pincode].filter(Boolean).join(', '),
+        mobile: t.mobile || '', gstin: t.gstin || ''
+      };
+    }
     var s = (SM.session && SM.session.get) ? SM.session.get() : {};
     var p = s.profile || {};
     var a = p.address || {};
@@ -632,7 +663,7 @@
     if (p === 'bills') return params[1] ? 'bill' : 'bills';
     if (p === 'customers') return params[1] ? 'customer' : 'customers';
     if (p === 'invoice' && params[1]) return 'invoice';
-    if (p === 'review' || p === 'products' || p === 'offers' || p === 'categories' || p === 'overview') return p;
+    if (p === 'review' || p === 'products' || p === 'offers' || p === 'categories' || p === 'overview' || p === 'settings') return p;
     return 'pos';
   }
 
@@ -650,6 +681,7 @@
     if (v === 'customers') return renderCustomers(page);
     if (v === 'customer') return renderCustomer(page, params[1]);
     if (v === 'overview') return renderOverview(page);
+    if (v === 'settings') return renderSettings(page);
   }
 
   function load() {
@@ -667,6 +699,9 @@
       S.offers = r.offers || [];
       S.offerSettings = r.offerSettings || {};
       S.offerKey = activeOfferKey();
+      S.store = r.store || null;
+      S.me = r.me || null;
+      S.razorpayOn = !!(r.payments && r.payments.razorpay);
       S.loaded = true;
       S.loadError = null;
     }, function (err) {
@@ -722,9 +757,27 @@
       tab('customers', '/billing/customers', 'Customers', 'user') +
       tab('overview', '/billing/overview', 'Overview', 'chart') +
       '</nav>' +
+      (S.me && S.me.role === 'owner'
+        ? '<a class="qb-exit qb-gear' + (view === 'settings' ? ' is-on' : '') + '" href="/billing/settings" aria-label="Settings" title="Settings">' + icon('settings') + '</a>' : '') +
       '<a class="qb-exit" href="/finder" aria-label="Leave Quick Billing">' + icon('close') + '<span>Exit</span></a>' +
-      '</div></div>' +
+      '</div></div>' + inviteHTML() +
       inner + '</div>';
+  }
+  /* Being added by a shop is an invitation. Nothing moves until this person says yes. */
+  function inviteHTML() {
+    var inv = S.me && S.me.invite;
+    if (!inv) return '';
+    return '<div class="qb-invite" role="status"><span class="grow"><b>' + esc(inv.shopName) + '</b> added you as staff.</span>' +
+      '<button class="btn qb-btn btn--sm" data-qb="invite-join">Join</button>' +
+      '<button class="btn btn--ghost btn--sm" data-qb="invite-no">Decline</button></div>';
+  }
+  function answerInvite(accept) {
+    var inv = S.me && S.me.invite;
+    if (!inv || (accept && !global.confirm('Join ' + inv.shopName + '? Quick Billing will open their shop instead of yours. Your own bills stay saved.'))) return;
+    API.settingsSave({ action: 'staff-join', accept: accept }).then(function () {
+      /* every figure on the page belongs to the shop this person just left or joined */
+      global.location.reload();
+    }, function (err) { toast(say(err), 'alert'); });
   }
 
   /* ============================================================== NEW BILL
@@ -1212,7 +1265,8 @@
       '<div class="qb-seg" role="group" aria-label="Payment status" id="qbStatus">' + STATUSES.map(function (s) {
         return option(s, c.payment.status, 'pay-status', s[1]);
       }).join('') + '</div>' +
-      '<div id="qbRecvBox">' + recvBoxHTML(d) + '</div>';
+      '<div id="qbRecvBox">' + recvBoxHTML(d) + '</div>' +
+      '<div id="qbQr">' + qrRowHTML(d) + '</div>';
   }
   function recvBoxHTML(d) {
     var c = S.cart;
@@ -1318,6 +1372,7 @@
     paint('qbTotals', totalsHTML(d));
     paint('qbBal', balanceHTML(d));
     paint('qbActs', actsHTML(d));
+    paint('qbQr', qrRowHTML(d));
     var st = el('qbStatus');
     if (st) Array.prototype.forEach.call(st.querySelectorAll('button'), function (b) {
       var on = b.getAttribute('data-id') === S.cart.payment.status;
@@ -1427,6 +1482,96 @@
     saveCart();
     paint('qbEmiPreview', emiPreviewHTML());
     paintDerived();
+  }
+
+  /* ============================================================= UPI BY QR
+
+     Only for UPI, only for a shop that connected its own Razorpay, and only for
+     money this bill is collecting now. Confirm Bill never waits for it: a customer
+     may have paid the shop's own QR, and that is still a UPI bill. */
+  function qrAmount(d) { return Math.min(d.pay.receivedPaise, d.totals.totalPaise); }
+  function qrRowHTML(d) {
+    var pay = S.cart.payment;
+    if (pay.qr) {
+      return '<div class="qb-upiqr qb-upiqr--paid">' + icon('checkCircle') + '<span class="grow">UPI received by QR</span><b>' + inr(pay.qr.amountPaise) + '</b></div>';
+    }
+    if (pay.method !== 'upi' || !S.razorpayOn || qrAmount(d) < 100) return '';
+    return '<button type="button" class="qb-upiqr" data-qb="qr-open">' + icon('qr') + '<span class="grow">Show QR to scan</span><b>' + inr(qrAmount(d)) + '</b></button>';
+  }
+  function openQr() {
+    S.sheet = { type: 'qr', fid: S.cart.fid, amountPaise: qrAmount(draft()), qr: null, error: null, paid: false, busy: false };
+    openSheet('qr',
+      '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">Scan to pay by UPI</h3>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-qr" id="qbQrBody" aria-live="polite">' + qrBodyHTML() + '</div>', 'Scan to pay by UPI');
+    makeQr();
+  }
+  function qrBodyHTML() {
+    var sh = S.sheet;
+    var amount = '<b class="qb-qr__amt">' + inr(sh.amountPaise) + '</b>';
+    if (sh.paid) {
+      return '<span class="qb-qr__ok">' + icon('checkCircle') + '</span>' + amount + '<p class="qb-sub">Payment received.</p>' +
+        '<button class="btn qb-btn btn--block" data-qb="close-sheet">Done</button>';
+    }
+    if (sh.error) {
+      return amount + '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(sh.error) + '</span></div>' +
+        '<button class="btn qb-btn btn--block" data-qb="qr-retry">Make a new QR</button>';
+    }
+    if (!sh.qr) return amount + '<p class="qb-sub"><span class="qb-spin qb-spin--dark"></span>Making the QR…</p>';
+    return amount + '<img class="qb-qr__img" src="' + esc(sh.qr.imageUrl) + '" alt="UPI QR code for this bill" />' +
+      '<p class="qb-sub">Waiting for the payment. This page updates by itself.</p>' +
+      '<a class="qb-link" href="' + esc(sh.qr.imageUrl) + '" target="_blank" rel="noopener">Open the QR in a new tab</a>';
+  }
+  function paintQr() { paint('qbQrBody', qrBodyHTML()); }
+  function makeQr() {
+    var sh = S.sheet;
+    sh.qr = null;
+    sh.error = null;
+    paintQr();
+    API.qr({ action: 'create', amountPaise: sh.amountPaise, fid: sh.fid }).then(function (r) {
+      if (S.sheet !== sh) { API.qr({ action: 'close', id: r.qr.id }).catch(function () {}); return; }
+      sh.qr = r.qr;
+      paintQr();
+      pollQr(sh);
+    }, function (err) {
+      if (S.sheet !== sh) return;
+      sh.error = say(err);
+      paintQr();
+    });
+  }
+  function pollQr(sh) {
+    setTimeout(function () {
+      if (S.sheet !== sh || !sh.qr) return;
+      API.qrStatus(sh.qr.id).then(function (r) {
+        if (S.sheet !== sh) return;
+        if (r.status === 'paid') {
+          qrPaid(sh);
+          sh.paid = true;
+          paintQr();
+        } else if (r.status === 'closed') {
+          sh.error = 'This QR has expired.';
+          paintQr();
+        } else pollQr(sh);
+      }, function () {
+        /* a dropped connection at the counter is no reason to stop waiting */
+        if (S.sheet === sh) pollQr(sh);
+      });
+    }, QR_POLL_MS);
+  }
+  function qrPaid(sh) {
+    if (!S.cart || S.cart.fid !== sh.fid || S.cart.payment.qr) return;
+    S.cart.payment.qr = { id: sh.qr.id, amountPaise: sh.amountPaise };
+    saveCart();
+    toast('UPI payment received', 'checkCircle');
+    if (onBilling()) paintDerived();
+  }
+  /* A QR left open must not be paid later with no bill to show for it. The customer
+     may have paid in the moment it was closing, so it is asked once more. */
+  function endQr(sh) {
+    if (!sh.qr || sh.paid) return;
+    API.qr({ action: 'close', id: sh.qr.id }).then(function () { return API.qrStatus(sh.qr.id); }).then(function (r) {
+      if (r.status === 'paid') qrPaid(sh);
+    }).catch(function () { /* the QR expires by itself */ });
   }
 
   /* ================================================================ SAVING */
@@ -1850,7 +1995,8 @@
     return '<a class="qb-brow" href="/billing/bills/' + encodeURIComponent(x.id) + '">' +
       '<span class="qb-brow__no">' + esc(x.number) + '</span>' +
       '<span class="qb-brow__who"><b>' + esc(x.customerName || 'Walk-in') + '</b>' +
-      '<span>' + esc(when(x.createdAt)) + ' · ' + x.itemCount + (x.itemCount === 1 ? ' item' : ' items') + (x.customerMobile ? ' · ' + esc(x.customerMobile) : '') + '</span></span>' +
+      '<span>' + esc(when(x.createdAt)) + ' · ' + x.itemCount + (x.itemCount === 1 ? ' item' : ' items') + (x.customerMobile ? ' · ' + esc(x.customerMobile) : '') + '</span>' +
+      (x.staffName ? '<span class="qb-brow__by">' + icon('user') + esc(x.staffName) + '</span>' : '') + '</span>' +
       '<span class="qb-brow__amt">' + inr(x.totalPaise) + statusPill(PD.statusOf(x)) + '</span></a>';
   }
 
@@ -1887,7 +2033,7 @@
       var what = h.action === 'created' ? 'Bill saved' : h.action === 'instalment' ? 'Instalment ' + h.no + ' received: ' + inr(h.amountPaise) : h.action === 'payment'
         ? 'Payment updated: ' + label(STATUSES, h.from) + ' → ' + label(STATUSES, h.to) + (h.receivedPaise != null ? ' (' + inr(h.receivedPaise) + ' received)' : '')
         : h.action === 'void' ? 'Voided — ' + (h.reason || '') + (h.restored && h.restored.length ? ' · stock restored' : '') : h.action;
-      return '<li><span>' + esc(when(h.at)) + '</span>' + esc(what) + '</li>';
+      return '<li><span>' + esc(when(h.at)) + (h.by ? ' · ' + esc(h.by) : '') + '</span>' + esc(what) + '</li>';
     }).join('');
     page.innerHTML = frame('bill',
       '<div class="shell qb-billview">' +
@@ -1907,6 +2053,7 @@
       (b.emi ? emiCardHTML(b, isVoid) : '') +
       (b.customerId ? '<div class="qb-card2"><span class="qb-lab">Customer</span>' +
         '<a class="qb-link" href="/billing/customers/' + encodeURIComponent(b.customerId) + '">' + icon('user') + esc((b.customer && b.customer.name) || 'Open customer') + '</a></div>' : '') +
+      (b.staff ? '<div class="qb-card2"><span class="qb-lab">Billed by</span><p class="qb-billview__pay">' + esc(b.staff.name || b.staff.email) + '</p></div>' : '') +
       '<div class="qb-card2"><span class="qb-lab">History</span><ul class="qb-hist">' + hist + '</ul>' +
       (isVoid ? '' : '<button class="btn btn--ghost btn--block qb-danger" data-qb="void" data-id="' + esc(b.id) + '">' + icon('alert') + 'Void this bill</button>') +
       '</div>' +
@@ -3355,8 +3502,11 @@
       rankHTML('Sales by phone model', d.models, rev, line, 'No sale in this period was found through a phone model.') +
       rankHTML('Fast moving', byQty, function (r) { return r.qty; }, function (r) { return r.qty + ' sold · ' + perDay(r.qty) + ' a day'; }, 'Nothing sold in this period.') +
       rankHTML('Slow moving', slow, function (r) { return r.qty; }, function (r) { return r.sold + ' sold · ' + r.qty + ' in stock'; }, 'No products in stock.') +
+
       stockListHTML('Low stock', low, 'Nothing is running low.', 'stock-low') +
       stockListHTML('Out of stock', out, 'Nothing is out of stock.', 'stock-out') +
+      '</div><h2 class="qb-h">Staff</h2><div class="qb-reports">' +
+      rankHTML('Sales by staff', d.staff || [], rev, function (r) { return r.qty + (r.qty === 1 ? ' bill · ' : ' bills · ') + inr(r.revenuePaise); }, 'No bill in this period shows who made it yet.', 'qbByStaff') +
       '</div>';
   }
 
@@ -3409,6 +3559,190 @@
     if (tip) tip.hidden = true;
   }
 
+  /* ============================================================== SETTINGS
+
+     The owner's page: what the shop is called, who works in it, and how it takes
+     UPI. Staff never see the gear, and the server refuses them if they come here
+     by the address. */
+  function renderSettings(page) {
+    if (S.me && S.me.role !== 'owner') return ctx.replace('/billing');
+    var st = S.settings;
+    if (!st.data && !st.loading && !st.error) loadSettings();
+    page.innerHTML = frame('settings', '<div class="shell qb-set" id="qbSettings">' + settingsHTML() + '</div>');
+  }
+  function loadSettings() {
+    var st = S.settings, uid = S.uid;
+    st.loading = true;
+    st.error = null;
+    API.settings().then(function (r) {
+      if (S.uid !== uid) return;
+      st.loading = false;
+      st.data = r;
+      paint('qbSettings', settingsHTML());
+    }, function (err) {
+      if (S.uid !== uid) return;
+      st.loading = false;
+      st.error = err;
+      paint('qbSettings', settingsHTML());
+    });
+  }
+  function settingsHTML() {
+    var st = S.settings;
+    if (st.error) {
+      return C.state({ icon: 'alert', title: 'Could not open Settings', text: say(st.error),
+        action: '<button class="btn btn--outline btn--sm" data-qb="set-reload">Try again</button>' });
+    }
+    if (!st.data) return C.skelRows(6);
+    return storeFormHTML(st.data.store) + staffHTML(st.data) + payConnHTML(st.data.razorpay);
+  }
+  function setInput(id, value, attrs) {
+    return '<input class="input qb-in" id="' + id + '" autocomplete="off" value="' + esc(value || '') + '" ' + (attrs || '') + ' />';
+  }
+  function storeFormHTML(t) {
+    return '<section class="qb-panel qb-set__p" aria-labelledby="qbSetStore"><div class="qb-sec"><h2 id="qbSetStore">Store setup</h2></div>' +
+      '<p class="qb-sub">Printed on your bills. Filled in from your Mobile Parts Finder profile until you change it here.</p>' +
+      '<form class="qb-form" data-qbf="store" novalidate>' +
+      fieldHTML('qbSName', 'sname', 'Store name', true, setInput('qbSName', t.name, 'maxlength="80"')) +
+      fieldHTML('qbSMobile', 'smobile', 'Mobile number', false, setInput('qbSMobile', t.mobile, 'type="tel" inputmode="tel" maxlength="20"')) +
+      fieldHTML('qbSAddr', 'saddr', 'Store address', false, setInput('qbSAddr', t.address, 'maxlength="200"')) +
+      '<div class="qb-form__row">' +
+      fieldHTML('qbSCity', 'scity', 'City', false, setInput('qbSCity', t.city, 'maxlength="60"')) +
+      fieldHTML('qbSState', 'sstate', 'State', false, setInput('qbSState', t.state, 'maxlength="60"')) +
+      '</div><div class="qb-form__row">' +
+      fieldHTML('qbSPin', 'spin', 'Pincode', false, setInput('qbSPin', t.pincode, 'inputmode="numeric" maxlength="10"')) +
+      fieldHTML('qbSGst', 'sgst', 'GSTIN', false, setInput('qbSGst', t.gstin, 'maxlength="15" placeholder="Optional"')) +
+      '</div>' +
+      fieldHTML('qbSLoc', 'sloc', 'Location', false, setInput('qbSLoc', t.location, 'maxlength="300" placeholder="Area, or a Google Maps link"')) +
+      '<button type="button" class="qb-link qb-set__here" data-qb="store-locate">' + icon('pin') + 'Use my current location</button>' +
+      '<small class="qb-err" id="qbSErr"></small>' +
+      '<div><button class="btn qb-btn" type="submit">' + icon('check') + 'Save store</button></div></form></section>';
+  }
+  function staffHTML(data) {
+    var me = S.me || {};
+    var row = function (name, email, note, act) {
+      return '<li class="qb-staff"><span class="qb-staff__ico">' + icon('user') + '</span>' +
+        '<span class="qb-staff__t grow"><b>' + esc(name || email) + '</b><span>' + esc(email) + ' · ' + note + '</span></span>' + (act || '') + '</li>';
+    };
+    return '<section class="qb-panel qb-set__p" aria-labelledby="qbSetStaff"><div class="qb-sec"><h2 id="qbSetStaff">Staff</h2></div>' +
+      '<p class="qb-sub">Add the Gmail ID each staff member signs in with. They tap Join in Quick Billing once, then work on the same products and stock, and every bill shows who made it.</p>' +
+      '<ul class="qb-stafflist">' + row(me.name, me.email, 'Owner') + data.staff.map(function (x) {
+        return row(x.name, x.email, x.joined ? 'Staff' : 'Waiting for them to join',
+          '<button class="qb-link" data-qb="staff-remove" data-id="' + esc(x.email) + '">Remove</button>');
+      }).join('') + '</ul>' +
+      '<form class="qb-form" data-qbf="staff" novalidate><div class="qb-form__row">' +
+      fieldHTML('qbTName', 'tname', 'Name', true, setInput('qbTName', '', 'maxlength="60"')) +
+      fieldHTML('qbTMail', 'tmail', 'Gmail ID', true, setInput('qbTMail', '', 'type="email" inputmode="email" maxlength="120" placeholder="Their Gmail ID"')) +
+      '</div><small class="qb-err" id="qbTErr"></small>' +
+      '<div><button class="btn qb-btn" type="submit"' + (data.staff.length >= data.maxStaff ? ' disabled' : '') + '>' + icon('plus') + 'Add staff</button></div></form></section>';
+  }
+  function payConnHTML(r) {
+    var form = r.ready && (!r.connected || S.settings.keysOpen);
+    return '<section class="qb-panel qb-set__p" aria-labelledby="qbSetPay"><div class="qb-sec"><h2 id="qbSetPay">Payment Connectivity</h2>' +
+      (r.connected ? '<span class="pill pill--ok">Connected</span>' : '') + '</div>' +
+      '<p class="qb-sub">Connect your own Razorpay account. A UPI bill then shows a QR to scan, and the money goes to your account. Cash and Card bills do not change.</p>' +
+      (r.ready ? '' : '<div class="qb-alert" role="status">' + icon('alert') + '<span>Connecting is switched off until secure key storage is set up on this site. Billing is not affected.</span></div>') +
+      (r.connected
+        ? '<dl class="qb-setkv"><div><dt>Razorpay key</dt><dd>' + esc(r.keyHint) + '</dd></div>' +
+          '<div><dt>Mode</dt><dd>' + (r.mode === 'live' ? 'Live' : 'Test') + '</dd></div>' +
+          '<div><dt>Webhook</dt><dd>' + (r.webhook ? 'On' : 'Not set. Payments are still checked while the QR is open.') + '</dd></div></dl>' +
+          (form ? '' : '<div class="qb-set__acts"><button class="btn btn--outline" data-qb="rzp-change">Change keys</button>' +
+            '<button class="btn btn--ghost" data-qb="rzp-off">Disconnect</button></div>')
+        : '') +
+      (form
+        ? '<form class="qb-form" data-qbf="razorpay" novalidate>' +
+          fieldHTML('qbRKey', 'rkey', 'Key ID', true, setInput('qbRKey', '', 'maxlength="60" spellcheck="false" placeholder="rzp_live_…"')) +
+          fieldHTML('qbRSecret', 'rsecret', 'Key Secret', true, setInput('qbRSecret', '', 'type="password" maxlength="80" spellcheck="false"')) +
+          fieldHTML('qbRHook', 'rhook', 'Webhook Secret', false, setInput('qbRHook', '', 'type="password" maxlength="120" spellcheck="false" placeholder="Optional"')) +
+          '<small class="qb-err" id="qbRErr"></small>' +
+          '<div class="qb-set__acts"><button class="btn qb-btn" type="submit">' + icon('check') + (r.connected ? 'Save keys' : 'Connect Razorpay') + '</button>' +
+          (r.connected ? '<button type="button" class="btn btn--ghost" data-qb="rzp-cancel">Cancel</button>' : '') + '</div></form>'
+        : '') +
+      '<div class="qb-sethook"><span class="qb-lab">Webhook URL for Razorpay</span><code>' + esc(r.webhookUrl) + '</code>' +
+      '<span class="qb-sub">In Razorpay, add this URL with the event qr_code.credited, and use the same Webhook Secret here.</span>' +
+      '<div><button class="btn btn--outline btn--sm" data-qb="rzp-copy">' + icon('copy') + 'Copy URL</button></div></div></section>';
+  }
+  function settingsSend(body, errId) {
+    var st = S.settings, uid = S.uid;
+    if (st.busy) return null;
+    st.busy = true;
+    if (errId) el(errId).textContent = '';
+    return API.settingsSave(body).then(function (r) {
+      st.busy = false;
+      return S.uid === uid ? r : null;
+    }, function (err) {
+      st.busy = false;
+      if (errId && el(errId)) el(errId).textContent = say(err);
+      else toast(say(err), 'alert');
+      return null;
+    });
+  }
+  function submitStore() {
+    var val = function (id) { var n = el(id); return n ? n.value : ''; };
+    var sent = settingsSend({
+      action: 'store', name: val('qbSName'), mobile: val('qbSMobile'), address: val('qbSAddr'), city: val('qbSCity'),
+      state: val('qbSState'), pincode: val('qbSPin'), gstin: val('qbSGst'), location: val('qbSLoc')
+    }, 'qbSErr');
+    if (sent) sent.then(function (r) {
+      if (!r) return;
+      S.store = r.store;
+      S.settings.data.store = r.store;
+      toast('Store saved', 'checkCircle');
+    });
+  }
+  function useLocation() {
+    var box = el('qbSLoc');
+    if (!box || !global.navigator.geolocation) { toast('This device cannot share its location', 'alert'); return; }
+    global.navigator.geolocation.getCurrentPosition(function (p) {
+      box = el('qbSLoc');
+      if (box) box.value = 'https://www.google.com/maps?q=' + p.coords.latitude.toFixed(6) + ',' + p.coords.longitude.toFixed(6);
+    }, function () { toast('Location was not shared', 'alert'); });
+  }
+  function submitStaff() {
+    var sent = settingsSend({ action: 'staff-add', name: el('qbTName').value, email: el('qbTMail').value }, 'qbTErr');
+    if (sent) sent.then(function (r) {
+      if (!r) return;
+      S.settings.data.staff = r.staff;
+      paint('qbSettings', settingsHTML());
+      toast('Staff added', 'checkCircle');
+    });
+  }
+  function removeStaff(email) {
+    if (!global.confirm('Remove ' + email + ' from this shop? Their bills stay, and still show their name.')) return;
+    var sent = settingsSend({ action: 'staff-remove', email: email });
+    if (sent) sent.then(function (r) {
+      if (!r) return;
+      S.settings.data.staff = r.staff;
+      paint('qbSettings', settingsHTML());
+      toast('Staff removed', 'checkCircle');
+    });
+  }
+  function razorpaySaved(r) {
+    if (!r) return;
+    S.settings.data.razorpay = r.razorpay;
+    S.settings.keysOpen = false;
+    S.razorpayOn = r.razorpay.connected;
+    paint('qbSettings', settingsHTML());
+    toast(r.razorpay.connected ? 'Razorpay connected' : 'Razorpay disconnected', 'checkCircle');
+  }
+  function submitRazorpay() {
+    var sent = settingsSend({
+      action: 'razorpay', keyId: el('qbRKey').value, keySecret: el('qbRSecret').value, webhookSecret: el('qbRHook').value
+    }, 'qbRErr');
+    if (sent) sent.then(razorpaySaved);
+  }
+  function disconnectRazorpay() {
+    if (!global.confirm('Disconnect Razorpay? UPI bills stop showing a QR, and the keys are removed from here.')) return;
+    var sent = settingsSend({ action: 'razorpay-off' });
+    if (sent) sent.then(razorpaySaved);
+  }
+  function copyWebhook() {
+    var url = S.settings.data.razorpay.webhookUrl;
+    var done = function () { toast('Webhook URL copied', 'checkCircle'); };
+    var clip = global.navigator.clipboard;
+    if (clip) clip.writeText(url).then(done, function () { toast('Could not copy. Select the URL and copy it.', 'alert'); });
+    else toast('Could not copy. Select the URL and copy it.', 'alert');
+  }
+
   /* ================================================================ SHEETS */
   function openSheet(kind, html, title) {
     var host = el('overlay');
@@ -3419,6 +3753,7 @@
   }
   function closeSheet() {
     if (S && S.sheet && S.sheet.busy) return;
+    if (S && S.sheet && S.sheet.type === 'qr') endQr(S.sheet);
     if (S) S.sheet = null;
     var host = el('overlay');
     if (host && host.querySelector('.qb-sheet')) host.innerHTML = '';
@@ -4382,6 +4717,17 @@
     switch (a) {
       case 'sign-in': ctx.signIn(); break;
       case 'reload': S.loadError = null; rerender(); break;
+      case 'set-reload': S.settings.error = null; rerender(); break;
+      case 'invite-join': answerInvite(true); break;
+      case 'invite-no': answerInvite(false); break;
+      case 'store-locate': useLocation(); break;
+      case 'staff-remove': removeStaff(id); break;
+      case 'rzp-change': S.settings.keysOpen = true; paint('qbSettings', settingsHTML()); break;
+      case 'rzp-cancel': S.settings.keysOpen = false; paint('qbSettings', settingsHTML()); break;
+      case 'rzp-off': disconnectRazorpay(); break;
+      case 'rzp-copy': copyWebhook(); break;
+      case 'qr-open': openQr(); break;
+      case 'qr-retry': if (S.sheet && S.sheet.type === 'qr') makeQr(); break;
       case 'add': {
         var p = productById(id);
         var pickBox = document.querySelector('[data-qbi="pick-qty"][data-id="' + id + '"]');
@@ -4466,6 +4812,7 @@
         if (S.cart.tax.on) { var tr = el('qbTaxRate'); if (tr) tr.focus(); }
         break;
       case 'pay-method':
+        if (S.cart.payment.qr && id !== 'upi') { toast('This bill was already paid by UPI QR', 'alert'); break; }
         S.cart.payment.method = id;
         Array.prototype.forEach.call(t.parentNode.querySelectorAll('button'), function (b) {
           b.classList.toggle('is-on', b === t); b.setAttribute('aria-pressed', String(b === t));
@@ -4982,6 +5329,9 @@
     else if (k === 'qty') saveStockEdit();
     else if (k === 'offer') submitOffer();
     else if (k === 'offer-settings') submitOfferSettings();
+    else if (k === 'store') submitStore();
+    else if (k === 'staff') submitStaff();
+    else if (k === 'razorpay') submitRazorpay();
     else if (k === 'cat-form') submitCatForm();
     else if (k === 'cat-new') {
       var n = el('qbNewCat');

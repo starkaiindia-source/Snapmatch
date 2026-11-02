@@ -158,6 +158,10 @@
     customerSave: function (body) { return request('customer', { body: body }); },
     overview: function (query) { return request('overview', { query: query }); },
     sales: function (query) { return request('sales', { query: query }); },
+    settings: function () { return request('settings'); },
+    settingsSave: function (body) { return request('settings', { body: body }); },
+    qr: function (body) { return request('qr', { body: body }); },
+    qrStatus: function (id) { return request('qr', { query: { id: id } }); },
     newId: newId,
     prepareImage: prepareImage,
     retryable: retryable

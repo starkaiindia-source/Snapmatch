@@ -36,6 +36,9 @@
 .qb-exit{ flex:none; display:inline-flex; align-items:center; gap:4px; height:32px; padding:0 8px; border-radius:8px; font-size:13px; font-weight:700; color:var(--ink-3); }
 .qb-exit svg{ width:15px; height:15px; }
 .qb-exit:hover{ background:var(--surface-3); color:var(--ink); }
+.qb-gear{ margin-right:-6px; }
+.qb-gear svg{ width:17px; height:17px; }
+.qb-gear.is-on{ background:var(--surface-3); color:var(--ink); }
 /* a phone keeps one row: the title gives way to the sections it heads */
 @media (max-width:699px){
   .qb-head__in{ gap:6px; padding:0 8px; }
@@ -415,6 +418,7 @@
 @media (min-width:820px){
   .qb-sheet--product, .qb-sheet--stock, .qb-sheet--void, .qb-sheet--payment, .qb-sheet--catdel, .qb-sheet--labels, .qb-sheet--variant, .qb-sheet--catform, .qb-sheet--customer, .qb-sheet--billfilter, .qb-sheet--wa, .qb-sheet--offerview, .qb-sheet--offerset, .qb-sheet--lineoffers{ width:min(560px, calc(100vw - 48px)); }
   .qb-sheet--offer{ width:min(640px, calc(100vw - 48px)); }
+  .qb-sheet--qr{ width:min(420px, calc(100vw - 48px)); }
 }
 .qb-sheet .sheet__head .qb-thumb{ width:42px; height:42px; }
 
@@ -1013,3 +1017,42 @@
   .inv__items tr{ break-inside:avoid; }
 }
 #qbEmiPreview .qb-trow--grand{ margin-top:0; padding-top:0; border-top:0; }
+
+/* ---- UPI by QR ---- */
+#qbQr:empty{ display:none; }
+.qb-upiqr{ display:flex; align-items:center; gap:8px; width:100%; min-height:42px; padding:0 12px; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface); font:inherit; font-size:14px; font-weight:700; color:var(--ink); text-align:left; }
+button.qb-upiqr{ cursor:pointer; }
+button.qb-upiqr:hover{ background:var(--surface-3); }
+.qb-upiqr svg{ flex:none; width:18px; height:18px; }
+.qb-upiqr--paid{ background:var(--surface-3); border-color:transparent; color:var(--qb-recv); }
+.qb-qr{ display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; }
+.qb-qr__amt{ font-size:24px; font-weight:800; letter-spacing:-.02em; }
+.qb-qr__img{ display:block; width:min(280px, 100%); height:auto; border:1px solid var(--line); border-radius:var(--r-sm); background:#fff; }
+.qb-qr__ok{ color:var(--qb-recv); }
+.qb-qr__ok svg{ width:48px; height:48px; }
+.qb-spin--dark{ display:inline-block; margin-right:8px; vertical-align:-2px; border-color:var(--line); border-top-color:var(--ink-2); }
+
+/* ---- Settings ---- */
+.qb-invite{ display:flex; align-items:center; gap:8px; padding:8px var(--pad); background:var(--surface); border-bottom:1px solid var(--line); font-size:14px; }
+.qb-set{ display:flex; flex-direction:column; gap:14px; width:100%; max-width:720px; margin-inline:auto; padding-block:14px 28px; }
+.qb-set__p{ gap:10px; padding:14px; }
+.qb-set .qb-form{ display:flex; flex-direction:column; }
+.qb-set__p .qb-sec{ justify-content:space-between; }
+.qb-set__here{ align-self:flex-start; margin-top:-6px; }
+.qb-set__acts{ display:flex; flex-wrap:wrap; gap:8px; }
+.qb-setkv{ display:flex; flex-direction:column; gap:6px; margin:0; }
+.qb-setkv div{ display:flex; justify-content:space-between; gap:12px; font-size:14px; }
+.qb-setkv dt{ flex:none; color:var(--ink-3); font-weight:600; }
+.qb-setkv dd{ margin:0; font-weight:700; text-align:right; overflow-wrap:anywhere; }
+.qb-sethook{ display:flex; flex-direction:column; gap:6px; padding-top:10px; border-top:1px solid var(--line); }
+.qb-sethook code{ padding:8px 10px; border-radius:var(--r-sm); background:var(--surface-3); font-size:12.5px; overflow-wrap:anywhere; user-select:all; }
+.qb-stafflist{ display:flex; flex-direction:column; gap:2px; margin:0; padding:0; list-style:none; }
+.qb-staff{ display:flex; align-items:center; gap:10px; min-height:48px; padding:4px 0; border-bottom:1px solid var(--line); }
+.qb-staff:last-child{ border-bottom:0; }
+.qb-staff__ico{ flex:none; display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:var(--surface-3); color:var(--ink-3); }
+.qb-staff__ico svg{ width:16px; height:16px; }
+.qb-staff__t{ display:flex; flex-direction:column; min-width:0; }
+.qb-staff__t b{ font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qb-staff__t span{ font-size:12px; font-weight:600; color:var(--ink-3); overflow-wrap:anywhere; }
+.qb-brow__who .qb-brow__by{ display:inline-flex; align-items:center; gap:3px; color:var(--ink-2); }
+.qb-brow__by svg{ flex:none; width:12px; height:12px; }
