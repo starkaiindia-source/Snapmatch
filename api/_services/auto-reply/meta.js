@@ -192,6 +192,11 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
+  async function username() {
+    const r = await call('GET', login === 'instagram' ? 'me' : igUserId, { params: { fields: 'username' } });
+    return r.username || '';
+  }
+
   /** What this token and account can do, as Meta reports it. No secret is in it. */
   async function check() {
     const out = { login, host, account: null, page: null, token: null, missing: [], webhook: null, subscribed: null, errors: [] };
@@ -236,7 +241,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, replyToComment, sendMessage, privateReply, caption, recent, connectWebhook, subscribe, check };
+  return { login, host, replyToComment, sendMessage, privateReply, caption, recent, username, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };

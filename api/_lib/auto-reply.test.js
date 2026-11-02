@@ -525,6 +525,19 @@ test('reading the account finds what Meta did not deliver, skips its own words, 
   } finally { r.restore(); }
 });
 
+test('what a read had no time for is answered by the next one', async () => {
+  await fresh({ appLink: 'https://play.google.com/store/apps/details?id=x' });
+  const r = reader([], []);
+  try {
+    await fake.db.collection('autoReplyEvents').doc('a'.repeat(32)).set({
+      kind: 'dm', targetId: 'fan7', senderId: 'fan7', username: '', text: 'link', status: 'queued', at: Date.now() - 600000
+    });
+    assert.equal((await poll()).body.answered, 1);
+    assert.equal((await stored())[0].status, 'sent');
+    assert.equal(r.calls.filter(c => c.url.includes('/messages') && c.method === 'POST').length, 1);
+  } finally { r.restore(); }
+});
+
 test('with Auto Reply off, a read spends nothing', async () => {
   await fresh({ mode: 'off' });
   const r = reader([], []);
