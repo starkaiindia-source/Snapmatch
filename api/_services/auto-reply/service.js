@@ -216,8 +216,7 @@ async function work(id, ev, settings, c, now) {
   };
   if (!d.shouldReply) return finish(id, Object.assign(fields, { status: 'ignored' }));
 
-  const blocked = responder.guard(d.reply, ev.kind, settings);
-  const person = d.needsHuman ? 'needs-human' : blocked || (d.confidence < settings.minConfidence ? 'low-confidence' : null);
+  const person = responder.hold(d, ev.kind, settings);
   if (person) return finish(id, Object.assign(fields, { status: 'needs_human', reason: person }));
   if (settings.mode === 'review') return finish(id, Object.assign(fields, { status: 'draft', reason: null }));
 
@@ -293,7 +292,7 @@ async function tryReply({ text: said, kind, caption }) {
   const k = kind === 'dm' ? 'dm' : 'comment';
   const d = await responder.draft({ text: said, kind: k, settings, gemini: createGemini({ key: c.geminiKey }), model: c.model, caption: text(caption, 2000) });
   if (!d.ok) return d;
-  return Object.assign({}, d, { guard: responder.guard(d.reply, k, settings), costMicroUsd: cost(c, d), usage: undefined });
+  return Object.assign({}, d, { hold: responder.hold(d, k, settings), costMicroUsd: cost(c, d), usage: undefined });
 }
 
 async function sendDraft(id, reply, by) {
