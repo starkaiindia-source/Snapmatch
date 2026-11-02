@@ -4,18 +4,19 @@
    Selling the 9H screen guard in Instagram messages, from the first question to a
    paid bill.
 
-     price asked  ->  price sent  ->  models  ->  address  ->  bill + payment link  ->  paid
+     price asked  ->  price sent  ->  models  ->  order + address form  ->  bill + payment QR  ->  paid
 
    One customer is one lead, autoReplyLeads/{their Instagram id}. The lead holds the
    stage, what they ordered, where it goes and every line said, and the owner reads
    all of it on the Leads page.
 
-   WHAT THE MODEL DOES HERE
+   READING WHAT THE CUSTOMER SENT
 
-   Only reading. It pulls phone models, box counts and an address out of whatever a
-   customer typed, in whatever language. Every number a customer is told, price,
-   courier, total, and which phones a box fits, comes from this file and the
-   catalogue, never from the model.
+   "Realme 5 - 4 boxes" and the filled-in address form are read here, by rule, so a
+   slow or failed model call never stops an order. The model is asked only when
+   the rules find nothing, for an order written some other way. Every number a
+   customer is told, price, courier, total, and which phones a box fits, comes from
+   this file and the catalogue, never from the model.
 
    WHOLESALE ONLY
 
@@ -27,9 +28,10 @@
    THE BILL IS THE OWNER'S
 
    It is made in the owner's own Quick Billing, as an unpaid bill with the customer
-   on it, so it shows in Bills and Customers like any other. With the owner's
-   Razorpay connected, a payment link goes with it, and a paid link marks the bill
-   paid. Without it, the bill link goes and the owner collects by hand.
+   on it, so it shows in Bills and Customers like any other. A Razorpay UPI QR made
+   for that bill alone goes with it, and once Razorpay reports it paid the bill is
+   marked paid and the customer told their boxes are being packed. Where a QR cannot
+   be made, a payment link goes instead.
 
    Instagram allows a message only within 24 hours of the customer's last one, and
    a comment can be answered by message once. Follow-ups keep to both.
@@ -54,6 +56,11 @@ const FOLLOW_AFTER_MS = [3 * HOUR_MS, 18 * HOUR_MS];
 const ACTIVE = ['price_sent', 'models', 'address', 'billed'];
 const LOG_KEEP = 40;
 const SITE = 'https://www.mobilepartsfinder.com';
+
+/* The screen guard groups that fit the most phones, suggested when an order is
+   short of the minimum: one box of these covers many models. */
+const SUGGEST_GROUPS = ['sg-0167', 'sg-0123', 'sg-0127', 'sg-0106', 'sg-0144', 'sg-0143'];
+const QR_LIFE_S = 24 * 60 * 60;
 
 const leadRef = id => db().collection(C.AUTO_REPLY_LEADS).doc(String(id));
 const rupees = paise => '₹' + Math.round(paise / 100).toLocaleString('en-IN');
@@ -110,6 +117,29 @@ function orderLines(lead, s) {
 
 const boxesOf = lead => lead.items.reduce((n, i) => n + i.boxes, 0);
 
+/* "Realme 5 glass: fits 325 phones (Realme 5i, Realme 6i, Realme C3 and more)" for
+   the groups not already in the order. */
+const suggestCache = new Map();
+async function suggestions(lead, max) {
+  const have = new Set(lead.items.map(i => i.key));
+  const out = [];
+  for (const id of SUGGEST_GROUPS) {
+    if (out.length >= max || have.has(id)) continue;
+    if (!suggestCache.has(id)) suggestCache.set(id, await entitlements.groupForUser(id, TIERS.PAID).catch(() => null));
+    const g = suggestCache.get(id);
+    if (!g) continue;
+    const names = (g.members || []).map(m => m.name).filter(n => n !== g.masterModelName).slice(0, 3);
+    out.push(`• ${g.masterModelName} glass: fits ${g.memberCount} phones` + (names.length ? ` (${names.join(', ')} and more)` : ''));
+  }
+  return out;
+}
+
+/** The order so far, and what it comes to before courier. */
+function orderSummary(lead, s) {
+  const boxes = boxesOf(lead);
+  return `🧾 Your order\n${orderLines(lead, s)}\n\n${boxes} box${boxes > 1 ? 'es' : ''} (${boxes * s.boxPieces} pieces) × ${rupees(s.boxPrice * 100)} = ${rupees(boxes * s.boxPrice * 100)}`;
+}
+
 /* -------------------------------------------------------------- the model */
 const SCHEMA = {
   type: 'object', additionalProperties: false,
@@ -136,8 +166,70 @@ async function extract(text, gemini, model) {
     model, system: EXTRACT, schema: SCHEMA, thinkingLevel: 'low', maxOutputTokens: 600, timeoutMs: 15000,
     input: [{ type: 'text', text: String(text || '').slice(0, 1500) }]
   });
+  if (!r.ok) console.warn('[auto-reply] the model could not read an order', r.kind, String(r.reason || '').slice(0, 200));
   return r.ok ? r.output || {} : null;
 }
+
+/* --------------------------------------------------- reading, by rule */
+const COUNT = /(\d{1,4})\s*(boxes|box|bxs?|பாக்ஸ்|பெட்டி|pcs|pieces|piece|pc|பீஸ்)/i;
+
+/**
+ * The phones and box counts in an order however it is laid out: "Realme 5 4 boxes",
+ * "vivo y20 - 2, redmi note 10 x3", one per line or all on one. A count of pieces is
+ * rounded up to boxes, and a phone with no count is one box.
+ * @returns {{phone:string, boxes:number}[]}
+ */
+function parseOrder(text, s) {
+  const cut = String(text || '').replace(new RegExp(COUNT.source, 'gi'), '$&\n');
+  const out = [];
+  /* "40 pcs realme 5": a count with no phone is the next phone's */
+  let carried = '';
+  cut.split(/[\n,;&+]|\band\b/i).forEach(part => {
+    const chunk = carried + ' ' + part;
+    const phone = responder.phonesIn(part, 1)[0];
+    if (!phone) { carried = COUNT.test(part) ? part : ''; return; }
+    carried = '';
+    const c = COUNT.exec(chunk);
+    let boxes = 1;
+    if (c) boxes = /^(?:pcs|pieces|piece|pc|பீஸ்)$/i.test(c[2]) ? Math.ceil(Number(c[1]) / s.boxPieces) : Number(c[1]);
+    else {
+      const name = phone.name.toLowerCase().split(/\s+/);
+      const n = chunk.toLowerCase().split(/[\s:=-]+/).filter(w => name.indexOf(w) < 0)
+        .map(w => /^x?(\d{1,3})x?$/.exec(w)).filter(Boolean)[0];
+      if (n) boxes = Number(n[1]);
+    }
+    out.push({ phone: phone.name, boxes: Math.max(1, Math.min(100, boxes || 1)) });
+  });
+  return out;
+}
+
+const FORM_LABELS = [
+  ['name', /^(?:name|பெயர்|naam)/i], ['phone', /^(?:mobile|phone|ph|number|cell|whatsapp|contact)/i],
+  ['address', /^(?:address|addr|door|street|area|முகவரி)/i], ['city', /^(?:city|town|district|dist|ஊர்)/i],
+  ['state', /^(?:state|மாநிலம்)/i], ['pincode', /^(?:pin\s?code|pincode|pin|zip)/i]
+];
+
+/** The address form filled in and sent back, "Name: ...", one line each. */
+function parseAddress(text) {
+  const a = {};
+  let lines = 0;
+  String(text || '').split(/\r?\n/).forEach(line => {
+    const m = /^\s*([^:：]{2,24}?)\s*[:：-]\s*(.+)$/.exec(line);
+    if (!m) return;
+    const hit = FORM_LABELS.filter(l => l[1].test(m[1].trim()))[0];
+    if (!hit) return;
+    lines++;
+    a[hit[0]] = (a[hit[0]] ? a[hit[0]] + ', ' : '') + m[2].trim().slice(0, 200);
+  });
+  const raw = String(text || '');
+  const number = /(?:\+?91[\s-]?)?([6-9]\d{9})\b/.exec(raw.replace(/[\s-](?=\d)/g, ''));
+  if (number) a.phone = number[1];
+  const pin = /\b([1-9]\d{5})\b/.exec(a.pincode || raw);
+  a.pincode = pin ? pin[1] : '';
+  return { address: a, lines };
+}
+
+const FORM = '📋 Copy this, fill it in and send it back:\n\nName:\nMobile:\nAddress:\nCity:\nState:\nPincode:';
 
 /* ----------------------------------------------------------- the catalogue */
 /** The glass a phone takes: its screen guard group, the master and who else fits. */
@@ -242,14 +334,19 @@ async function bill(lead, s) {
   });
   const b = made.bill;
   const shared = await shop.shareBill(uid, { billId: b.id });
+  return Object.assign({ billId: b.id, billNumber: b.number, totalPaise: b.totalPaise, invoiceUrl: `${SITE}/i/${shared.token}` },
+    await payFor(uid, b, a, s));
+}
+
+/* A UPI QR for this bill alone, or a payment link where the QR cannot be made. */
+async function payFor(uid, b, a, s) {
+  const qr = await shopSettings.orderQr(uid, { amountPaise: b.totalPaise, billId: b.id, lifeS: QR_LIFE_S }).catch(() => null);
+  if (qr) return { qrId: qr.id, qrImage: qr.imageUrl, payLinkId: null, payUrl: null };
   const link = await shopSettings.paymentLink(uid, {
     amountPaise: b.totalPaise, reference: b.id, name: a.name, phone: a.phone,
     description: `${s.brand} order ${b.number}`
   }).catch(() => null);
-  return {
-    billId: b.id, billNumber: b.number, totalPaise: b.totalPaise, invoiceUrl: `${SITE}/i/${shared.token}`,
-    payLinkId: link ? link.id : null, payUrl: link ? link.url : null
-  };
+  return { qrId: null, qrImage: null, payLinkId: link ? link.id : null, payUrl: link ? link.url : null };
 }
 
 function billCard(lead, s) {
@@ -262,61 +359,113 @@ function billCard(lead, s) {
   };
 }
 
+const PAY_QR = '📲 Scan the QR below with GPay, PhonePe or any UPI app. On this phone, save the QR and open it from the gallery in your UPI app. ' +
+  'It is made for this order only, and we confirm the payment here automatically.';
+
+/** The bill and how to pay it, as sent the first time and whenever asked again. */
+function billMessage(lead, s) {
+  const boxes = boxesOf(lead);
+  return `✅ Bill ready: order ${lead.billNumber}\n${orderLines(lead, s)}\n\n${boxes} boxes: ${rupees(boxes * s.boxPrice * 100)}\n` +
+    `Courier (${lead.courierZone}): ${rupees(lead.courierPaise)}\nTotal: ${rupees(lead.totalPaise)}\n\n` +
+    (lead.qrImage ? PAY_QR : lead.payUrl ? 'Tap Pay now below to pay. We dispatch once it is paid. 👇' : 'Your bill is below. Our team will share the payment details. 👇');
+}
+
+/** Told once the money is in. */
+function paidMessage(lead, s) {
+  const boxes = boxesOf(lead);
+  return `✅ Payment of ${rupees(lead.totalPaise)} received for order ${lead.billNumber}. Thank you! 🙏\n\n` +
+    `📦 Your ${boxes} box${boxes > 1 ? 'es' : ''} (${boxes * s.boxPieces} pieces) are being packed now and will be dispatched soon. ` +
+    'We will share the courier tracking details here.';
+}
+
 /**
  * One customer message in a sale. Returns what to say and the lead after it, or
- * null when this message is not part of a sale.
+ * null when this message is not part of a sale. `more` are further messages, sent
+ * after the reply, and `image` a picture sent with them (the payment QR).
  *
- * @returns {Promise<{lead:object, reply:string, card?:object, person?:string}|null>}
+ * @returns {Promise<{lead:object, reply:string, more?:string[], image?:string, card?:object, person?:string}|null>}
  */
 async function step(ev, s, gemini, model, now) {
+  const raw = String(ev.raw || ev.text || '');
   const lead = await loadLead(ev.senderId);
   if (!activeLead(lead)) {
-    if (!asksToBuy(ev.text, s.salesKeywords)) return null;
+    /* "Realme 5 - 4 boxes" as the first message is an order too */
+    const ordered = COUNT.test(raw) && parseOrder(raw, s).length;
+    if (!asksToBuy(ev.text, s.salesKeywords) && !ordered) return null;
     const fresh = start(ev, s, now);
-    return Object.assign(fresh, { first: true });
+    if (!ordered) return Object.assign(fresh, { first: true });
+    return advance(fresh.lead, ev, raw, s, gemini, model, now);
   }
+  return advance(lead, ev, raw, s, gemini, model, now);
+}
 
+async function advance(lead, ev, raw, s, gemini, model, now) {
   lead.log = logged(lead, 'customer', redact(String(ev.text || '')), now);
   lead.lastCustomerAt = now;
   lead.canMessage = lead.canMessage || ev.kind === 'dm';
   lead.username = lead.username || ev.username || '';
-  const raw = String(ev.raw || ev.text || '');
-  const said = (ev.kind === 'comment' || lead.stage === 'billed') ? null : await extract(redact(raw), gemini, model);
-  /* a phone number never reaches the model, so the one for the delivery is read here */
-  const number = /(?:\+?91[\s-]?)?([6-9]\d{9})\b/.exec(raw.replace(/[\s-](?=\d)/g, ''));
-  if (said && number && !said.phone) said.phone = number[1];
 
   let reply = '';
+  let more = [];
+  let image = null;
   let card = null;
   let person = null;
-  if (said && said.cancel) {
+  if (ev.kind === 'comment') {
+    reply = 'Please message us in DM to complete your order. 📩';
+  } else if (/\b(?:cancel|don'?t want|not interested|venda|vendam|வேண்டாம்)\b/i.test(raw)) {
     lead.stage = 'lost';
     reply = 'No problem. Message us any time you need screen guards. 🙏';
   } else if (lead.stage === 'billed') {
-    card = billCard(lead, s);
-    reply = lead.payUrl ? 'Here is your bill again. Tap Pay now to confirm the order. 👇' : 'Here is your bill again. 👇 Our team will share the payment details.';
-  } else if (!said) {
-    person = 'model-down';
+    if (lead.qrId) {
+      const st = await shopSettings.qrStatus(await ownerShopUid(), { id: lead.qrId }).catch(() => null);
+      if (st && st.status === 'closed') Object.assign(lead, await payFor(await ownerShopUid(), { id: lead.billId, totalPaise: lead.totalPaise, number: lead.billNumber }, lead.address, s));
+    }
+    if (/\b(?:paid|done|sent|payment)\b|பணம்|அனுப்பி/i.test(raw)) {
+      reply = 'Thank you! 🙏 We confirm the payment here automatically as soon as it reaches us.';
+    } else {
+      reply = billMessage(lead, s);
+      image = lead.qrImage || null;
+      card = billCard(lead, s);
+    }
   } else {
-    const unknown = (said.models || []).length ? await addModels(lead, said.models, s) : [];
-    lead.address = mergeAddress(lead.address || {}, said);
+    /* the order first, by rule, then the model for an order written some other way */
+    let found = parseOrder(raw, s);
+    let said = null;
+    const formed = parseAddress(raw);
+    /* an address written out freely, not in the form, is also read by the model */
+    if (!found.length && formed.lines < 2) {
+      said = await extract(redact(raw), gemini, model);
+      if (said) found = (said.models || []).filter(m => m && m.phone);
+    }
+    const unknown = found.length ? await addModels(lead, found, s) : [];
+    if (said) lead.address = mergeAddress(lead.address || {}, said);
+    if (formed.lines || formed.address.pincode || formed.address.phone) lead.address = mergeAddress(lead.address || {}, formed.address);
     const boxes = boxesOf(lead);
+    const notFound = unknown.length ? `\n\nI could not find ${unknown.join(', ')}. Please send the exact brand and model.` : '';
+
     if (!boxes) {
-      reply = unknown.length
-        ? `I could not find ${unknown.join(', ')}. Please send the exact brand and model, for example "Realme 5 - 2 boxes".`
-        : 'Please send your phone models and how many boxes of each, for example "Realme 5 - 2 boxes, Vivo Y20 - 2 boxes". 📦';
-      if (said.question && !(said.models || []).length) person = 'question';
       lead.stage = 'models';
+      reply = unknown.length
+        ? `I could not find ${unknown.join(', ')}. Please send the exact brand and model, for example "Realme 5 - 4 boxes".`
+        : 'Please send your phone models and how many boxes of each, for example "Realme 5 - 4 boxes". 📦';
+      if (!said && found.length === 0 && raw.length > 60) person = 'question';
     } else if (boxes < s.minBoxes) {
       lead.stage = 'models';
-      reply = `Your order so far:\n${orderLines(lead, s)}\n\nThat is ${boxes} box${boxes > 1 ? 'es' : ''}. The minimum order is ${s.minBoxes} boxes. ` +
-        'Add more models or boxes. 📦' + (unknown.length ? `\n\nI could not find ${unknown.join(', ')}. Please send the exact model.` : '');
+      const short = s.minBoxes - boxes;
+      const ideas = await suggestions(lead, 3);
+      reply = `${orderSummary(lead, s)}\n\n⚠️ Wholesale orders start at ${s.minBoxes} boxes (${rupees(s.minBoxes * s.boxPrice * 100)}). ` +
+        `Add ${short} more box${short > 1 ? 'es' : ''} to reach wholesale.` +
+        (ideas.length ? `\n\n🔥 Popular boxes, each fits many phones:\n${ideas.join('\n')}` : '') +
+        '\n\n👉 Reply with more models, for example "Redmi Note 9 Pro - 2 boxes".' + notFound;
     } else {
-      const missing = needAddress(lead.address);
+      const missing = needAddress(lead.address || {});
       if (missing.length) {
+        const first = lead.stage !== 'address';
         lead.stage = 'address';
-        reply = `Your order:\n${orderLines(lead, s)}\n\n${boxes} boxes × ${rupees(s.boxPrice * 100)} = ${rupees(boxes * s.boxPrice * 100)} + courier\n\n` +
-          `To send the bill, please share ${missing.join(', ')}. 🚚` + (unknown.length ? `\n\nI could not find ${unknown.join(', ')}.` : '');
+        reply = first
+          ? `${orderSummary(lead, s)}\n🚚 Courier: ${s.homeState} ${rupees(s.courierHome * 100)} · South India ${rupees(s.courierNear * 100)} · Other states ${rupees(s.courierFar * 100)}, added from your address.\n\nNext, your delivery address 👇` + notFound
+          : `Please also share ${missing.join(', ')}. 🚚` + notFound;
+        more = [FORM];
       } else {
         const state = lead.address.state || stateOfPincode(lead.address.pincode);
         const courier = courierFor(state === 'Other' ? 'other' : state, s) || { zone: 'Other states', paise: s.courierFar * 100 };
@@ -326,27 +475,27 @@ async function step(ev, s, gemini, model, now) {
         Object.assign(lead, await bill(lead, s));
         lead.stage = 'billed';
         lead.followUps = 0;
+        reply = billMessage(lead, s);
+        image = lead.qrImage || null;
         card = billCard(lead, s);
-        reply = `✅ Order ready\n${orderLines(lead, s)}\n\n${boxes} boxes: ${rupees(boxes * s.boxPrice * 100)}\nCourier (${courier.zone}): ${rupees(courier.paise)}\n` +
-          `Total: ${rupees(lead.totalPaise)}\n\n` + (lead.payUrl ? 'Tap Pay now to confirm. We dispatch once it is paid. 👇' : 'Your bill is below. Our team will share the payment details. 👇');
       }
     }
   }
   lead.needsHuman = !!person;
   if (reply) {
-    lead.log = logged(lead, 'bot', reply, now);
+    lead.log = logged(lead, 'bot', [reply].concat(more).join('\n\n'), now);
     lead.lastSentAt = now;
     lead.followUps = lead.stage === 'billed' && card ? lead.followUps : 0;
   }
-  return { lead, reply, card, person };
+  return { lead, reply, more, image, card, person };
 }
 
 /* ------------------------------------------------------------ follow-ups */
 const NUDGE = {
   price_sent: 'Hi! 👋 Still looking for 9H screen guards? Send your phone models and boxes, and I will make your bill.',
   models: 'Hi! 👋 Send your phone models and how many boxes of each, and I will make your bill. 📦',
-  address: 'Hi! 👋 Share your name, mobile number and address with pincode, and I will send your bill. 🚚',
-  billed: 'Hi! 👋 Your order is ready. Tap Pay now on the bill above to confirm, and we dispatch the same day.'
+  address: 'Hi! 👋 Fill in the address form above and send it back, and I will send your bill and payment QR. 🚚',
+  billed: 'Hi! 👋 Your order is ready. Scan the payment QR above to confirm, and we pack it the same day. 📦'
 };
 
 /** Leads that went quiet, which may still be messaged, with what to say. */
@@ -365,15 +514,17 @@ async function markFollowedUp(lead, text, now) {
   return saveLead(lead.senderId, lead);
 }
 
-/** Bills whose payment link was paid: mark them paid, once. */
+/** Bills whose QR or payment link was paid: mark them paid, once. */
 async function settlePaid(now) {
   const snap = await db().collection(C.AUTO_REPLY_LEADS).where('stage', '==', 'billed').get();
+  if (snap.empty) return [];
   const uid = await ownerShopUid();
   const paid = [];
   for (const d of snap.docs) {
     const l = d.data();
-    if (!l.payLinkId) continue;
-    const st = await shopSettings.paymentLinkStatus(uid, l.payLinkId).catch(() => null);
+    let st = null;
+    if (l.qrId) st = await shopSettings.qrStatus(uid, { id: l.qrId }).then(r => r.status, () => null);
+    else if (l.payLinkId) st = await shopSettings.paymentLinkStatus(uid, l.payLinkId).catch(() => null);
     if (st !== 'paid') continue;
     await shop.updatePayment(uid, { billId: l.billId, payment: { method: 'upi', status: 'paid', receivedPaise: l.totalPaise },
       actor: { uid, email: OWNER_EMAIL, name: 'Instagram auto reply', role: 'owner' } });
@@ -402,5 +553,5 @@ async function setStage(id, stage) {
 
 module.exports = {
   ACTIVE, asksToBuy, courierFor, stateOfPincode, priceText, step, saveLead, loadLead, activeLead,
-  dueFollowUps, markFollowedUp, settlePaid, listLeads, setStage, billCard
+  dueFollowUps, markFollowedUp, settlePaid, listLeads, setStage, billCard, paidMessage, parseOrder, parseAddress, FORM
 };

@@ -120,6 +120,8 @@ const RATE_LIMITS = 'rateLimits';
 const AUTO_REPLY = 'autoReply';
 const AUTO_REPLY_EVENTS = 'autoReplyEvents';
 const AUTO_REPLY_LEADS = 'autoReplyLeads';
+/* People sent the app link by message, and whether they were asked if it helps. */
+const AUTO_REPLY_FEEDBACK = 'autoReplyFeedback';
 
 /** searchUsage/{uid} — the lifetime free-search allowance: how many of the
     five have been spent, and on which models. server.
@@ -186,7 +188,7 @@ module.exports = {
   APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
   COMPAT_CATEGORIES,
   ADMIN_AUDIT_LOG, RATE_LIMITS, SEARCH_USAGE,
-  AUTO_REPLY, AUTO_REPLY_EVENTS, AUTO_REPLY_LEADS,
+  AUTO_REPLY, AUTO_REPLY_EVENTS, AUTO_REPLY_LEADS, AUTO_REPLY_FEEDBACK,
   SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS, SHOP_CUSTOMERS, SHOP_DAYS, SHOP_OFFERS, SHOP_PRIVATE, SHOP_QR, SHOP_STAFF, INVOICE_LINKS,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG

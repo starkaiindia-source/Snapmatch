@@ -120,6 +120,13 @@ function createMetaClient(opts = {}) {
 
   const sendMessage = (recipientId, text) => send({ id: recipientId }, { text });
   const sendCard = (recipientId, card) => send({ id: recipientId }, template(card));
+  /* A picture from an https address, such as a payment QR. */
+  const sendImage = (recipientId, url) => send({ id: recipientId }, { attachment: { type: 'image', payload: { url } } });
+  /* A question with buttons the person taps to answer; the answer comes back as
+     their message, in the button's words. At most 13, 20 characters each. */
+  const sendQuick = (recipientId, text, answers) => send({ id: recipientId }, {
+    text, quick_replies: answers.slice(0, 13).map(a => ({ content_type: 'text', title: a.slice(0, 20), payload: a.slice(0, 20).toUpperCase() }))
+  });
 
   /* A message to someone who commented. Links in a comment cannot be tapped, so this
      is how a comment gets a link. Meta allows one for each person who comments. */
@@ -264,7 +271,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, replyToComment, sendMessage, sendCard, privateReply, privateCard, caption, recent, history, username, connectWebhook, subscribe, check };
+  return { login, host, replyToComment, sendMessage, sendCard, sendImage, sendQuick, privateReply, privateCard, caption, recent, history, username, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };

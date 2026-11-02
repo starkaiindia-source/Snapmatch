@@ -615,14 +615,20 @@ test('a sale runs from the price to an unpaid bill in the owner\'s Quick Billing
     await deliver(messageEvent('realme 5 2 boxes', 'buyer1'));
     lead = await sales.loadLead('buyer1');
     assert.equal(lead.stage, 'models');
-    assert.match(texts().pop().text, /minimum order is 4 boxes/);
+    const short = texts().pop().text;
+    assert.match(short, /Wholesale orders start at 4 boxes/);
+    assert.match(short, /Add 2 more boxes/);
+    assert.equal(n.model().length, 0, 'an order like this is read by rule');
 
     next = said({ models: [{ phone: 'samsung a52', boxes: 2 }] });
     await deliver(messageEvent('samsung a52 2 box', 'buyer1'));
     lead = await sales.loadLead('buyer1');
     assert.equal(lead.stage, 'address');
     assert.equal(lead.items.reduce((k, i) => k + i.boxes, 0), 4);
-    assert.match(texts().pop().text, /mobile number/);
+    const form = texts().pop().text;
+    assert.equal(form, sales.FORM, 'the form to copy, fill in and send back');
+    assert.match(form, /Name:\nMobile:\nAddress:\nCity:\nState:\nPincode:$/);
+    assert.match(texts().slice(-2)[0].text, /4 boxes \(40 pieces\) × ₹299 = ₹1,196/);
 
     next = said({ name: 'Ravi', address: '12 Main Road', city: 'Madurai', pincode: '625001' });
     await deliver(messageEvent('Ravi, 12 Main Road, Madurai 625001, 98765 43210', 'buyer1'));
@@ -639,6 +645,103 @@ test('a sale runs from the price to an unpaid bill in the owner\'s Quick Billing
     const card = texts().pop().attachment.payload.elements[0];
     assert.equal(card.buttons[0].title, 'View bill', 'no Razorpay connected, so the bill itself');
     assert.ok(card.buttons[0].url.startsWith('https://www.mobilepartsfinder.com/i/'));
+  } finally { n.restore(); }
+});
+
+test('an order is read by rule however it is written', () => {
+  const s = replies.DEFAULTS;
+  const read = t => sales.parseOrder(t, s).map(o => o.phone + ' ' + o.boxes);
+  assert.deepEqual(read('Realme 5 4 boxes'), ['Realme 5 4']);
+  assert.deepEqual(read('Realme 5 2 boxes Vivo Y20 3 boxes'), ['Realme 5 2', 'vivo Y20 3']);
+  assert.deepEqual(read('vivo y20 - 2, redmi note 10 x3'), ['vivo Y20 2', 'Xiaomi Redmi Note 10 3']);
+  assert.deepEqual(read('samsung a52 2'), ['Samsung Galaxy A52 2']);
+  assert.deepEqual(read('40 pcs realme 5'), ['Realme 5 4'], 'pieces become boxes');
+  assert.deepEqual(read('realme 5'), ['Realme 5 1'], 'no count is one box');
+  assert.deepEqual(read('super bro, thanks'), []);
+
+  const filled = sales.parseAddress(sales.FORM.replace('Name:', 'Name: Ravi Kumar').replace('Mobile:', 'Mobile: 98765 43210')
+    .replace('Address:', 'Address: 12 Main Road').replace('City:', 'City: Madurai').replace('State:', 'State: Tamil Nadu').replace('Pincode:', 'Pincode: 625001'));
+  assert.equal(filled.lines, 6);
+  assert.deepEqual(filled.address, { name: 'Ravi Kumar', phone: '9876543210', address: '12 Main Road', city: 'Madurai', state: 'Tamil Nadu', pincode: '625001' });
+});
+
+test('a filled form gets the bill and its own payment QR, and the payment is confirmed by itself', async () => {
+  await fresh({ salesOn: true, mode: 'auto' });
+  const shopSettings = require('../_services/shop-settings');
+  const realQr = shopSettings.orderQr, realStatus = shopSettings.qrStatus;
+  let paid = false;
+  shopSettings.orderQr = async (uid, o) => ({ id: 'qr_Order0001', imageUrl: 'https://rzp.io/i/order1', amount: o.amountPaise });
+  shopSettings.qrStatus = async () => ({ status: paid ? 'paid' : 'active' });
+  const n = network(() => { throw new Error('the model is not needed'); });
+  const out = () => n.calls.filter(c => c.url.includes('/messages')).map(c => JSON.parse(c.body).message);
+  try {
+    await deliver(messageEvent('Realme 5 4 boxes', 'buyer2'));
+    let lead = await sales.loadLead('buyer2');
+    assert.equal(lead.stage, 'address', 'four boxes as the first message is an order');
+    assert.equal(out().pop().text, sales.FORM);
+
+    const form = 'Name: Ravi\nMobile: 9876543210\nAddress: 12 Main Road\nCity: Madurai\nState: Tamil Nadu\nPincode: 625001';
+    await deliver(messageEvent(form, 'buyer2'));
+    lead = await sales.loadLead('buyer2');
+    assert.equal(lead.stage, 'billed');
+    assert.equal(lead.qrId, 'qr_Order0001');
+    assert.equal(lead.totalPaise, 4 * 29900 + 6000);
+    const sent = out();
+    assert.ok(sent.some(m => m.text && /Total: ₹1,256/.test(m.text) && /GPay/.test(m.text)), 'the bill, with how to pay');
+    assert.ok(sent.some(m => m.attachment && m.attachment.type === 'image' && m.attachment.payload.url === 'https://rzp.io/i/order1'), 'the QR as a picture');
+    assert.equal(n.model().length, 0, 'nothing here needed the model');
+
+    paid = true;
+    const r = reader([], []);
+    try { await poll(); } finally { r.restore(); }
+    lead = await sales.loadLead('buyer2');
+    assert.equal(lead.stage, 'paid');
+    const bill = (await fake.db.collection('shops').doc('ownerUid000001').collection('bills').doc(lead.billId).get()).data();
+    assert.equal(bill.payment.status, 'paid');
+    assert.ok(r.calls.some(c => c.url.includes('/messages') && /being packed/.test(c.body)), 'told the money is in and the boxes are being packed');
+  } finally { n.restore(); shopSettings.orderQr = realQr; shopSettings.qrStatus = realStatus; }
+});
+
+test('short of the minimum, the customer is told why and shown boxes that fit many phones', async () => {
+  await fresh({ salesOn: true, mode: 'auto' });
+  const n = network();
+  try {
+    await deliver(messageEvent('9H temper price?', 'buyer3'));
+    await deliver(messageEvent('realme 5 2 boxes', 'buyer3'));
+    const last = JSON.parse(n.calls.filter(c => c.url.includes('/messages')).pop().body).message.text;
+    assert.match(last, /Wholesale orders start at 4 boxes \(₹1,196\)/);
+    assert.match(last, /Popular boxes/);
+    assert.ok(!/Realme 5 glass: fits/.test(last), 'not the box already in the order');
+  } finally { n.restore(); }
+});
+
+test('asking for the app mid-order gets the app, and a day later the useful question, then the rating link', async () => {
+  await fresh({ salesOn: true, mode: 'auto', appLink: 'https://play.google.com/store/apps/details?id=x' });
+  const n = network();
+  try {
+    await deliver(messageEvent('9H temper price?', 'buyer4'));
+    await deliver(messageEvent('Link', 'buyer4'));
+    const card = JSON.parse(n.sent().pop().body).message.attachment.payload.elements[0];
+    assert.equal(card.buttons[0].url, 'https://play.google.com/store/apps/details?id=x');
+    const doc = fake.db.collection('autoReplyFeedback').doc('buyer4');
+    assert.equal((await doc.get()).data().state, 'waiting');
+
+    /* the next day, inside Instagram's 24 hours */
+    const now = Date.now();
+    await doc.set({ linkAt: now - 21 * 3600000, lastCustomerAt: now - 2 * 3600000 }, { merge: true });
+    const r = reader([], []);
+    try { await poll(); } finally { r.restore(); }
+    const ask = r.calls.filter(c => c.url.includes('/messages')).map(c => JSON.parse(c.body).message).find(m => m.quick_replies);
+    assert.ok(ask, 'the question went with Yes and No buttons');
+    assert.match(ask.text, /useful/);
+    assert.deepEqual(ask.quick_replies.map(q => q.title), ['Yes 👍', 'No 👎']);
+    assert.equal((await doc.get()).data().state, 'asked');
+
+    await deliver(messageEvent('Yes 👍', 'buyer4'));
+    const after = n.sent().slice(-2).map(c => JSON.parse(c.body).message);
+    assert.match(after[0].text, /rate/i);
+    assert.equal(after[1].attachment.payload.elements[0].buttons[0].title, 'Rate on Play Store');
+    assert.equal((await doc.get()).data().answer, 'yes');
   } finally { n.restore(); }
 });
 
