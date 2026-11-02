@@ -331,6 +331,23 @@
     },
 
     /**
+     * Spends one of the five on opening a group. A group already opened costs
+     * nothing again. Resolves like consumeSearch, refusals included.
+     */
+    openGroup: function (groupId) {
+      if (access.isPaid()) return Promise.resolve({ allowed: true, access: state, limitReached: false });
+      var ticket = epoch;
+      return call('/api/access', { method: 'POST', body: JSON.stringify({ groupId: groupId }) }).then(function (r) {
+        var data = r.data || {};
+        accept(data.access, r.who, ticket);
+        return { allowed: r.res.ok, access: state, limitReached: r.res.status === 429, needsSignIn: r.res.status === 401 };
+      }).catch(function (err) {
+        SM.debug.warn('access', 'open group failed, refusing it', { message: err && err.message });
+        return { allowed: false, access: state, limitReached: false, offline: true };
+      });
+    },
+
+    /**
      * A group's members, cut to this account's tier by the server.
      *
      * @returns {Promise<{members:Array, memberCount:number, lockedCount:number,

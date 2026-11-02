@@ -100,10 +100,11 @@ function usageOf(usage, profile) {
     return {
       used: Math.max(0, Math.floor(Number(usage.used) || 0)),
       models: Array.isArray(usage.models) ? usage.models.filter(m => typeof m === 'string') : [],
+      groups: Array.isArray(usage.groups) ? usage.groups.filter(g => typeof g === 'string') : [],
       seeded: false
     };
   }
-  return { used: legacySearchesUsed(profile), models: [], seeded: true };
+  return { used: legacySearchesUsed(profile), models: [], groups: [], seeded: true };
 }
 
 /**
@@ -162,7 +163,7 @@ async function readAccess(uid, now) {
  *        (a browser from before this change) every call is a new search.
  * @returns {Promise<{allowed:boolean, charged:boolean, access:object}>}
  */
-async function consumeSearch(uid, now, modelId) {
+async function consumeSearch(uid, now, modelId, groupId) {
   const userRef = db().collection(USERS).doc(uid);
   const usageRef = db().collection(SEARCH_USAGE).doc(uid);
 
@@ -183,6 +184,9 @@ async function consumeSearch(uid, now, modelId) {
     if (modelId && usage.models.indexOf(modelId) > -1) {
       return { allowed: true, charged: false, tier, used: usage.used, ent };
     }
+    if (groupId && usage.groups.indexOf(groupId) > -1) {
+      return { allowed: true, charged: false, tier, used: usage.used, ent };
+    }
 
     if (usage.used >= FREE_LIFETIME_SEARCHES) {
       /* Refused, and nothing is written. A blocked attempt must not inflate a
@@ -194,6 +198,9 @@ async function consumeSearch(uid, now, modelId) {
       used: usage.used + 1,
       /* Bounded by the allowance itself: at most five ids are ever stored. */
       models: modelId ? usage.models.concat(modelId) : usage.models,
+      /* A group opened is one of the same five: the owner counts a search and
+         an opened group alike, whichever a shop does first. */
+      groups: groupId ? usage.groups.concat(groupId) : usage.groups,
       updatedAt: now
     };
     if (usage.seeded) {
@@ -214,6 +221,16 @@ async function consumeSearch(uid, now, modelId) {
     { signedIn: true, entitlement: entitlementSummary(result.ent) }
   );
   return { allowed: result.allowed, charged: result.charged, access };
+}
+
+/**
+ * Whether a free account spent one of its five on this group, so it may read the
+ * group's devices. False for a signed-out visitor and for any other group.
+ */
+async function groupOpenedBy(uid, groupId) {
+  if (!uid || !groupId) return false;
+  const snap = await db().collection(SEARCH_USAGE).doc(uid).get();
+  return snap.exists && Array.isArray(snap.data().groups) && snap.data().groups.indexOf(groupId) > -1;
 }
 
 /**
@@ -537,6 +554,6 @@ async function deviceGroupsForUser(modelId, tier) {
 }
 
 module.exports = {
-  readAccess, consumeSearch, getUserEntitlement, groupForUser, deviceGroupsForUser, deviceGroupMap, deviceGroupIds,
+  readAccess, consumeSearch, groupOpenedBy, getUserEntitlement, groupForUser, deviceGroupsForUser, deviceGroupMap, deviceGroupIds,
   groupPreviews, previewOf
 };

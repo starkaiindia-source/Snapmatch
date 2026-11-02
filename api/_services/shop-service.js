@@ -883,6 +883,24 @@ async function categoryOf(uid, id) {
  * Quick Product Add. The browser picks the product id, so pressing Save twice,
  * or a retry after the response was lost, returns the product it already made.
  */
+/* WHAT A SHOP WITH NO PLAN MAY KEEP.
+
+   Every bill, product, customer and offer is storage the site pays for, and most
+   shops are free. So a free shop gets enough to try Quick Billing properly and no
+   more: twenty of each, and five offers. Nothing says so until the one past the
+   limit, which is refused with 402 and the limit, and the page offers the plans.
+   A subscription (or Lifetime) has no limit. Archived products do not count; a
+   bill is counted by its number, so a voided bill still counts. */
+const FREE_LIMITS = { products: 20, bills: 20, customers: 20, offers: 5 };
+
+const limitHit = (what, code) => new ShopError(402, code, { limit: FREE_LIMITS[what] });
+
+async function underProductLimit(uid) {
+  if ((await tierOf(uid)) === TIERS.PAID) return true;
+  const snap = await prodCol(uid).where('ownerUid', '==', uid).get();
+  return snap.docs.filter(s => s.data().active !== false).length < FREE_LIMITS.products;
+}
+
 async function createProduct(uid, body) {
   const id = clientId(body.productId);
   if (!id) throw bad('product-id');
@@ -893,6 +911,7 @@ async function createProduct(uid, body) {
 
   const before = owned(uid, await ref.get());
   if (before) return { product: productView(id, before), replayed: true };
+  if (!(await underProductLimit(uid))) throw limitHit('products', 'product-limit');
 
   const category = await categoryOf(uid, body.categoryId);
   const master = readMaster(body.master, category);
@@ -1439,6 +1458,9 @@ async function finaliseBill(uid, body) {
     }
 
     const shop = owned(uid, shopSnap) || {};
+    /* the plan is read only once a shop reaches the limit, so a free shop's first
+       twenty bills and every paying shop's bill under it cost no extra read */
+    if ((shop.billSeq || 0) >= FREE_LIMITS.bills && (await tierOf(uid)) !== TIERS.PAID) throw limitHit('bills', 'bill-limit');
     const seq = (shop.billSeq || 0) + 1;
     const number = money.billNumber(BILL_PREFIX, seq);
 
@@ -1995,9 +2017,14 @@ async function createOffer(uid, body) {
   const fields = offerFields(body);
   await checkOfferTargets(uid, fields);
   const ref = offerCol(uid).doc(id);
+  const free = (await tierOf(uid)) !== TIERS.PAID;
   return db().runTransaction(async tx => {
     const before = owned(uid, await tx.get(ref));
     if (before) return { offer: offerView(id, before), replayed: true };
+    if (free) {
+      const kept = await tx.get(offerCol(uid).where('ownerUid', '==', uid));
+      if (kept.docs.filter(s => s.data().status !== 'archived').length >= FREE_LIMITS.offers) throw limitHit('offers', 'offer-limit');
+    }
     const shop = owned(uid, await tx.get(shopRef(uid))) || {};
     const now = Date.now();
     const d = Object.assign({ ownerUid: uid }, fields, {
@@ -2176,6 +2203,9 @@ async function createCustomer(uid, body) {
     }
     const d = Object.assign(blankCustomer(uid, fields, now), fields);
     const shop = owned(uid, shopSnap) || {};
+    if ((shop.customerCount || 0) >= FREE_LIMITS.customers && (await tierOf(uid)) !== TIERS.PAID) {
+      throw limitHit('customers', 'customer-limit');
+    }
     tx.set(ref, d);
     tx.set(shopRef(uid), { ownerUid: uid, customerCount: (shop.customerCount || 0) + 1, updatedAt: now }, { merge: true });
     return { customer: customerView(id, d), replayed: false };

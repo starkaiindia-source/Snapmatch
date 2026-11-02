@@ -331,14 +331,11 @@
     if (r.name !== 'plans') state.planNotice = null;
 
     if (r.name === 'group') {
-      /* OPENING A GROUP NEEDS A PLAN — a free account's unused searches do
-         not open one. When the server has already said this account is not
-         paid, the group never opens: a visitor goes to Sign in, a free
-         account to Plans. When it has not said yet, the group opens in its
-         loading state and the member request — which the server answers with
-         the account's tier — decides; see loadGroupMembers. The server
-         withholds the list either way, so a typed URL, a Back button or a
-         crafted request all get nothing. */
+      /* OPENING A GROUP SPENDS ONE OF THE FIVE, as a search does. A visitor
+         goes to Sign in; a free account opens the group in its loading state
+         and loadGroupMembers spends the credit, or sends it to Plans when the
+         five are used. The server withholds the list until the credit is
+         spent, so a typed URL, a Back button or a crafted request get nothing. */
       if (r.params[0] && refuseGroup(r.params[0])) return;
       state.finder.groupId = r.params[0] || null;
       /* Every fresh visit opens in the compact list. */
@@ -349,6 +346,7 @@
       state.finder.groupMembers = null;
       state.finder.groupLocked = false;
       state.finder.groupLoadFailed = false;
+      state.finder.groupSpent = null;
       if (state.finder.groupId) loadGroupMembers(state.finder.groupId);
       /* The variant helpers are shared with the model page and hold one
          device's selection at a time; a group opens on its master. */
@@ -430,7 +428,7 @@
    * @returns {boolean} true when it redirected — the caller stops there.
    *          False while the answer is unknown, and for a subscriber.
    */
-  function refuseGroup(groupId) {
+  function refuseGroup(groupId, spent) {
     var a = SM.access && SM.access.get();
     if (!a || a.paid) return false;
     if (!a.signedIn) {
@@ -438,11 +436,14 @@
       authMode = 'signin';
       toast('Sign in to open a group', 'lock');
       redirect('/account');
-    } else {
-      state.planNotice = { kind: 'group' };
-      toast('Opening a group needs a plan', 'lock');
-      redirect('/plans');
+      return true;
     }
+    /* a free account may open a group with one of its five; only the server's
+       "they are used" turns it away */
+    if (!spent) return false;
+    state.planNotice = { kind: 'search' };
+    toast('Your 5 free searches are used', 'lock');
+    redirect('/plans');
     return true;
   }
 
@@ -1455,12 +1456,25 @@
         state.finder.groupLoadFailed = true;
         state.finder.groupMembers = null;
       } else if (g.requiresPlan) {
-        /* The server has just said this account may not open groups — and,
-           in the same response, who the account is. That is the answer the
-           gate in route() was waiting for. */
+        /* Not open to this account yet. A visitor is sent to Sign in; a free
+           account spends one of its five and asks again, and only a spent
+           allowance sends it to Plans. */
         state.finder.groupLocked = true;
         state.finder.groupMembers = [];
         if (refuseGroup(groupId)) return;
+        var acc = SM.access.get();
+        if (acc && acc.signedIn && !acc.paid && !state.finder.groupSpent) {
+          state.finder.groupSpent = groupId;
+          SM.access.openGroup(groupId).then(function (r) {
+            if (ticket !== groupLoadSeq || state.finder.groupId !== groupId) return;
+            renderShellBits();
+            if (r.allowed) { loadGroupMembers(groupId); return; }
+            if (r.limitReached) { refuseGroup(groupId, true); return; }
+            state.finder.groupLoadFailed = true;
+            if (state.route.name === 'finder' && state.finder.groupId === groupId) renderWorkspace();
+          });
+          return;
+        }
       } else {
         state.finder.groupLocked = false;
         state.finder.groupMembers = Array.isArray(g.members) ? g.members : [];
@@ -1597,6 +1611,22 @@
     }
 
     document.getElementById('centerHead').innerHTML = centerHeadHTML();
+    /* A model just picked: the column still holds the library behind it, and the
+       sheet rising now would show the home feed until the matches arrive. It
+       rises on a loading state instead. Switching category within the same
+       model keeps what is there. */
+    var res = document.getElementById('results');
+    var heldFor = res ? res.getAttribute('data-model') || '' : '';
+    if (res && heldFor !== (state.finder.modelId || '')) {
+      if (state.finder.modelId) {
+        res.innerHTML = C.skelRows(4);
+        var lm1 = document.getElementById('loadmore');
+        if (lm1) lm1.innerHTML = '';
+        res.setAttribute('data-model', state.finder.modelId);
+      } else {
+        res.removeAttribute('data-model');
+      }
+    }
     syncSheet();
 
     var rail = document.getElementById('catRail');
@@ -3129,8 +3159,8 @@
       '<div class="idgrid" style="grid-template-columns:repeat(1,minmax(0,1fr))">' +
       cmp('Browse all mobile models & specs', 'Free', 'Free') +
       cmp('Browse the group library — number, part code, master', 'Free', 'Free') +
-      cmp('Model searches', '5 in total', 'Unlimited') +
-      cmp('Open a group and see the devices it fits', '—', 'Every group') +
+      cmp('Model searches and opened groups', '5 in total', 'Unlimited') +
+      cmp('Open a group and see the devices it fits', 'Within the 5', 'Every group') +
       cmp('Full compatible-device list', '—', 'Included') +
       cmp('Search and filter inside the group library', '—', 'Included') +
       '</div></div>' +
@@ -3152,7 +3182,7 @@
       var m = n.modelId && db.modelById[n.modelId];
       return '<div class="notice notice--amber" style="margin-bottom:16px" role="status">' + icon('lock') +
         '<span><b>You have used your 5 free searches.</b> They are a one-time ' +
-        'allowance for each account and do not reset. Choose a plan to keep searching' +
+        'allowance for each account &mdash; a model searched and a group opened each use one &mdash; and do not reset. Choose a plan to keep searching' +
         (m ? ' &mdash; <b>' + esc(m.fullName) + '</b> stays in the search box, ready to run.' : '.') +
         '</span></div>';
     }
