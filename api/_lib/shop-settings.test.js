@@ -426,6 +426,41 @@ test('an account without QR Codes gets a payment link shown as a QR, paid the sa
   } finally { rp.restore(); }
 });
 
+test('with a UPI ID the bill QR is a upi:// payment any UPI app opens, with the amount', async () => {
+  const QRCode = require('qrcode');
+  const w = world();
+  ok(await w.get(w.tokA, 'state'));
+  await addRavi(w);
+  refused(await w.post(w.tokA, 'settings', { action: 'upi', upiId: 'not a upi id' }), 400, 'upi-id');
+  refused(await w.post(w.tokS, 'settings', { action: 'upi', upiId: 'shop@okaxis' }), 403, 'owner-only');
+  assert.equal(ok(await w.post(w.tokA, 'settings', { action: 'upi', upiId: ' Shop.Owner@OKAXIS ' })).upiId, 'shop.owner@okaxis');
+  assert.equal(ok(await w.get(w.tokA, 'settings')).upiId, 'shop.owner@okaxis');
+  assert.equal(ok(await w.get(w.tokS, 'state')).payments.upiId, 'shop.owner@okaxis', 'staff billing sees it');
+
+  /* no Razorpay at all: the shop's own UPI ID */
+  let made = '';
+  const real = QRCode.toString;
+  QRCode.toString = async (s, o) => { made = s; return real(s, o); };
+  try {
+    const { qr } = ok(await w.post(w.tokS, 'qr', { action: 'create', amountPaise: 22410 }));
+    assert.equal(qr.kind, 'upi');
+    assert.equal(qr.id, '');
+    assert.match(qr.imageUrl, /^data:image\/svg\+xml;base64,/);
+    assert.match(made, /^upi:\/\/pay\?pa=shop\.owner@okaxis&pn=[^&]+&am=224\.10&cu=INR/);
+
+    /* Razorpay connected but without QR Codes: still the UPI QR, not a web page */
+    const rp = razorpay(url => /qr_codes$/.test(url)
+      ? { status: 400, body: { error: { code: 'BAD_REQUEST_ERROR', description: 'The requested URL was not found on the server.' } } } : null);
+    try {
+      await connect(w);
+      assert.equal(ok(await w.post(w.tokA, 'qr', { action: 'create', amountPaise: 10000 })).qr.kind, 'upi');
+      assert.ok(!rp.calls.some(c => /payment_links/.test(c.url)));
+    } finally { rp.restore(); }
+  } finally { QRCode.toString = real; }
+
+  assert.equal(ok(await w.post(w.tokA, 'settings', { action: 'upi', upiId: '' })).upiId, '');
+});
+
 test('a payment link QR left open is cancelled at Razorpay', async () => {
   const w = world();
   ok(await w.get(w.tokA, 'state'));

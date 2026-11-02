@@ -533,7 +533,7 @@ async function loadState(uid, query, who) {
     offerSettings: offerSettings(shop),
     suggestedCategories: SUGGESTED_CATEGORIES,
     store: settings.storeView(shop, profile.exists ? profile.data() : null),
-    payments: { razorpay: !!shop.razorpayOn },
+    payments: { razorpay: !!shop.razorpayOn, upiId: shop.upiId || '' },
     me: who ? { role: who.actor.role, name: who.actor.name, email: who.actor.email, invite: who.invite || null } : null
   };
 }
