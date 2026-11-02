@@ -52,8 +52,8 @@ const MODES = ['off', 'review', 'auto'];
 const OPEN = ['queued', 'draft', 'needs_human', 'failed'];
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-/* Under Vercel's ten seconds, leaving room to record what happened. */
-const BUDGET_MS = 7500;
+/* A delivery stops starting new events after this. What it leaves stays queued. */
+const BUDGET_MS = 25000;
 const MAX_PER_DELIVERY = 10;
 const LIST_LIMIT = 50;
 const MEMORY = 3;
@@ -287,11 +287,11 @@ async function subscribe() {
 }
 
 /** What would be said to this message. Nothing is stored or sent. */
-async function tryReply({ text: said, kind }) {
+async function tryReply({ text: said, kind, caption }) {
   const c = credentials();
   const settings = await loadSettings();
   const k = kind === 'dm' ? 'dm' : 'comment';
-  const d = await responder.draft({ text: said, kind: k, settings, gemini: createGemini({ key: c.geminiKey }), model: c.model });
+  const d = await responder.draft({ text: said, kind: k, settings, gemini: createGemini({ key: c.geminiKey }), model: c.model, caption: text(caption, 2000) });
   if (!d.ok) return d;
   return Object.assign({}, d, { guard: responder.guard(d.reply, k, settings), costMicroUsd: cost(c, d), usage: undefined });
 }
