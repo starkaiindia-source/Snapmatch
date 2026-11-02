@@ -29,6 +29,8 @@
 'use strict';
 
 const search = require('../search-service');
+const entitlements = require('../entitlement-service');
+const { TIERS } = require('../../_schema/entitlement');
 const { redact } = require('../../_schema/analytics-event');
 
 /* Meta's limit for a message is 1000 BYTES, and a Tamil letter is three of them. */
@@ -79,20 +81,36 @@ function byRelevance(categories, text) {
   return categories.slice().sort((a, b) => wants.test(b.categoryName) - wants.test(a.categoryName));
 }
 
-/** What the catalogue says about these phones, as lines the model may repeat. */
-function factsFor(phones, text, maxNames) {
-  return phones.map(phone => {
-    const compat = search.compatibilityFor(phone.id);
+function shared(g, phone, maxNames) {
+  const others = g.members.filter(m => m.id !== phone.id).map(m => m.name);
+  const count = g.memberCount - 1;
+  if (!others.length) return 'no other phone shares this part';
+  if (!maxNames) return `${count} other ${count === 1 ? 'phone shares' : 'phones share'} this part`;
+  return 'same part as ' + others.slice(0, maxNames).join(', ') + (count > maxNames ? ` and ${count - maxNames} more` : '');
+}
+
+/**
+ * What the catalogue says about these phones, as lines the model may repeat.
+ *
+ * Read at the paid tier because this is the owner's own account, and cut to maxNames
+ * here, before the model or anyone else sees it. In production the groups are in
+ * Firestore: the bundled index has the phones but not what fits them.
+ */
+async function factsFor(phones, text, maxNames) {
+  const site = search.loadIndex().categories;
+  const lines = await Promise.all(phones.map(async phone => {
+    const compat = await entitlements.deviceGroupsForUser(phone.id, TIERS.PAID);
+    const named = ((compat && compat.categories) || []).map(c => {
+      const known = site && site.get(c.categoryId);
+      return Object.assign({}, c, { categoryName: known ? known.name : c.categoryName });
+    });
     const groups = [];
-    byRelevance((compat && compat.categories) || [], text).forEach(c => c.groups.forEach(g => {
-      const others = g.members.filter(m => m.id !== phone.id).map(m => m.name);
-      groups.push(`${c.categoryName}: ${others.length ? 'same part as ' + others.slice(0, maxNames).join(', ') +
-        (g.memberCount - 1 > maxNames ? ` and ${g.memberCount - 1 - maxNames} more` : '') : 'no other phone shares this part'}.`);
-    }));
+    byRelevance(named, text).forEach(c => c.groups.forEach(g => groups.push(`${c.categoryName}: ${shared(g, phone, maxNames)}.`)));
     return groups.length
       ? `${phone.name}\n` + groups.slice(0, MAX_GROUPS).map(g => '- ' + g).join('\n')
-      : `${phone.name}\n- This phone is known, but no shared parts are recorded for it.`;
-  }).join('\n');
+      : `${phone.name}\n- Nothing is recorded for this phone yet.`;
+  }));
+  return lines.join('\n');
 }
 
 function systemPrompt(s, kind) {
@@ -105,7 +123,8 @@ Rules:
 - Use only the text above and the FACTS you are given. Never invent a phone model, price, stock, offer, warranty or delivery time.
 - If they do not answer the question, set needs_human true and write this in the customer's language: ${s.handoff}
 - If the customer asks about a phone and FACTS names none, ask for the exact brand and model.
-- Reply in the customer's own language and script: Tamil, Tanglish, Hindi or English.
+- If FACTS says nothing is recorded for a phone, that is not a no. Set needs_human true.
+- Reply in the language and script the customer used. Tamil written in English letters gets Tamil in English letters.
 - ${kind === 'comment' ? 'This is a public comment: at most two short sentences.' : 'This is a private message: at most five short lines.'}
 - Complaints, refunds and order problems: set needs_human true.
 - Praise, emoji, tagging a friend, or spam need no reply: set should_reply false and leave reply empty.
@@ -138,7 +157,7 @@ async function draft({ text, kind, settings, gemini, model, caption, history }) 
   /* the caption names the phone when the comment only says "price?" */
   const phones = phonesIn(clean).concat(clean.length < 60 ? phonesIn(caption || '') : []);
   const unique = Array.from(new Map(phones.map(p => [p.id, p])).values()).slice(0, MAX_MODELS);
-  const facts = factsFor(unique, clean, settings.maxNames);
+  const facts = await factsFor(unique, clean, settings.maxNames);
 
   const r = await gemini.interact({
     model, system: systemPrompt(settings, kind), schema: SCHEMA, thinkingLevel: 'low', maxOutputTokens: 800, timeoutMs: 7000,

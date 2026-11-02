@@ -154,14 +154,24 @@ test('a phone is found in the way people write, and only an exact phone counts',
   assert.equal(responder.phonesIn('super glass bro, price?').length, 0);
 });
 
-test('the facts carry at most the names allowed, and no part code', () => {
+test('the facts carry at most the names allowed, and no part code', async () => {
   const phones = responder.phonesIn('realme 5');
-  const facts = responder.factsFor(phones, 'temper', 2);
+  const facts = await responder.factsFor(phones, 'temper', 2);
   assert.ok(facts.length > 0);
   assert.ok(!/MPF|SG-\d/i.test(facts), facts);
   facts.split('\n').filter(l => l.startsWith('- ') && l.includes('same part as')).forEach(l => {
     assert.ok(l.split(' and ')[0].split(',').length <= 2, l);
   });
+});
+
+test('a phone with no record says so, rather than saying nothing fits', async () => {
+  const phone = { id: 'not-a-real-model', name: 'Nokia 0000' };
+  assert.equal(await responder.factsFor([phone], 'glass', 3), 'Nokia 0000\n- Nothing is recorded for this phone yet.');
+});
+
+test('with no names allowed the facts give a count', async () => {
+  const facts = await responder.factsFor(responder.phonesIn('realme 5'), 'temper', 0);
+  assert.ok(!/same part as/.test(facts), facts);
 });
 
 /* -------------------------------------------------------------- the guard */
