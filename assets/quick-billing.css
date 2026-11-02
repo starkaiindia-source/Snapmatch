@@ -140,32 +140,34 @@
 .qb-find{ display:flex; flex-direction:column; gap:6px; }
 .qb-find .qb-search input{ height:42px; font-size:16px; }
 
-.qb-grid{ display:grid; grid-template-columns:minmax(0,1fr); gap:8px; }
-.qb-card{ position:relative; display:flex; gap:10px; min-width:0; padding:8px; border-radius:var(--r); background:var(--surface); border:1px solid var(--line); }
-.qb-card.is-in{ border-color:var(--qb); }
+/* One product is one row. How tall this list is decides how far the cart is. */
+.qb-grid{ display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; border:1px solid var(--line); border-radius:var(--r); background:var(--surface); }
+.qb-card{ position:relative; display:flex; align-items:center; gap:10px; min-width:0; padding:7px 10px; border-bottom:1px solid var(--line); }
+.qb-card:last-child{ border-bottom:0; }
+.qb-card.is-in{ background:var(--qb-050); }
 .qb-card.is-out{ opacity:.6; }
 .qb-card.is-pulse{ animation:qbpulse .35s ease; }
 @keyframes qbpulse{ 40%{ transform:scale(.985); } }
-.qb-thumb--card{ width:64px; height:64px; font-size:20px; }
+.qb-thumb--card{ font-size:15px; }
 .qb-thumb--card img{ object-fit:contain; }
-.qb-card__body{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:2px; }
-.qb-card__name{ font-weight:700; font-size:14px; line-height:1.25; }
-.qb-card__meta{ font-size:12px; font-weight:600; color:var(--ink-3); }
+.qb-card__body{ flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:1px; }
+.qb-card__name{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; font-weight:700; font-size:14px; line-height:1.25; }
 .qb-card__fits{ font-size:12px; font-weight:600; color:var(--qb-ink); }
 .qb-card__tag{ margin-top:2px; font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-3); }
-.qb-card__nums{ display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 10px; }
-.qb-card__price{ font-family:var(--f-display); font-weight:800; font-size:15.5px; letter-spacing:-.02em; color:var(--ink); }
+.qb-card__nums{ display:flex; align-items:baseline; flex-wrap:wrap; gap:0 8px; }
+.qb-card__price{ font-family:var(--f-display); font-weight:800; font-size:14.5px; letter-spacing:-.02em; color:var(--ink); }
 .qb-card__in{ font-size:11.5px; font-weight:800; color:var(--qb-ink); }
-.qb-card__add{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:5px; }
-.qb-card__add .qb-qty button{ width:34px; height:34px; }
-.qb-card__add .qb-qty__in{ width:42px; height:34px; }
-.qb-card__go.btn{ height:36px; padding:0 12px; white-space:nowrap; }
+.qb-card__shelf{ font-size:11.5px; font-weight:600; color:var(--ink-3); }
+.qb-card__go.btn{ flex:none; height:36px; padding:0 12px; white-space:nowrap; }
 .qb-card__go svg{ width:15px; height:15px; }
+.qb-card__qty{ flex:none; }
+.qb-card__qty button{ width:32px; height:34px; }
+.qb-card__qty b{ min-width:28px; text-align:center; font-size:15px; font-weight:800; }
 .qb-thumb{ width:44px; height:44px; flex:none; border-radius:10px; overflow:hidden; background:var(--pthumb-bg); border:1px solid var(--pthumb-line); display:grid; place-items:center; }
 .qb-thumb img{ width:100%; height:100%; object-fit:cover; }
 .qb-thumb--none{ background:var(--qb-050); color:var(--qb-ink); font-family:var(--f-display); font-weight:800; font-size:18px; letter-spacing:-.02em; border-color:var(--qb-100); }
 .qb-thumb--sm{ width:42px; height:42px; }
-.qb-thumb.qb-thumb--card{ width:64px; height:64px; }
+
 .qb-stock{ font-size:11.5px; font-weight:800; color:var(--ok); }
 .qb-stock--low{ color:var(--warn); }
 .qb-stock--out{ color:var(--bad); }
@@ -392,8 +394,16 @@
   .qb-nb__main{ padding-left:22px; }
   .qb-nb__side{ padding-right:22px; background:var(--surface-2); border-left:1px solid var(--line); }
   .qb-nb__side .qb-acts{ position:sticky; bottom:-16px; z-index:2; padding:8px 0 12px; margin-bottom:-12px; background:linear-gradient(to bottom, transparent, var(--surface-2) 12px); }
-  .qb-grid{ grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); }
+  .qb-grid{ grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); }
   .qb-adj{ grid-template-columns:1fr 1fr; }
+}
+/* The bill sits under the list here, so the list scrolls inside a fixed height and
+   the cart stays where it is however many products a shop has. Five and a half rows,
+   so the cut row says there is more. */
+@media (max-width:1099px){
+  .qb-catalog:has(> .qb-grid--list){ max-height:min(332px, 44vh); overflow-y:auto; border:1px solid var(--line); border-radius:var(--r); background:var(--surface); }
+  .qb-grid--list{ overflow:visible; border:0; border-radius:0; }
+  .qb-quickadd{ height:38px; }
 }
 @media (min-width:600px) and (max-width:1099px){
   .qb-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
