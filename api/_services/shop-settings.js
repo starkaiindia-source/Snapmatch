@@ -160,6 +160,17 @@ async function saveUpi(uid, body, who) {
   return { upiId };
 }
 
+/* Automatic UPI collection: a UPI bill shows Razorpay's QR and waits for its payment.
+   Off until the owner turns it on, since a new shop takes UPI on its own number and
+   has nothing to connect. It needs the shop's Razorpay. */
+async function saveAutoCollect(uid, body, who) {
+  ownerOnly(who);
+  const on = body.on === true;
+  if (on && !(await keysRef(uid).get()).exists) throw conflict('razorpay-off');
+  await shopRef(uid).set({ ownerUid: uid, autoCollect: on, updatedAt: Date.now() }, { merge: true });
+  return { autoCollect: on };
+}
+
 /* The project has no Storage bucket, so a logo is a small image kept in a document of
    its own: every bill reads the shop's document, and none of them need the logo. */
 async function saveLogo(uid, body, who) {
@@ -335,7 +346,7 @@ async function connectRazorpay(uid, body, who) {
 async function disconnectRazorpay(uid, body, who) {
   ownerOnly(who);
   await keysRef(uid).delete();
-  await shopRef(uid).set({ ownerUid: uid, razorpayOn: false, updatedAt: Date.now() }, { merge: true });
+  await shopRef(uid).set({ ownerUid: uid, razorpayOn: false, autoCollect: false, updatedAt: Date.now() }, { merge: true });
   return { razorpay: keysView(uid, null) };
 }
 
@@ -346,6 +357,7 @@ async function loadSettings(uid, query, who) {
   return {
     store, staff, razorpay: keysView(uid, keys.exists ? keys.data() : null), maxStaff: MAX_STAFF,
     upiId: (shop.exists && shop.data().upiId) || '',
+    autoCollect: !!(shop.exists && shop.data().autoCollect && keys.exists),
     logo: logo.exists ? logo.data().data : ''
   };
 }
@@ -400,9 +412,9 @@ async function createQr(uid, body) {
   if (!money.isInt(amountPaise) || amountPaise < 100 || amountPaise > money.MAX_BILL_PAISE) throw bad('qr-amount-bad');
   const [keys, shop] = await Promise.all([keysOf(uid), shopRef(uid).get()]);
   const upiId = (shop.exists && shop.data().upiId) || '';
-  if (!keys) {
+  if (!keys || !shop.data().autoCollect) {
     if (upiId) return upiQr(uid, upiId, amountPaise);
-    throw conflict('razorpay-off');
+    throw conflict(keys ? 'auto-collect-off' : 'razorpay-off');
   }
   const closeBy = Math.floor(Date.now() / 1000) + QR_LIFE_S;
   const r = await razorpay(keys, 'POST', '/payments/qr_codes', {
@@ -499,7 +511,7 @@ async function shopWebhook(uid, rawBody, signature) {
 
 module.exports = {
   actorFor, storeView, invoiceHeader, storeOf, saveStore, saveLogo,
-  listStaff, addStaff, removeStaff, answerInvite, saveUpi,
+  listStaff, addStaff, removeStaff, answerInvite, saveUpi, saveAutoCollect,
   connectRazorpay, disconnectRazorpay, loadSettings,
   createQr, qrStatus, closeQr, shopWebhook, qrRef, qrId, paymentLink, paymentLinkStatus
 };
