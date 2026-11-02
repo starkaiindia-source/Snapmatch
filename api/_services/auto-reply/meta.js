@@ -108,19 +108,23 @@ function createMetaClient(opts = {}) {
     return r.id || null;
   }
 
-  async function sendMessage(recipientId, text) {
-    const body = { recipient: { id: recipientId }, message: { text } };
+  async function send(recipient, message) {
+    const body = { recipient, message };
     const r = await asAccount(p => call('POST', login === 'instagram' || p ? 'me/messages' : `${igUserId}/messages`, { body, as: p ? p.token : undefined }));
     return r.message_id || null;
   }
 
+  /* A card with a picture, a title and buttons: a link a person can tap, where a link
+     typed into a message is only text. card is { title, subtitle, image_url, buttons }. */
+  const template = card => ({ attachment: { type: 'template', payload: { template_type: 'generic', elements: [card] } } });
+
+  const sendMessage = (recipientId, text) => send({ id: recipientId }, { text });
+  const sendCard = (recipientId, card) => send({ id: recipientId }, template(card));
+
   /* A message to someone who commented. Links in a comment cannot be tapped, so this
      is how a comment gets a link. Meta allows one for each person who comments. */
-  async function privateReply(commentId, text) {
-    const body = { recipient: { comment_id: commentId }, message: { text } };
-    const r = await asAccount(p => call('POST', login === 'instagram' || p ? 'me/messages' : `${igUserId}/messages`, { body, as: p ? p.token : undefined }));
-    return r.message_id || null;
-  }
+  const privateReply = (commentId, text) => send({ comment_id: commentId }, { text });
+  const privateCard = (commentId, card) => send({ comment_id: commentId }, template(card));
 
   async function caption(mediaId) {
     const r = await call('GET', mediaId, { params: { fields: 'caption' } });
@@ -241,7 +245,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, replyToComment, sendMessage, privateReply, caption, recent, username, connectWebhook, subscribe, check };
+  return { login, host, replyToComment, sendMessage, sendCard, privateReply, privateCard, caption, recent, username, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };

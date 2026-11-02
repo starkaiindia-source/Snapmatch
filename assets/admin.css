@@ -768,3 +768,8 @@ pre.ig__quote { margin-bottom: 6px; }
 .ar-meta { font-size: 12px; }
 .ar-why { color: var(--warn); font-size: 12px; font-weight: 600; }
 .ar-facts { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ar-card { display: flex; flex-direction: column; gap: 4px; max-width: 280px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.ar-card img { width: 100%; aspect-ratio: 1.91 / 1; object-fit: contain; background: var(--surface-2); }
+.ar-card b { padding: 6px 12px 0; font-size: 14px; }
+.ar-card span { padding: 0 12px; color: var(--ink-3); font-size: 12px; }
+.ar-card a { margin-top: 6px; padding: 10px 12px; border-top: 1px solid var(--line); color: var(--teal-700); font-weight: 700; text-align: center; text-decoration: none; }

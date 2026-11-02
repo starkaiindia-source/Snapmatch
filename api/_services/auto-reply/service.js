@@ -76,7 +76,10 @@ const MEMORY = 3;
 const DEFAULTS = {
   mode: 'review', comments: true, dms: true,
   brand: 'ProGlide', about: '', products: '', links: '',
-  appLink: '', appLinkText: 'Here is the {brand} app: {link}', appLinkComment: 'Sent you the link in DM',
+  appLink: '', appLinkComment: 'Sent you the link in DM 📩',
+  appLinkText: '🔥 {brand}: made for mobile shop owners\n\n✅ Find which models take the same tempered glass in seconds\n✅ Back covers, displays and more: every compatible model in one place\n✅ No more guessing at the counter\n\n👇 Tap the button below to download',
+  appCardTitle: '{brand}: compatible parts finder', appCardSubtitle: 'Find the same glass, cover and parts for any phone',
+  appButton: 'Download the app', appImage: '',
   tone: 'Friendly and short, like a helpful shop owner. No hashtags.',
   handoff: 'Our team will reply to you soon.',
   blocked: 'Mobile Parts Finder\nmobilepartsfinder\nSnapMatch',
@@ -122,8 +125,12 @@ function normalise(s) {
     comments: d.comments !== false, dms: d.dms !== false,
     brand: text(d.brand, 60), about: text(d.about, 2000), products: text(d.products, 4000), links: text(d.links, 600),
     appLink: /^https:\/\/\S+$/.test(text(d.appLink, 300)) ? text(d.appLink, 300) : '',
-    appLinkText: text(d.appLinkText, 300) || DEFAULTS.appLinkText,
+    appLinkText: text(d.appLinkText, 600) || DEFAULTS.appLinkText,
     appLinkComment: text(d.appLinkComment, 200) || DEFAULTS.appLinkComment,
+    appCardTitle: text(d.appCardTitle, 80) || DEFAULTS.appCardTitle,
+    appCardSubtitle: text(d.appCardSubtitle, 80) || DEFAULTS.appCardSubtitle,
+    appButton: text(d.appButton, 20) || DEFAULTS.appButton,
+    appImage: /^https:\/\/\S+$/.test(text(d.appImage, 400)) ? text(d.appImage, 400) : '',
     tone: text(d.tone, 300), handoff: text(d.handoff, 200) || DEFAULTS.handoff, blocked: text(d.blocked, 600),
     maxNames: num(d.maxNames, 0, 20, DEFAULTS.maxNames),
     perSenderHour: num(d.perSenderHour, 1, 60, DEFAULTS.perSenderHour),
@@ -214,20 +221,47 @@ async function deliver(id, reply, by, c, send) {
   }
 }
 
-function linkMessage(s) {
-  const body = s.appLinkText.replace(/\{brand\}/g, s.brand);
-  return body.indexOf('{link}') > -1 ? body.replace(/\{link\}/g, s.appLink) : body + ' ' + s.appLink;
+const brandIn = (value, s) => value.replace(/\{brand\}/g, s.brand);
+
+/** The words before the button. The button carries the link. */
+function linkIntro(s) {
+  return brandIn(s.appLinkText, s).replace(/\{link\}/g, '').trim();
 }
 
-/* A comment gets the link by message, with a word on the comment to say so. If the
-   message cannot go, Meta allows one per person, the comment carries the link itself. */
+/** The same words with the link typed in, for wherever a button cannot go. */
+function linkMessage(s) {
+  return linkIntro(s) + '\n\n' + s.appLink;
+}
+
+function linkCard(s) {
+  return Object.assign({ title: brandIn(s.appCardTitle, s).slice(0, 80), subtitle: brandIn(s.appCardSubtitle, s).slice(0, 80) },
+    s.appImage ? { image_url: s.appImage } : {},
+    { default_action: { type: 'web_url', url: s.appLink }, buttons: [{ type: 'web_url', url: s.appLink, title: s.appButton.slice(0, 20) }] });
+}
+
+/* One link a day is enough for one person, however often they ask. */
+async function linkSentLately(senderId, skipId, now) {
+  const snap = await eventCol().where('senderId', '==', senderId).get();
+  return snap.docs.some(d => d.id !== skipId && d.data().intent === 'app_link' && d.data().status === 'sent' &&
+    now - (d.data().sentAt || 0) < DAY_MS);
+}
+
+/* A message gets the words, then a card with a button. A comment gets the card by
+   private reply, since a link in a comment cannot be tapped, and a word on the
+   comment. Meta allows one private reply per person, so it is a single message. If
+   a card is refused, the link goes as text; if no message can go, on the comment. */
 async function sendLink(id, ev, s, c) {
-  const message = linkMessage(s);
+  const plain = linkMessage(s);
+  if (await linkSentLately(ev.senderId, id, Date.now())) return finish(id, { status: 'skipped', intent: 'app_link', reason: 'link-already-sent' });
   await finish(id, { intent: 'app_link', reason: null });
-  return deliver(id, message, 'app-link', c, async (meta, e) => {
-    if (e.kind === 'dm') return meta.sendMessage(e.senderId, message);
-    const messaged = await meta.privateReply(e.targetId, message).then(() => true, () => false);
-    return meta.replyToComment(e.targetId, messaged ? s.appLinkComment : message);
+  return deliver(id, plain, 'app-link', c, async (meta, e) => {
+    if (e.kind === 'dm') {
+      await meta.sendMessage(e.senderId, linkIntro(s));
+      return meta.sendCard(e.senderId, linkCard(s)).catch(() => meta.sendMessage(e.senderId, s.appLink));
+    }
+    const messaged = await meta.privateCard(e.targetId, linkCard(s))
+      .catch(() => meta.privateReply(e.targetId, plain)).then(() => true, () => false);
+    return meta.replyToComment(e.targetId, messaged ? s.appLinkComment : plain);
   });
 }
 
@@ -393,7 +427,7 @@ async function tryReply({ text: said, kind, caption }) {
   const settings = await loadSettings();
   const k = kind === 'dm' ? 'dm' : 'comment';
   if (settings.appLink && responder.asksForApp(said)) {
-    return { ok: true, reply: linkMessage(settings), intent: 'app_link', confidence: 1, shouldReply: true, hold: null, instant: true };
+    return { ok: true, reply: linkIntro(settings), card: linkCard(settings), intent: 'app_link', confidence: 1, shouldReply: true, hold: null, instant: true };
   }
   const d = await responder.draft({ text: said, kind: k, settings, gemini: createGemini({ key: c.geminiKey }), model: c.model, caption: text(caption, 2000) });
   if (!d.ok) return d;

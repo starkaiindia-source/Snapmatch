@@ -424,9 +424,12 @@ test('a message asking for the app gets the link at once, even in review, with n
     assert.equal(e.status, 'sent');
     assert.equal(e.intent, 'app_link');
     assert.equal(n.model().length, 0);
-    const sent = JSON.parse(n.sent()[0].body);
-    assert.deepEqual(sent.recipient, { id: 'user9' });
-    assert.ok(sent.message.text.includes(PLAY) && sent.message.text.includes('ProGlide'));
+    const [words, card] = n.sent().map(c => JSON.parse(c.body));
+    assert.deepEqual(words.recipient, { id: 'user9' });
+    assert.ok(words.message.text.includes('ProGlide') && !words.message.text.includes('{'));
+    const element = card.message.attachment.payload.elements[0];
+    assert.equal(card.message.attachment.payload.template_type, 'generic');
+    assert.deepEqual(element.buttons, [{ type: 'web_url', url: PLAY, title: 'Download the app' }]);
   } finally { n.restore(); }
 });
 
@@ -435,10 +438,22 @@ test('a comment asking for the app gets the link by message and a word on the co
   const n = network();
   try {
     await deliver(commentEvent('link'));
-    const dm = n.calls.filter(c => c.url.includes('/messages'))[0];
-    assert.ok(JSON.parse(dm.body).recipient.comment_id);
+    const dm = JSON.parse(n.calls.filter(c => c.url.includes('/messages'))[0].body);
+    assert.ok(dm.recipient.comment_id);
+    assert.equal(dm.message.attachment.payload.elements[0].buttons[0].url, PLAY);
     const onComment = new URL(n.calls.filter(c => c.url.includes('/replies'))[0].url).searchParams.get('message');
-    assert.equal(onComment, 'Sent you the link in DM');
+    assert.equal(onComment, 'Sent you the link in DM 📩');
+  } finally { n.restore(); }
+});
+
+test('one person gets the link once a day, however often they ask', async () => {
+  await fresh({ appLink: PLAY });
+  const n = network();
+  try {
+    for (const t of ['link', 'Link', 'link pls']) await deliver(messageEvent(t, 'fan5'));
+    const list = await stored();
+    assert.equal(list.filter(e => e.status === 'sent').length, 1);
+    assert.equal(list.filter(e => e.reason === 'link-already-sent').length, 2);
   } finally { n.restore(); }
 });
 
@@ -534,7 +549,7 @@ test('what a read had no time for is answered by the next one', async () => {
     });
     assert.equal((await poll()).body.answered, 1);
     assert.equal((await stored())[0].status, 'sent');
-    assert.equal(r.calls.filter(c => c.url.includes('/messages') && c.method === 'POST').length, 1);
+    assert.equal(r.calls.filter(c => c.url.includes('/messages') && c.method === 'POST').length, 2, 'the words, then the card');
   } finally { r.restore(); }
 });
 

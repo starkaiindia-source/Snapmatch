@@ -33,11 +33,16 @@
     'unknown-link': 'The reply had a link that is not in your links.', 'too-long': 'The reply was too long for Instagram.', empty: 'The AI wrote nothing.',
     'unchecked-fit': 'It said a product fits, but the post names no phone to check that against.',
     'no-text': 'No text in this message, such as a photo.', 'auto-reply-off': 'Auto Reply was off.', 'channel-off': 'This channel was off.',
-    'sender-limit': 'This person reached the hourly limit.', 'daily-limit': 'The daily limit was reached.'
+    'sender-limit': 'This person reached the hourly limit.', 'daily-limit': 'The daily limit was reached.',
+    'link-already-sent': 'This person got the app link in the last day.'
   };
   var FIELDS = [
     ['appLink', 'App link', 'input', 'Your Play Store link. Anyone asking for the app gets it at once, even in Review.'],
-    ['appLinkText', 'Message with the link', 'input', 'Use {link} and {brand}'],
+    ['appLinkText', 'Message before the button', 'text', 'Use {brand} for the brand name'],
+    ['appCardTitle', 'Card title', 'input', 'Up to 80 letters'],
+    ['appCardSubtitle', 'Card line', 'input', 'Up to 80 letters'],
+    ['appButton', 'Button', 'input', 'Up to 20 letters'],
+    ['appImage', 'Card picture', 'input', 'An https link to the app icon'],
     ['appLinkComment', 'Reply on the comment', 'input', 'Links in comments cannot be tapped, so the link goes by DM'],
     ['brand', 'Brand name', 'input', 'The name replies are written as'],
     ['about', 'About the shop', 'text', 'What the shop and the app do, in your own words'],
@@ -222,6 +227,9 @@
       return '<div class="ar-item">' + (r.shouldReply
         ? '<p class="ar-reply">' + ui.esc(r.reply) + '</p>' : '<p class="ar-why">No reply needed for this.</p>') +
         '<p class="adm__none ar-meta">' + ui.esc([r.intent, Math.round(r.confidence * 100) + '% sure'].filter(Boolean).join(' · ')) + '</p>' +
+        (r.card ? '<div class="ar-card">' + (r.card.image_url ? '<img src="' + ui.esc(r.card.image_url) + '" alt="">' : '') +
+          '<b>' + ui.esc(r.card.title) + '</b><span>' + ui.esc(r.card.subtitle) + '</span>' +
+          r.card.buttons.map(function (b) { return '<a href="' + ui.esc(b.url) + '" target="_blank" rel="noopener">' + ui.esc(b.title) + '</a>'; }).join('') + '</div>' : '') +
         (r.instant ? '<p class="adm__none ar-meta">Sent at once, without waiting for you.</p>' : '') +
         (r.shouldReply && r.hold ? '<p class="ar-why">' + ui.esc(REASONS[r.hold] || r.hold) + ' It would wait for you.</p>' : '') +
         (r.facts ? '<pre class="ar-facts">' + ui.esc(r.facts) + '</pre>' : '') + '</div>';
