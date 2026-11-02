@@ -124,6 +124,30 @@ test('a new account has five searches, and the sixth new search is refused', asy
   assert.equal(usage('free1').used, 5);
 });
 
+test('a searched model and an opened group share the five, in any mix', async () => {
+  seedUser('mix', {});
+  const open = (g, at) => entitlements.consumeSearch('mix', at || NOW, null, g);
+  assert.equal((await consume('mix', MODELS[0])).allowed, true);
+  assert.equal((await open('sg-1')).allowed, true);
+  assert.equal((await open('sg-2')).allowed, true);
+  assert.equal((await consume('mix', MODELS[1])).allowed, true);
+  const fifth = await open('sg-3');
+  assert.equal(fifth.allowed, true);
+  assert.equal(fifth.access.searchesRemaining, 0);
+
+  assert.equal((await open('sg-4')).allowed, false, 'a sixth group is refused');
+  assert.equal((await consume('mix', MODELS[2])).allowed, false, 'and so is a sixth model');
+  const again = await open('sg-2');
+  assert.equal(again.allowed, true, 'a group already opened opens again');
+  assert.equal(again.charged, false);
+  assert.equal(usage('mix').used, 5);
+  assert.deepEqual(usage('mix').groups, ['sg-1', 'sg-2', 'sg-3']);
+
+  assert.equal(await entitlements.groupOpenedBy('mix', 'sg-2'), true);
+  assert.equal(await entitlements.groupOpenedBy('mix', 'sg-4'), false);
+  assert.equal(await entitlements.groupOpenedBy(null, 'sg-2'), false);
+});
+
 test('the first search is counted once, whatever re-asks for it', async () => {
   seedUser('once', {});
   /* One accepted search, then the same model again: a reload, Back, a double

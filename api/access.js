@@ -166,14 +166,21 @@ async function spendSearch(req, res) {
     });
   }
 
-  const requested = body(req).modelId;
+  const sent = body(req);
+  const requested = sent.modelId;
   let modelId = null;
-  if (requested !== undefined && requested !== null && requested !== '') {
+  let groupId = null;
+  if (sent.groupId !== undefined && sent.groupId !== null && sent.groupId !== '') {
+    /* Opening a group spends one of the same five. A group that does not exist is
+       refused rather than charged, as an unknown model is. */
+    groupId = v.docId(sent.groupId, 60);
+    if (!groupId || !(await entitlements.groupForUser(groupId, TIERS.FREE))) return bad(res, 'unknown groupId');
+  } else if (requested !== undefined && requested !== null && requested !== '') {
     modelId = v.docId(requested, 80);
     if (!modelId || !search.loadIndex().byId.has(modelId)) return bad(res, 'unknown modelId');
   }
 
-  const { allowed, charged, access } = await entitlements.consumeSearch(uid, Date.now(), modelId);
+  const { allowed, charged, access } = await entitlements.consumeSearch(uid, Date.now(), modelId, groupId);
 
   if (!allowed) {
     /* 429, and the current state alongside it so the client can render the
@@ -224,7 +231,9 @@ async function deviceParts(req, res) {
   const tier = access.paid ? TIERS.PAID : TIERS.FREE;
 
   if (groupId) {
-    const group = await entitlements.groupForUser(groupId, tier);
+    /* A free account reads the devices of a group it spent one of its five on. */
+    const opened = tier === TIERS.FREE && await entitlements.groupOpenedBy(who.uid, groupId);
+    const group = await entitlements.groupForUser(groupId, opened ? TIERS.PAID : tier);
     if (!group) return json(res, 404, { error: 'no such group' });
     return ok(res, { group, access });
   }

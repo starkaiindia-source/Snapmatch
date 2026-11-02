@@ -1385,3 +1385,45 @@ test('the shared invoice shows the offer and leaves out the rest', async () => {
   const html = (await openLink(w, token)).body;
   ['Offer: Glass 10% (10% OFF)', 'Discount 59.80', 'Final 269.10', 'Product discounts', '538.20'].forEach(s => assert.ok(html.includes(s), s));
 });
+
+/* ------------------------------------------------------ what a free shop keeps */
+test('free limits: twenty products and twenty bills pass silently, the next asks for a plan', async () => {
+  const w = world();
+  const { byName } = await categories(w, w.tokA);
+  const cat = byName['Tempered Glass'].id;
+  let last;
+  for (let i = 0; i < 20; i++) last = await addProduct(w, w.tokA, cat, { name: 'Glass ' + i, qty: 100 });
+  const more = await w.post(w.tokA, 'product', { action: 'create', productId: cid('p'), name: 'One too many', pricePaise: 100, qty: 1, categoryId: cat });
+  assert.equal(more.status, 402);
+  assert.equal(more.body.error, 'product-limit');
+  assert.equal(more.body.limit, 20);
+
+  for (let i = 0; i < 20; i++) ok(await w.post(w.tokA, 'bill', billBody([{ productId: last.id, qty: 1, unitPaise: 29900 }])), 'bill ' + (i + 1));
+  const bill21 = await w.post(w.tokA, 'bill', billBody([{ productId: last.id, qty: 1, unitPaise: 29900 }]));
+  assert.equal(bill21.status, 402);
+  assert.equal(bill21.body.error, 'bill-limit');
+
+  /* a plan lifts every limit at once */
+  w.fs.seed('users/shopAAAAAA', { subscriptionStatus: 'active', currentPlanId: 'monthly', subscriptionExpiresAt: Date.now() + 86400000 });
+  ok(await w.post(w.tokA, 'product', { action: 'create', productId: cid('p'), name: 'Now allowed', pricePaise: 100, qty: 1, categoryId: cat }));
+  ok(await w.post(w.tokA, 'bill', billBody([{ productId: last.id, qty: 1, unitPaise: 29900 }])));
+});
+
+test('free limits: twenty customers typed in, and five offers', async () => {
+  const w = world();
+  await categories(w, w.tokA);
+  for (let i = 0; i < 20; i++) {
+    ok(await w.post(w.tokA, 'customer', { action: 'create', name: 'Customer ' + i, mobile: '98765' + String(10000 + i) }), 'customer ' + i);
+  }
+  const c21 = await w.post(w.tokA, 'customer', { action: 'create', name: 'One more', mobile: '9876599999' });
+  assert.equal(c21.status, 402);
+  assert.equal(c21.body.error, 'customer-limit');
+
+  const { byName } = await categories(w, w.tokA);
+  const offer = () => w.post(w.tokA, 'offer', { action: 'create', offerId: cid('o'), name: 'Glass 10%', kind: 'percent', percentBp: 1000,
+    target: 'category', categoryIds: [byName['Tempered Glass'].id] });
+  for (let i = 0; i < 5; i++) ok(await offer(), 'offer ' + (i + 1));
+  const o6 = await offer();
+  assert.equal(o6.status, 402);
+  assert.equal(o6.body.error, 'offer-limit');
+});

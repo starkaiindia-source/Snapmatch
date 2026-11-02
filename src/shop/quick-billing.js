@@ -152,8 +152,26 @@
 
   /* --------------------------------------------------------------- errors */
   /** A refusal from /api/shop, as a sentence a shop can act on. */
+  /* A free shop past what it may keep. Nothing warned it before, so the refusal
+     itself opens the plans. */
+  var LIMIT_OF = { 'product-limit': 'products', 'bill-limit': 'bills', 'customer-limit': 'customers', 'offer-limit': 'offers' };
+  function planSheet(code, limit) {
+    var what = LIMIT_OF[code];
+    openSheet('plan',
+      '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">Choose a plan to continue</h3>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body"><div class="qb-alert" role="alert">' + icon('alert') + '<span>The free plan keeps up to ' + limit + ' ' + what +
+        '. Your ' + what + ' are safe; adding more needs a plan.</span></div>' +
+      '<p class="qb-sub">Monthly is ₹99 and Yearly is ₹799. Either one unlocks unlimited products, bills, customers and offers, ' +
+        'every compatibility group and unlimited searches.</p>' +
+      '<a class="btn qb-btn btn--block" href="/plans">' + icon('check') + 'See the plans</a></div>', 'Choose a plan to continue');
+  }
   function say(err) {
     var code = err && err.code, d = (err && err.data) || {};
+    if (LIMIT_OF[code]) {
+      setTimeout(function () { planSheet(code, d.limit || 20); }, 0);
+      return 'The free plan keeps up to ' + (d.limit || 20) + ' ' + LIMIT_OF[code] + '. Choose a plan to add more.';
+    }
     switch (code) {
       case 'network': case 'timeout':
         return 'No connection to the server. Nothing was lost — try again when you are back online.';
