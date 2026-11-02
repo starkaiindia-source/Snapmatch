@@ -40,6 +40,7 @@ module.exports = async function handler(req, res) {
     const view = (req.query || {}).view;
     if (req.method === 'GET') {
       if (view === 'leads') return ok(res, { leads: await replies.sales.listLeads() });
+      if (view === 'performance') return ok(res, await replies.performance());
       return ok(res, view === 'check' ? await replies.liveCheck() : view === 'history' ? await replies.history() : await replies.overview());
     }
     return await act(req, res, admin);

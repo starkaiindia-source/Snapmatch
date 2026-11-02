@@ -632,6 +632,13 @@ async function history() {
   return metaClient(c).history();
 }
 
+/** How the account's posts and reels did, for the owner. */
+async function performance() {
+  const c = credentials();
+  if (!c.token) return { posts: [] };
+  return { posts: await metaClient(c).performance(80) };
+}
+
 async function liveCheck() {
   const c = credentials();
   if (!c.token) return { errors: [{ step: 'token', kind: 'unconfigured', message: 'No Instagram access token is set.' }] };
@@ -701,5 +708,5 @@ async function retry(id) {
 
 module.exports = {
   DEFAULTS, MODES, sales, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, history, subscribe,
-  tryReply, sendDraft, discard, retry, GraphError
+  tryReply, sendDraft, discard, retry, performance, GraphError
 };

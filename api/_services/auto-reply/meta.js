@@ -196,6 +196,34 @@ function createMetaClient(opts = {}) {
   }
 
   /**
+   * How every post and reel did: reach, views, likes, comments, saves and shares,
+   * newest first. For the owner to learn from, never stored. A metric Meta will not
+   * give for one kind of post is left out rather than failing the rest.
+   */
+  async function performance(max) {
+    const account = login === 'instagram' ? 'me' : igUserId;
+    const posts = [];
+    let after = '';
+    while (posts.length < (max || 60)) {
+      const page = await call('GET', `${account}/media`, { wait: 20000, params: Object.assign({
+        fields: 'id,caption,media_type,media_product_type,timestamp,permalink,thumbnail_url,media_url,like_count,comments_count',
+        limit: 25
+      }, after ? { after } : {}) });
+      posts.push(...(page.data || []));
+      after = page.paging && page.paging.cursors && page.paging.next ? page.paging.cursors.after : '';
+      if (!after) break;
+    }
+    const metrics = ['reach', 'views', 'saved', 'shares', 'total_interactions'];
+    await Promise.all(posts.slice(0, max || 60).map(async p => {
+      const got = await call('GET', `${p.id}/insights`, { params: { metric: metrics.join(',') } })
+        .catch(() => call('GET', `${p.id}/insights`, { params: { metric: 'reach,saved,total_interactions' } }).catch(() => null));
+      p.insights = {};
+      ((got && got.data) || []).forEach(m => { p.insights[m.name] = (m.values && m.values[0] && m.values[0].value) || m.total_value && m.total_value.value || 0; });
+    }));
+    return posts.slice(0, max || 60);
+  }
+
+  /**
    * Comments and messages since a moment, read rather than delivered. Meta only
    * delivers a stranger's comment or message to an app with Advanced Access, and
    * reading the account's own inbox needs only what this app has.
@@ -272,7 +300,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, replyToComment, sendMessage, sendCard, sendImage, sendQuick, privateReply, privateCard, caption, recent, history, username, connectWebhook, subscribe, check };
+  return { login, host, performance, replyToComment, sendMessage, sendCard, sendImage, sendQuick, privateReply, privateCard, caption, recent, history, username, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };
