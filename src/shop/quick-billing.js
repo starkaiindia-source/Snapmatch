@@ -44,10 +44,11 @@
 
   var METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'], ['other', 'Other']];
   var STATUSES = [['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['paid', 'Paid']];
-  /* upi.png is NPCI's own artwork with its blank margins cut off. The other three
-     are this project's drawings. Card names no network: nothing here records which
-     networks a shop's card machine takes. */
-  var METHOD_LOGOS = { cash: '/assets/pay/cash.svg', upi: '/assets/pay/upi.png', card: '/assets/pay/card.svg', other: '/assets/pay/wallet.svg' };
+  /* The phone's payment cards. upi.png is NPCI's own artwork with its blank margins
+     cut off, and the other two are this project's drawings. Card names no network:
+     nothing here records which networks a shop's card machine takes. Other is on
+     the desktop bill only. */
+  var METHOD_LOGOS = { cash: '/assets/pay/cash.svg', upi: '/assets/pay/upi.png', card: '/assets/pay/card.svg' };
   var BILL_STATUSES = [['all', 'All Statuses'], ['paid', 'Paid'], ['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['void', 'Void']];
   var SIZES = [['a4', 'A4'], ['a5', 'A5'], ['80', '80 mm'], ['58', '58 mm']];
   var VOID_REASONS = ['Customer returned the items', 'Wrong item or price', 'Duplicate bill', 'Other'];
@@ -1163,7 +1164,9 @@
       return '<button type="button" class="' + (cur === x[0] ? 'is-on' : '') + '" data-qb="' + act + '" data-id="' + x[0] + '" aria-pressed="' + (cur === x[0]) + '">' + inner + '</button>';
     };
     return '<div class="qb-sec"><h2>Payment</h2></div>' +
-      '<div class="' + (wide() ? 'qb-seg' : 'qb-paym') + '" role="group" aria-label="Payment method">' + METHODS.map(function (m) {
+      '<div class="' + (wide() ? 'qb-seg' : 'qb-paym') + '" role="group" aria-label="Payment method">' + METHODS.filter(function (m) {
+        return wide() || METHOD_LOGOS[m[0]];
+      }).map(function (m) {
         return option(m, c.payment.method, 'pay-method', wide() ? m[1]
           : '<img src="' + METHOD_LOGOS[m[0]] + '" alt="" decoding="async" /><span>' + m[1] + '</span>');
       }).join('') + '</div>' +
@@ -1298,9 +1301,14 @@
   function renderReview(page) {
     /* an open tab or the Back button, after this bill was saved or cleared */
     if (!S.cart.lines.length) { ctx.replace('/billing'); return; }
+    /* a draft started on the desktop bill may say Other, which has no card here */
+    if (!METHOD_LOGOS[S.cart.payment.method]) { S.cart.payment.method = 'cash'; saveCart(); }
+    var d = draft();
     page.innerHTML = frame('review',
-      '<div class="qb-rv"><div class="qb-rv__in">' + billDetailsHTML(draft()) + '</div></div>' +
-      '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div>');
+      '<div class="qb-rv"><section class="qb-panel" id="qbSummary" aria-label="Bill summary">' + summaryHTML(d) + '</section></div>' +
+      '<div class="qb-dock"><section class="qb-pay" id="qbPay" aria-label="Payment details">' + payHTML(d) + '</section>' +
+      '<div class="qb-acts" id="qbActs">' + actsHTML() + '</div>' +
+      '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div></div>');
   }
 
   /* ================================================================ SAVING */
