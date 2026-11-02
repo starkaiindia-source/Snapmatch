@@ -124,7 +124,19 @@
     instagramAction: function (body) { return request('/api/admin/instagram', { method: 'POST', body: body }); },
 
     autoReply: function (params) { return request('/api/admin/auto-reply' + qs(params)); },
-    autoReplyAction: function (body) { return request('/api/admin/auto-reply', { method: 'POST', body: body }); }
+    autoReplyAction: function (body) { return request('/api/admin/auto-reply', { method: 'POST', body: body }); },
+
+    content: function (params) { return request('/api/admin/content' + qs(params)); },
+    /* A poster picture: JPEG, not JSON, so it comes back as a blob with the
+       carousel's slide count. */
+    poster: function (params) {
+      return SM.fb.idToken().then(function (token) {
+        return fetch('/api/admin/content' + qs(Object.assign({ view: 'poster' }, params)), { headers: { 'Authorization': 'Bearer ' + token } });
+      }).then(function (res) {
+        if (!res.ok) return res.json().catch(function () { return {}; }).then(function (d) { throw new Error(d.error || ('http ' + res.status)); });
+        return res.blob().then(function (blob) { return { blob: blob, slides: Number(res.headers.get('X-Slides')) || 1 }; });
+      });
+    }
   };
 
   ADM.request = request;

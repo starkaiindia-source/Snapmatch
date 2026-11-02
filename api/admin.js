@@ -58,7 +58,8 @@ const SECTIONS = {
   audit: require('./_admin/audit'),
   ai: require('./_admin/ai'),
   instagram: require('./_admin/instagram'),
-  'auto-reply': require('./_admin/auto-reply')
+  'auto-reply': require('./_admin/auto-reply'),
+  content: require('./_admin/content')
 };
 
 /**

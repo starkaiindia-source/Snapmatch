@@ -779,3 +779,10 @@ pre.ig__quote { margin-bottom: 6px; }
 .ld-log li.is-bot { align-self: flex-end; background: var(--teal-050); }
 .ld-log li span { display: block; color: var(--ink-3); font-size: 10.5px; }
 .ar-tabs span[data-filter] { cursor: pointer; }
+
+/* ---- Posters ---- */
+.ct-slides { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.ct-slides figure { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+.ct-slides img { width: 100%; aspect-ratio: 4 / 5; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); }
+.ct-slides .adm__btn { align-self: flex-start; }
+.ct-wait { aspect-ratio: 4 / 5; border-radius: 10px; }

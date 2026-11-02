@@ -107,7 +107,14 @@
     },
     {
       "src": "api/*.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "api/_assets/**",
+          "assets/categories/cutout/**",
+          "node_modules/harfbuzzjs/dist/harfbuzz.wasm"
+        ]
+      }
     }
   ],
   "routes": [
