@@ -1035,6 +1035,8 @@ button.qb-upiqr{ cursor:pointer; }
 button.qb-upiqr:hover{ background:var(--surface-3); }
 .qb-upiqr svg{ flex:none; width:18px; height:18px; }
 .qb-upiqr--paid{ background:var(--surface-3); border-color:transparent; color:var(--qb-recv); }
+.qb-upiqr--tip{ padding:8px 12px; border-style:dashed; font-size:12.5px; font-weight:500; color:var(--ink-2); }
+.qb-upiqr--tip b{ flex:none; color:var(--qb-ink); }
 .qb-qr{ display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; }
 .qb-qr__amt{ font-size:24px; font-weight:800; letter-spacing:-.02em; }
 .qb-qr__img{ display:block; width:min(280px, 100%); height:auto; border:1px solid var(--line); border-radius:var(--r-sm); background:#fff; }

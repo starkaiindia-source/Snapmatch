@@ -77,7 +77,7 @@
       categories: [], products: [], suggested: [], billCount: 0,
       offers: [], offerSettings: {}, offerFilter: { q: '', status: 'all' }, offerKey: '',
       sales: { preset: 'month', from: '', to: '', data: null, loading: false, error: null, ticket: 0 },
-      store: null, me: null, razorpayOn: false, upiId: '',
+      store: null, me: null, razorpayOn: false, upiId: '', autoCollect: false,
       settings: { data: null, loading: false, error: null, busy: false, keysOpen: false, storeEdit: false, place: '' },
       filter: { cat: 'all', q: '' }, catLimit: 60, lastAdd: null, custPicked: null,
       cart: null, saving: false, saveError: null, lastSaved: null, priceEdit: {},
@@ -187,6 +187,7 @@
       case 'staff-taken': return 'This Gmail ID is already working in another shop.';
       case 'staff-limit': return 'A shop can add up to 10 staff.';
       case 'staff-missing': return 'This staff member was already removed.';
+      case 'auto-collect-off': return 'Automatic UPI collection is off. Turn it on in Settings.';
       case 'upi-id': return 'A UPI ID looks like yourname@okaxis or 9876543210@ybl.';
       case 'razorpay-key-id': return 'The Key ID starts with rzp_live_ or rzp_test_. Copy it from Razorpay.';
       case 'razorpay-key-secret': return 'Enter the Key Secret from Razorpay.';
@@ -244,7 +245,7 @@
       discount: { mode: 'amount', text: '' },
       tax: { on: false, rate: '18', inclusive: false, label: 'GST' },
       customer: { id: '', name: '', mobile: '', whatsapp: '', address: '', gstin: '', notes: '' },
-      payment: { method: 'cash', status: 'paid', received: '' },
+      payment: { method: 'upi', status: 'paid', received: '' },
       emi: { down: '', months: '6', rate: '', method: 'flat', first: '' },
       autoOffers: null          /* null: this bill follows the shop's setting */
     };
@@ -704,6 +705,7 @@
       S.me = r.me || null;
       S.razorpayOn = !!(r.payments && r.payments.razorpay);
       S.upiId = (r.payments && r.payments.upiId) || '';
+      S.autoCollect = !!(r.payments && r.payments.autoCollect);
       S.loaded = true;
       S.loadError = null;
     }, function (err) {
@@ -1490,14 +1492,19 @@
   var QR_WAIT = 'Confirm Bill opens once the UPI payment is received. Tap Show QR to scan.';
   function waitsForQr(d) {
     var pay = S.cart.payment;
-    return pay.method === 'upi' && S.razorpayOn && S.qrReports !== false && !pay.qr && qrAmount(d) >= 100;
+    return pay.method === 'upi' && S.autoCollect && S.qrReports !== false && !pay.qr && qrAmount(d) >= 100;
   }
   function qrRowHTML(d) {
     var pay = S.cart.payment;
     if (pay.qr) {
       return '<div class="qb-upiqr qb-upiqr--paid">' + icon('checkCircle') + '<span class="grow">UPI received by QR</span><b>' + inr(pay.qr.amountPaise) + '</b></div>';
     }
-    if (pay.method !== 'upi' || !(S.razorpayOn || S.upiId) || qrAmount(d) < 100) return '';
+    if (pay.method !== 'upi' || qrAmount(d) < 100) return '';
+    /* a shop that takes UPI on its own number is reminded the bill can collect it */
+    if (!(S.autoCollect || S.upiId)) {
+      return S.me && S.me.role === 'staff' ? '' : '<button type="button" class="qb-upiqr qb-upiqr--tip" data-qb="pay-settings">' + icon('qr') +
+        '<span class="grow">Collect UPI money automatically: the customer scans a QR, and the bill confirms after the money is in.</span><b>Settings</b></button>';
+    }
     return '<button type="button" class="qb-upiqr" data-qb="qr-open">' + icon('qr') + '<span class="grow">Show QR to scan</span><b>' + inr(qrAmount(d)) + '</b></button>';
   }
   function openQr() {
@@ -3725,8 +3732,15 @@
   }
   function payConnHTML(r) {
     var form = r.ready && (!r.connected || S.settings.keysOpen);
+    var on = !!S.settings.data.autoCollect;
     return '<section class="qb-panel qb-set__p" aria-labelledby="qbSetPay"><div class="qb-sec"><h2 id="qbSetPay">Payment Connectivity</h2>' +
       (r.connected ? '<span class="pill pill--ok">Connected</span>' : '') + '</div>' +
+      '<label class="qb-autooffers"><span class="qb-switch"><input type="checkbox" data-qbi="auto-collect"' + (on ? ' checked' : '') +
+        (r.connected ? '' : ' disabled') + ' /><i></i></span>Automatic UPI collection</label>' +
+      '<p class="qb-sub">' + (r.connected
+        ? (on ? 'On. A UPI bill shows a QR for its amount, and Confirm Bill opens only after Razorpay receives the money.'
+          : 'Off. UPI bills are confirmed by you, as when the customer pays your own number. Turn it on to show a QR and confirm only after the money is in.')
+        : 'Connect Razorpay below to turn this on. Until then UPI bills are confirmed by you.') + '</p>' +
       upiFormHTML() +
       '<p class="qb-sub">Connect your own Razorpay account too, and a UPI bill is marked paid by itself once Razorpay sees the money. Cash and Card bills do not change.</p>' +
       (r.ready ? '' : '<div class="qb-alert" role="status">' + icon('alert') + '<span>Connecting is switched off until secure key storage is set up on this site. Billing is not affected.</span></div>') +
@@ -3829,6 +3843,7 @@
     S.settings.data.razorpay = r.razorpay;
     S.settings.keysOpen = false;
     S.razorpayOn = r.razorpay.connected;
+    if (!r.razorpay.connected) S.autoCollect = S.settings.data.autoCollect = false;
     paint('qbSettings', settingsHTML());
     toast(r.razorpay.connected ? 'Razorpay connected' : 'Razorpay disconnected', 'checkCircle');
   }
@@ -4977,6 +4992,7 @@
         break;
       case 'lbl-print': printChosenLabels(); break;
       case 'close-sheet': closeSheet(); break;
+      case 'pay-settings': go('/billing/settings'); break;
       case 'review': openReview(); break;
       case 'edit-bill': S.saveError = null; go('/billing'); global.scrollTo(0, 0); break;
       case 'add-product': openProductForm('create'); break;
@@ -5390,6 +5406,19 @@
       case 'photo': onPhotoPicked(t); break;
       case 'store-logo': onLogoPicked(t); break;
       case 'store-place': placeChanged(t.value.trim()); break;
+      case 'auto-collect': {
+        var want = t.checked;
+        var sent = settingsSend({ action: 'auto-collect', on: want });
+        if (!sent) { t.checked = !want; break; }
+        sent.then(function (r) {
+          if (!r) { t.checked = !want; return; }
+          S.autoCollect = r.autoCollect;
+          S.settings.data.autoCollect = r.autoCollect;
+          paint('qbSettings', settingsHTML());
+          toast(r.autoCollect ? 'Automatic UPI collection is on' : 'Automatic UPI collection is off', 'checkCircle');
+        });
+        break;
+      }
       case 'bill-auto':
         /* this bill only: the shop's setting and each offer's stay as they are */
         S.cart.autoOffers = t.checked;

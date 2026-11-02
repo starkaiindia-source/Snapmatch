@@ -86,7 +86,8 @@ const POSTS = {
     'staff-join': settings.answerInvite,
     razorpay: settings.connectRazorpay,
     'razorpay-off': settings.disconnectRazorpay,
-    upi: settings.saveUpi
+    upi: settings.saveUpi,
+    'auto-collect': settings.saveAutoCollect
   },
   qr: {
     create: settings.createQr,

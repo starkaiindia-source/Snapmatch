@@ -87,8 +87,10 @@ const qrReply = (extra) => (url, method) => {
   if (method === 'GET' && /qr_codes\/qr_TestAbc123$/.test(url)) return { body: Object.assign({ status: 'active', payments_amount_received: 0 }, extra) };
   return null;
 };
-async function connect(w, webhookSecret) {
-  return ok(await w.post(w.tokA, 'settings', { action: 'razorpay', keyId: KEY_ID, keySecret: KEY_SECRET, webhookSecret: webhookSecret || '' }), 'connect');
+async function connect(w, webhookSecret, manual) {
+  const r = ok(await w.post(w.tokA, 'settings', { action: 'razorpay', keyId: KEY_ID, keySecret: KEY_SECRET, webhookSecret: webhookSecret || '' }), 'connect');
+  if (!manual) ok(await w.post(w.tokA, 'settings', { action: 'auto-collect', on: true }), 'automatic collection');
+  return r;
 }
 
 /* ---------------------------------------------------------- sealed secrets */
@@ -474,6 +476,29 @@ test('a payment link QR left open is cancelled at Razorpay', async () => {
     const { qr } = ok(await w.post(w.tokA, 'qr', { action: 'create', amountPaise: 10000 }));
     assert.equal(ok(await w.post(w.tokA, 'qr', { action: 'close', id: qr.id })).closed, true);
     assert.ok(rp.calls.some(c => c.method === 'POST' && /payment_links\/plink_TestAbc124\/cancel$/.test(c.url)));
+  } finally { rp.restore(); }
+});
+
+test('automatic UPI collection is off until the owner turns it on, and needs Razorpay', async () => {
+  const w = world();
+  ok(await w.get(w.tokA, 'state'));
+  await addRavi(w);
+  refused(await w.post(w.tokA, 'settings', { action: 'auto-collect', on: true }), 409, 'razorpay-off');
+  const rp = razorpay(qrReply());
+  try {
+    await connect(w, '', true);
+    assert.equal(ok(await w.get(w.tokA, 'settings')).autoCollect, false, 'off by default');
+    assert.equal(ok(await w.get(w.tokS, 'state')).payments.autoCollect, false);
+    refused(await w.post(w.tokA, 'qr', { action: 'create', amountPaise: 10000 }), 409, 'auto-collect-off');
+    assert.ok(!rp.calls.some(c => /qr_codes/.test(c.url)), 'nothing asked of Razorpay');
+
+    refused(await w.post(w.tokS, 'settings', { action: 'auto-collect', on: true }), 403, 'owner-only');
+    assert.equal(ok(await w.post(w.tokA, 'settings', { action: 'auto-collect', on: true })).autoCollect, true);
+    assert.equal(ok(await w.get(w.tokS, 'state')).payments.autoCollect, true, 'staff billing waits too');
+    assert.equal(ok(await w.post(w.tokS, 'qr', { action: 'create', amountPaise: 10000 })).qr.id, 'qr_TestAbc123');
+
+    ok(await w.post(w.tokA, 'settings', { action: 'razorpay-off' }));
+    assert.equal(ok(await w.get(w.tokA, 'state')).payments.autoCollect, false, 'disconnecting turns it off');
   } finally { rp.restore(); }
 });
 
