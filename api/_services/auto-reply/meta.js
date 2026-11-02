@@ -116,6 +116,23 @@ function createMetaClient(opts = {}) {
     return typeof r.caption === 'string' ? r.caption : '';
   }
 
+  /* The app's own webhook, set with the app's token so nobody has to paste a secret
+     into a dashboard. Meta calls the address back to confirm it before saying yes. */
+  const appToken = appId => `${appId}|${opts.appSecret}`;
+
+  async function connectWebhook({ appId, callbackUrl, verifyToken }) {
+    await call('POST', `${appId}/subscriptions`, {
+      as: appToken(appId),
+      params: { object: 'instagram', callback_url: callbackUrl, fields: FIELDS, verify_token: verifyToken, include_values: 'true' }
+    });
+  }
+
+  async function appWebhook(appId) {
+    const r = await call('GET', `${appId}/subscriptions`, { as: appToken(appId) });
+    const sub = (r.data || []).filter(s => s.object === 'instagram')[0];
+    return sub ? { url: sub.callback_url, active: !!sub.active, fields: (sub.fields || []).map(f => f.name || f) } : null;
+  }
+
   /** Asks Meta to start sending this account's comments and messages. */
   async function subscribe() {
     const params = { subscribed_fields: FIELDS };
@@ -125,7 +142,7 @@ function createMetaClient(opts = {}) {
 
   /** What this token and account can do, as Meta reports it. No secret is in it. */
   async function check() {
-    const out = { login, host, account: null, page: null, token: null, missing: [], subscribed: null, errors: [] };
+    const out = { login, host, account: null, page: null, token: null, missing: [], webhook: null, subscribed: null, errors: [] };
     const attempt = async (step, run) => {
       try { return await run(); }
       catch (err) {
@@ -143,6 +160,7 @@ function createMetaClient(opts = {}) {
           expiresAt: d.expires_at ? d.expires_at * 1000 : null
         };
         out.missing = SCOPES.facebook.filter(s => (d.scopes || []).indexOf(s) < 0);
+        if (d.app_id && opts.appSecret) out.webhook = await attempt('webhook', () => appWebhook(d.app_id));
       }
       const needsPage = !d || d.type !== 'SYSTEM_USER';
       const p = needsPage ? await attempt('page', linkedPage) : null;
@@ -164,7 +182,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, replyToComment, sendMessage, caption, subscribe, check };
+  return { login, host, replyToComment, sendMessage, caption, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };

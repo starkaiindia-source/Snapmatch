@@ -276,8 +276,14 @@ async function liveCheck() {
   return metaClient(c).check();
 }
 
-function subscribe() {
-  return metaClient(credentials()).subscribe();
+/** Points the app's webhook here, then starts this account's events. */
+async function subscribe() {
+  const c = credentials();
+  const meta = metaClient(c);
+  const k = await meta.check();
+  const appId = k.token && k.token.appId;
+  if (appId && c.secrets.length) await meta.connectWebhook({ appId, callbackUrl: WEBHOOK_URL, verifyToken: verifyToken(c) });
+  return meta.subscribe();
 }
 
 /** What would be said to this message. Nothing is stored or sent. */

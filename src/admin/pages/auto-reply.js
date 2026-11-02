@@ -161,20 +161,25 @@
             : row('ok', 'Permissions', 'Comments and messages are allowed.'));
         var subs = k.subscribed;
         var wanted = c.fields.filter(function (f) { return !subs || subs.indexOf(f) < 0; });
+        var hooked = k.webhook && k.webhook.url === c.webhookUrl;
+        if (k.login === 'facebook') {
+          rows.push(hooked ? row('ok', 'App webhook', k.webhook.fields.map(ui.esc).join(', '))
+            : row('bad', 'App webhook', errorFor('webhook') || 'Not pointing at this site yet.'));
+        }
         rows.push(subs && !wanted.length ? row('ok', 'Receiving events', subs.map(ui.esc).join(', '))
-          : row('bad', 'Receiving events', (errorFor('subscription') || 'Not subscribed to: ' + wanted.map(ui.esc).join(', ')) +
-            ' <button class="adm__btn" data-act="subscribe">Subscribe this account</button>'));
+          : row('bad', 'Receiving events', errorFor('subscription') || 'Not subscribed to: ' + wanted.map(ui.esc).join(', ')));
       }
       rows.push(c.gemini ? row('ok', 'AI model', ui.esc(c.model)) : row('bad', 'AI model', 'GEMINI_API_KEY is not set.'));
-      return '<div class="ar-head"><h2>Connection</h2><button class="adm__btn" data-act="check">Check again</button></div>' +
+      return '<div class="ar-head"><h2>Connection</h2><div class="ar-row"><button class="adm__btn" data-act="subscribe">Connect webhook</button>' +
+        '<button class="adm__btn" data-act="check">Check again</button></div></div>' +
         '<ul class="ar-conn">' + rows.join('') + '</ul>' +
-        copyRow('Callback URL', c.webhookUrl) + copyRow('Verify token', c.verifyToken) +
         '<h3>Steps only you can do</h3><ol class="ar-steps">' +
+        '<li>Press <b>Publish</b> on the Meta app. Meta sends nothing to an app that is not Live.</li>' +
+        '<li>In Business settings, System users, generate a new token for this app with <b>instagram_manage_comments</b> and <b>instagram_manage_messages</b> ticked, set to never expire. ' +
+        'Put it in Vercel as <code>INSTAGRAM_REPLY_ACCESS_TOKEN</code> and redeploy.</li>' +
         '<li>In the Instagram app: Settings, Messages and story replies, Message controls, then turn on <b>Allow access to messages</b>.</li>' +
-        '<li>In your Meta app: Webhooks, Instagram. Paste the Callback URL and Verify token above, then subscribe to <b>comments</b> and <b>messages</b>.</li>' +
-        '<li>Set the Meta app to <b>Live</b>. Meta sends nothing to an app that is not Live.</li>' +
-        '<li>Give the token the permissions listed above. If a new token is needed, put it in Vercel as <code>INSTAGRAM_REPLY_ACCESS_TOKEN</code>.</li>' +
-        '<li>Press Check again, then comment on one of your own posts from another account.</li></ol>';
+        '<li>Press <b>Connect webhook</b> above, then comment on one of your posts from another account.</li></ol>' +
+        '<h3>If you set the webhook by hand in Meta</h3>' + copyRow('Callback URL', c.webhookUrl) + copyRow('Verify token', c.verifyToken);
     }
 
     /* ----------------------------------------------------------------- inbox */
@@ -218,9 +223,8 @@
       if (name === 'check') return runCheck();
       if (name === 'subscribe') {
         return ADM.api.autoReplyAction({ action: 'subscribe' }).then(function () {
-          ctx.toast('Account subscribed');
-          runCheck();
-        }, fail);
+          ctx.toast('Webhook connected');
+        }, fail).then(runCheck);
       }
       if (state.busy) return null;
       state.busy = true;
