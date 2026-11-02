@@ -48,6 +48,7 @@
      The rest are this project's drawings. Card names no network: nothing here
      records which networks a shop's card machine takes. */
   var QR_POLL_MS = 4000;
+  var LOGO_PX = 320;
   var METHOD_LOGOS = { cash: '/assets/pay/cash.svg', upi: '/assets/pay/upi.png', card: '/assets/pay/card.svg', netbanking: '/assets/pay/bank.svg' };
   function methodsHere() {
     return METHODS.filter(function (m) { return m[0] !== (wide() ? 'netbanking' : 'other'); });
@@ -77,7 +78,7 @@
       offers: [], offerSettings: {}, offerFilter: { q: '', status: 'all' }, offerKey: '',
       sales: { preset: 'month', from: '', to: '', data: null, loading: false, error: null, ticket: 0 },
       store: null, me: null, razorpayOn: false,
-      settings: { data: null, loading: false, error: null, busy: false, keysOpen: false },
+      settings: { data: null, loading: false, error: null, busy: false, keysOpen: false, storeEdit: false, place: '' },
       filter: { cat: 'all', q: '' }, catLimit: 60, pickQty: {}, lastAdd: null, custPicked: null,
       cart: null, saving: false, saveError: null, lastSaved: null, priceEdit: {},
       bills: { items: [], cursor: null, q: '', filter: blankBillFilter(), loading: false, loaded: false, error: null, ticket: 0 },
@@ -178,6 +179,8 @@
       case 'customer-missing': return 'This customer no longer exists. Choose another, or bill as walk-in.';
       case 'owner-only': return 'Only the shop owner can change Settings.';
       case 'store-name': return 'Enter the store name.';
+      case 'logo-type': return 'That logo could not be used. Try a JPG or PNG.';
+      case 'logo-size': return 'That logo is too large. Try a smaller image.';
       case 'staff-email': return 'Enter the staff member’s Gmail address.';
       case 'staff-name': return 'Enter the staff member’s name.';
       case 'staff-self': return 'This is your own account. It is the owner already.';
@@ -3593,29 +3596,84 @@
         action: '<button class="btn btn--outline btn--sm" data-qb="set-reload">Try again</button>' });
     }
     if (!st.data) return C.skelRows(6);
-    return storeFormHTML(st.data.store) + staffHTML(st.data) + payConnHTML(st.data.razorpay);
+    return storeHTML(st.data.store) + staffHTML(st.data) + payConnHTML(st.data.razorpay);
   }
   function setInput(id, value, attrs) {
     return '<input class="input qb-in" id="' + id + '" autocomplete="off" value="' + esc(value || '') + '" ' + (attrs || '') + ' />';
   }
+  /* The store as it stands, with the form behind Edit. */
+  function storeHTML(t) {
+    var edit = S.settings.storeEdit;
+    return '<section class="qb-panel qb-set__p" aria-labelledby="qbSetStore"><div class="qb-sec"><h2 id="qbSetStore">Store setup</h2>' +
+      (edit ? '' : '<button class="btn btn--outline btn--sm" data-qb="store-edit">' + icon('edit') + 'Edit</button>') + '</div>' +
+      (edit ? storeFormHTML(t) : storeCardHTML(t)) + '</section>';
+  }
+  /* A location is a place name, or a pin from this phone as "lat,lng". A link saved
+     earlier holds the same pin, and is never shown as a link. */
+  function pinOf(loc) {
+    var m = /(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/.exec(loc || '');
+    return m ? m[1] + ',' + m[2] : '';
+  }
+  function placeOf(t, loc) {
+    return pinOf(loc) || (/^https?:/i.test(loc || '') ? '' : loc) || [t.address, t.city, t.state, t.pincode].filter(Boolean).join(', ');
+  }
+  function mapHTML(place, loc) {
+    if (!place) return '';
+    return '<iframe class="qb-map" title="Store location on Google Maps" loading="lazy" referrerpolicy="no-referrer-when-downgrade" ' +
+      'src="https://www.google.com/maps?q=' + encodeURIComponent(place) + '&amp;z=' + (pinOf(loc) ? 16 : 14) + '&amp;output=embed"></iframe>';
+  }
+  function storeLogoHTML() {
+    var logo = S.settings.data.logo;
+    return '<label class="qb-storelogo" aria-label="' + (logo ? 'Change the store logo' : 'Upload a store logo') + '">' +
+      (logo ? '<img src="' + esc(logo) + '" alt="" /><span class="qb-storelogo__badge">' + icon('camera') + '</span>'
+        : '<span class="qb-storelogo__add">' + icon('camera') + 'Add logo</span>') +
+      '<input type="file" accept="image/png,image/jpeg,image/webp" data-qbi="store-logo" /></label>';
+  }
+  function storeCardHTML(t) {
+    var fact = function (ic, text) { return text ? '<li>' + icon(ic) + '<span>' + esc(text) + '</span></li>' : ''; };
+    var facts = fact('phone', t.mobile) + fact('pin', [t.address, t.pincode].filter(Boolean).join(', ')) + fact('receipt', t.gstin ? 'GSTIN ' + t.gstin : '');
+    var place = placeOf(t, t.location);
+    return '<div class="qb-store"><div class="qb-store__banner"><span id="qbStoreLogo">' + storeLogoHTML() + '</span>' +
+      '<div class="qb-store__id"><h3>' + esc(t.name || 'Your store') + '</h3><span>' + esc([t.city, t.state].filter(Boolean).join(', ')) + '</span></div></div>' +
+      (facts ? '<ul class="qb-store__facts">' + facts + '</ul>' : '') +
+      (place ? '<div class="qb-store__map">' + mapHTML(place, t.location) + '</div>'
+        : '<button class="qb-store__nomap" data-qb="store-edit">' + icon('pin') + 'Add your location</button>') + '</div>';
+  }
+  function logoRemoveHTML() {
+    return S.settings.data.logo ? '<button type="button" class="qb-link qb-danger" data-qb="logo-remove">Remove logo</button>' : '';
+  }
   function storeFormHTML(t) {
-    return '<section class="qb-panel qb-set__p" aria-labelledby="qbSetStore"><div class="qb-sec"><h2 id="qbSetStore">Store setup</h2></div>' +
-      '<p class="qb-sub">Printed on your bills. Filled in from your Mobile Parts Finder profile until you change it here.</p>' +
-      '<form class="qb-form" data-qbf="store" novalidate>' +
-      fieldHTML('qbSName', 'sname', 'Store name', true, setInput('qbSName', t.name, 'maxlength="80"')) +
-      fieldHTML('qbSMobile', 'smobile', 'Mobile number', false, setInput('qbSMobile', t.mobile, 'type="tel" inputmode="tel" maxlength="20"')) +
-      fieldHTML('qbSAddr', 'saddr', 'Store address', false, setInput('qbSAddr', t.address, 'maxlength="200"')) +
+    var st = S.settings, pinned = pinOf(st.place);
+    return '<form class="qb-form" data-qbf="store" novalidate>' +
+      '<div class="qb-store__logoedit"><span id="qbStoreLogo">' + storeLogoHTML() + '</span><span id="qbLogoRm">' + logoRemoveHTML() + '</span></div>' +
+      fieldHTML('qbSName', 'sname', 'Store name', true, setInput('qbSName', t.name, 'maxlength="80" placeholder="Your store name"')) +
+      fieldHTML('qbSMobile', 'smobile', 'Mobile number', false, setInput('qbSMobile', t.mobile, 'type="tel" inputmode="tel" maxlength="20" placeholder="10-digit mobile number"')) +
+      fieldHTML('qbSAddr', 'saddr', 'Store address', false, setInput('qbSAddr', t.address, 'maxlength="200" placeholder="Door no, street, area"')) +
       '<div class="qb-form__row">' +
-      fieldHTML('qbSCity', 'scity', 'City', false, setInput('qbSCity', t.city, 'maxlength="60"')) +
-      fieldHTML('qbSState', 'sstate', 'State', false, setInput('qbSState', t.state, 'maxlength="60"')) +
+      fieldHTML('qbSCity', 'scity', 'City', false, setInput('qbSCity', t.city, 'maxlength="60" placeholder="City"')) +
+      fieldHTML('qbSState', 'sstate', 'State', false, setInput('qbSState', t.state, 'maxlength="60" placeholder="State"')) +
       '</div><div class="qb-form__row">' +
-      fieldHTML('qbSPin', 'spin', 'Pincode', false, setInput('qbSPin', t.pincode, 'inputmode="numeric" maxlength="10"')) +
+      fieldHTML('qbSPin', 'spin', 'Pincode', false, setInput('qbSPin', t.pincode, 'inputmode="numeric" maxlength="10" placeholder="6-digit pincode"')) +
       fieldHTML('qbSGst', 'sgst', 'GSTIN', false, setInput('qbSGst', t.gstin, 'maxlength="15" placeholder="Optional"')) +
       '</div>' +
-      fieldHTML('qbSLoc', 'sloc', 'Location', false, setInput('qbSLoc', t.location, 'maxlength="300" placeholder="Area, or a Google Maps link"')) +
+      fieldHTML('qbSPlace', 'splace', 'Location', false, setInput('qbSPlace', pinned || /^https?:/i.test(st.place) ? '' : st.place,
+        'data-qbi="store-place" maxlength="120" placeholder="' + (pinned ? 'Pinned to your current location' : 'Area or shop name') + '"')) +
       '<button type="button" class="qb-link qb-set__here" data-qb="store-locate">' + icon('pin') + 'Use my current location</button>' +
+      '<div class="qb-setmap" id="qbSMap">' + mapHTML(placeOf(t, st.place), st.place) + '</div>' +
       '<small class="qb-err" id="qbSErr"></small>' +
-      '<div><button class="btn qb-btn" type="submit">' + icon('check') + 'Save store</button></div></form></section>';
+      '<div class="qb-set__acts"><button class="btn qb-btn" type="submit">' + icon('check') + 'Save store</button>' +
+      '<button type="button" class="btn btn--ghost" data-qb="store-cancel">Cancel</button></div></form>';
+  }
+  function editStore(on) {
+    var st = S.settings;
+    st.storeEdit = on;
+    st.place = on ? st.data.store.location || '' : '';
+    paint('qbSettings', settingsHTML());
+  }
+  function placeChanged(place) {
+    var st = S.settings;
+    st.place = place;
+    paint('qbSMap', mapHTML(placeOf(st.data.store, place), place));
   }
   function staffHTML(data) {
     var me = S.me || {};
@@ -3680,22 +3738,41 @@
     var val = function (id) { var n = el(id); return n ? n.value : ''; };
     var sent = settingsSend({
       action: 'store', name: val('qbSName'), mobile: val('qbSMobile'), address: val('qbSAddr'), city: val('qbSCity'),
-      state: val('qbSState'), pincode: val('qbSPin'), gstin: val('qbSGst'), location: val('qbSLoc')
+      state: val('qbSState'), pincode: val('qbSPin'), gstin: val('qbSGst'), location: val('qbSPlace').trim() || pinOf(S.settings.place)
     }, 'qbSErr');
     if (sent) sent.then(function (r) {
       if (!r) return;
       S.store = r.store;
       S.settings.data.store = r.store;
+      editStore(false);
       toast('Store saved', 'checkCircle');
     });
   }
   function useLocation() {
-    var box = el('qbSLoc');
-    if (!box || !global.navigator.geolocation) { toast('This device cannot share its location', 'alert'); return; }
+    if (!global.navigator.geolocation) { toast('This device cannot share its location', 'alert'); return; }
     global.navigator.geolocation.getCurrentPosition(function (p) {
-      box = el('qbSLoc');
-      if (box) box.value = 'https://www.google.com/maps?q=' + p.coords.latitude.toFixed(6) + ',' + p.coords.longitude.toFixed(6);
+      var box = el('qbSPlace');
+      if (!box) return;
+      box.value = '';
+      box.placeholder = 'Pinned to your current location';
+      placeChanged(p.coords.latitude.toFixed(6) + ',' + p.coords.longitude.toFixed(6));
     }, function () { toast('Location was not shared', 'alert'); });
+  }
+  function onLogoPicked(input) {
+    var file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    API.prepareImage(file, LOGO_PX).then(function (img) { saveLogo(img.preview); }, function (err) { toast(say(err), 'alert'); });
+  }
+  function saveLogo(data) {
+    var sent = settingsSend({ action: 'store-logo', data: data });
+    if (sent) sent.then(function (r) {
+      if (!r) return;
+      S.settings.data.logo = r.logo;
+      paint('qbStoreLogo', storeLogoHTML());
+      paint('qbLogoRm', logoRemoveHTML());
+      toast(r.logo ? 'Logo saved' : 'Logo removed', 'checkCircle');
+    });
   }
   function submitStaff() {
     var sent = settingsSend({ action: 'staff-add', name: el('qbTName').value, email: el('qbTMail').value }, 'qbTErr');
@@ -4720,7 +4797,10 @@
       case 'set-reload': S.settings.error = null; rerender(); break;
       case 'invite-join': answerInvite(true); break;
       case 'invite-no': answerInvite(false); break;
+      case 'store-edit': editStore(true); break;
+      case 'store-cancel': editStore(false); break;
       case 'store-locate': useLocation(); break;
+      case 'logo-remove': if (global.confirm('Remove the store logo?')) saveLogo(''); break;
       case 'staff-remove': removeStaff(id); break;
       case 'rzp-change': S.settings.keysOpen = true; paint('qbSettings', settingsHTML()); break;
       case 'rzp-cancel': S.settings.keysOpen = false; paint('qbSettings', settingsHTML()); break;
@@ -5286,6 +5366,8 @@
         break;
       }
       case 'photo': onPhotoPicked(t); break;
+      case 'store-logo': onLogoPicked(t); break;
+      case 'store-place': placeChanged(t.value.trim()); break;
       case 'bill-auto':
         /* this bill only: the shop's setting and each offer's stay as they are */
         S.cart.autoOffers = t.checked;

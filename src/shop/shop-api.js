@@ -106,15 +106,17 @@
    * becomes ~100 KB, which uploads in a second on 4G and is all a product
    * thumbnail or a label ever needs.
    *
+   * @param {File} file
+   * @param {number} [size]  long side in pixels, for an image smaller than a photo
    * @returns {Promise<{type:string, data:string, preview:string}>}
    */
-  function prepareImage(file) {
+  function prepareImage(file, size) {
     return new Promise(function (resolve, reject) {
       if (!file || !/^image\//.test(file.type || 'image/')) { reject(failure(400, { error: 'image-type' })); return; }
       var url = URL.createObjectURL(file);
       var img = new Image();
       img.onload = function () {
-        var max = 900;
+        var max = size || 900;
         var scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
         var w = Math.max(1, Math.round(img.naturalWidth * scale));
         var h = Math.max(1, Math.round(img.naturalHeight * scale));

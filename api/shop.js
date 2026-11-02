@@ -18,7 +18,7 @@
      GET  /api/shop/overview?from=&to=  the dashboard
      GET  /api/shop/sales?from=&to=   Discounts & Offers' Sales Overview
      GET  /api/shop/settings          store, staff and Razorpay. Owner only
-     POST /api/shop/settings          { action: store | staff-add | staff-remove | staff-join | razorpay | razorpay-off }
+     POST /api/shop/settings          { action: store | store-logo | staff-add | staff-remove | staff-join | razorpay | razorpay-off }
      GET  /api/shop/qr?id=            has this UPI QR been paid
      POST /api/shop/qr                { action: create | close }
      GET  /i/<token>                  one shared invoice, as a page. The only
@@ -80,6 +80,7 @@ const POSTS = {
   },
   settings: {
     store: settings.saveStore,
+    'store-logo': settings.saveLogo,
     'staff-add': settings.addStaff,
     'staff-remove': settings.removeStaff,
     'staff-join': settings.answerInvite,
