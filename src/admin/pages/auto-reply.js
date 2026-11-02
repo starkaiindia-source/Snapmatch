@@ -152,7 +152,7 @@
         rows.push(k.token && k.token.valid
           ? row('ok', 'Access token', ui.esc(k.token.type || '') + (k.token.expiresAt ? ', expires ' + ui.date(k.token.expiresAt) : ''))
           : row('bad', 'Access token', errorFor('token') || 'Meta did not accept it.'));
-        if (k.login === 'facebook') {
+        if (k.login === 'facebook' && (!k.token || k.token.type !== 'SYSTEM_USER')) {
           rows.push(k.page ? row('ok', 'Linked Facebook Page', ui.esc(k.page.name || k.page.id))
             : row('bad', 'Linked Facebook Page', errorFor('page') || 'No Page linked to this account was found for this token.'));
         }

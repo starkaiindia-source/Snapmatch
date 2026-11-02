@@ -6,12 +6,12 @@
 
    TWO LOGINS, ONE CLIENT
 
-   An Instagram Login token (it starts "IG") talks to graph.instagram.com and needs
-   no Facebook Page. Any other token talks to graph.facebook.com. A Facebook Login
-   token sends through the Page the account is linked to, whose token is asked for
-   here rather than stored; a system-user token with no Page in reach sends as the
-   Instagram account itself. Which of these a token is decides all of it, so moving
-   an account from one to another is a change of token and nothing else.
+   An Instagram Login token (it starts "IG") talks to graph.instagram.com. Any other
+   token talks to graph.facebook.com and acts as the Instagram account itself, which
+   is how a system-user token works (Meta's Unified Login) and needs no Facebook Page.
+   A Facebook Login token is refused there, so it falls back to the Page the account
+   is linked to, whose token is asked for here rather than stored. Which of these a
+   token is decides all of it, so changing login is a change of token and nothing else.
 
    The importer's graph-client.js only reads, and its header promises that. Sending
    is kept out of it for that reason, and shares only its error mapping.
@@ -25,8 +25,7 @@ const crypto = require('crypto');
 const { GraphError, mapError } = require('../instagram/graph-client');
 
 const SCOPES = {
-  facebook: ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages',
-    'pages_manage_metadata', 'pages_read_engagement', 'pages_show_list'],
+  facebook: ['instagram_basic', 'instagram_manage_comments', 'instagram_manage_messages'],
   instagram: ['instagram_business_basic', 'instagram_business_manage_comments', 'instagram_business_manage_messages']
 };
 const FIELDS = 'comments,messages';
@@ -79,32 +78,36 @@ function createMetaClient(opts = {}) {
   async function linkedPage() {
     if (login === 'instagram') return null;
     if (page) return page;
-    const me = await call('GET', 'me', { params: { fields: 'id,name,instagram_business_account' } });
     const linked = p => p.instagram_business_account && String(p.instagram_business_account.id) === String(igUserId);
-    if (linked(me)) {
-      page = { id: me.id, name: me.name, token };
-      return page;
-    }
-    const list = await call('GET', 'me/accounts', { params: { fields: 'id,name,access_token,instagram_business_account', limit: 50 } });
-    const hit = (list.data || []).filter(linked)[0];
+    const list = await call('GET', 'me/accounts', { params: { fields: 'id,name,access_token,instagram_business_account', limit: 50 } }).catch(() => null);
+    const hit = list && (list.data || []).filter(linked)[0];
     if (hit) page = { id: hit.id, name: hit.name, token: hit.access_token };
+    else {
+      const me = await call('GET', 'me', { params: { fields: 'id,name,instagram_business_account' } });
+      if (linked(me)) page = { id: me.id, name: me.name, token };
+    }
     return page;
   }
 
-  async function pageToken() {
-    const p = await linkedPage().catch(() => null);
-    return p ? p.token : undefined;
+  /** As the account first. If Meta refuses that, through the linked Page. */
+  async function asAccount(run) {
+    try { return await run(null); }
+    catch (err) {
+      if (login === 'instagram' || err.kind === 'rate_limited' || err.kind === 'network') throw err;
+      const p = await linkedPage().catch(() => null);
+      if (!p) throw err;
+      return run(p);
+    }
   }
 
   async function replyToComment(commentId, text) {
-    const r = await call('POST', `${commentId}/replies`, { params: { message: text }, as: await pageToken() });
+    const r = await asAccount(p => call('POST', `${commentId}/replies`, { params: { message: text }, as: p ? p.token : undefined }));
     return r.id || null;
   }
 
   async function sendMessage(recipientId, text) {
-    const as = await pageToken();
-    const path = login === 'facebook' && !as ? `${igUserId}/messages` : 'me/messages';
-    const r = await call('POST', path, { body: { recipient: { id: recipientId }, message: { text } }, as });
+    const body = { recipient: { id: recipientId }, message: { text } };
+    const r = await asAccount(p => call('POST', login === 'instagram' || p ? 'me/messages' : `${igUserId}/messages`, { body, as: p ? p.token : undefined }));
     return r.message_id || null;
   }
 
@@ -115,12 +118,8 @@ function createMetaClient(opts = {}) {
 
   /** Asks Meta to start sending this account's comments and messages. */
   async function subscribe() {
-    if (login === 'instagram') {
-      await call('POST', 'me/subscribed_apps', { params: { subscribed_fields: FIELDS } });
-      return { fields: FIELDS.split(',') };
-    }
-    const p = await linkedPage().catch(() => null);
-    await call('POST', `${p ? p.id : igUserId}/subscribed_apps`, { params: { subscribed_fields: FIELDS }, as: p ? p.token : undefined });
+    const params = { subscribed_fields: FIELDS };
+    await asAccount(p => call('POST', `${login === 'instagram' ? 'me' : p ? p.id : igUserId}/subscribed_apps`, { params, as: p ? p.token : undefined }));
     return { fields: FIELDS.split(',') };
   }
 
@@ -145,7 +144,8 @@ function createMetaClient(opts = {}) {
         };
         out.missing = SCOPES.facebook.filter(s => (d.scopes || []).indexOf(s) < 0);
       }
-      const p = await attempt('page', linkedPage);
+      const needsPage = !d || d.type !== 'SYSTEM_USER';
+      const p = needsPage ? await attempt('page', linkedPage) : null;
       if (p) out.page = { id: p.id, name: p.name };
       const who = await attempt('account', () => call('GET', igUserId, { params: { fields: 'id,username' } }));
       if (who) out.account = { id: who.id, username: who.username || null };

@@ -55,10 +55,9 @@ everything except the app's Live state, which a token cannot see.
 
 1. The app is **published (Live)**. It needs a Privacy Policy URL first.
 2. Permissions on the app and on the token: `instagram_basic`, `instagram_manage_comments`,
-   `instagram_manage_messages`, plus `pages_manage_metadata`, `pages_read_engagement` and
-   `pages_show_list` when sending through a Facebook Page. Instagram Login uses
-   `instagram_business_basic`, `instagram_business_manage_comments` and
-   `instagram_business_manage_messages`.
+   `instagram_manage_messages`. A system-user token acts as the Instagram account and needs
+   no Page. Instagram Login uses `instagram_business_basic`,
+   `instagram_business_manage_comments` and `instagram_business_manage_messages`.
 3. A webhook on the app's `instagram` object, with the Callback URL and Verify token from
    the page, subscribed to `comments` and `messages`.
 4. The account subscribed: **Subscribe this account** on the page.
