@@ -40,8 +40,8 @@
   var MAX_QTY = 9999;
   var MAX_LINES = 200;
   var MAX_RATE_BP = 10000;                 /* 100% */
-  var PAYMENT_METHODS = ['cash', 'upi', 'card', 'other'];
-  var PAYMENT_STATUSES = ['unpaid', 'partial', 'paid'];
+  var PAYMENT_METHODS = ['cash', 'upi', 'card', 'netbanking', 'other'];
+  var PAYMENT_STATUSES = ['unpaid', 'partial', 'paid', 'emi'];
 
   function isInt(n) { return typeof n === 'number' && isFinite(n) && Math.floor(n) === n; }
 

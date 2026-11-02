@@ -37,6 +37,7 @@ const JS = [
   'src/data/shop-products.js',
   'src/data/shop-offers.js',
   'src/data/shop-periods.js',
+  'src/data/shop-emi.js',
   'src/data/shop-share.js',
   'src/data/shop-pdf.js',
   'src/shop/shop-api.js',

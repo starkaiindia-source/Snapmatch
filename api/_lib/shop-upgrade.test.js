@@ -1288,6 +1288,95 @@ test('a bill page can hold a month of bills, and no more than the ceiling', asyn
   ['receivedPaise', 'balancePaise', 'paymentStatus', 'createdAt'].forEach(k => assert.ok(k in page.bills[0], k));
 });
 
+/* ==================================================================== EMI */
+
+const emiBill = (extra) => Object.assign({
+  payment: { method: 'cash', status: 'emi', receivedPaise: 1000000 },
+  emi: { months: 6, rateBp: 1200, method: 'flat', firstDue: '2026-12-02' },
+  customer: { name: 'Kumar', mobile: '9876543210' }
+}, extra);
+
+test('an EMI bill keeps its total and carries a schedule worked out by the server', async () => {
+  const { w, phone, sell } = await offerWorld();
+  const bill = ok(await sell([{ productId: phone.id, variantId: 'var_large', qty: 1, unitPaise: 1099900 }], emiBill())).bill;
+  assert.equal(bill.totalPaise, 1099900, 'interest is on top of the sale');
+  assert.equal(bill.payment.status, 'emi');
+  assert.equal(bill.payment.receivedPaise, 1000000);
+  assert.equal(bill.payment.balancePaise, 99900);
+  assert.equal(bill.emi.principalPaise, 99900);
+  assert.equal(bill.emi.months, 6);
+  assert.equal(bill.emi.interestPaise, 5994);
+  assert.equal(bill.emi.schedule.length, 6);
+  assert.equal(bill.emi.schedule[5].due, '2027-05-02');
+  const st = ok(await w.get(w.tokA, 'state'));
+  assert.equal(st.shop.outstandingPaise, 99900);
+  const row = ok(await w.get(w.tokA, 'bills', {})).bills[0];
+  assert.equal(row.paymentStatus, 'emi');
+  assert.equal(row.emiNextDue, '2026-12-02');
+});
+
+test('an EMI bill needs someone to collect from and something left to collect', async () => {
+  const { glass, sell } = await offerWorld();
+  const line = [{ productId: glass.id, qty: 1, unitPaise: 29900 }];
+  assert.equal((await sell(line, emiBill({ customer: { name: 'Kumar' }, payment: { method: 'cash', status: 'emi', receivedPaise: 0 } }))).body.error, 'emi-customer');
+  assert.equal((await sell(line, emiBill({ payment: { method: 'cash', status: 'emi', receivedPaise: 29900 } }))).body.error, 'emi-down');
+  const good = { method: 'cash', status: 'emi', receivedPaise: 0 };
+  assert.equal((await sell(line, emiBill({ payment: good, emi: { months: 0, firstDue: '2026-12-02' } }))).body.error, 'emi-months');
+  assert.equal((await sell(line, emiBill({ payment: good, emi: { months: 6, rateBp: 7000, firstDue: '2026-12-02' } }))).body.error, 'emi-rate');
+  assert.equal((await sell(line, emiBill({ payment: good, emi: { months: 6 } }))).body.error, 'emi-first-due');
+});
+
+test('collecting instalments pays down the bill, once each, and interest stays apart', async () => {
+  const { w, glass, sell } = await offerWorld();
+  const bill = ok(await sell([{ productId: glass.id, qty: 2, unitPaise: 29900 }], emiBill({
+    payment: { method: 'cash', status: 'emi', receivedPaise: 19800 },
+    emi: { months: 2, rateBp: 1200, method: 'flat', firstDue: '2026-12-02' }
+  }))).bill;
+  assert.equal(bill.emi.principalPaise, 40000);
+  assert.equal(bill.emi.interestPaise, 800);
+
+  const pay = no => w.post(w.tokA, 'bill', { action: 'instalment', billId: bill.id, no, method: 'upi' });
+  const one = ok(await pay(1)).bill;
+  assert.equal(one.payment.receivedPaise, 39800);
+  assert.equal(one.payment.status, 'emi');
+  assert.equal(one.emi.interestPaidPaise, 400);
+  assert.equal(ok(await pay(1)).replayed, true);
+  assert.equal(ok(await w.get(w.tokA, 'state')).shop.outstandingPaise, 20000);
+
+  const two = ok(await pay(2)).bill;
+  assert.equal(two.payment.status, 'paid');
+  assert.equal(two.payment.balancePaise, 0);
+  assert.equal(two.totalPaise, 59800, 'the sale is what it was');
+  assert.equal(ok(await w.get(w.tokA, 'state')).shop.outstandingPaise, 0);
+  const o = ok(await w.get(w.tokA, 'overview', {}));
+  assert.equal(o.today.collectedPaise, 19800 + 40800, 'the money that came in, interest included');
+  assert.equal(o.today.netPaise, 59800);
+
+  assert.equal((await w.post(w.tokA, 'bill', { action: 'instalment', billId: bill.id, no: 3 })).body.error, 'emi-instalment');
+});
+
+test('an EMI bill is not settled by Record payment, and a void gives the interest back too', async () => {
+  const { w, glass, sell } = await offerWorld();
+  const bill = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }], emiBill({
+    payment: { method: 'cash', status: 'emi', receivedPaise: 0 },
+    emi: { months: 2, rateBp: 1200, method: 'flat', firstDue: '2026-12-02' }
+  }))).bill;
+  const refused = await w.post(w.tokA, 'bill', { action: 'payment', billId: bill.id, payment: { method: 'cash', status: 'paid', receivedPaise: 29900 } });
+  assert.equal(refused.body.error, 'bill-emi');
+  ok(await w.post(w.tokA, 'bill', { action: 'instalment', billId: bill.id, no: 1 }));
+  ok(await w.post(w.tokA, 'bill', { action: 'void', billId: bill.id, reason: 'Returned' }));
+  const o = ok(await w.get(w.tokA, 'overview', {}));
+  assert.equal(o.today.collectedNetPaise, 0);
+  assert.equal(ok(await w.get(w.tokA, 'state')).shop.outstandingPaise, 0);
+  assert.equal(ok(await w.get(w.tokA, 'bills', {})).bills[0].emiNextDue, null);
+});
+
+test('Net Banking is a payment method', async () => {
+  const { glass, sell } = await offerWorld();
+  const bill = ok(await sell([{ productId: glass.id, qty: 1, unitPaise: 29900 }], { payment: { method: 'netbanking', status: 'paid' } })).bill;
+  assert.equal(bill.payment.method, 'netbanking');
+});
+
 test('the shared invoice shows the offer and leaves out the rest', async () => {
   const { w, glass, makeOffer, sell } = await offerWorld();
   ok(await makeOffer());

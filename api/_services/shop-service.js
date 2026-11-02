@@ -78,6 +78,7 @@ const insights = require('./shop-insights');
 const search = require('./search-service');
 const { invoicePage } = require('./shop-invoice-page');
 const offerEngine = require('../../src/data/shop-offers');
+const emiEngine = require('../../src/data/shop-emi');
 const entitlements = require('./entitlement-service');
 const { TIERS } = require('../_schema/entitlement');
 const { CATALOG_VERSION, DEVICE_KINDS, STANDARD_CATEGORIES, SUGGESTED_CATEGORIES } = require('../_schema/shop-standard');
@@ -313,6 +314,7 @@ function billSummary(id, d) {
     itemCount: (d.items || []).reduce((n, i) => n + i.qty, 0),
     receivedPaise: d.payment ? Math.min(d.payment.receivedPaise || 0, d.totalPaise) : 0,
     balancePaise: (d.payment && d.status !== 'void' && d.payment.balancePaise) || 0,
+    emiNextDue: d.emi && d.status !== 'void' ? (emiEngine.nextDue(d.emi) || {}).due || null : null,
     discountPaise: (d.discountPaise || 0) + (d.offerDiscountPaise || 0),
     createdAt: d.createdAt
   };
@@ -1245,6 +1247,13 @@ function moneyError(totals) {
  */
 function settle(totalPaise, payment) {
   let received = payment.receivedPaise;
+  if (payment.status === 'emi') {
+    /* the down payment is what was received; the plan is the rest of the bill */
+    return {
+      method: payment.method, status: 'emi', receivedPaise: received,
+      balancePaise: Math.max(0, totalPaise - received), changePaise: 0
+    };
+  }
   if (payment.status === 'paid' && !received) received = totalPaise;
   if (payment.status === 'unpaid') received = 0;
   const status = money.statusFor(totalPaise, received);
@@ -1301,6 +1310,17 @@ async function findCustomer(tx, uid, input) {
   return { ref, id, d: null };
 }
 
+/** The instalment terms the shop chose. The amounts are worked out from the bill. */
+function readEmi(raw) {
+  const e = raw || {};
+  const months = int(e.months, 1, emiEngine.MAX_MONTHS);
+  const rateBp = int(blank(e.rateBp) ? 0 : e.rateBp, 0, emiEngine.MAX_RATE_BP);
+  if (months == null) throw bad('emi-months');
+  if (rateBp == null) throw bad('emi-rate');
+  if (!insights.isDay(e.firstDue)) throw bad('emi-first-due');
+  return { months, rateBp, method: e.method === 'reducing' ? 'reducing' : 'flat', firstDue: e.firstDue };
+}
+
 /** Save ("finalise") a bill — see the header: once, atomically, numbered. */
 async function finaliseBill(uid, body) {
   const fid = clientId(body.finalisationId);
@@ -1309,6 +1329,7 @@ async function finaliseBill(uid, body) {
   const adj = readAdjustments(body);
   const check = money.computeBill(lines, adj.discount, adj.tax, 0);
   if (!check.ok) throw moneyError(check);
+  const emiTerms = adj.payment.status === 'emi' ? readEmi(body.emi) : null;
   const typed = body.customer || {};
   const customer = {
     name: text(typed.name, 60),
@@ -1400,6 +1421,9 @@ async function finaliseBill(uid, body) {
     const payment = settle(totals.totalPaise, adj.payment);
     if (!money.isInt(payment.receivedPaise) || payment.receivedPaise < 0 ||
         payment.receivedPaise > money.MAX_BILL_PAISE * 2) throw bad('bill-received');
+    /* credit is given to someone: a plan with nobody to collect from is not one */
+    if (emiTerms && !who) throw conflict('emi-customer');
+    if (emiTerms && !payment.balancePaise) throw bad('emi-down');
 
     const shop = owned(uid, shopSnap) || {};
     const seq = (shop.billSeq || 0) + 1;
@@ -1483,6 +1507,10 @@ async function finaliseBill(uid, body) {
       updatedAt: now,
       history: [{ at: now, action: 'created', paymentStatus: payment.status }]
     };
+    if (emiTerms) {
+      const plan = emiEngine.plan(Object.assign({ principalPaise: payment.balancePaise }, emiTerms));
+      bill.emi = Object.assign(plan, { interestPaidPaise: 0 });
+    }
 
     const day = daySnap.exists ? daySnap.data() : insights.emptyDay(today, uid);
     insights.addBill(day, bill, customerId ? { id: customerId, isNew: firstBill } : null);
@@ -1553,6 +1581,7 @@ async function updatePayment(uid, body) {
     const cur = owned(uid, await tx.get(ref));
     if (!cur) throw notFound('bill-not-found');
     if (cur.status === 'void') throw conflict('bill-void');
+    if (cur.emi) throw conflict('bill-emi');
     const payment = settle(cur.totalPaise, adj.payment);
     if (!money.isInt(payment.receivedPaise) || payment.receivedPaise < 0 ||
         payment.receivedPaise > money.MAX_BILL_PAISE * 2) throw bad('bill-received');
@@ -1590,6 +1619,68 @@ async function updatePayment(uid, body) {
     }).slice(-50);
     tx.update(ref, { payment, history, updatedAt: now });
     return { bill: billView(id, Object.assign({}, cur, { payment, history, updatedAt: now })) };
+  });
+}
+
+/**
+ * One instalment of an EMI bill, received. The principal in it pays down the bill
+ * and the interest is money on top of the bill, so the bill's total never moves.
+ * Collecting the same instalment twice changes nothing the second time.
+ */
+async function payInstalment(uid, body) {
+  const id = clientId(body.billId) || docId(body.billId);
+  if (!id) throw bad('bill-id');
+  const no = int(body.no, 1, emiEngine.MAX_MONTHS);
+  if (no == null) throw bad('emi-instalment');
+  const method = money.PAYMENT_METHODS.includes(body.method) ? body.method : 'cash';
+  const ref = billCol(uid).doc(id);
+  return transaction('instalment', async tx => {
+    const cur = owned(uid, await tx.get(ref));
+    if (!cur) throw notFound('bill-not-found');
+    if (cur.status === 'void') throw conflict('bill-void');
+    if (!cur.emi) throw conflict('bill-not-emi');
+    const item = cur.emi.schedule.find(s => s.no === no);
+    if (!item) throw bad('emi-instalment');
+    if (item.paidAt) return { bill: billView(id, cur), replayed: true };
+
+    const now = Date.now();
+    const today = insights.dayKey(now);
+    const [shopSnap, daySnap, custSnap] = await Promise.all([
+      tx.get(shopRef(uid)),
+      tx.get(dayCol(uid).doc(today)),
+      cur.customerId ? tx.get(custCol(uid).doc(cur.customerId)) : Promise.resolve(null)
+    ]);
+
+    const schedule = cur.emi.schedule.map(s => (s.no === no ? Object.assign({}, s, { paidAt: now, paidMethod: method }) : s));
+    const emi = Object.assign({}, cur.emi, {
+      schedule, interestPaidPaise: (cur.emi.interestPaidPaise || 0) + item.interestPaise
+    });
+    const receivedPaise = (cur.payment.receivedPaise || 0) + item.principalPaise;
+    const balancePaise = Math.max(0, cur.totalPaise - receivedPaise);
+    const payment = Object.assign({}, cur.payment, {
+      method, receivedPaise, balancePaise, status: schedule.every(s => s.paidAt) ? 'paid' : 'emi'
+    });
+
+    const day = daySnap.exists ? daySnap.data() : insights.emptyDay(today, uid);
+    insights.addCollected(day, method, item.amountPaise);
+    tx.set(dayCol(uid).doc(today), day);
+
+    const shop = owned(uid, shopSnap) || {};
+    tx.set(shopRef(uid), {
+      ownerUid: uid, outstandingPaise: Math.max(0, (shop.outstandingPaise || 0) - item.principalPaise), updatedAt: now
+    }, { merge: true });
+    const c = custSnap ? owned(uid, custSnap) : null;
+    if (c) {
+      tx.update(custSnap.ref, {
+        paidPaise: (c.paidPaise || 0) + item.principalPaise,
+        outstandingPaise: Math.max(0, (c.outstandingPaise || 0) - item.principalPaise),
+        updatedAt: now
+      });
+    }
+
+    const history = (cur.history || []).concat({ at: now, action: 'instalment', no, amountPaise: item.amountPaise, method }).slice(-80);
+    tx.update(ref, { payment, emi, history, updatedAt: now });
+    return { bill: billView(id, Object.assign({}, cur, { payment, emi, history, updatedAt: now })), replayed: false };
   });
 }
 
@@ -1674,7 +1765,7 @@ async function voidBill(uid, body) {
     insights.removeBill(dayDoc, cur);
     const refundDay = billDay === today ? dayDoc
       : (todaySnap.exists ? todaySnap.data() : insights.emptyDay(today, uid));
-    refundDay.refundedPaise += collected;
+    refundDay.refundedPaise += collected + ((cur.emi && cur.emi.interestPaidPaise) || 0);
     tx.set(dayCol(uid).doc(billDay), dayDoc);
     if (refundDay !== dayDoc) tx.set(dayCol(uid).doc(today), refundDay);
 
@@ -2259,7 +2350,7 @@ module.exports = {
   createCategory, addSuggested, renameCategory, updateCategory, reorderCategories, deleteCategory,
   createProduct, updateProduct, archiveProduct, adjustStock, listMoves,
   groupInfo, modelGroups, compatProducts,
-  finaliseBill, updatePayment, voidBill, getBill, listBills, shareBill, sharedInvoice,
+  finaliseBill, updatePayment, payInstalment, voidBill, getBill, listBills, shareBill, sharedInvoice,
   createOffer, updateOffer, setOfferStatus, setOfferAuto, archiveOffer, saveOfferSettings,
   createCustomer, updateCustomer, listCustomers, getCustomer,
   overview, salesOverview,
