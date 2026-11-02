@@ -57,6 +57,7 @@ const { GraphError } = require('../instagram/graph-client');
 const { createMetaClient, SCOPES, FIELDS } = require('./meta');
 const events = require('./events');
 const responder = require('./responder');
+const sales = require('./sales');
 
 const WEBHOOK_URL = 'https://www.mobilepartsfinder.com/api/instagram-webhook';
 const MODES = ['off', 'review', 'auto'];
@@ -80,6 +81,14 @@ const DEFAULTS = {
   appLinkText: '🔥 {brand}: made for mobile shop owners\n\n✅ Find which models take the same tempered glass in seconds\n✅ Back covers, displays and more: every compatible model in one place\n✅ No more guessing at the counter\n\n👇 Tap the button below to download',
   appCardTitle: '{brand}: compatible parts finder', appCardSubtitle: 'Find the same glass, cover and parts for any phone',
   appButton: 'Download the app', appImage: '',
+  appKeywords: 'proglide\npro glide\nproglite\nporglide\napp\naap\ntool\nlink\nwebsite\nwebsite link',
+  iosLink: 'https://www.mobilepartsfinder.com', iosText: '📱 {brand} is on Android (Play Store) for now.\n\n🍏 On iPhone, use Mobile Parts Finder in your browser: compatible glass, covers and parts for any phone model.\n\n👇 Tap the button below',
+  iosCardTitle: 'Mobile Parts Finder', iosCardSubtitle: 'Compatible parts for any phone, in your browser', iosButton: 'Open website',
+  salesOn: true, salesKeywords: '9h\n9 h\n9h temper\n9h price\nprice\nrate',
+  salesPriceText: '🔥 {brand} 9H Flexible Fiber + Ceramic Coated Temper\n\n📦 1 box = {pieces} pieces of one model → {box} (just {piece} a piece)\n🛒 Wholesale only: minimum {min} boxes ({minTotal})\n🚚 Courier: {homeState} {home} · South India {near} · Other states {far}\n💡 One master glass fits many models, so one box covers several phones.\n\n👉 Send your phone models and how many boxes of each, for example: Realme 5 - 2 boxes',
+  salesComment: 'Sent you the price in DM 📩', salesThanks: '✅ Payment received! Thank you. Your order will be dispatched soon. 🚚',
+  boxPrice: 299, boxPieces: 10, minBoxes: 4, homeState: 'Tamil Nadu',
+  courierHome: 60, courierNear: 100, courierFar: 200, nearStates: 'Kerala, Karnataka, Andhra Pradesh, Telangana, Puducherry',
   tone: 'Friendly and short, like a helpful shop owner. No hashtags.',
   handoff: 'Our team will reply to you soon.',
   blocked: 'Mobile Parts Finder\nmobilepartsfinder\nSnapMatch',
@@ -131,6 +140,17 @@ function normalise(s) {
     appCardSubtitle: text(d.appCardSubtitle, 80) || DEFAULTS.appCardSubtitle,
     appButton: text(d.appButton, 20) || DEFAULTS.appButton,
     appImage: /^https:\/\/\S+$/.test(text(d.appImage, 400)) ? text(d.appImage, 400) : '',
+    appKeywords: text(d.appKeywords, 600),
+    iosLink: /^https:\/\/\S+$/.test(text(d.iosLink, 300)) ? text(d.iosLink, 300) : '',
+    iosText: text(d.iosText, 600) || DEFAULTS.iosText, iosCardTitle: text(d.iosCardTitle, 80) || DEFAULTS.iosCardTitle,
+    iosCardSubtitle: text(d.iosCardSubtitle, 80) || DEFAULTS.iosCardSubtitle, iosButton: text(d.iosButton, 20) || DEFAULTS.iosButton,
+    salesOn: d.salesOn !== false, salesKeywords: text(d.salesKeywords, 600),
+    salesPriceText: text(d.salesPriceText, 900) || DEFAULTS.salesPriceText,
+    salesComment: text(d.salesComment, 200) || DEFAULTS.salesComment, salesThanks: text(d.salesThanks, 300) || DEFAULTS.salesThanks,
+    boxPrice: num(d.boxPrice, 1, 100000, DEFAULTS.boxPrice), boxPieces: num(d.boxPieces, 1, 1000, DEFAULTS.boxPieces),
+    minBoxes: num(d.minBoxes, 1, 1000, DEFAULTS.minBoxes), homeState: text(d.homeState, 40) || DEFAULTS.homeState,
+    courierHome: num(d.courierHome, 0, 10000, DEFAULTS.courierHome), courierNear: num(d.courierNear, 0, 10000, DEFAULTS.courierNear),
+    courierFar: num(d.courierFar, 0, 10000, DEFAULTS.courierFar), nearStates: text(d.nearStates, 300),
     tone: text(d.tone, 300), handoff: text(d.handoff, 200) || DEFAULTS.handoff, blocked: text(d.blocked, 600),
     maxNames: num(d.maxNames, 0, 20, DEFAULTS.maxNames),
     perSenderHour: num(d.perSenderHour, 1, 60, DEFAULTS.perSenderHour),
@@ -265,15 +285,91 @@ async function sendLink(id, ev, s, c) {
   });
 }
 
+function iosCard(s) {
+  return { title: s.iosCardTitle, subtitle: s.iosCardSubtitle, default_action: { type: 'web_url', url: s.iosLink },
+    buttons: [{ type: 'web_url', url: s.iosLink, title: s.iosButton }] };
+}
+
+/* The same as the app link, for someone on an iPhone: the app is Android only. */
+async function sendIos(id, ev, s, c) {
+  const intro = brandIn(s.iosText, s);
+  if (await linkSentLately(ev.senderId, id, Date.now())) return finish(id, { status: 'skipped', intent: 'app_link', reason: 'link-already-sent' });
+  await finish(id, { intent: 'app_link', reason: null });
+  return deliver(id, intro, 'app-link', c, async (meta, e) => {
+    if (e.kind === 'dm') {
+      await meta.sendMessage(e.senderId, intro);
+      return meta.sendCard(e.senderId, iosCard(s)).catch(() => meta.sendMessage(e.senderId, s.iosLink));
+    }
+    const messaged = await meta.privateCard(e.targetId, iosCard(s))
+      .catch(() => meta.privateReply(e.targetId, intro + '\n\n' + s.iosLink)).then(() => true, () => false);
+    return meta.replyToComment(e.targetId, messaged ? s.appLinkComment : intro + ' ' + s.iosLink);
+  });
+}
+
+/* A step of a sale. The words are the sale's own, so they go at once, like the link. */
+async function sellStep(id, ev, s, c, now) {
+  let out;
+  try {
+    out = await sales.step(ev, s, createGemini({ key: c.geminiKey }), c.model, now);
+  } catch (err) {
+    console.warn('[auto-reply] sale step failed', err.code || err.message);
+    return finish(id, { status: 'failed', intent: 'sale', error: String(err.code || err.message).slice(0, 200), errorKind: 'error' });
+  }
+  if (!out) return null;
+  await sales.saveLead(ev.senderId, out.lead);
+  if (!out.reply) return finish(id, { status: 'needs_human', intent: 'sale', reason: 'needs-human' });
+  await finish(id, { intent: 'sale', reason: null });
+  return deliver(id, out.reply, 'sales', c, async (meta, e) => {
+    if (e.kind === 'comment') {
+      const messaged = await meta.privateReply(e.targetId, out.reply).then(() => true, () => false);
+      return meta.replyToComment(e.targetId, messaged ? s.salesComment : out.reply.slice(0, 2000));
+    }
+    const sent = await meta.sendMessage(e.senderId, out.reply);
+    if (out.card) await meta.sendCard(e.senderId, out.card).catch(() => meta.sendMessage(e.senderId, out.lead.payUrl || out.lead.invoiceUrl));
+    return sent;
+  });
+}
+
+/** Follow-ups and paid bills, on every read. A failure here never stops replies. */
+async function salesTick(s, c, now) {
+  if (!s.salesOn) return 0;
+  const meta = metaClient(c);
+  let sent = 0;
+  try {
+    for (const due of await sales.dueFollowUps(now)) {
+      if (Date.now() - now > BUDGET_MS) break;
+      if (await meta.sendMessage(due.lead.senderId, due.text).then(() => true, () => false)) {
+        await sales.markFollowedUp(due.lead, due.text, now);
+        sent++;
+      }
+    }
+    for (const lead of await sales.settlePaid(now)) {
+      if (now - lead.lastCustomerAt < 23 * HOUR_MS) await meta.sendMessage(lead.senderId, s.salesThanks).catch(() => null);
+    }
+  } catch (err) {
+    console.warn('[auto-reply] sales tick failed', err.code || err.message);
+  }
+  return sent;
+}
+
 /** One claimed event, as far as the settings allow it to go. */
 async function work(id, ev, settings, c, now) {
   if (settings.mode === 'off') return finish(id, { status: 'skipped', reason: 'auto-reply-off' });
   if (!(ev.kind === 'comment' ? settings.comments : settings.dms)) return finish(id, { status: 'skipped', reason: 'channel-off' });
   if (!ev.text) return finish(id, { status: 'needs_human', reason: 'no-text' });
 
-  const sender = await consume({ key: 'auto-reply:' + ev.senderId, limit: settings.perSenderHour, now, windowMs: HOUR_MS });
-  if (!sender.allowed) return finish(id, { status: 'skipped', reason: 'sender-limit' });
-  if (settings.appLink && responder.asksForApp(ev.text)) return sendLink(id, ev, settings, c);
+  /* someone in the middle of an order says a lot in an hour, and is not held to the limit */
+  const selling = settings.salesOn && sales.activeLead(await sales.loadLead(ev.senderId));
+  if (!selling) {
+    const sender = await consume({ key: 'auto-reply:' + ev.senderId, limit: settings.perSenderHour, now, windowMs: HOUR_MS });
+    if (!sender.allowed) return finish(id, { status: 'skipped', reason: 'sender-limit' });
+    if (settings.iosLink && responder.asksForIos(ev.text, settings.appKeywords)) return sendIos(id, ev, settings, c);
+    if (settings.appLink && responder.asksForApp(ev.text, settings.appKeywords)) return sendLink(id, ev, settings, c);
+  }
+  if (settings.salesOn) {
+    const sold = await sellStep(id, ev, settings, c, now);
+    if (sold !== null) return sold;
+  }
   const day = await consume({ key: 'auto-reply:day', limit: settings.dailyReplies, now, windowMs: DAY_MS });
   if (!day.allowed) return finish(id, { status: 'skipped', reason: 'daily-limit' });
 
@@ -323,7 +419,7 @@ async function handle(list, settings, c, started) {
     if (!(await claim(ev, now)) || now - started > BUDGET_MS) continue;
     done++;
     /* a failure on one event must not stop the others */
-    await work(ev.id, Object.assign({}, ev, { text: redact(ev.text).slice(0, 1000) }), settings, c, now)
+    await work(ev.id, Object.assign({}, ev, { raw: ev.text, text: redact(ev.text).slice(0, 1000) }), settings, c, now)
       .catch(err => finish(ev.id, { status: 'failed', error: String(err.message).slice(0, 300), errorKind: 'error' }));
   }
   return done;
@@ -381,8 +477,9 @@ async function poll() {
   const me = await meta.username().catch(() => '');
   const list = events.fromRead(read, c.igUserId, String(me).toLowerCase());
   const answered = await handle(list, settings, c, now) + await catchUp(settings, c, now);
-  await pollRef().set({ readAt: now, found: list.length, answered });
-  return { status: 200, body: { polled: true, found: list.length, answered } };
+  const followed = await salesTick(settings, c, now);
+  await pollRef().set({ readAt: now, found: list.length, answered, followed });
+  return { status: 200, body: { polled: true, found: list.length, answered, followed } };
 }
 
 /* ------------------------------------------------------------ admin page */
@@ -433,7 +530,13 @@ async function tryReply({ text: said, kind, caption }) {
   const c = credentials();
   const settings = await loadSettings();
   const k = kind === 'dm' ? 'dm' : 'comment';
-  if (settings.appLink && responder.asksForApp(said)) {
+  if (settings.iosLink && responder.asksForIos(said, settings.appKeywords)) {
+    return { ok: true, reply: brandIn(settings.iosText, settings), card: iosCard(settings), intent: 'app_link', confidence: 1, shouldReply: true, hold: null, instant: true };
+  }
+  if (settings.salesOn && sales.asksToBuy(said, settings.salesKeywords)) {
+    return { ok: true, reply: sales.priceText(settings), intent: 'sale', confidence: 1, shouldReply: true, hold: null, instant: true };
+  }
+  if (settings.appLink && responder.asksForApp(said, settings.appKeywords)) {
     return { ok: true, reply: linkIntro(settings), card: linkCard(settings), intent: 'app_link', confidence: 1, shouldReply: true, hold: null, instant: true };
   }
   const d = await responder.draft({ text: said, kind: k, settings, gemini: createGemini({ key: c.geminiKey }), model: c.model, caption: text(caption, 2000) });
@@ -473,6 +576,6 @@ async function retry(id) {
 }
 
 module.exports = {
-  DEFAULTS, MODES, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, history, subscribe,
+  DEFAULTS, MODES, sales, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, history, subscribe,
   tryReply, sendDraft, discard, retry, GraphError
 };
