@@ -623,8 +623,20 @@ test('a sale runs from the price to an unpaid bill in the owner\'s Quick Billing
     next = said({ models: [{ phone: 'samsung a52', boxes: 2 }] });
     await deliver(messageEvent('samsung a52 2 box', 'buyer1'));
     lead = await sales.loadLead('buyer1');
-    assert.equal(lead.stage, 'address');
+    assert.equal(lead.stage, 'models', 'more models may follow, so the bill waits to be asked for');
     assert.equal(lead.items.reduce((k, i) => k + i.boxes, 0), 4);
+    const ready = texts().pop();
+    assert.match(ready.text, /Wholesale minimum reached/);
+    assert.deepEqual(ready.quick_replies.map(q => q.title), sales.ASK_BILL);
+
+    await deliver(messageEvent('Price', 'buyer1'));
+    const price = texts().pop().text;
+    assert.match(price, /Matte: out of stock/, 'the price, with what is in stock');
+    assert.match(price, /4 boxes \(40 pieces\)/, 'and the order so far');
+
+    await deliver(messageEvent('Make bill 🧾', 'buyer1'));
+    lead = await sales.loadLead('buyer1');
+    assert.equal(lead.stage, 'address');
     const form = texts().pop().text;
     assert.equal(form, sales.FORM, 'the form to copy, fill in and send back');
     assert.match(form, /Name:\nMobile:\nAddress:\nCity:\nState:\nPincode:$/);
@@ -644,6 +656,8 @@ test('a sale runs from the price to an unpaid bill in the owner\'s Quick Billing
     assert.equal(saved.totalPaise, lead.totalPaise);
     const card = texts().pop().attachment.payload.elements[0];
     assert.equal(card.buttons[0].title, 'View bill', 'no Razorpay connected, so the bill itself');
+    assert.equal(saved.brand.name, 'ProGlide', 'the bill page carries the brand');
+    assert.equal(saved.brand.whatsapp, '919894301600');
     assert.ok(card.buttons[0].url.startsWith('https://www.mobilepartsfinder.com/i/'));
   } finally { n.restore(); }
 });
@@ -677,19 +691,35 @@ test('a filled form gets the bill and its own payment QR, and the payment is con
   try {
     await deliver(messageEvent('Realme 5 4 boxes', 'buyer2'));
     let lead = await sales.loadLead('buyer2');
-    assert.equal(lead.stage, 'address', 'four boxes as the first message is an order');
+    assert.equal(lead.stage, 'models', 'four boxes as the first message is an order');
+    await deliver(messageEvent('Oppo A6 10 boxes', 'buyer2'));
+    await deliver(messageEvent('Bill', 'buyer2'));
+    lead = await sales.loadLead('buyer2');
+    assert.equal(lead.stage, 'address');
+    assert.deepEqual(lead.items.map(i => i.boxes), [4, 10], 'every model sent along the way is in the order');
     assert.equal(out().pop().text, sales.FORM);
 
-    const form = 'Name: Ravi\nMobile: 9876543210\nAddress: 12 Main Road\nCity: Madurai\nState: Tamil Nadu\nPincode: 625001';
+    /* typed without a space, and the pincode says Tamil Nadu anyway */
+    const form = 'Name: Ravi\nMobile: 9876543210\nAddress: 62a Main Street\nCity: Rajapalayam\nState: tamilnadu\nPincode: 626117';
     await deliver(messageEvent(form, 'buyer2'));
     lead = await sales.loadLead('buyer2');
     assert.equal(lead.stage, 'billed');
     assert.equal(lead.qrId, 'qr_Order0001');
-    assert.equal(lead.totalPaise, 4 * 29900 + 6000);
+    assert.equal(lead.courierPaise, 6000, 'tamilnadu is Tamil Nadu');
+    assert.equal(lead.totalPaise, 14 * 29900 + 6000);
     const sent = out();
-    assert.ok(sent.some(m => m.text && /Total: ₹1,256/.test(m.text) && /GPay/.test(m.text)), 'the bill, with how to pay');
-    assert.ok(sent.some(m => m.attachment && m.attachment.type === 'image' && m.attachment.payload.url === 'https://rzp.io/i/order1'), 'the QR as a picture');
+    assert.ok(sent.some(m => m.text && /Total: ₹4,246/.test(m.text) && /GPay/.test(m.text)), 'the bill, with how to pay');
+    const card = sent.filter(m => m.attachment && m.attachment.type === 'template').pop().attachment.payload.elements[0];
+    assert.equal(card.image_url, 'https://api.razorpay.com/v1/l/qrcode/qr_Order0001', 'the QR is the card picture, at an address with no redirect');
+    assert.equal(card.buttons[0].title, 'Pay now');
+    assert.ok(card.buttons[0].url.startsWith('https://www.mobilepartsfinder.com/i/'), 'Pay now opens the bill page');
+    assert.ok(!sent.some(m => m.text && /rzp\.io/.test(m.text)), 'no bare link');
     assert.equal(n.model().length, 0, 'nothing here needed the model');
+
+    /* "paid" before Razorpay has it is not taken at its word */
+    await deliver(messageEvent('Paid', 'buyer2'));
+    assert.match(out().filter(m => m.text).pop().text, /not received this payment yet[\s\S]*screenshot/);
+    assert.equal((await sales.loadLead('buyer2')).stage, 'billed');
 
     paid = true;
     const r = reader([], []);
@@ -834,4 +864,22 @@ test('Send takes the owner\'s edit, still passes the guard, and happens once', a
     assert.equal((await adminCall('owner-token', 'POST', {}, { action: 'send', id, reply: 'Again' })).status, 409);
     assert.equal(n.sent().filter(c => c.url.includes('/replies')).length, 1);
   } finally { n.restore(); }
+});
+
+test('an order bill page shows the brand, hides the shop number, and pays by QR or button', () => {
+  const { invoicePage } = require('../_services/shop-invoice-page');
+  const bill = {
+    number: 'QB-0023', createdAt: Date.now(), items: [{ name: 'Glass', qty: 4, unitPaise: 29900, totalPaise: 119600 }],
+    subtotalPaise: 119600, totalPaise: 125600, payment: { status: 'unpaid', method: 'upi', balancePaise: 125600 },
+    customer: { name: 'Ravi' }, brand: { name: 'ProGlide', logo: 'https://example.test/logo.png', whatsapp: '919894301600' }
+  };
+  const html = invoicePage(bill, { name: 'Ozo', mobile: '09894301600', place: 'Rajapalayam' },
+    { pay: { upiUri: 'upi://pay?pa=x@y&am=1256.00', image: '/i/tok/qr.png' } });
+  assert.match(html, /<h1>ProGlide<\/h1>/);
+  assert.ok(!html.includes('Mobile: 09894301600'), 'the shop number is not on an order bill');
+  assert.match(html, /href="upi:\/\/pay\?pa=x@y&amp;am=1256\.00">Pay with UPI app/);
+  assert.match(html, /wa\.me\/919894301600\?text=Enquiry%20about%20order%20QB-0023/);
+  assert.match(html, /Download bill/);
+  const plain = invoicePage(Object.assign({}, bill, { brand: undefined }), { name: 'Ozo', mobile: '09894301600' });
+  assert.match(plain, /Mobile: 09894301600/, 'a shop bill still shows the shop');
 });

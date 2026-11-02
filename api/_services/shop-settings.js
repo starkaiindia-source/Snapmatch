@@ -43,6 +43,8 @@ const secrets = require('../_lib/shop-secrets');
 const { verifyWebhookSignature } = require('../_lib/razorpay-signature');
 const { ShopError } = require('./shop-error');
 const QRCode = require('qrcode');
+const { PNG } = require('pngjs');
+const jsQR = require('jsqr');
 
 const db = () => require('../_lib/firebase').db();
 
@@ -453,11 +455,60 @@ async function orderQr(uid, { amountPaise, billId, lifeS }) {
     console.warn('[shop] razorpay refused an order QR', r.status, refusal(r));
     throw new ShopError(502, 'razorpay-qr', { reason: refusal(r) });
   }
+  const upiUri = await upiOf(r.data.image_url, amountPaise);
   await qrRef(uid, r.data.id).set({
     ownerUid: uid, amountPaise, status: 'active', paymentId: null, billId: null, kind: 'order',
-    orderBill: text(billId, 40), createdAt: Date.now(), createdBy: null
+    orderBill: text(billId, 40), upiUri, imageUrl: r.data.image_url, closeBy: closeBy * 1000, createdAt: Date.now(), createdBy: null
   });
-  return { id: r.data.id, imageUrl: r.data.image_url, closeBy: closeBy * 1000 };
+  return { id: r.data.id, imageUrl: r.data.image_url, upiUri, closeBy: closeBy * 1000 };
+}
+
+/* What Razorpay's QR says, "upi://pay?...&am=...&tr=<this QR>", read from its picture.
+   Paying it from a button is paying this QR, so Razorpay reports it the same way. A
+   picture that cannot be read, or says another amount, gives nothing. */
+async function upiOf(imageUrl, amountPaise) {
+  try {
+    const res = await fetch(imageUrl, { redirect: 'follow', signal: AbortSignal.timeout(8000) });
+    if (!res.ok || !/png/i.test(res.headers.get('content-type') || '')) return '';
+    const png = PNG.sync.read(Buffer.from(await res.arrayBuffer()));
+    const found = jsQR(new Uint8ClampedArray(png.data), png.width, png.height);
+    const uri = found && found.data;
+    if (!uri || !/^upi:\/\/pay\?/i.test(uri)) return '';
+    const am = new URL(uri.replace(/^upi:/i, 'https:')).searchParams.get('am');
+    return Math.round(Number(am) * 100) === amountPaise ? uri.slice(0, 600) : '';
+  } catch (err) {
+    console.warn('[shop] could not read an order QR', err.message);
+    return '';
+  }
+}
+
+/** Every order QR made for a bill. */
+async function orderQrsOf(uid, billId) {
+  const snap = await shopRef(uid).collection(C.SHOP_QR).where('orderBill', '==', String(billId || '')).get();
+  return snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
+}
+
+/** The order QR of a bill still waiting to be paid, newest first, or null. */
+async function orderQrFor(uid, billId) {
+  const open = (await orderQrsOf(uid, billId))
+    .filter(d => d.status === 'active' && (!d.closeBy || d.closeBy > Date.now()))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return open[0] || null;
+}
+
+/**
+ * A plain QR picture of a UPI payment, for wherever Razorpay's own will not go.
+ * `wide` sets it in the middle of a 1.91:1 white picture, the shape Instagram gives
+ * a card's image, so nothing of the code is cropped away.
+ */
+async function qrPng(uri, wide) {
+  const square = await QRCode.toBuffer(uri, { type: 'png', width: wide ? 560 : 640, margin: wide ? 2 : 3, errorCorrectionLevel: 'M' });
+  if (!wide) return square;
+  const qr = PNG.sync.read(square);
+  const out = new PNG({ width: 1070, height: 560 });
+  out.data.fill(255);
+  PNG.bitblt(qr, out, 0, 0, qr.width, qr.height, Math.floor((out.width - qr.width) / 2), Math.floor((out.height - qr.height) / 2));
+  return PNG.sync.write(out);
 }
 
 async function markPaid(uid, id, paymentId) {
@@ -538,5 +589,5 @@ module.exports = {
   actorFor, storeView, invoiceHeader, storeOf, saveStore, saveLogo,
   listStaff, addStaff, removeStaff, answerInvite, saveUpi, saveAutoCollect,
   connectRazorpay, disconnectRazorpay, loadSettings,
-  createQr, orderQr, qrStatus, closeQr, shopWebhook, qrRef, qrId, paymentLink, paymentLinkStatus
+  createQr, orderQr, orderQrFor, orderQrsOf, qrPng, qrStatus, closeQr, shopWebhook, qrRef, qrId, paymentLink, paymentLinkStatus
 };

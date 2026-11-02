@@ -92,6 +92,8 @@ const DEFAULTS = {
   feedbackYes: '🙏 Thank you! Could you rate {brand} ⭐⭐⭐⭐⭐ on the Play Store? It takes a minute and helps other shop owners find it.',
   feedbackNo: '🙏 Thanks for telling us. What should we make better? Reply here, we read every message.',
   feedbackButton: 'Rate on Play Store',
+  salesVariants: '✨ Clear: available · 🌫️ Matte: out of stock\n💰 Clear and Matte are the same price',
+  salesWhatsApp: '919894301600',
   boxPrice: 299, boxPieces: 10, minBoxes: 4, homeState: 'Tamil Nadu',
   courierHome: 60, courierNear: 100, courierFar: 200, nearStates: 'Kerala, Karnataka, Andhra Pradesh, Telangana, Puducherry',
   tone: 'Friendly and short, like a helpful shop owner. No hashtags.',
@@ -155,6 +157,8 @@ function normalise(s) {
     feedbackOn: d.feedbackOn !== false, feedbackAsk: text(d.feedbackAsk, 300) || DEFAULTS.feedbackAsk,
     feedbackYes: text(d.feedbackYes, 400) || DEFAULTS.feedbackYes, feedbackNo: text(d.feedbackNo, 300) || DEFAULTS.feedbackNo,
     feedbackButton: text(d.feedbackButton, 20) || DEFAULTS.feedbackButton,
+    salesVariants: typeof d.salesVariants === 'string' ? text(d.salesVariants, 300) : DEFAULTS.salesVariants,
+    salesWhatsApp: /^\d{10,13}$/.test(String(d.salesWhatsApp || '')) ? String(d.salesWhatsApp) : DEFAULTS.salesWhatsApp,
     boxPrice: num(d.boxPrice, 1, 100000, DEFAULTS.boxPrice), boxPieces: num(d.boxPieces, 1, 1000, DEFAULTS.boxPieces),
     minBoxes: num(d.minBoxes, 1, 1000, DEFAULTS.minBoxes), homeState: text(d.homeState, 40) || DEFAULTS.homeState,
     courierHome: num(d.courierHome, 0, 10000, DEFAULTS.courierHome), courierNear: num(d.courierNear, 0, 10000, DEFAULTS.courierNear),
@@ -350,11 +354,19 @@ async function sellStep(id, ev, s, c, now) {
       const messaged = await meta.privateReply(e.targetId, out.reply).then(() => true, () => false);
       return meta.replyToComment(e.targetId, messaged ? s.salesComment : out.reply.slice(0, 2000));
     }
-    const sent = await meta.sendMessage(e.senderId, out.reply);
+    const sent = out.quick
+      ? await meta.sendQuick(e.senderId, out.reply, out.quick).catch(() => meta.sendMessage(e.senderId, out.reply))
+      : await meta.sendMessage(e.senderId, out.reply);
     for (const extra of out.more || []) await meta.sendMessage(e.senderId, extra);
-    /* the QR as a picture; where Instagram will not take it, its address */
-    if (out.image) await meta.sendImage(e.senderId, out.image).catch(() => meta.sendMessage(e.senderId, 'Payment QR: ' + out.image));
-    if (out.card) await meta.sendCard(e.senderId, out.card).catch(() => meta.sendMessage(e.senderId, out.lead.payUrl || out.lead.invoiceUrl));
+    if (out.image) await meta.sendImage(e.senderId, out.image).catch(() => null);
+    /* the bill card, with the QR as its picture; refused, the picture alone, then the page */
+    if (out.card) {
+      await meta.sendCard(e.senderId, out.card).catch(async () => {
+        if (out.card.image_url) await meta.sendImage(e.senderId, out.card.image_url).catch(() => null);
+        const { image_url: _drop, ...plain } = out.card;
+        return meta.sendCard(e.senderId, plain).catch(() => meta.sendMessage(e.senderId, out.lead.invoiceUrl));
+      });
+    }
     return sent;
   });
 }
@@ -402,7 +414,12 @@ async function feedbackTick(s, c, now) {
 async function work(id, ev, settings, c, now) {
   if (settings.mode === 'off') return finish(id, { status: 'skipped', reason: 'auto-reply-off' });
   if (!(ev.kind === 'comment' ? settings.comments : settings.dms)) return finish(id, { status: 'skipped', reason: 'channel-off' });
-  if (!ev.text) return finish(id, { status: 'needs_human', reason: 'no-text' });
+  if (!ev.text) {
+    /* a picture from someone whose bill is waiting is a payment screenshot to check */
+    const lead = settings.salesOn && ev.kind === 'dm' ? await sales.loadLead(ev.senderId) : null;
+    if (!lead || lead.stage !== 'billed') return finish(id, { status: 'needs_human', reason: 'no-text' });
+    return sellStep(id, Object.assign({}, ev, { screenshot: true }), settings, c, now);
+  }
 
   /* someone in the middle of an order says a lot in an hour, and is not held to the limit */
   const selling = settings.salesOn && sales.activeLead(await sales.loadLead(ev.senderId));

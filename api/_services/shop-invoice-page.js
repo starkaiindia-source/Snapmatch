@@ -6,7 +6,9 @@
    (cost prices, list prices, the shelf, its history) cannot reach this page by
    being forgotten: only what is named below is ever written out.
 
-   There is no account behind this page and nothing on it links to anything else.
+   There is no account behind this page. A bill sold under a brand (an Instagram
+   order) shows that brand's name and logo, a WhatsApp button for questions and,
+   while it is unpaid, its UPI QR and a button that pays the same QR.
    ========================================================================== */
 'use strict';
 
@@ -50,9 +52,18 @@ td{padding:7px 4px;border-bottom:1px solid #D9E0DE;vertical-align:top}
 .pay{margin-top:8px;text-align:right;color:#5B6B67;font-size:13px}
 footer{margin-top:14px;padding-top:10px;border-top:1px dashed #D9E0DE;text-align:center;color:#5B6B67;font-size:13px}
 .void{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%) rotate(-18deg);padding:6px 18px;border:4px solid #C0262D;border-radius:10px;color:#C0262D;font-size:44px;font-weight:800;letter-spacing:.12em;opacity:.85;background:rgba(255,255,255,.6)}
-.acts{max-width:720px;margin:12px auto 0;text-align:center}
-button{height:44px;padding:0 20px;border:0;border-radius:10px;background:#1D4ED8;color:#fff;font:inherit;font-weight:700;cursor:pointer}
-@media print{body{background:#fff;padding:0}main{box-shadow:none;max-width:none}.acts{display:none}}
+.acts{max-width:720px;margin:12px auto 0;display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+button,.btn{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 20px;border:0;border-radius:10px;background:#1D4ED8;color:#fff;font:inherit;font-weight:700;cursor:pointer;text-decoration:none}
+.btn--wa{background:#128C4B}
+.btn--ghost{background:#fff;color:#0B1412;border:1px solid #D9E0DE}
+.brand{display:flex;align-items:center;gap:10px}
+.brand img{width:48px;height:48px;border-radius:10px;object-fit:cover;flex:none}
+.payq{max-width:720px;margin:12px auto 0;padding:16px;background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.12);text-align:center}
+.payq h2{margin:0 0 4px;font-size:18px}
+.payq img{display:block;width:min(260px,80%);height:auto;margin:10px auto;border:1px solid #D9E0DE;border-radius:10px}
+.payq .btn{width:min(320px,100%)}
+.payq p{margin:8px 0 0;color:#5B6B67;font-size:13px}
+@media print{body{background:#fff;padding:0}main{box-shadow:none;max-width:none}.acts,.payq{display:none}}
 `;
 
 /**
@@ -60,8 +71,11 @@ button{height:44px;padding:0 20px;border:0;border-radius:10px;background:#1D4ED8
  * @param {{name:string, place?:string, mobile?:string, gstin?:string}} shop
  * @returns {string} a whole HTML document
  */
-function invoicePage(bill, shop) {
+function invoicePage(bill, shop, opts) {
   const c = bill.customer || {};
+  const brand = bill.brand || null;
+  const payQr = opts && opts.pay;
+  const wa = brand && brand.whatsapp ? 'https://wa.me/' + brand.whatsapp + '?text=' + encodeURIComponent('Enquiry about order ' + bill.number) : '';
   const pay = bill.payment || {};
   const tax = bill.tax || {};
   const paid = Math.min(pay.receivedPaise || 0, bill.totalPaise || 0);
@@ -82,11 +96,14 @@ function invoicePage(bill, shop) {
   return '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<meta name="robots" content="noindex, nofollow">' +
-    '<title>Invoice ' + esc(bill.number) + ' · ' + esc(shop.name) + '</title>' +
+    '<title>Invoice ' + esc(bill.number) + ' · ' + esc(brand ? brand.name : shop.name) + '</title>' +
+    (brand && brand.logo ? '<link rel="icon" href="' + esc(brand.logo) + '">' : '') +
     '<style>' + STYLE + '</style></head><body><main>' +
-    '<header><div><h1>' + esc(shop.name) + '</h1>' +
+    '<header><div>' + (brand
+      ? '<div class="brand">' + (brand.logo ? '<img src="' + esc(brand.logo) + '" alt="">' : '') + '<h1>' + esc(brand.name) + '</h1></div>'
+      : '<h1>' + esc(shop.name) + '</h1>') +
     (shop.place ? '<span class="dim">' + esc(shop.place) + '</span>' : '') +
-    (shop.mobile ? '<span class="dim">Mobile: ' + esc(shop.mobile) + '</span>' : '') +
+    (shop.mobile && !brand ? '<span class="dim">Mobile: ' + esc(shop.mobile) + '</span>' : '') +
     (shop.gstin ? '<span class="dim">GSTIN: ' + esc(shop.gstin) + '</span>' : '') + '</div>' +
     '<div class="meta"><b>INVOICE</b><span class="dim">No. ' + esc(bill.number) + '</span>' +
     '<span class="dim">' + esc(when(bill.createdAt)) + '</span></div></header>' +
@@ -109,7 +126,18 @@ function invoicePage(bill, shop) {
     '<div class="pay">' + esc(STATUSES[pay.status] || pay.status) + ' · ' + esc(METHODS[pay.method] || pay.method) + '</div>' +
     (bill.status === 'void' ? '<div class="void">VOID</div>' : '') +
     '<footer>Thank you for your purchase</footer></main>' +
-    '<div class="acts"><button type="button" onclick="window.print()">Print or save as PDF</button></div>' +
+    (payQr ? '<section class="payq" id="payq"><h2>Pay ' + esc(money.inr(pay.balancePaise || bill.totalPaise || 0)) + '</h2>' +
+      '<img src="' + esc(payQr.image) + '" alt="UPI QR code for this order">' +
+      (payQr.upiUri ? '<a class="btn" href="' + esc(payQr.upiUri) + '">Pay with UPI app</a>' : '') +
+      '<p>Scan with GPay, PhonePe or any UPI app, or tap the button on this phone. The payment is confirmed here and in your chat automatically.</p></section>' +
+      /* asks every few seconds whether Razorpay has the money, and says so here */
+      '<script>(function(){var u=location.pathname.replace(/\/+$/,"")+"/status",n=0;' +
+      'function done(){var q=document.getElementById("payq");if(q)q.innerHTML="<h2>\u2705 Payment received</h2><p>Thank you! Your order is being packed.</p>";' +
+      'var s=document.querySelector(".pay");if(s)s.textContent="Paid \u00b7 UPI";}' +
+      'function ask(){if(++n>240)return;fetch(u,{cache:"no-store"}).then(function(r){return r.json()}).then(function(d){if(d&&d.paid)done();else setTimeout(ask,5000)},function(){setTimeout(ask,8000)})}' +
+      'setTimeout(ask,4000)})();</script>' : '') +
+    '<div class="acts"><button type="button" onclick="window.print()">Download bill (PDF)</button>' +
+    (wa ? '<a class="btn btn--wa" href="' + esc(wa) + '" target="_blank" rel="noopener">Enquiry on WhatsApp</a>' : '') + '</div>' +
     '</body></html>';
 }
 

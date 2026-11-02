@@ -1543,6 +1543,13 @@ async function finaliseBill(uid, body) {
       updatedAt: now,
       history: [{ at: now, action: 'created', paymentStatus: payment.status, by: byName(body.actor) }]
     };
+    /* a bill sold under another name (an Instagram order) shows that name and logo */
+    if (body.brand && typeof body.brand === 'object' && text(body.brand.name, 40)) {
+      bill.brand = {
+        name: text(body.brand.name, 40), logo: /^https:\/\/\S+$/.test(text(body.brand.logo, 400)) ? text(body.brand.logo, 400) : '',
+        whatsapp: /^\d{10,13}$/.test(String(body.brand.whatsapp || '')) ? String(body.brand.whatsapp) : ''
+      };
+    }
     if (emiTerms) {
       const plan = emiEngine.plan(Object.assign({ principalPaise: payment.balancePaise }, emiTerms));
       bill.emi = Object.assign(plan, { interestPaidPaise: 0 });
@@ -2152,7 +2159,42 @@ async function sharedInvoice(query) {
   const billSnap = await billCol(uid).doc(billId).get();
   const bill = owned(uid, billSnap);
   if (!bill || bill.shareToken !== token) throw notFound('invoice-not-found');
-  return invoicePage(bill, settings.invoiceHeader(await settings.storeOf(uid)));
+  /* an order bill still unpaid carries its QR and a button that pays it */
+  const qr = bill.brand && bill.payment && bill.payment.status !== 'paid' ? await settings.orderQrFor(uid, billId) : null;
+  const pay = qr ? { upiUri: qr.upiUri || '', image: qr.upiUri ? '/i/' + token + '/qr.png' : qr.imageUrl } : null;
+  return invoicePage(bill, settings.invoiceHeader(await settings.storeOf(uid)), { pay });
+}
+
+async function linkedBill(query) {
+  const token = String(query.t || '');
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) throw notFound('invoice-not-found');
+  const link = await db().collection(C.INVOICE_LINKS).doc(token).get();
+  if (!link.exists) throw notFound('invoice-not-found');
+  return link.data();
+}
+
+/** The payment QR of a shared order bill, as a picture Instagram can send. */
+async function sharedInvoiceQr(query) {
+  const { uid, billId } = await linkedBill(query);
+  const qr = await settings.orderQrFor(uid, billId);
+  if (!qr || !qr.upiUri) throw notFound('invoice-not-found');
+  return settings.qrPng(qr.upiUri, query.wide === '1');
+}
+
+/** Paid yet? Asked by the bill page while it shows the QR. Razorpay is asked, not the page. */
+async function sharedInvoiceStatus(query) {
+  const { uid, billId } = await linkedBill(query);
+  const bill = owned(uid, await billCol(uid).doc(billId).get());
+  if (!bill) throw notFound('invoice-not-found');
+  if (bill.payment && bill.payment.status === 'paid') return { paid: true };
+  for (const d of await settings.orderQrsOf(uid, billId)) {
+    if (d.status === 'paid') return { paid: true };
+    if (d.status === 'active') {
+      const st = await settings.qrStatus(uid, { id: d.id }).catch(() => null);
+      if (st && st.status === 'paid') return { paid: true };
+    }
+  }
+  return { paid: false };
 }
 
 /* ============================================================== CUSTOMERS
@@ -2382,7 +2424,7 @@ module.exports = {
   createCategory, addSuggested, renameCategory, updateCategory, reorderCategories, deleteCategory,
   createProduct, updateProduct, archiveProduct, adjustStock, listMoves,
   groupInfo, modelGroups, compatProducts,
-  finaliseBill, updatePayment, payInstalment, voidBill, getBill, listBills, shareBill, sharedInvoice,
+  finaliseBill, updatePayment, payInstalment, voidBill, getBill, listBills, shareBill, sharedInvoice, sharedInvoiceQr, sharedInvoiceStatus,
   createOffer, updateOffer, setOfferStatus, setOfferAuto, archiveOffer, saveOfferSettings,
   createCustomer, updateCustomer, listCustomers, getCustomer,
   overview, salesOverview,

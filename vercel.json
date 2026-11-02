@@ -159,6 +159,18 @@
       "dest": "/api/shop.js?section=$1"
     },
     {
+      "src": "/i/([A-Za-z0-9_-]{20,64})/qr\\.png$",
+      "dest": "/api/shop.js?section=invoice-qr&t=$1"
+    },
+    {
+      "src": "/i/([A-Za-z0-9_-]{20,64})/qr-wide\\.png$",
+      "dest": "/api/shop.js?section=invoice-qr&wide=1&t=$1"
+    },
+    {
+      "src": "/i/([A-Za-z0-9_-]{20,64})/status$",
+      "dest": "/api/shop.js?section=invoice-status&t=$1"
+    },
+    {
       "src": "/i/([A-Za-z0-9_-]{20,64})/?$",
       "dest": "/api/shop.js?section=invoice&t=$1"
     },

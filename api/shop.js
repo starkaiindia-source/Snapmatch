@@ -146,10 +146,37 @@ async function sharedInvoice(req, res) {
   }
 }
 
+/* The order's payment QR as a picture: what Instagram sends, and the bill page shows. */
+async function sharedInvoiceQr(req, res) {
+  try {
+    const png = await shop.sharedInvoiceQr(req.query || {});
+    res.status(200);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    return res.end(png);
+  } catch (err) {
+    if (err instanceof shop.ShopError) { res.status(404); return res.end(); }
+    return fail(res, err, 'shop:invoice-qr');
+  }
+}
+
+async function sharedInvoiceStatus(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    return json(res, 200, await shop.sharedInvoiceStatus(req.query || {}));
+  } catch (err) {
+    if (err instanceof shop.ShopError) return json(res, 404, { error: 'not found' });
+    return fail(res, err, 'shop:invoice-status');
+  }
+}
+
 module.exports = async function handler(req, res) {
   const section = sectionFrom(req);
   const isGet = req.method === 'GET';
   if (isGet && section === 'invoice') return sharedInvoice(req, res);
+  if (isGet && section === 'invoice-qr') return sharedInvoiceQr(req, res);
+  if (isGet && section === 'invoice-status') return sharedInvoiceStatus(req, res);
   if (req.method !== 'GET' && req.method !== 'POST') return notAllowed(res);
   if (isGet ? !has(GETS, section) : !has(POSTS, section)) {
     return json(res, 404, { error: 'no such shop section', section: section || null });
