@@ -29,6 +29,8 @@ const SCOPES = {
   instagram: ['instagram_business_basic', 'instagram_business_manage_comments', 'instagram_business_manage_messages']
 };
 const FIELDS = 'comments,messages';
+/* A Page has no comments field, and refuses a list that names one. */
+const PAGE_FIELDS = 'feed,messages';
 
 /**
  * @param {object} opts
@@ -96,7 +98,8 @@ function createMetaClient(opts = {}) {
       if (login === 'instagram' || err.kind === 'rate_limited' || err.kind === 'network') throw err;
       const p = await linkedPage().catch(() => null);
       if (!p) throw err;
-      return run(p);
+      /* the first refusal is the one that says what is wrong with this token */
+      try { return await run(p); } catch (second) { throw err; }
     }
   }
 
@@ -135,8 +138,9 @@ function createMetaClient(opts = {}) {
 
   /** Asks Meta to start sending this account's comments and messages. */
   async function subscribe() {
-    const params = { subscribed_fields: FIELDS };
-    await asAccount(p => call('POST', `${login === 'instagram' ? 'me' : p ? p.id : igUserId}/subscribed_apps`, { params, as: p ? p.token : undefined }));
+    await asAccount(p => call('POST', `${login === 'instagram' ? 'me' : p ? p.id : igUserId}/subscribed_apps`, {
+      params: { subscribed_fields: p ? PAGE_FIELDS : FIELDS }, as: p ? p.token : undefined
+    }));
     return { fields: FIELDS.split(',') };
   }
 
