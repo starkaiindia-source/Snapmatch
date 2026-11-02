@@ -189,6 +189,10 @@ const PERMISSIONS = {
   COMPAT_REVIEW: 'compat.review',           /* reject, edit a match, change category, mark duplicate */
   COMPAT_APPROVE: 'compat.approve',         /* approve: the one that writes production fitments */
 
+  /* Replies go out in public under the brand's name, so no role but the owner's
+     holds this. */
+  AUTO_REPLY_MANAGE: 'autoreply.manage',
+
   /* operations */
   AUDIT_READ: 'audit.read',
   ADMINS_READ: 'admins.read',

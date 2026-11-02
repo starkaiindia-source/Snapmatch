@@ -25,6 +25,11 @@
    A shop's own Razorpay account reports here too, on the same address with
    ?shop=<uid>. That is a different account with a different secret, so it never
    reaches the subscription code below (see api/_services/shop-settings.js).
+
+   So does Instagram, at /api/instagram-webhook (see vercel.json). A webhook needs
+   the unparsed body, this is the one function set up for that, and the project
+   has no function left to give it. It is required only when Instagram calls, so
+   a payment pays nothing for it.
    ========================================================================== */
 'use strict';
 
@@ -36,7 +41,27 @@ const { shopWebhook } = require('./_services/shop-settings');
 
 const HANDLED = new Set(['payment.captured', 'payment.authorized', 'payment.failed', 'order.paid']);
 
+async function instagramWebhook(req, res) {
+  const replies = require('./_services/auto-reply/service');
+  try {
+    if (req.method === 'GET') {
+      const challenge = replies.handshake(new URL(req.url, 'https://local').searchParams);
+      res.statusCode = challenge ? 200 : 403;
+      res.setHeader('Content-Type', 'text/plain');
+      return res.end(challenge || 'forbidden');
+    }
+    if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
+    const r = await replies.receive(await readRawBody(req), req.headers['x-hub-signature-256']);
+    return json(res, r.status, r.body);
+  } catch (err) {
+    return fail(res, err, 'instagram-webhook');
+  }
+}
+
 module.exports = async function handler(req, res) {
+  if (new URL(req.url, 'https://local').searchParams.get('source') === 'instagram' || /instagram-webhook/.test(req.url)) {
+    return instagramWebhook(req, res);
+  }
   if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
 
   try {

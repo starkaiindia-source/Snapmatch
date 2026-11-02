@@ -121,7 +121,10 @@
     /* Instagram compatibility intelligence. Reads take a `view`; writes an
        `action`. The server checks the permission for each one. */
     instagram: function (params) { return request('/api/admin/instagram' + qs(params)); },
-    instagramAction: function (body) { return request('/api/admin/instagram', { method: 'POST', body: body }); }
+    instagramAction: function (body) { return request('/api/admin/instagram', { method: 'POST', body: body }); },
+
+    autoReply: function (params) { return request('/api/admin/auto-reply' + qs(params)); },
+    autoReplyAction: function (body) { return request('/api/admin/auto-reply', { method: 'POST', body: body }); }
   };
 
   ADM.request = request;

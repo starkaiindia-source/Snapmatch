@@ -116,6 +116,9 @@ const ADMIN_AUDIT_LOG = 'adminAuditLog';
 
 /** rateLimits/{bucketKey} — fixed-window counters. internal. */
 const RATE_LIMITS = 'rateLimits';
+/* Auto Reply: one settings document per channel, and every comment or message it saw. */
+const AUTO_REPLY = 'autoReply';
+const AUTO_REPLY_EVENTS = 'autoReplyEvents';
 
 /** searchUsage/{uid} — the lifetime free-search allowance: how many of the
     five have been spent, and on which models. server.
@@ -182,6 +185,7 @@ module.exports = {
   APPROVED_COMPATIBILITIES, INSTAGRAM_MEDIA_CACHE, INSTAGRAM_USAGE_DAILY,
   COMPAT_CATEGORIES,
   ADMIN_AUDIT_LOG, RATE_LIMITS, SEARCH_USAGE,
+  AUTO_REPLY, AUTO_REPLY_EVENTS,
   SHOPS, SHOP_CATEGORIES, SHOP_PRODUCTS, SHOP_STOCK_MOVES, SHOP_BILLS, SHOP_CUSTOMERS, SHOP_DAYS, SHOP_OFFERS, SHOP_PRIVATE, SHOP_QR, SHOP_STAFF, INVOICE_LINKS,
   MODELS, BRANDS, GROUPS, GROUP_DETAILS, MODEL_GROUPS, DEVICE_GROUPS,
   ALIASES, CATALOG
