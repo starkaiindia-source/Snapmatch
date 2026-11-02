@@ -13,8 +13,8 @@
 const money = require('../../src/data/shop-money');
 const offers = require('../../src/data/shop-offers');
 
-const METHODS = { cash: 'Cash', upi: 'UPI', card: 'Card', other: 'Other' };
-const STATUSES = { unpaid: 'Unpaid', partial: 'Partially Paid', paid: 'Paid' };
+const METHODS = { cash: 'Cash', upi: 'UPI', card: 'Card', netbanking: 'Net Banking', other: 'Other' };
+const STATUSES = { unpaid: 'Unpaid', partial: 'Partially Paid', paid: 'Paid', emi: 'EMI' };
 
 function esc(value) {
   return String(value == null ? '' : value).replace(/[&<>"']/g, c => (

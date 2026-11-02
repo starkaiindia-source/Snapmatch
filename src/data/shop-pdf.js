@@ -242,6 +242,7 @@
     if (bill.offerDiscountPaise) row('Total discount', words.money(bill.offerDiscountPaise + (bill.discountPaise || 0)));
     row('Amount paid', words.money(Math.min(pay.receivedPaise || 0, bill.totalPaise || 0)));
     row('Balance due', words.money(pay.balancePaise || 0), pay.balancePaise ? { color: '#B42318', bold: true } : null);
+    if (bill.emi) row('Monthly EMI', words.money(bill.emi.emiPaise) + ' x ' + bill.emi.months);
     put(g, words.status + ' · ' + words.method, right, y + 6, 22, { color: DIM, align: 'right' });
 
     if (bill.status === 'void') {

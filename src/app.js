@@ -591,7 +591,7 @@
       link.onload = link.onerror = function () { resolve(); };
       document.head.appendChild(link);
     });
-    var js = ['/src/data/shop-money.js', '/src/data/shop-products.js', '/src/data/shop-offers.js', '/src/data/shop-periods.js', '/src/data/shop-share.js', '/src/data/shop-pdf.js',
+    var js = ['/src/data/shop-money.js', '/src/data/shop-products.js', '/src/data/shop-offers.js', '/src/data/shop-periods.js', '/src/data/shop-emi.js', '/src/data/shop-share.js', '/src/data/shop-pdf.js',
       '/src/shop/shop-api.js', '/src/shop/quick-billing.js']
       .reduce(function (p, src) {
         return p.then(function () {

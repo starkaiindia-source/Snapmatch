@@ -8,7 +8,7 @@
      GET  /api/shop/group?id=         one compatibility group, cut to the plan
      GET  /api/shop/model-groups?modelId=  the groups a device is in
      GET  /api/shop/compat?modelId=   this shop's products that fit a device
-     POST /api/shop/bill              { action: finalise | payment | void | share }
+     POST /api/shop/bill              { action: finalise | instalment | payment | void | share }
      GET  /api/shop/bill?id=          one saved bill
      GET  /api/shop/bills?q=&cursor=  bill history, or a search
      POST /api/shop/offer             { action: create | update | status | auto | remove | settings }
@@ -59,6 +59,7 @@ const POSTS = {
   },
   bill: {
     finalise: shop.finaliseBill,
+    instalment: shop.payInstalment,
     payment: shop.updatePayment,
     void: shop.voidBill,
     share: shop.shareBill

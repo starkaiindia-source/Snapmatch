@@ -34,7 +34,7 @@
    ========================================================================== */
 (function (global) {
   'use strict';
-  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts, SH = SM.shopShare, OF = SM.shopOffers, PD = SM.shopPeriods;
+  var SM = global.SM, C = SM.C, icon = SM.icon, M = SM.shopMoney, API = SM.shopApi, PF = SM.shopProducts, SH = SM.shopShare, OF = SM.shopOffers, PD = SM.shopPeriods, EM = SM.shopEmi;
   var esc = C.esc, inr = M.inr;
 
   var PRODUCT_PAGE = 50;
@@ -42,14 +42,16 @@
      on the Bills page are added up from the rows. */
   var BILL_PAGE = 300;
 
-  var METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'], ['other', 'Other']];
-  var STATUSES = [['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['paid', 'Paid']];
-  /* The phone's payment cards. upi.png is NPCI's own artwork with its blank margins
-     cut off, and the other two are this project's drawings. Card names no network:
-     nothing here records which networks a shop's card machine takes. Other is on
-     the desktop bill only. */
-  var METHOD_LOGOS = { cash: '/assets/pay/cash.svg', upi: '/assets/pay/upi.png', card: '/assets/pay/card.svg' };
-  var BILL_STATUSES = [['all', 'All Statuses'], ['paid', 'Paid'], ['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['void', 'Void']];
+  var METHODS = [['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Card'], ['netbanking', 'Net Banking'], ['other', 'Other']];
+  var STATUSES = [['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['paid', 'Paid'], ['emi', 'EMI']];
+  /* The phone's payment cards. upi.png is NPCI's own artwork, cut to the UPI mark.
+     The rest are this project's drawings. Card names no network: nothing here
+     records which networks a shop's card machine takes. */
+  var METHOD_LOGOS = { cash: '/assets/pay/cash.svg', upi: '/assets/pay/upi.png', card: '/assets/pay/card.svg', netbanking: '/assets/pay/bank.svg' };
+  function methodsHere() {
+    return METHODS.filter(function (m) { return m[0] !== (wide() ? 'netbanking' : 'other'); });
+  }
+  var BILL_STATUSES = [['all', 'All Statuses'], ['paid', 'Paid'], ['unpaid', 'Unpaid'], ['partial', 'Partially Paid'], ['emi', 'EMI'], ['void', 'Void']];
   var SIZES = [['a4', 'A4'], ['a5', 'A5'], ['80', '80 mm'], ['58', '58 mm']];
   var VOID_REASONS = ['Customer returned the items', 'Wrong item or price', 'Duplicate bill', 'Other'];
   var ADJUST_REASONS = ['Stock received', 'Damaged / faulty', 'Stock count correction', 'Other'];
@@ -195,6 +197,12 @@
       case 'image-too-large': return 'That photo is too large. Try a smaller one.';
       case 'image-upload-failed': return 'The photo could not be uploaded. Try again, or save without a photo.';
       case 'bill-void': return 'This bill is void.';
+      case 'emi-customer': return 'An EMI bill needs a customer. Add their name and mobile number.';
+      case 'emi-down': return 'The down payment has to be less than the bill.';
+      case 'emi-months': return 'Choose how many months.';
+      case 'emi-rate': return 'Enter an interest rate of 60% a year or less.';
+      case 'emi-first-due': return 'Choose the date of the first instalment.';
+      case 'bill-emi': return 'This bill is on EMI. Collect it one instalment at a time.';
       case 'bill-discount-too-large': return 'The discount is more than the bill.';
       case 'bill-not-found': return 'This bill could not be found.';
       default: return 'Something went wrong. Please try again.';
@@ -210,6 +218,7 @@
       tax: { on: false, rate: '18', inclusive: false, label: 'GST' },
       customer: { id: '', name: '', mobile: '', whatsapp: '', address: '', gstin: '', notes: '' },
       payment: { method: 'cash', status: 'paid', received: '' },
+      emi: { down: '', months: '6', rate: '', method: 'flat', first: '' },
       autoOffers: null          /* null: this bill follows the shop's setting */
     };
   }
@@ -231,6 +240,7 @@
           tax: Object.assign(e.tax, c.tax),
           customer: Object.assign(e.customer, sessionCustomer()),
           payment: Object.assign(e.payment, c.payment),
+          emi: Object.assign(e.emi, c.emi),
           autoOffers: c.autoOffers == null ? null : !!c.autoOffers
         };
       }
@@ -240,7 +250,7 @@
   function saveCart() {
     if (!S.uid || !S.cart) return;
     var c = S.cart;
-    store(cartKey(), JSON.stringify({ fid: c.fid, lines: c.lines, discount: c.discount, tax: c.tax, payment: c.payment, autoOffers: c.autoOffers }));
+    store(cartKey(), JSON.stringify({ fid: c.fid, lines: c.lines, discount: c.discount, tax: c.tax, payment: c.payment, emi: c.emi, autoOffers: c.autoOffers }));
     try { global.sessionStorage.setItem(cartKey(), JSON.stringify(c.customer)); } catch (e) { /* private mode */ }
   }
   function lineByKey(k) { for (var i = 0; i < S.cart.lines.length; i++) if (S.cart.lines[i].key === k) return S.cart.lines[i]; return null; }
@@ -316,7 +326,8 @@
     var discount = { mode: c.discount.mode, value: dv == null ? 0 : dv };
     var bp = c.tax.on ? M.parsePercent(String(c.tax.rate || '')) : 0;
     var tax = { rateBp: bp || 0, inclusive: !!c.tax.inclusive, label: String(c.tax.label || '').trim().slice(0, 16) || 'Tax' };
-    var rt = String(c.payment.received || '').trim();
+    var isEmi = c.payment.status === 'emi';
+    var rt = String((isEmi ? c.emi.down : c.payment.received) || '').trim();
     var rv = rt ? M.parseRupees(rt) : 0;
 
     var totals = M.computeBill(lines, discount, tax, 0);
@@ -325,13 +336,15 @@
       totals.discountError = true;
     }
     var pay = settlePreview(totals.totalPaise, c.payment.status, rv || 0);
+    var emi = isEmi ? emiDraft(totals.totalPaise, rv) : null;
 
     var errors = {};
+    if (emi && emi.error) errors.emi = emi.error;
     c.lines.forEach(function (l) { if (l.unitPaise == null) errors['line:' + l.key] = 'Enter a price'; });
     if (dv == null) errors.disc = 'Not a valid ' + (c.discount.mode === 'percent' ? 'percentage' : 'amount');
     else if (totals.discountError) errors.disc = 'Discount is more than the bill';
     if (c.tax.on && !bp) errors.tax = 'Enter a tax rate, e.g. 18';
-    if (rv == null) errors.recv = 'Not a valid amount';
+    if (rv == null && !isEmi) errors.recv = 'Not a valid amount';
     else if (c.payment.status === 'partial' && (!rv || rv >= totals.totalPaise)) errors.recv = 'Enter the part amount received';
     var cust = c.customer;
     var phone = digitsOf(cust.mobile);
@@ -340,14 +353,30 @@
     if (whats && whats.length < 10) errors.cwhats = 'Enter the full number, or leave it empty';
     var gst = String(cust.gstin || '').trim();
     if (gst && !/^[0-9A-Za-z]{15}$/.test(gst)) errors.cgstin = 'A GSTIN has 15 letters and numbers';
+    if (isEmi && !errors.emi && !cust.id && phone.length < 10) errors.emi = 'An EMI bill needs the customer’s name and mobile number';
     var ok = c.lines.length > 0 && Object.keys(errors).length === 0;
-    return { totals: totals, offers: offers, pay: pay, discount: discount, tax: tax, received: rv || 0, errors: errors, ok: ok };
+    return { totals: totals, offers: offers, pay: pay, emi: emi, discount: discount, tax: tax, received: rv || 0, errors: errors, ok: ok };
+  }
+
+  /* The plan as it stands, for the screen. The server works it out again. */
+  function emiFirstDue() {
+    return S.cart.emi.first || EM.addMonths(PD.dayKey(Date.now()), 1);
+  }
+  function emiDraft(total, down) {
+    var e = S.cart.emi;
+    var months = /^\d{1,2}$/.test(String(e.months).trim()) ? Number(e.months) : 0;
+    var bp = String(e.rate || '').trim() ? M.parsePercent(String(e.rate)) : 0;
+    if (down == null || down >= total) return { error: 'The down payment has to be less than the bill' };
+    if (!months || months > EM.MAX_MONTHS) return { error: 'Choose between 1 and ' + EM.MAX_MONTHS + ' months' };
+    if (bp == null || bp > EM.MAX_RATE_BP) return { error: 'Enter an interest rate of 60% a year or less' };
+    return { plan: EM.plan({ principalPaise: total - down, months: months, rateBp: bp, method: e.method, firstDue: emiFirstDue() }) };
   }
 
   /* The same rule the server applies: "Paid" with nothing typed is paid in
      full, "Unpaid" is nothing received, and otherwise the amount decides. */
   function settlePreview(total, status, received) {
     var r = received;
+    if (status === 'emi') return { status: 'emi', receivedPaise: r, balancePaise: Math.max(0, total - r), changePaise: 0 };
     if (status === 'paid' && !r) r = total;
     if (status === 'unpaid') r = 0;
     return {
@@ -376,6 +405,7 @@
       offers: { auto: autoOffers(), picks: c.lines.map(function (l) { return l.offerPick || null; }) },
       expectedTotalPaise: d.totals.totalPaise,
       payment: { method: c.payment.method, status: c.payment.status, receivedPaise: d.received },
+      emi: d.emi && d.emi.plan ? { months: d.emi.plan.months, rateBp: d.emi.plan.rateBp, method: d.emi.plan.method, firstDue: d.emi.plan.firstDue } : undefined,
       customer: {
         id: c.customer.id || undefined, name: c.customer.name, mobile: c.customer.mobile, whatsapp: c.customer.whatsapp,
         address: c.customer.address, gstin: c.customer.gstin, notes: c.customer.notes
@@ -467,12 +497,23 @@
       t('Balance due', M.format(pay.balancePaise || 0), pay.balancePaise ? 'inv__due' : '') +
       (pay.changePaise ? t('Change', M.format(pay.changePaise)) : '') +
       '</div>';
-    var status = '<div class="inv__pay">' + esc(label(STATUSES, pay.status)) + ' · ' + esc(label(METHODS, pay.method)) + '</div>';
+    var status = '<div class="inv__pay">' + esc(label(STATUSES, pay.status)) + ' · ' + esc(label(METHODS, pay.method)) + '</div>' + (b.emi ? invoiceEmiHTML(b.emi) : '');
     var stamp = b.status === 'void'
       ? '<div class="inv__void">VOID<span>' + esc(b.voidReason || '') + '</span></div>' : '';
     return '<article class="inv inv--' + (size || 'preview') + (b.status === 'void' ? ' is-void' : '') + '">' +
       head + to + table + totals + status + stamp +
       '<footer class="inv__foot">Thank you for your purchase</footer></article>';
+  }
+
+  function emiTerms(e) {
+    return e.months + (e.months === 1 ? ' month' : ' months') + ' · ' + (e.rateBp ? pct(e.rateBp) + ' a year, ' + (e.method === 'reducing' ? 'reducing' : 'flat') : 'no interest');
+  }
+  function fullDay(key) { return PD.dayName(key) + ' ' + key.slice(0, 4); }
+  function invoiceEmiHTML(e) {
+    return '<div class="inv__emi"><div class="inv__t"><span>EMI plan</span><b>' + esc(emiTerms(e)) + '</b></div>' +
+      '<div class="inv__t"><span>Monthly instalment</span><b>' + M.format(e.emiPaise) + '</b></div>' +
+      (e.interestPaise ? '<div class="inv__t"><span>Interest on the plan</span><b>' + M.format(e.interestPaise) + '</b></div>' : '') +
+      '<div class="inv__t"><span>First instalment due</span><b>' + esc(fullDay(e.firstDue)) + '</b></div></div>';
   }
 
   /* ============================================================== PRINTING
@@ -1164,20 +1205,40 @@
       return '<button type="button" class="' + (cur === x[0] ? 'is-on' : '') + '" data-qb="' + act + '" data-id="' + x[0] + '" aria-pressed="' + (cur === x[0]) + '">' + inner + '</button>';
     };
     return '<div class="qb-sec"><h2>Payment</h2></div>' +
-      '<div class="' + (wide() ? 'qb-seg' : 'qb-paym') + '" role="group" aria-label="Payment method">' + METHODS.filter(function (m) {
-        return wide() || METHOD_LOGOS[m[0]];
-      }).map(function (m) {
+      '<div class="' + (wide() ? 'qb-seg' : 'qb-paym') + '" role="group" aria-label="Payment method">' + methodsHere().map(function (m) {
         return option(m, c.payment.method, 'pay-method', wide() ? m[1]
           : '<img src="' + METHOD_LOGOS[m[0]] + '" alt="" decoding="async" /><span>' + m[1] + '</span>');
       }).join('') + '</div>' +
       '<div class="qb-seg" role="group" aria-label="Payment status" id="qbStatus">' + STATUSES.map(function (s) {
         return option(s, c.payment.status, 'pay-status', s[1]);
       }).join('') + '</div>' +
-      '<div class="qb-recv"><div class="qb-field"><label class="qb-lab" for="qbRecv">Amount received</label>' +
-      '<label class="qb-prefix"><span>₹</span><input class="input qb-in" id="qbRecv" inputmode="decimal" autocomplete="off" ' +
-      'placeholder="' + (c.payment.status === 'paid' ? M.toInput(d.totals.totalPaise) + ' (full)' : '0') + '" value="' + esc(c.payment.received) + '" data-qbi="recv" /></label>' +
-      '<small class="qb-err" data-err="recv">' + esc(d.errors.recv || '') + '</small></div>' +
-      '<div class="qb-bal" id="qbBal">' + balanceHTML(d) + '</div></div>';
+      '<div id="qbRecvBox">' + recvBoxHTML(d) + '</div>';
+  }
+  function recvBoxHTML(d) {
+    var c = S.cart;
+    if (c.payment.status === 'emi') return emiBarHTML(d);
+    return '<div class="qb-recv">' + (wide()
+        ? '<div class="qb-field"><label class="qb-lab" for="qbRecv">Amount received</label>' +
+          '<label class="qb-prefix"><span>₹</span><input class="input qb-in" id="qbRecv" inputmode="decimal" autocomplete="off" ' +
+          'placeholder="' + (c.payment.status === 'paid' ? M.toInput(d.totals.totalPaise) + ' (full)' : '0') + '" value="' + esc(c.payment.received) + '" data-qbi="recv" /></label>' +
+          '<small class="qb-err" data-err="recv">' + esc(d.errors.recv || '') + '</small></div>'
+        : '<label class="qb-recvtile"><span>Amount Received</span><span class="qb-recvtile__in"><i>₹</i>' +
+          '<input id="qbRecv" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(recvShown(d)) + '" data-qbi="recv" aria-label="Amount received"' +
+          (c.payment.status === 'partial' ? '' : ' readonly') + ' /></span></label>') +
+      '<div class="qb-bal" id="qbBal">' + balanceHTML(d) + '</div></div>' +
+      (wide() ? '' : '<small class="qb-err" data-err="recv">' + esc(d.errors.recv || '') + '</small>');
+  }
+  /* On a phone the amount is typed only for a part payment. Otherwise the status
+     says what it is: the whole bill, or nothing. */
+  function recvShown(d) {
+    return S.cart.payment.status === 'partial' ? S.cart.payment.received : M.toInput(d.pay.receivedPaise);
+  }
+  function emiBarHTML(d) {
+    var p = d.emi && d.emi.plan;
+    return '<button type="button" class="qb-emibar" data-qb="emi-edit"><span class="grow">' +
+      (p ? '<b>' + inr(p.emiPaise) + ' × ' + p.months + '</b><em>Down ' + inr(d.pay.receivedPaise) + ' · ' + esc(p.rateBp ? pct(p.rateBp) + ' ' + p.method : 'No interest') + '</em>' : '<b>Set up the EMI plan</b>') +
+      '</span>' + icon('edit') + '<span>Edit</span></button>' +
+      '<small class="qb-err" data-err="emi">' + esc(d.errors.emi || '') + '</small>';
   }
 
   function balanceHTML(d) {
@@ -1264,7 +1325,12 @@
       b.setAttribute('aria-pressed', String(on));
     });
     var recv = el('qbRecv');
-    if (recv) recv.placeholder = S.cart.payment.status === 'paid' ? M.toInput(d.totals.totalPaise) + ' (full)' : '0';
+    if (recv && wide()) recv.placeholder = S.cart.payment.status === 'paid' ? M.toInput(d.totals.totalPaise) + ' (full)' : '0';
+    if (recv && !wide()) {
+      recv.readOnly = S.cart.payment.status !== 'partial';
+      if (document.activeElement !== recv) recv.value = recvShown(d);
+    }
+    if (S.cart.payment.status === 'emi') paint('qbRecvBox', emiBarHTML(d));
     ['disc', 'tax', 'recv', 'cmobile', 'cwhats', 'cgstin'].forEach(function (k) {
       var e = document.querySelector('[data-err="' + k + '"]');
       if (e) e.textContent = d.errors[k] || '';
@@ -1287,7 +1353,7 @@
   }
   /** What has to be put right on the first page. The rest is on the second. */
   function firstPageErrors(d) {
-    return Object.keys(d.errors).filter(function (k) { return !/^(disc|tax|recv)$/.test(k); });
+    return Object.keys(d.errors).filter(function (k) { return !/^(disc|tax|recv|emi)$/.test(k); });
   }
   function openReview() {
     var d = draft();
@@ -1309,6 +1375,58 @@
       '<div class="qb-dock"><section class="qb-pay" id="qbPay" aria-label="Payment details">' + payHTML(d) + '</section>' +
       '<div class="qb-acts" id="qbActs">' + actsHTML() + '</div>' +
       '<div class="qb-cartbar" id="qbCartBar">' + cartBarHTML() + '</div></div>');
+  }
+
+  /* ------------------------------------------------------------------- EMI
+
+     The shop gives the credit itself: a down payment now, the rest in monthly
+     instalments, on the terms it chooses here. Saved with the bill, and collected
+     one instalment at a time from the bill's own page. */
+  function openEmiForm() {
+    var e = S.cart.emi;
+    S.sheet = { type: 'emi' };
+    var chip = function (n) {
+      var on = String(e.months) === String(n);
+      return '<button type="button" class="qb-chip' + (on ? ' is-on' : '') + '" data-qb="emi-months" data-id="' + n + '" aria-pressed="' + on + '">' + n + '</button>';
+    };
+    var seg = function (v, t) {
+      return '<button type="button" class="' + (e.method === v ? 'is-on' : '') + '" data-qb="emi-method" data-id="' + v + '" aria-pressed="' + (e.method === v) + '">' + t + '</button>';
+    };
+    openSheet('emi',
+      '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">EMI Plan</h3>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-form">' +
+      '<div class="qb-form__row">' +
+      fieldHTML('qbEDown', 'edown', 'Down payment', false, '<label class="qb-prefix"><span>₹</span><input class="input qb-in" id="qbEDown" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(e.down) + '" data-qbi="emi" data-k="down" /></label>') +
+      fieldHTML('qbEFirst', 'efirst', 'First instalment', false, '<input class="input qb-in" type="date" id="qbEFirst" value="' + esc(emiFirstDue()) + '" data-qbi="emi" data-k="first" />') +
+      '</div>' +
+      '<span class="qb-lab">Months</span><div class="qb-chips qb-chips--wrap" id="qbEMonths" role="group" aria-label="Months">' + [3, 6, 9, 12, 18, 24].map(chip).join('') +
+      '<input class="input qb-in qb-emimonths" inputmode="numeric" autocomplete="off" placeholder="Other" aria-label="Other number of months" value="' + ([3, 6, 9, 12, 18, 24].indexOf(Number(e.months)) > -1 ? '' : esc(e.months)) + '" data-qbi="emi" data-k="months" /></div>' +
+      '<div class="qb-form__row">' +
+      fieldHTML('qbERate', 'erate', 'Interest a year', false, '<label class="qb-suffix"><input class="input qb-in" id="qbERate" inputmode="decimal" autocomplete="off" placeholder="0" value="' + esc(e.rate) + '" data-qbi="emi" data-k="rate" /><span>%</span></label>') +
+      '<div class="qb-ff"><span class="qb-lab">Interest type</span><div class="qb-seg" id="qbEMethod" role="group" aria-label="Interest type">' + seg('flat', 'Flat') + seg('reducing', 'Reducing') + '</div></div>' +
+      '</div>' +
+      '<div id="qbEmiPreview">' + emiPreviewHTML() + '</div></div>' +
+      '<div class="sheet__foot"><button class="btn qb-btn grow" data-qb="close-sheet">' + icon('check') + 'Save EMI Plan</button></div>', 'EMI Plan');
+  }
+  function emiPreviewHTML() {
+    var d = draft(), p = d.emi && d.emi.plan;
+    if (!p) return '<p class="qb-err">' + esc((d.emi && d.emi.error) || d.errors.emi || '') + '</p>';
+    var row = function (k, v, cls) { return '<div class="qb-trow' + (cls ? ' ' + cls : '') + '"><span>' + k + '</span><b>' + v + '</b></div>'; };
+    var eff = p.method === 'flat' ? EM.effectiveBp(p) : 0;
+    return '<div class="qb-totals">' + row('Monthly EMI', inr(p.emiPaise), 'qb-trow--grand') +
+      row('Amount on EMI', inr(p.principalPaise)) + row('Interest', inr(p.interestPaise)) +
+      row('Customer pays in all', inr(d.pay.receivedPaise + p.totalPaise)) +
+      (eff ? row('True yearly rate', pct(eff)) : '') + '</div>' +
+      (d.errors.emi ? '<p class="qb-err">' + esc(d.errors.emi) + '</p>' : '') +
+      '<ol class="qb-emilist">' + p.schedule.map(function (s) {
+        return '<li><span>' + s.no + '</span><span>' + esc(fullDay(s.due)) + '</span><b>' + inr(s.amountPaise) + '</b></li>';
+      }).join('') + '</ol>';
+  }
+  function emiChanged() {
+    saveCart();
+    paint('qbEmiPreview', emiPreviewHTML());
+    paintDerived();
   }
 
   /* ================================================================ SAVING */
@@ -1737,7 +1855,7 @@
   }
 
   function statusPill(st) {
-    var map = { paid: ['pill--ok', 'Paid'], partial: ['pill--warn', 'Partially Paid'], unpaid: ['pill--bad', 'Unpaid'], void: ['qb-pill--void', 'VOID'] };
+    var map = { paid: ['pill--ok', 'Paid'], partial: ['pill--warn', 'Partially Paid'], unpaid: ['pill--bad', 'Unpaid'], emi: ['qb-pill--emi', 'EMI'], void: ['qb-pill--void', 'VOID'] };
     var m = map[st] || ['', st];
     return '<span class="pill ' + m[0] + '">' + m[1] + '</span>';
   }
@@ -1766,7 +1884,7 @@
     if (!b) return;
     var isVoid = b.status === 'void';
     var hist = (b.history || []).map(function (h) {
-      var what = h.action === 'created' ? 'Bill saved' : h.action === 'payment'
+      var what = h.action === 'created' ? 'Bill saved' : h.action === 'instalment' ? 'Instalment ' + h.no + ' received: ' + inr(h.amountPaise) : h.action === 'payment'
         ? 'Payment updated: ' + label(STATUSES, h.from) + ' → ' + label(STATUSES, h.to) + (h.receivedPaise != null ? ' (' + inr(h.receivedPaise) + ' received)' : '')
         : h.action === 'void' ? 'Voided — ' + (h.reason || '') + (h.restored && h.restored.length ? ' · stock restored' : '') : h.action;
       return '<li><span>' + esc(when(h.at)) + '</span>' + esc(what) + '</li>';
@@ -1784,14 +1902,67 @@
         '<div class="qb-card2"><span class="qb-lab">Payment</span>' +
         '<p class="qb-billview__pay">' + esc(label(STATUSES, b.payment.status)) + ' · ' + esc(label(METHODS, b.payment.method)) +
         ' · received ' + inr(b.payment.receivedPaise) + (b.payment.balancePaise ? ' · <b class="qb-due">' + inr(b.payment.balancePaise) + ' due</b>' : '') + '</p>' +
-        (b.payment.status !== 'paid' ? '<button class="btn btn--outline btn--block" data-qb="record-payment" data-id="' + esc(b.id) + '">' + icon('checkCircle') + 'Record payment</button>' : '') +
+        (b.payment.status !== 'paid' && !b.emi ? '<button class="btn btn--outline btn--block" data-qb="record-payment" data-id="' + esc(b.id) + '">' + icon('checkCircle') + 'Record payment</button>' : '') +
         '</div>') +
+      (b.emi ? emiCardHTML(b, isVoid) : '') +
       (b.customerId ? '<div class="qb-card2"><span class="qb-lab">Customer</span>' +
         '<a class="qb-link" href="/billing/customers/' + encodeURIComponent(b.customerId) + '">' + icon('user') + esc((b.customer && b.customer.name) || 'Open customer') + '</a></div>' : '') +
       '<div class="qb-card2"><span class="qb-lab">History</span><ul class="qb-hist">' + hist + '</ul>' +
       (isVoid ? '' : '<button class="btn btn--ghost btn--block qb-danger" data-qb="void" data-id="' + esc(b.id) + '">' + icon('alert') + 'Void this bill</button>') +
       '</div>' +
       '</div></div></div>');
+  }
+
+  /* What is due on an EMI bill, and a way to collect it or remind the customer. */
+  function emiCardHTML(b, isVoid) {
+    var e = b.emi, today = PD.dayKey(Date.now()), next = EM.nextDue(e);
+    var cust = b.customer || {};
+    var phone = SH.whatsappNumber(cust.whatsapp || cust.mobile || '');
+    var remind = next && !isVoid && phone
+      ? '<a class="btn btn--outline btn--block" target="_blank" rel="noopener noreferrer" href="' + esc(SH.whatsappUrl(phone,
+        'Hello ' + (cust.name || '') + ',\n\nYour EMI of ' + inr(next.amountPaise) + ' for bill ' + b.number + ' from ' + shopInfo().name + ' is due on ' + fullDay(next.due) + '.\n\nThank you.')) + '">' + icon('share') + 'WhatsApp Reminder</a>'
+      : '';
+    return '<div class="qb-card2"><span class="qb-lab">EMI plan</span>' +
+      '<p class="qb-billview__pay">' + esc(emiTerms(e)) + ' · ' + inr(e.emiPaise) + ' a month' + (e.interestPaise ? ' · interest ' + inr(e.interestPaise) : '') + '</p>' +
+      '<ol class="qb-emilist">' + e.schedule.map(function (s) {
+        var late = !s.paidAt && s.due < today;
+        return '<li class="' + (s.paidAt ? 'is-paid' : late ? 'is-late' : '') + '"><span>' + s.no + '</span><span>' + esc(fullDay(s.due)) + (late ? ' · Overdue' : '') + '</span><b>' + inr(s.amountPaise) + '</b>' +
+          (s.paidAt ? '<em>Paid</em>' : isVoid ? '<em></em>' : '<button class="qb-link" data-qb="emi-pay" data-id="' + esc(b.id) + '" data-no="' + s.no + '">Collect</button>') + '</li>';
+      }).join('') + '</ol>' + remind + '</div>';
+  }
+  function openEmiPay(id, no) {
+    var b = S.billCache[id];
+    var s = b && b.emi.schedule.filter(function (x) { return x.no === no; })[0];
+    if (!s) return;
+    S.sheet = { type: 'emipay', id: id, no: no, busy: false, method: 'cash' };
+    openSheet('payment',
+      '<div class="sheet__grab"></div><div class="sheet__head"><h3 class="t-h3 grow">Instalment ' + no + ' · ' + esc(b.number) + '</h3>' +
+      '<button class="iconbtn" data-qb="close-sheet" aria-label="Close">' + icon('close') + '</button></div>' +
+      '<div class="sheet__body qb-form"><p class="qb-sub">' + inr(s.amountPaise) + ' due on ' + esc(fullDay(s.due)) + '</p>' +
+      '<span class="qb-lab">Payment method</span><div class="qb-seg" role="group" aria-label="Payment method">' +
+      methodsHere().map(function (m) { return '<button type="button" class="' + (m[0] === 'cash' ? 'is-on' : '') + '" data-qb="pp-method" data-id="' + m[0] + '" aria-pressed="' + (m[0] === 'cash') + '">' + m[1] + '</button>'; }).join('') + '</div>' +
+      '<small class="qb-err" id="qbEPErr"></small></div>' +
+      '<div class="sheet__foot"><button class="btn btn--ghost" data-qb="close-sheet">Cancel</button>' +
+      '<button class="btn qb-btn grow" data-qb="emi-pay-go" id="qbEPGo">' + icon('check') + 'Mark as received</button></div>', 'Collect instalment');
+  }
+  function submitEmiPay() {
+    var sh = S.sheet;
+    if (!sh || sh.type !== 'emipay' || sh.busy) return;
+    sh.busy = true;
+    var btn = el('qbEPGo'); if (btn) btn.disabled = true;
+    API.bill({ action: 'instalment', billId: sh.id, no: sh.no, method: sh.method }).then(function (r) {
+      sh.busy = false;
+      S.billCache[sh.id] = r.bill;
+      markFiguresStale(r.bill);
+      closeSheet();
+      toast('Instalment ' + sh.no + ' received', 'checkCircle');
+      load();
+      rerender();
+    }, function (e) {
+      sh.busy = false;
+      if (btn) btn.disabled = false;
+      var er = el('qbEPErr'); if (er) er.textContent = say(e);
+    });
   }
 
   /* ============================================================== PRODUCTS */
@@ -4016,7 +4187,7 @@
       '<form class="sheet__body qb-form" data-qbf="payment" novalidate>' +
       '<p class="qb-sub">Total ' + inr(b.totalPaise) + ' · received so far ' + inr(b.payment.receivedPaise) + '</p>' +
       '<span class="qb-lab">Payment method</span><div class="qb-seg" role="group" aria-label="Payment method">' +
-      METHODS.map(function (m) { return '<button type="button" class="' + (m[0] === b.payment.method ? 'is-on' : '') + '" data-qb="pp-method" data-id="' + m[0] + '" aria-pressed="' + (m[0] === b.payment.method) + '">' + m[1] + '</button>'; }).join('') + '</div>' +
+      methodsHere().map(function (m) { return '<button type="button" class="' + (m[0] === b.payment.method ? 'is-on' : '') + '" data-qb="pp-method" data-id="' + m[0] + '" aria-pressed="' + (m[0] === b.payment.method) + '">' + m[1] + '</button>'; }).join('') + '</div>' +
       '<label class="qb-lab" for="qbPPRecv">Total amount received now</label>' +
       '<label class="qb-prefix"><span>₹</span><input class="input qb-in" id="qbPPRecv" inputmode="decimal" autocomplete="off" value="' + esc(M.toInput(b.totalPaise)) + '" /></label>' +
       '<small class="qb-err" id="qbPPErr"></small>' +
@@ -4303,12 +4474,33 @@
         break;
       case 'pay-status': {
         S.cart.payment.status = id;
+        if (id !== 'partial') S.cart.payment.received = '';
+        saveCart();
+        paint('qbRecvBox', recvBoxHTML(draft()));
+        paintDerived();
         var rcv = el('qbRecv');
-        if (id !== 'partial') { S.cart.payment.received = ''; if (rcv) rcv.value = ''; }
-        saveCart(); paintDerived();
         if (id === 'partial' && rcv) rcv.focus();
+        if (id === 'emi') openEmiForm();
         break;
       }
+      case 'emi-edit': openEmiForm(); break;
+      case 'emi-months':
+        S.cart.emi.months = id;
+        Array.prototype.forEach.call(el('qbEMonths').querySelectorAll('.qb-chip'), function (b) {
+          b.classList.toggle('is-on', b === t); b.setAttribute('aria-pressed', String(b === t));
+        });
+        document.querySelector('.qb-emimonths').value = '';
+        emiChanged();
+        break;
+      case 'emi-method':
+        S.cart.emi.method = id;
+        Array.prototype.forEach.call(t.parentNode.querySelectorAll('button'), function (b) {
+          b.classList.toggle('is-on', b === t); b.setAttribute('aria-pressed', String(b === t));
+        });
+        emiChanged();
+        break;
+      case 'emi-pay': openEmiPay(id, Number(t.getAttribute('data-no'))); break;
+      case 'emi-pay-go': submitEmiPay(); break;
       case 'confirm-bill': saveBill(); break;
       case 'print-saved': { var sb = billById(id); if (sb) printInvoice(sb, S.printSize); break; }
       case 'inv-pdf': { var pb = billById(id); if (pb) downloadInvoice(pb); break; }
@@ -4627,6 +4819,13 @@
         billSearchTimer = setTimeout(filterChanged, 150);
         break;
       }
+      case 'emi':
+        S.cart.emi[t.getAttribute('data-k')] = t.value;
+        if (t.getAttribute('data-k') === 'months' && t.value) {
+          Array.prototype.forEach.call(el('qbEMonths').querySelectorAll('.qb-chip'), function (b) { b.classList.remove('is-on'); });
+        }
+        emiChanged();
+        break;
       case 'bf-from': if (S.sheet) S.sheet.from = t.value; break;
       case 'bf-to': if (S.sheet) S.sheet.to = t.value; break;
       case 'of-search':
