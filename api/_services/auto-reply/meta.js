@@ -152,6 +152,21 @@ function createMetaClient(opts = {}) {
     return { fields: FIELDS.split(',') };
   }
 
+  /* Reading is the proof that sending needs. Instagram's "Allow access to messages"
+     cannot be asked about directly, but with it off Meta refuses to list conversations. */
+  async function probe(out, attempt) {
+    const account = login === 'instagram' ? 'me' : igUserId;
+    const talks = await attempt('messages', () => call('GET', `${account}/conversations`, { params: { platform: 'instagram', limit: 5 } }));
+    out.conversations = talks ? (talks.data || []).length : null;
+    const media = await attempt('comments', () => call('GET', `${account}/media`, {
+      params: { fields: 'id,comments_count,comments.limit(5){id,timestamp}', limit: 10 }
+    }));
+    if (!media) return;
+    const stamps = [];
+    (media.data || []).forEach(m => ((m.comments && m.comments.data) || []).forEach(c => stamps.push(Date.parse(c.timestamp) || 0)));
+    out.comments = { posts: (media.data || []).length, readable: stamps.length, latestAt: stamps.length ? Math.max.apply(null, stamps) : null };
+  }
+
   /** What this token and account can do, as Meta reports it. No secret is in it. */
   async function check() {
     const out = { login, host, account: null, page: null, token: null, missing: [], webhook: null, subscribed: null, errors: [] };
@@ -181,6 +196,7 @@ function createMetaClient(opts = {}) {
       if (who) out.account = { id: who.id, username: who.username || null };
       const subs = await attempt('subscription', () => call('GET', `${p ? p.id : igUserId}/subscribed_apps`, { as: p ? p.token : undefined }));
       if (subs) out.subscribed = ((subs.data || [])[0] || {}).subscribed_fields || [];
+      await probe(out, attempt);
       return out;
     }
 
@@ -191,6 +207,7 @@ function createMetaClient(opts = {}) {
     }
     const subs = await attempt('subscription', () => call('GET', 'me/subscribed_apps'));
     if (subs) out.subscribed = ((subs.data || [])[0] || {}).subscribed_fields || [];
+    await probe(out, attempt);
     return out;
   }
 
