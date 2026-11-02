@@ -114,6 +114,14 @@ function createMetaClient(opts = {}) {
     return r.message_id || null;
   }
 
+  /* A message to someone who commented. Links in a comment cannot be tapped, so this
+     is how a comment gets a link. Meta allows one for each person who comments. */
+  async function privateReply(commentId, text) {
+    const body = { recipient: { comment_id: commentId }, message: { text } };
+    const r = await asAccount(p => call('POST', login === 'instagram' || p ? 'me/messages' : `${igUserId}/messages`, { body, as: p ? p.token : undefined }));
+    return r.message_id || null;
+  }
+
   async function caption(mediaId) {
     const r = await call('GET', mediaId, { params: { fields: 'caption' } });
     return typeof r.caption === 'string' ? r.caption : '';
@@ -186,7 +194,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, replyToComment, sendMessage, caption, connectWebhook, subscribe, check };
+  return { login, host, replyToComment, sendMessage, privateReply, caption, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };

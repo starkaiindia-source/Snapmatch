@@ -405,6 +405,80 @@ test('Connect webhook points the app here with its own token, then starts the ac
   } finally { global.fetch = real; n.restore(); }
 });
 
+test('asking for the app is recognised, and praise is not', () => {
+  ['link', 'app link pls', 'Link bro', 'play store link anuppunga', 'apk irukka', 'app name enna?', 'app peru enna',
+    'லிங்க் அனுப்புங்க', 'ஆப் எங்க கிடைக்கும்', 'download pannanum'].forEach(t => assert.equal(responder.asksForApp(t), true, t));
+  ['nice app', 'super bro', 'realme 5 ku match aaguma?', 'ஆப்பிள் போனுக்கு இருக்கா?', 'price evlo?', 'how to install temper'].forEach(t => {
+    assert.equal(responder.asksForApp(t), false, t);
+  });
+});
+
+const PLAY = 'https://play.google.com/store/apps/details?id=test.app';
+
+test('a message asking for the app gets the link at once, even in review, with no AI', async () => {
+  await fresh({ appLink: PLAY });
+  const n = network();
+  try {
+    await deliver(messageEvent('app link pls', 'user9'));
+    const [e] = await stored();
+    assert.equal(e.status, 'sent');
+    assert.equal(e.intent, 'app_link');
+    assert.equal(n.model().length, 0);
+    const sent = JSON.parse(n.sent()[0].body);
+    assert.deepEqual(sent.recipient, { id: 'user9' });
+    assert.ok(sent.message.text.includes(PLAY) && sent.message.text.includes('ProGlide'));
+  } finally { n.restore(); }
+});
+
+test('a comment asking for the app gets the link by message and a word on the comment', async () => {
+  await fresh({ appLink: PLAY });
+  const n = network();
+  try {
+    await deliver(commentEvent('link'));
+    const dm = n.calls.filter(c => c.url.includes('/messages'))[0];
+    assert.ok(JSON.parse(dm.body).recipient.comment_id);
+    const onComment = new URL(n.calls.filter(c => c.url.includes('/replies'))[0].url).searchParams.get('message');
+    assert.equal(onComment, 'Sent you the link in DM');
+  } finally { n.restore(); }
+});
+
+test('if the message cannot go, the comment carries the link', async () => {
+  await fresh({ appLink: PLAY });
+  const n = network();
+  const real = global.fetch;
+  global.fetch = async (url, init) => (String(url).includes('/messages') ? reply(400, { error: { code: 10, message: 'not allowed' } }) : real(url, init));
+  try {
+    await deliver(commentEvent('link'));
+    const onComment = new URL(n.calls.filter(c => c.url.includes('/replies'))[0].url).searchParams.get('message');
+    assert.ok(onComment.includes(PLAY));
+    assert.equal((await stored())[0].status, 'sent');
+  } finally { global.fetch = real; n.restore(); }
+});
+
+test('with no link set, or with Auto Reply off, a request for the app is not answered by this', async () => {
+  await fresh();
+  let n = network();
+  try {
+    await deliver(messageEvent('app link pls'));
+    assert.equal((await stored())[0].status, 'draft', 'it goes to the AI like anything else');
+  } finally { n.restore(); }
+
+  await fresh({ appLink: PLAY, mode: 'off' });
+  n = network();
+  try {
+    await deliver(messageEvent('app link pls'));
+    assert.equal((await stored())[0].status, 'skipped');
+    assert.equal(n.sent().length, 0);
+  } finally { n.restore(); }
+});
+
+test('only an https link is kept, and the app link may appear in an AI reply', async () => {
+  await fresh({ appLink: 'javascript:alert(1)' });
+  assert.equal((await replies.loadSettings()).appLink, '');
+  const s = await replies.saveSettings({ appLink: PLAY, links: '' });
+  assert.equal(responder.guard('Get it here ' + PLAY, 'comment', s), null);
+});
+
 /* -------------------------------------------------------------- the page */
 test('only the owner reaches the page, and no secret is on it', async () => {
   await fresh();

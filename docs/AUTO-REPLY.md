@@ -34,6 +34,9 @@ the project is at the 12-function limit.
   Meta delivering again changes nothing. An event cut short stays `queued`, and only the
   page runs it again.
 - **It starts in Review.** Auto is the owner's choice on the page. Off spends nothing.
+- **The app link goes at once.** Asking for the app needs no model and no review, because
+  the owner wrote the words. A comment gets it by private reply, since links in comments
+  cannot be tapped, and the comment carries the link only if the message fails.
 - **Limited names.** A reply carries at most `maxNames` phone names and no part code.
   The full fitment list is what the site sells.
 - **Two brands stay two.** The blocked words stop any reply naming the other business.
