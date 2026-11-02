@@ -243,6 +243,35 @@ async function keysOf(uid) {
   return keySecret ? { keyId: d.keyId, keySecret, webhookSecret: secrets.unseal(d.webhookSecret) } : null;
 }
 
+/**
+ * A Razorpay payment link for a bill, on the shop's own account, or null when the
+ * shop has not connected Razorpay. Instagram orders are paid this way: the link
+ * opens Razorpay's own page, so nothing about the card or UPI passes through here.
+ */
+async function paymentLink(uid, { amountPaise, reference, name, phone, description }) {
+  const keys = await keysOf(uid);
+  if (!keys) return null;
+  const r = await razorpay(keys, 'POST', '/payment_links', {
+    amount: amountPaise, currency: 'INR', description: text(description, 200), reference_id: text(reference, 40),
+    customer: Object.assign({ name: text(name, 60) }, /^\d{10}$/.test(phone || '') ? { contact: '+91' + phone } : {}),
+    notify: { sms: false, email: false }, reminder_enable: false
+  });
+  if (r.status >= 300 || !r.data.short_url) {
+    console.warn('[shop] razorpay refused a payment link', r.status, r.data.error && r.data.error.code);
+    throw new ShopError(502, 'razorpay-link');
+  }
+  return { id: r.data.id, url: r.data.short_url };
+}
+
+/** 'paid', 'created', 'expired' or 'cancelled', as Razorpay says. */
+async function paymentLinkStatus(uid, id) {
+  if (!/^plink_[A-Za-z0-9]{6,40}$/.test(String(id || ''))) return null;
+  const keys = await keysOf(uid);
+  if (!keys) return null;
+  const r = await razorpay(keys, 'GET', '/payment_links/' + id);
+  return r.status < 300 ? r.data.status || null : null;
+}
+
 function keysView(uid, d) {
   return {
     connected: !!d,
@@ -389,5 +418,5 @@ module.exports = {
   actorFor, storeView, invoiceHeader, storeOf, saveStore, saveLogo,
   listStaff, addStaff, removeStaff, answerInvite,
   connectRazorpay, disconnectRazorpay, loadSettings,
-  createQr, qrStatus, closeQr, shopWebhook, qrRef, qrId
+  createQr, qrStatus, closeQr, shopWebhook, qrRef, qrId, paymentLink, paymentLinkStatus
 };

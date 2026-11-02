@@ -37,7 +37,8 @@ firebase.auth = () => ({
     }[token];
     if (!who) { const e = new Error('bad'); e.code = 'auth/argument-error'; throw e; }
     return who;
-  }
+  },
+  getUserByEmail: async () => ({ uid: 'ownerUid000001' })
 });
 firebase.db = () => fake.db;
 
@@ -59,7 +60,8 @@ function network(model) {
     calls.push({ url: u, method: init.method, body: init.body || '' });
     if (u.includes('generativelanguage')) {
       if (model === 'down') return reply(500, { error: { message: 'down' } });
-      return reply(200, { status: 'completed', model: 'gemini-test', output_text: JSON.stringify(model || GOOD), usage: { total_input_tokens: 10, total_output_tokens: 5 } });
+      const out = typeof model === 'function' ? model(init.body) : (model || GOOD);
+      return reply(200, { status: 'completed', model: 'gemini-test', output_text: JSON.stringify(out), usage: { total_input_tokens: 10, total_output_tokens: 5 } });
     }
     if (u.includes('/replies')) return reply(200, { id: 'reply_1' });
     if (u.includes('/messages')) return reply(200, { message_id: 'mid_sent' });
@@ -527,7 +529,7 @@ test('reading the account finds what Meta did not deliver, skips its own words, 
   ]);
   try {
     const first = await poll();
-    assert.deepEqual(first.body, { polled: true, found: 2, answered: 2 });
+    assert.deepEqual(first.body, { polled: true, found: 2, answered: 2, followed: 0 });
     const list = await stored();
     assert.deepEqual(list.map(e => e.status), ['sent', 'sent']);
     assert.equal((await poll()).body.reason, 'too soon', 'a second read inside the minute does nothing');
@@ -573,6 +575,112 @@ test('with Auto Reply off, a read spends nothing', async () => {
     assert.equal((await poll()).body.reason, 'off');
     assert.equal(r.calls.length, 0);
   } finally { r.restore(); }
+});
+
+/* ------------------------------------------------------------- the sale */
+const sales = require('../_services/auto-reply/sales');
+const ORDER = { models: [], name: '', phone: '', address: '', city: '', state: '', pincode: '', cancel: false, question: '' };
+const said = extra => () => Object.assign({}, ORDER, extra);
+
+test('price questions and keywords start a sale, and other talk does not', () => {
+  const kw = '9h\n9 h';
+  ['9H', '9h', '9H temper price?', 'temper price evlo', 'glass rate kitna hai', 'விலை என்ன டெம்பர்'].forEach(t => assert.equal(sales.asksToBuy(t, kw), true, t));
+  ['super bro', 'realme 5 ku match aaguma', 'link'].forEach(t => assert.equal(sales.asksToBuy(t, kw), false, t));
+});
+
+test('courier follows the state, from the pincode when no state is named', () => {
+  const s = replies.DEFAULTS;
+  assert.equal(sales.stateOfPincode('625001'), 'Tamil Nadu');
+  assert.equal(sales.stateOfPincode('682001'), 'Kerala');
+  assert.equal(sales.stateOfPincode('560001'), 'Karnataka');
+  assert.equal(sales.stateOfPincode('110001'), 'Other');
+  assert.equal(sales.courierFor('Tamil Nadu', s).paise, 6000);
+  assert.equal(sales.courierFor('Kerala', s).paise, 10000);
+  assert.equal(sales.courierFor('Delhi', s).paise, 20000);
+});
+
+test('a sale runs from the price to an unpaid bill in the owner\'s Quick Billing', async () => {
+  await fresh({ salesOn: true });
+  let next = said({});
+  const n = network(body => next(body));
+  const texts = () => n.calls.filter(c => c.url.includes('/messages')).map(c => JSON.parse(c.body).message);
+  try {
+    await deliver(messageEvent('9H temper price?', 'buyer1'));
+    let lead = await sales.loadLead('buyer1');
+    assert.equal(lead.stage, 'price_sent');
+    assert.ok(texts()[0].text.includes('₹299') && texts()[0].text.includes('minimum 4 boxes'));
+    assert.equal(n.model().length, 0, 'the price is the owner\'s own words');
+
+    next = said({ models: [{ phone: 'realme 5', boxes: 2 }] });
+    await deliver(messageEvent('realme 5 2 boxes', 'buyer1'));
+    lead = await sales.loadLead('buyer1');
+    assert.equal(lead.stage, 'models');
+    assert.match(texts().pop().text, /minimum order is 4 boxes/);
+
+    next = said({ models: [{ phone: 'samsung a52', boxes: 2 }] });
+    await deliver(messageEvent('samsung a52 2 box', 'buyer1'));
+    lead = await sales.loadLead('buyer1');
+    assert.equal(lead.stage, 'address');
+    assert.equal(lead.items.reduce((k, i) => k + i.boxes, 0), 4);
+    assert.match(texts().pop().text, /mobile number/);
+
+    next = said({ name: 'Ravi', address: '12 Main Road', city: 'Madurai', pincode: '625001' });
+    await deliver(messageEvent('Ravi, 12 Main Road, Madurai 625001, 98765 43210', 'buyer1'));
+    lead = await sales.loadLead('buyer1');
+    assert.equal(lead.stage, 'billed');
+    assert.equal(lead.address.phone, '9876543210', 'read from the message, not the model');
+    assert.ok(!n.model().some(c => c.body.includes('9876543210')), 'the number never reached the model');
+    assert.equal(lead.courierPaise, 6000);
+    assert.equal(lead.totalPaise, 4 * 29900 + 6000);
+    const bill = fake.db.collection('shops').doc('ownerUid000001').collection('bills').doc(lead.billId);
+    const saved = (await bill.get()).data();
+    assert.equal(saved.payment.status, 'unpaid');
+    assert.equal(saved.totalPaise, lead.totalPaise);
+    const card = texts().pop().attachment.payload.elements[0];
+    assert.equal(card.buttons[0].title, 'View bill', 'no Razorpay connected, so the bill itself');
+    assert.ok(card.buttons[0].url.startsWith('https://www.mobilepartsfinder.com/i/'));
+  } finally { n.restore(); }
+});
+
+test('a quiet lead is followed up inside the 24 hours, twice at most', async () => {
+  await fresh({ salesOn: true });
+  const n = network();
+  const now = Date.now();
+  await sales.saveLead('quiet1', { senderId: 'quiet1', stage: 'address', items: [], address: {}, followUps: 0, canMessage: true,
+    needsHuman: false, lastCustomerAt: now - 4 * 3600000, lastSentAt: now - 4 * 3600000, createdAt: now - 5 * 3600000, log: [] });
+  await sales.saveLead('cold1', { senderId: 'cold1', stage: 'address', items: [], address: {}, followUps: 0, canMessage: true,
+    needsHuman: false, lastCustomerAt: now - 30 * 3600000, lastSentAt: now - 30 * 3600000, createdAt: now - 31 * 3600000, log: [] });
+  try {
+    const r = reader([], []);
+    try { await poll(); } finally { r.restore(); }
+    assert.equal((await sales.loadLead('quiet1')).followUps, 1);
+    assert.equal((await sales.loadLead('cold1')).followUps, 0, 'past 24 hours Instagram allows nothing');
+  } finally { n.restore(); }
+});
+
+test('an iPhone user asking for the app gets the website card, and a glass question does not', async () => {
+  assert.equal(responder.asksForIos('iphone ku app irukka?', ''), true);
+  assert.equal(responder.asksForIos('ios', ''), true);
+  assert.equal(responder.asksForIos('iphone 14 temper irukka', ''), false);
+  await fresh({ appLink: 'https://play.google.com/store/apps/details?id=x' });
+  const n = network();
+  try {
+    await deliver(messageEvent('ios app irukka?', 'apple1'));
+    const card = JSON.parse(n.sent()[1].body).message.attachment.payload.elements[0];
+    assert.equal(card.buttons[0].url, 'https://www.mobilepartsfinder.com');
+  } finally { n.restore(); }
+});
+
+test('the words a reel asks people to comment get the app link', () => {
+  const kw = replies.DEFAULTS.appKeywords;
+  ['Pro glide', 'Proglide', 'Proglite', 'App', 'Aap', 'tool', 'website'].forEach(t => assert.equal(responder.asksForApp(t, kw), true, t));
+  assert.equal(responder.asksForApp('this temper is good for my shop and the app helps a lot every day', kw), false);
+});
+
+test('the Leads page is the owner\'s', async () => {
+  await fresh();
+  assert.equal((await adminCall('shop-token', 'GET', { view: 'leads' })).status, 403);
+  assert.ok(Array.isArray((await adminCall('owner-token', 'GET', { view: 'leads' })).body.leads));
 });
 
 /* -------------------------------------------------------------- the page */

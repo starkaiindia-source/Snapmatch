@@ -72,9 +72,29 @@ const ASKING = /\?|\b(?:name|peru|enga|where|send|venum|vendum|want|need|kudu|ku
  * one fixed link and needs no writing. "link" alone counts, since that is how people
  * ask under a post. "app" needs a request with it: "nice app" is praise.
  */
-function asksForApp(text) {
+function asksForApp(text, keywords) {
   const t = String(text || '');
-  return LINK_WORDS.test(t) || (APP_WORDS.test(t) && ASKING.test(t));
+  return LINK_WORDS.test(t) || (APP_WORDS.test(t) && ASKING.test(t)) || saysKeyword(t, keywords);
+}
+
+/* A short comment that is one of the words a post asked people to comment: "Pro
+   glide", "App", "Tool". Under a reel that asked for it, that is the whole request. */
+const SHORT_WORDS = 5;
+function saysKeyword(text, keywords) {
+  const t = String(text || '').toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (!t || t.split(' ').length > SHORT_WORDS) return false;
+  return String(keywords || '').split(/\r?\n/).map(k => k.trim().toLowerCase()).filter(Boolean)
+    .some(k => (' ' + t + ' ').indexOf(' ' + k + ' ') > -1);
+}
+
+const IOS_WORDS = /\b(?:ios|iphone|i\s?phone|apple|app\s?store)\b|ஐபோன்|ஆப்பிள்/i;
+const TEMPER = /\b(?:temper|tempered|glass|guard|cover|display|combo|9\s?h)\b|டெம்பர்|கிளாஸ்/i;
+
+/** Asking for the app on an iPhone. "iphone 14 temper irukka" is a glass question. */
+function asksForIos(text, keywords) {
+  const t = String(text || '');
+  if (!IOS_WORDS.test(t) || TEMPER.test(t)) return false;
+  return APP_WORDS.test(t) || LINK_WORDS.test(t) || saysKeyword(t, keywords) || t.trim().split(/\s+/).length <= 3;
 }
 
 /**
@@ -268,4 +288,4 @@ function hold(d, kind, settings) {
   return d.confidence < settings.minConfidence ? 'low-confidence' : null;
 }
 
-module.exports = { draft, guard, hold, asksForApp, phonesIn, factsFor, MAX_DM_BYTES, MAX_COMMENT_CHARS };
+module.exports = { draft, guard, hold, asksForApp, asksForIos, phonesIn, factsFor, MAX_DM_BYTES, MAX_COMMENT_CHARS };

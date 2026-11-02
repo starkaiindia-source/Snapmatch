@@ -773,3 +773,9 @@ pre.ig__quote { margin-bottom: 6px; }
 .ar-card b { padding: 6px 12px 0; font-size: 14px; }
 .ar-card span { padding: 0 12px; color: var(--ink-3); font-size: 12px; }
 .ar-card a { margin-top: 6px; padding: 10px 12px; border-top: 1px solid var(--line); color: var(--teal-700); font-weight: 700; text-align: center; text-decoration: none; }
+.ld-item details summary { cursor: pointer; color: var(--ink-3); font-size: 12px; font-weight: 600; }
+.ld-log { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.ld-log li { max-width: 85%; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ld-log li.is-bot { align-self: flex-end; background: var(--teal-050); }
+.ld-log li span { display: block; color: var(--ink-3); font-size: 10.5px; }
+.ar-tabs span[data-filter] { cursor: pointer; }

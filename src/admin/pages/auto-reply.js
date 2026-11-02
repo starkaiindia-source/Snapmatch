@@ -44,6 +44,18 @@
     ['appButton', 'Button', 'input', 'Up to 20 letters'],
     ['appImage', 'Card picture', 'input', 'An https link to the app icon'],
     ['appLinkComment', 'Reply on the comment', 'input', 'Links in comments cannot be tapped, so the link goes by DM'],
+    ['appKeywords', 'Words that ask for the app', 'text', 'One per line. A short comment with one of these gets the app link.'],
+    ['iosLink', 'Link for iPhone users', 'input', 'The app is Android only, so iPhone users get this'],
+    ['iosText', 'Message for iPhone users', 'text', 'Use {brand}'],
+    ['iosCardTitle', 'iPhone card title', 'input', ''],
+    ['iosCardSubtitle', 'iPhone card line', 'input', ''],
+    ['iosButton', 'iPhone button', 'input', 'Up to 20 letters'],
+    ['salesKeywords', 'Words that start a sale', 'text', 'One per line, like 9h. Price questions start one too.'],
+    ['salesPriceText', 'Price message', 'text', 'Use {box} {pieces} {piece} {min} {minTotal} {home} {near} {far} {homeState} {brand}'],
+    ['salesComment', 'Reply on a price comment', 'input', ''],
+    ['salesThanks', 'Message when paid', 'input', ''],
+    ['homeState', 'Your state', 'input', 'Courier is cheapest here'],
+    ['nearStates', 'Nearby states', 'input', 'Comma separated'],
     ['brand', 'Brand name', 'input', 'The name replies are written as'],
     ['about', 'About the shop', 'text', 'What the shop and the app do, in your own words'],
     ['products', 'Products', 'text', 'Each product with its price, material, warranty and how to order'],
@@ -56,7 +68,13 @@
     ['maxNames', 'Phone names in one reply', 0, 20, 1],
     ['perSenderHour', 'Replies to one person per hour', 1, 60, 1],
     ['dailyReplies', 'Replies per day', 1, 2000, 1],
-    ['minConfidence', 'Least confidence to send', 0, 1, 0.05]
+    ['minConfidence', 'Least confidence to send', 0, 1, 0.05],
+    ['boxPrice', 'Price of a box (₹)', 1, 100000, 1],
+    ['boxPieces', 'Pieces in a box', 1, 1000, 1],
+    ['minBoxes', 'Minimum boxes', 1, 1000, 1],
+    ['courierHome', 'Courier, your state (₹)', 0, 10000, 1],
+    ['courierNear', 'Courier, nearby states (₹)', 0, 10000, 1],
+    ['courierFar', 'Courier, other states (₹)', 0, 10000, 1]
   ];
 
   function pill(tone, label) {
@@ -127,7 +145,9 @@
         return '<button class="ar-mode' + (s.mode === m[0] ? ' is-on' : '') + '" data-mode="' + m[0] + '" aria-pressed="' + (s.mode === m[0]) + '"><b>' + m[1] + '</b><span>' + m[2] + '</span></button>';
       }).join('') + '</div><div class="ar-row">' +
         '<label class="ar-check"><input type="checkbox" data-channel="comments"' + (s.comments ? ' checked' : '') + '> Comments</label>' +
-        '<label class="ar-check"><input type="checkbox" data-channel="dms"' + (s.dms ? ' checked' : '') + '> Direct messages</label></div>';
+        '<label class="ar-check"><input type="checkbox" data-channel="dms"' + (s.dms ? ' checked' : '') + '> Direct messages</label>' +
+        '<label class="ar-check"><input type="checkbox" data-channel="salesOn"' + (s.salesOn ? ' checked' : '') + '> 9H sales and orders</label>' +
+        '<a class="adm__btn" href="/admin/leads">Open Leads</a></div>';
     }
 
     function trainingHTML() {

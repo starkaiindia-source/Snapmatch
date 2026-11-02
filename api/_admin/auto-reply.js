@@ -1,6 +1,6 @@
 /* ============================================================================
-   GET  /api/admin/auto-reply?view=overview|check|history
-   POST /api/admin/auto-reply {action}   save, test, send, discard, retry, subscribe, poll
+   GET  /api/admin/auto-reply?view=overview|check|history|leads
+   POST /api/admin/auto-reply {action}   save, test, send, discard, retry, subscribe, poll, lead
    ----------------------------------------------------------------------------
    The owner's page for answering the Instagram account. A section of the one admin
    function, like every other: the project is at Vercel Hobby's 12-function limit.
@@ -39,6 +39,7 @@ module.exports = async function handler(req, res) {
     if (!admin) return;
     const view = (req.query || {}).view;
     if (req.method === 'GET') {
+      if (view === 'leads') return ok(res, { leads: await replies.sales.listLeads() });
       return ok(res, view === 'check' ? await replies.liveCheck() : view === 'history' ? await replies.history() : await replies.overview());
     }
     return await act(req, res, admin);
@@ -66,6 +67,10 @@ async function act(req, res, admin) {
       return ok(res, await replies.tryReply({ text: input.text, kind: input.kind, caption: input.caption }));
     }
     case 'poll': return ok(res, (await replies.poll()).body);
+    case 'lead': {
+      const lead = typeof input.id === 'string' && /^[A-Za-z0-9_-]{3,64}$/.test(input.id) ? await replies.sales.setStage(input.id, input.stage) : null;
+      return lead ? ok(res, { lead }) : bad(res, 'no such lead or stage');
+    }
     case 'subscribe': {
       const r = await replies.subscribe();
       await done(audit.ACTIONS.AUTO_REPLY_SUBSCRIBED, 'instagram', r);
