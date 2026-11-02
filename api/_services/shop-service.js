@@ -79,19 +79,12 @@ const search = require('./search-service');
 const { invoicePage } = require('./shop-invoice-page');
 const offerEngine = require('../../src/data/shop-offers');
 const emiEngine = require('../../src/data/shop-emi');
+const settings = require('./shop-settings');
+const { ShopError } = require('./shop-error');
 const entitlements = require('./entitlement-service');
 const { TIERS } = require('../_schema/entitlement');
 const { CATALOG_VERSION, DEVICE_KINDS, STANDARD_CATEGORIES, SUGGESTED_CATEGORIES } = require('../_schema/shop-standard');
 
-class ShopError extends Error {
-  /** @param {number} status  @param {string} code  @param {object} [extra] */
-  constructor(status, code, extra) {
-    super(code);
-    this.status = status;
-    this.code = code;
-    this.extra = extra || {};
-  }
-}
 const bad = (code, extra) => new ShopError(400, code, extra);
 const notFound = code => new ShopError(404, code);
 const conflict = (code, extra) => new ShopError(409, code, extra);
@@ -315,6 +308,7 @@ function billSummary(id, d) {
     receivedPaise: d.payment ? Math.min(d.payment.receivedPaise || 0, d.totalPaise) : 0,
     balancePaise: (d.payment && d.status !== 'void' && d.payment.balancePaise) || 0,
     emiNextDue: d.emi && d.status !== 'void' ? (emiEngine.nextDue(d.emi) || {}).due || null : null,
+    staffName: d.staff ? d.staff.name || d.staff.email || '' : '',
     discountPaise: (d.discountPaise || 0) + (d.offerDiscountPaise || 0),
     createdAt: d.createdAt
   };
@@ -505,14 +499,20 @@ async function ensureStats(uid) {
   }, { merge: true });
 }
 
+/** Who did something, as a bill records it. */
+function stamp(actor) {
+  return actor ? { uid: actor.uid, email: actor.email || '', name: actor.name || '', role: actor.role || 'owner' } : null;
+}
+const byName = actor => (actor ? actor.name || actor.email || '' : '');
+
 /** Everything the billing screen needs on open: categories and products. */
-async function loadState(uid) {
+async function loadState(uid, query, who) {
   const first = owned(uid, await shopRef(uid).get()) || {};
   if ((first.catalogV || 0) < CATALOG_VERSION) await ensureCatalog(uid);
   if ((first.statsV || 0) < STATS_VERSION) await ensureStats(uid);
 
-  const [shopSnap, cats, prods, offers] = await Promise.all([
-    shopRef(uid).get(), catCol(uid).get(), prodCol(uid).get(), offerCol(uid).get()
+  const [shopSnap, cats, prods, offers, profile] = await Promise.all([
+    shopRef(uid).get(), catCol(uid).get(), prodCol(uid).get(), offerCol(uid).get(), db().collection(C.USERS).doc(uid).get()
   ]);
   const shop = owned(uid, shopSnap) || {};
   const categories = cats.docs
@@ -531,7 +531,10 @@ async function loadState(uid) {
     products,
     offers: offers.docs.map(s => ({ s, d: owned(uid, s) })).filter(x => x.d && x.d.status !== 'archived').map(x => offerView(x.s.id, x.d)),
     offerSettings: offerSettings(shop),
-    suggestedCategories: SUGGESTED_CATEGORIES
+    suggestedCategories: SUGGESTED_CATEGORIES,
+    store: settings.storeView(shop, profile.exists ? profile.data() : null),
+    payments: { razorpay: !!shop.razorpayOn },
+    me: who ? { role: who.actor.role, name: who.actor.name, email: who.actor.email, invite: who.invite || null } : null
   };
 }
 
@@ -1330,6 +1333,7 @@ async function finaliseBill(uid, body) {
   const check = money.computeBill(lines, adj.discount, adj.tax, 0);
   if (!check.ok) throw moneyError(check);
   const emiTerms = adj.payment.status === 'emi' ? readEmi(body.emi) : null;
+  const paidByQr = settings.qrId(body.payment && body.payment.qrId);
   const typed = body.customer || {};
   const customer = {
     name: text(typed.name, 60),
@@ -1362,6 +1366,7 @@ async function finaliseBill(uid, body) {
     const who = await findCustomer(tx, uid, customerInput);
     const daySnap = await tx.get(dayCol(uid).doc(today));
     const offerSnap = await tx.get(offerCol(uid).where('status', '==', 'active'));
+    const qrSnap = paidByQr ? await tx.get(settings.qrRef(uid, paidByQr)) : null;
 
     const products = new Map();
     productSnaps.forEach((s, i) => {
@@ -1424,6 +1429,14 @@ async function finaliseBill(uid, body) {
     /* credit is given to someone: a plan with nobody to collect from is not one */
     if (emiTerms && !who) throw conflict('emi-customer');
     if (emiTerms && !payment.balancePaise) throw bad('emi-down');
+    if (qrSnap) {
+      /* Razorpay said this was paid, and it has not already settled another bill */
+      const qr = owned(uid, qrSnap);
+      if (!qr || qr.status !== 'paid') throw conflict('qr-unpaid');
+      if (qr.billId) throw conflict('qr-used');
+      if (qr.amountPaise !== collectedOn(totals.totalPaise, payment)) throw conflict('qr-amount', { amountPaise: qr.amountPaise });
+      payment.razorpay = { qrId: paidByQr, paymentId: qr.paymentId || null };
+    }
 
     const shop = owned(uid, shopSnap) || {};
     const seq = (shop.billSeq || 0) + 1;
@@ -1503,9 +1516,10 @@ async function finaliseBill(uid, body) {
       customerId,
       customerKey: customer.name.toLowerCase(),
       customerMobile: customer.mobile,
+      staff: stamp(body.actor),
       createdAt: now,
       updatedAt: now,
-      history: [{ at: now, action: 'created', paymentStatus: payment.status }]
+      history: [{ at: now, action: 'created', paymentStatus: payment.status, by: byName(body.actor) }]
     };
     if (emiTerms) {
       const plan = emiEngine.plan(Object.assign({ principalPaise: payment.balancePaise }, emiTerms));
@@ -1559,6 +1573,7 @@ async function finaliseBill(uid, body) {
     });
 
     if (customerRow) tx.set(who.ref, customerRow);
+    if (qrSnap) tx.update(qrSnap.ref, { billId: billRef.id });
     tx.set(dayCol(uid).doc(today), day);
     tx.create(billRef, bill);
     return {
@@ -1614,7 +1629,7 @@ async function updatePayment(uid, body) {
     }
 
     const history = (cur.history || []).concat({
-      at: now, action: 'payment',
+      at: now, action: 'payment', by: byName(body.actor),
       from: cur.payment && cur.payment.status, to: payment.status, receivedPaise: payment.receivedPaise
     }).slice(-50);
     tx.update(ref, { payment, history, updatedAt: now });
@@ -1678,7 +1693,7 @@ async function payInstalment(uid, body) {
       });
     }
 
-    const history = (cur.history || []).concat({ at: now, action: 'instalment', no, amountPaise: item.amountPaise, method }).slice(-80);
+    const history = (cur.history || []).concat({ at: now, action: 'instalment', no, amountPaise: item.amountPaise, method, by: byName(body.actor) }).slice(-80);
     tx.update(ref, { payment, emi, history, updatedAt: now });
     return { bill: billView(id, Object.assign({}, cur, { payment, emi, history, updatedAt: now })), replayed: false };
   });
@@ -1785,7 +1800,7 @@ async function voidBill(uid, body) {
       });
     }
 
-    const history = (cur.history || []).concat({ at: now, action: 'void', reason, restored }).slice(-50);
+    const history = (cur.history || []).concat({ at: now, action: 'void', reason, restored, by: byName(body.actor) }).slice(-50);
     const patch = { status: 'void', voidedAt: now, voidReason: reason, history, updatedAt: now };
     tx.update(ref, patch);
     return { bill: billView(id, Object.assign({}, cur, patch)), restored, replayed: false };
@@ -2083,16 +2098,6 @@ async function saveOfferSettings(uid, body) {
    protecting it: 144 random bits, made once per bill, and only when the shop
    asks to share. Reopening or resending uses the same link. */
 
-function shopDetails(profile) {
-  const p = profile || {};
-  const a = p.address && typeof p.address === 'object' ? p.address : {};
-  return {
-    name: p.mobileShopName || p.shopName || 'Mobile Parts Finder shop',
-    place: [a.flat, a.area, a.city, a.state].filter(Boolean).join(', '),
-    mobile: p.mobileNumber || p.mobile || '',
-    gstin: p.gstin || ''
-  };
-}
 
 async function shareBill(uid, body) {
   const id = docId(body.billId);
@@ -2117,13 +2122,10 @@ async function sharedInvoice(query) {
   const link = await db().collection(C.INVOICE_LINKS).doc(token).get();
   if (!link.exists) throw notFound('invoice-not-found');
   const { uid, billId } = link.data();
-  const [billSnap, userSnap] = await Promise.all([
-    billCol(uid).doc(billId).get(),
-    db().collection(C.USERS).doc(uid).get()
-  ]);
+  const billSnap = await billCol(uid).doc(billId).get();
   const bill = owned(uid, billSnap);
   if (!bill || bill.shareToken !== token) throw notFound('invoice-not-found');
-  return invoicePage(bill, shopDetails(userSnap.exists ? userSnap.data() : null));
+  return invoicePage(bill, settings.invoiceHeader(await settings.storeOf(uid)));
 }
 
 /* ============================================================== CUSTOMERS

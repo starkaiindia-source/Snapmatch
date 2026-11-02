@@ -21,6 +21,10 @@
 
    Always answer 2xx once the signature is valid, even for events we ignore. A
    non-2xx tells Razorpay to retry forever.
+
+   A shop's own Razorpay account reports here too, on the same address with
+   ?shop=<uid>. That is a different account with a different secret, so it never
+   reaches the subscription code below (see api/_services/shop-settings.js).
    ========================================================================== */
 'use strict';
 
@@ -28,6 +32,7 @@ const { getPlan, amountMatches } = require('./_lib/plans');
 const { verifyWebhookSignature } = require('./_lib/razorpay-signature');
 const { getOrder, activateSubscription, recordFailure } = require('./_lib/store');
 const { ok, json, fail, readRawBody } = require('./_lib/http');
+const { shopWebhook } = require('./_services/shop-settings');
 
 const HANDLED = new Set(['payment.captured', 'payment.authorized', 'payment.failed', 'order.paid']);
 
@@ -35,6 +40,12 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' });
 
   try {
+    const shop = new URL(req.url, 'https://local').searchParams.get('shop');
+    if (shop) {
+      const r = await shopWebhook(shop, await readRawBody(req), req.headers['x-razorpay-signature']);
+      return json(res, r.status, r.body);
+    }
+
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     if (!secret) {
       console.error('[billing:webhook] RAZORPAY_WEBHOOK_SECRET is not set');

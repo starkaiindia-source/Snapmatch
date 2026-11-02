@@ -46,7 +46,7 @@ function emptyDay(day, ownerUid) {
     voidedPaise: 0, collectedPaise: 0, refundedPaise: 0,
     discV: 1, discBills: 0, discNetPaise: 0,
     methods: {}, customers: {}, newCustomers: {},
-    products: {}, categories: {}, models: {}
+    products: {}, categories: {}, models: {}, staff: {}
   };
 }
 
@@ -80,6 +80,14 @@ function countDiscounted(d, bill, sign) {
   d.discNetPaise += sign * (bill.totalPaise || 0);
 }
 
+/* Bills and sales by who made them. A day from before this has no such map. */
+function countStaff(d, bill, sign) {
+  const who = bill.staff;
+  if (!who || !who.uid) return;
+  if (!d.staff) d.staff = {};
+  bump(d.staff, who.uid, { n: who.name || who.email || 'Staff', q: sign, r: sign * (bill.totalPaise || 0) });
+}
+
 /** What addBill would have counted, over a day's saved bills. */
 function discountedOf(bills) {
   const live = bills.filter(b => b.status !== 'void' && discountsOf(b));
@@ -98,6 +106,7 @@ function addBill(d, bill, customer) {
   d.taxPaise += bill.taxPaise || 0;
   d.netPaise += bill.totalPaise || 0;
   countDiscounted(d, bill, 1);
+  countStaff(d, bill, 1);
   eachItem(bill, 1, d);
   if (customer) {
     d.customers[customer.id] = (d.customers[customer.id] || 0) + (bill.totalPaise || 0);
@@ -125,6 +134,7 @@ function removeBill(d, bill) {
   d.taxPaise -= bill.taxPaise || 0;
   d.netPaise -= bill.totalPaise || 0;
   countDiscounted(d, bill, -1);
+  countStaff(d, bill, -1);
   eachItem(bill, -1, d);
   if (bill.customerId) {
     const left = (d.customers[bill.customerId] || 0) - (bill.totalPaise || 0);
@@ -320,7 +330,8 @@ function overview(docs, p) {
     methods,
     products: rollup(periodDays, 'products'),
     categories: rollup(periodDays, 'categories'),
-    models: rollup(periodDays, 'models')
+    models: rollup(periodDays, 'models'),
+    staff: rollup(periodDays, 'staff')
   };
 }
 
