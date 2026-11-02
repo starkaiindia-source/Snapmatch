@@ -67,4 +67,19 @@ function parse(payload) {
   return out.filter(Boolean);
 }
 
-module.exports = { parse };
+/**
+ * The same events from a read of the account. The ids are the ones a delivery would
+ * have, so a comment that is both read and later delivered is answered once.
+ */
+function fromRead(read, ownerId, ownName) {
+  const own = from => String(from.id) === String(ownerId) || (ownName && String(from.username || '').toLowerCase() === ownName);
+  const comments = read.comments.filter(c => !own(c.from)).map(c => comment({
+    id: c.id, from: c.from, text: c.text, media: { id: c.mediaId }, parent_id: c.parentId
+  }, ownerId));
+  const messages = read.messages.filter(m => !own(m.from)).map(m => message({
+    sender: { id: m.from.id }, message: { mid: m.id, text: m.text }
+  }, ownerId));
+  return comments.concat(messages).filter(Boolean);
+}
+
+module.exports = { parse, fromRead };

@@ -35,6 +35,13 @@
 
    Delivery is answered inline: Vercel freezes a function once it has responded, so
    work left for after the 200 may never run.
+
+   READ AS WELL AS DELIVERED
+
+   Meta delivers a stranger's comment or message only to an app with Advanced Access,
+   which takes App Review. Until then poll() reads the account's recent comments and
+   messages, which this app may do, and puts them through the same claim. An event
+   carries the same id whichever way it came, so nothing is answered twice.
    ========================================================================== */
 'use strict';
 
@@ -60,6 +67,10 @@ const DAY_MS = 24 * HOUR_MS;
 const BUDGET_MS = 25000;
 const MAX_PER_DELIVERY = 10;
 const LIST_LIMIT = 50;
+/* The first read looks back this far; every later one from where the last stopped. */
+const FIRST_LOOKBACK_MS = 2 * HOUR_MS;
+const READ_OVERLAP_MS = 2 * 60 * 1000;
+const POLL_EVERY_MS = 60 * 1000;
 const MEMORY = 3;
 
 const DEFAULTS = {
@@ -73,6 +84,7 @@ const DEFAULTS = {
 };
 
 const settingsRef = () => db().collection(C.AUTO_REPLY).doc('instagram');
+const pollRef = () => db().collection(C.AUTO_REPLY).doc('instagram-poll');
 const eventCol = () => db().collection(C.AUTO_REPLY_EVENTS);
 const num = (v, min, max, fallback) => {
   const n = Number(v);
@@ -263,17 +275,49 @@ async function receive(rawBody, signature) {
   try { payload = JSON.parse(rawBody.toString('utf8')); }
   catch (err) { return { status: 400, body: { error: 'invalid json' } }; }
 
-  const started = Date.now();
   const settings = await loadSettings();
   const list = events.parse(payload).filter(ev => ev.senderId !== c.igUserId).slice(0, MAX_PER_DELIVERY);
+  await handle(list, settings, c, Date.now());
+  return { status: 200, body: { received: true } };
+}
+
+/** Takes each event once and answers it, until the time runs out. */
+async function handle(list, settings, c, started) {
+  let done = 0;
   for (const ev of list) {
     const now = Date.now();
     if (!(await claim(ev, now)) || now - started > BUDGET_MS) continue;
-    /* a failure on one event must not make Meta deliver the others again */
+    done++;
+    /* a failure on one event must not stop the others */
     await work(ev.id, Object.assign({}, ev, { text: redact(ev.text).slice(0, 1000) }), settings, c, now)
       .catch(err => finish(ev.id, { status: 'failed', error: String(err.message).slice(0, 300), errorKind: 'error' }));
   }
-  return { status: 200, body: { received: true } };
+  return done;
+}
+
+/**
+ * Reads what arrived since the last read and answers it. Anyone may ask for this, so
+ * it runs at most once a minute whoever asks, and it can only answer the account's
+ * own comments and messages.
+ */
+async function poll() {
+  const c = credentials();
+  if (!c.token) return { status: 503, body: { error: 'not configured' } };
+  const now = Date.now();
+  const gate = await consume({ key: 'auto-reply:poll', limit: 1, now, windowMs: POLL_EVERY_MS });
+  if (!gate.allowed) return { status: 200, body: { polled: false, reason: 'too soon' } };
+
+  const settings = await loadSettings();
+  if (settings.mode === 'off') return { status: 200, body: { polled: false, reason: 'off' } };
+  const last = await pollRef().get();
+  const since = last.exists && last.data().readAt ? last.data().readAt - READ_OVERLAP_MS : now - FIRST_LOOKBACK_MS;
+  const meta = metaClient(c);
+  const read = await meta.recent(since);
+  const me = await meta.check().then(k => (k.account && k.account.username) || '', () => '');
+  const list = events.fromRead(read, c.igUserId, String(me).toLowerCase());
+  const answered = await handle(list, settings, c, now);
+  await pollRef().set({ readAt: now, found: list.length, answered });
+  return { status: 200, body: { polled: true, found: list.length, answered } };
 }
 
 /* ------------------------------------------------------------ admin page */
@@ -357,6 +401,6 @@ async function retry(id) {
 }
 
 module.exports = {
-  DEFAULTS, MODES, handshake, verifyToken, receive, loadSettings, saveSettings, overview, liveCheck, subscribe,
+  DEFAULTS, MODES, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, subscribe,
   tryReply, sendDraft, discard, retry, GraphError
 };

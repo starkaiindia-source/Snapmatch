@@ -1,6 +1,6 @@
 /* ============================================================================
    GET  /api/admin/auto-reply?view=overview|check
-   POST /api/admin/auto-reply {action}   save, test, send, discard, retry, subscribe
+   POST /api/admin/auto-reply {action}   save, test, send, discard, retry, subscribe, poll
    ----------------------------------------------------------------------------
    The owner's page for answering the Instagram account. A section of the one admin
    function, like every other: the project is at Vercel Hobby's 12-function limit.
@@ -62,6 +62,7 @@ async function act(req, res, admin) {
       if (typeof input.text !== 'string' || !input.text.trim()) return bad(res, 'text is required');
       return ok(res, await replies.tryReply({ text: input.text, kind: input.kind, caption: input.caption }));
     }
+    case 'poll': return ok(res, (await replies.poll()).body);
     case 'subscribe': {
       const r = await replies.subscribe();
       await done(audit.ACTIONS.AUTO_REPLY_SUBSCRIBED, 'instagram', r);

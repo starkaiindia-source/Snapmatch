@@ -479,6 +479,61 @@ test('only an https link is kept, and the app link may appear in an AI reply', a
   assert.equal(responder.guard('Get it here ' + PLAY, 'comment', s), null);
 });
 
+function reader(comments, messages) {
+  const real = global.fetch;
+  const calls = [];
+  global.fetch = async (url, init) => {
+    const u = String(url);
+    calls.push({ url: u, method: init.method, body: init.body || '' });
+    if (u.includes('/media?')) return reply(200, { data: [{ id: 'media1', comments: { data: comments } }] });
+    if (u.includes('/conversations?')) return reply(200, { data: [{ messages: { data: messages } }] });
+    if (u.includes('debug_token')) return reply(200, { data: { is_valid: true, type: 'SYSTEM_USER', scopes: [] } });
+    if (u.includes('fields=id%2Cusername')) return reply(200, { id: OWN, username: 'proglide_9h_screenguard' });
+    if (u.includes('generativelanguage')) return reply(200, { status: 'completed', model: 'g', output_text: JSON.stringify(GOOD), usage: {} });
+    if (u.includes('/replies')) return reply(200, { id: 'r1' });
+    if (u.includes('/messages')) return reply(200, { message_id: 'm1' });
+    return reply(200, { caption: '' });
+  };
+  return { calls, restore() { global.fetch = real; } };
+}
+const iso = ms => new Date(ms).toISOString();
+const poll = () => send(hook, Object.assign(Readable.from([]), { method: 'GET', url: '/api/razorpay-webhook.js?source=instagram&poll=1', headers: {} }));
+
+test('reading the account finds what Meta did not deliver, skips its own words, and answers once', async () => {
+  await fresh({ appLink: 'https://play.google.com/store/apps/details?id=x' });
+  const now = Date.now();
+  const r = reader([
+    { id: 'c900', text: 'link', timestamp: iso(now - 60000), from: { id: 'fan1', username: 'fan' } },
+    { id: 'c901', text: 'thanks all', timestamp: iso(now - 50000), username: 'proglide_9h_screenguard' },
+    { id: 'c902', text: 'old one', timestamp: iso(now - 5 * 3600 * 1000), from: { id: 'fan2', username: 'old' } }
+  ], [
+    { id: 'mid900', message: 'app link pls', created_time: iso(now - 30000), from: { id: 'fan3', username: 'dm' } },
+    { id: 'mid901', message: 'here you go', created_time: iso(now - 20000), from: { id: OWN, username: 'proglide_9h_screenguard' } }
+  ]);
+  try {
+    const first = await poll();
+    assert.deepEqual(first.body, { polled: true, found: 2, answered: 2 });
+    const list = await stored();
+    assert.deepEqual(list.map(e => e.status), ['sent', 'sent']);
+    assert.equal((await poll()).body.reason, 'too soon', 'a second read inside the minute does nothing');
+
+    /* the same comment delivered later by Meta is not answered again */
+    await deliver({ object: 'instagram', entry: [{ id: OWN, changes: [{ field: 'comments', value: {
+      comment_id: 'c900', from: { id: 'fan1', username: 'fan' }, text: 'link', media: { id: 'media1' } } }] }] });
+    assert.equal((await stored()).length, 2);
+    assert.equal(r.calls.filter(c => c.url.includes('/replies')).length, 1);
+  } finally { r.restore(); }
+});
+
+test('with Auto Reply off, a read spends nothing', async () => {
+  await fresh({ mode: 'off' });
+  const r = reader([], []);
+  try {
+    assert.equal((await poll()).body.reason, 'off');
+    assert.equal(r.calls.length, 0);
+  } finally { r.restore(); }
+});
+
 /* -------------------------------------------------------------- the page */
 test('only the owner reaches the page, and no secret is on it', async () => {
   await fresh();

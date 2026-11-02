@@ -44,8 +44,13 @@ const HANDLED = new Set(['payment.captured', 'payment.authorized', 'payment.fail
 async function instagramWebhook(req, res) {
   const replies = require('./_services/auto-reply/service');
   try {
+    const params = new URL(req.url, 'https://local').searchParams;
+    if (req.method === 'GET' && params.get('poll')) {
+      const r = await replies.poll();
+      return json(res, r.status, r.body);
+    }
     if (req.method === 'GET') {
-      const challenge = replies.handshake(new URL(req.url, 'https://local').searchParams);
+      const challenge = replies.handshake(params);
       res.statusCode = challenge ? 200 : 403;
       res.setHeader('Content-Type', 'text/plain');
       return res.end(challenge || 'forbidden');

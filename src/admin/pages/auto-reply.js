@@ -299,6 +299,15 @@
       }
     });
 
+    /* While the page is open it reads Instagram itself, so a reply does not wait for
+       the schedule. It stops when the page is left. */
+    var timer = global.setInterval(function () {
+      if (!document.body.contains(root)) { global.clearInterval(timer); return; }
+      ADM.api.autoReplyAction({ action: 'poll' }).then(function (r) {
+        if (r && r.found && state.data) refreshInbox();
+      }, function () { /* the next tick tries again */ });
+    }, 60000);
+
     root.innerHTML = '<div class="adm__head"><div><h1>Auto Reply</h1></div></div><div class="adm__card"><div class="adm__skel" style="height:60px"></div></div>';
     load();
   }
