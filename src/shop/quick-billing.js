@@ -1295,12 +1295,14 @@
     return '<span>Outstanding balance</span><b>' + inr(0) + '</b>';
   }
 
-  function actsHTML() {
+  function actsHTML(d) {
     var alert = S.saveError ? '<div class="qb-alert" role="alert">' + icon('alert') + '<span>' + esc(S.saveError) + '</span></div>' : '';
-    if (!wide()) return alert;
-    return alert + '<button class="btn qb-btn btn--lg btn--block" id="qbConfirm" data-qb="confirm-bill"' + (S.cart.lines.length && !S.saving ? '' : ' disabled') + '>' +
+    var waits = S.cart.lines.length && waitsForQr(d || draft());
+    if (!wide()) return alert + (waits ? '<p class="qb-hint">' + QR_WAIT + '</p>' : '');
+    return alert + '<button class="btn qb-btn btn--lg btn--block" id="qbConfirm" data-qb="confirm-bill"' + (S.cart.lines.length && !S.saving && !waits ? '' : ' disabled') + '>' +
       (S.saving ? '<span class="qb-spin"></span>Saving the bill…' : icon('check') + 'Confirm Bill') + '</button>' +
-      (S.cart.lines.length ? '' : '<p class="qb-hint">Add a product or a custom item to start a bill.</p>');
+      (S.cart.lines.length ? '' : '<p class="qb-hint">Add a product or a custom item to start a bill.</p>') +
+      (waits ? '<p class="qb-hint">' + QR_WAIT + '</p>' : '');
   }
 
   /* The bill's one action on a phone: Review Bill, then Confirm Bill. */
@@ -1309,7 +1311,7 @@
     var d = draft();
     var ready = S.cart.lines.some(function (l) { return l.unitPaise != null; });
     var act = viewName() === 'review'
-      ? '<button class="qb-cartbar__go" id="qbConfirm" data-qb="confirm-bill"' + (S.saving ? ' disabled' : '') + '>' +
+      ? '<button class="qb-cartbar__go" id="qbConfirm" data-qb="confirm-bill"' + (S.saving || waitsForQr(d) ? ' disabled' : '') + '>' +
         (S.saving ? '<span class="qb-spin qb-spin--bar"></span>Saving…' : icon('check') + 'Confirm Bill') + '</button>'
       : '<button class="qb-cartbar__go" data-qb="review"' + (ready ? '' : ' disabled') + '>Review Bill' + icon('chevronRight') + '</button>';
     var sum = '<b>' + inr(d.totals.totalPaise) + '</b><em>' + n + (n === 1 ? ' item' : ' items') + '</em>';
@@ -1481,9 +1483,15 @@
   /* ============================================================= UPI BY QR
 
      Only for UPI, only for a shop that connected its own Razorpay, and only for
-     money this bill is collecting now. Confirm Bill never waits for it: a customer
-     may have paid the shop's own QR, and that is still a UPI bill. */
+     money this bill is collecting now. Where Razorpay reports the payment, Confirm
+     Bill waits for that report: the shop asked that no UPI bill be saved before the
+     money is in. A QR to the shop's own UPI ID reports nothing, so it never waits. */
   function qrAmount(d) { return Math.min(d.pay.receivedPaise, d.totals.totalPaise); }
+  var QR_WAIT = 'Confirm Bill opens once the UPI payment is received. Tap Show QR to scan.';
+  function waitsForQr(d) {
+    var pay = S.cart.payment;
+    return pay.method === 'upi' && S.razorpayOn && S.qrReports !== false && !pay.qr && qrAmount(d) >= 100;
+  }
   function qrRowHTML(d) {
     var pay = S.cart.payment;
     if (pay.qr) {
@@ -1533,9 +1541,11 @@
     API.qr({ action: 'create', amountPaise: sh.amountPaise, fid: sh.fid }).then(function (r) {
       if (S.sheet !== sh) { if (r.qr.id) API.qr({ action: 'close', id: r.qr.id }).catch(function () {}); return; }
       sh.qr = r.qr;
-      paintQr();
       /* a QR to the shop's own UPI ID tells no one it was paid: the shop checks */
+      S.qrReports = !!r.qr.id;
+      paintQr();
       if (r.qr.id) pollQr(sh);
+      else if (onBilling()) paintDerived();
     }, function (err) {
       if (S.sheet !== sh) return;
       sh.error = say(err);
@@ -1583,6 +1593,7 @@
     var d = draft();
     if (!wide() && firstPageErrors(d).length) { toast('Check the highlighted fields', 'alert'); go('/billing'); return; }
     if (!d.ok) { showErrors(d, 'Check the highlighted fields'); return; }
+    if (waitsForQr(d)) { toast('Waiting for the UPI payment', 'alert'); return; }
     var p = S.cart.lines.filter(function (l) { return l.productId && !productById(l.productId); })[0];
     if (p) { S.saveError = '“' + p.name + '” is no longer in your products. Remove it from the bill.'; paint('qbActs', actsHTML()); return; }
 
