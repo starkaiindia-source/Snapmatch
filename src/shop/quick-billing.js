@@ -79,7 +79,7 @@
       sales: { preset: 'month', from: '', to: '', data: null, loading: false, error: null, ticket: 0 },
       store: null, me: null, razorpayOn: false,
       settings: { data: null, loading: false, error: null, busy: false, keysOpen: false, storeEdit: false, place: '' },
-      filter: { cat: 'all', q: '' }, catLimit: 60, pickQty: {}, lastAdd: null, custPicked: null,
+      filter: { cat: 'all', q: '' }, catLimit: 60, lastAdd: null, custPicked: null,
       cart: null, saving: false, saveError: null, lastSaved: null, priceEdit: {},
       bills: { items: [], cursor: null, q: '', filter: blankBillFilter(), loading: false, loaded: false, error: null, ticket: 0 },
       prodFilter: PF.blankFilter(), prodView: 'table', prodPop: null, prodLimit: PRODUCT_PAGE, prodOpen: {},
@@ -286,15 +286,13 @@
    * customer asked about, when the product was found through compatibility. The
    * model is a note on the line: the stock that moves is always this product's.
    */
-  function addToCart(p, v, model, qty) {
-    if (hasVariants(p) && !v) { openVariantPicker(p, model, qty); return; }
-    var want = qty || 1;
+  function addToCart(p, v, model) {
+    if (hasVariants(p) && !v) { openVariantPicker(p, model); return; }
     var stock = v ? v.qty : p.qty;
     var used = v ? inCart(p.id, v.id) : inCart(p.id);
     var left = stock - used;
     var title = v ? p.name + ' (' + variantLabel(v) + ')' : p.name;
     if (left <= 0) { toast(stock <= 0 ? '“' + title + '” is out of stock' : 'All ' + stock + ' in stock are already on the bill', 'alert'); return; }
-    if (want > left) { toast('Only ' + left + ' more of “' + title + '” in stock', 'alert'); return; }
     var vid = v ? v.id : null;
     var mid = model ? model.id : null;
     /* a second tap on the same button within a moment is the same intention */
@@ -305,17 +303,16 @@
     S.cart.lines.forEach(function (l) {
       if (!line && l.productId === p.id && (l.variantId || null) === vid && (l.modelId || null) === mid) line = l;
     });
-    if (line) line.qty += want;
+    if (line) line.qty += 1;
     else {
       var price = v ? v.pricePaise : p.pricePaise;
       S.cart.lines.push({
         key: API.newId('l'), productId: p.id, variantId: vid, variantLabel: v ? variantLabel(v) : '',
         name: p.name, shelf: (v && v.shelf) || p.shelf || '', sku: (v && v.sku) || p.sku || '',
-        unitPaise: price, priceText: M.toInput(price), qty: want,
+        unitPaise: price, priceText: M.toInput(price), qty: 1,
         modelId: mid, modelName: model ? model.name : '', groupId: model ? model.groupId || null : null
       });
     }
-    delete S.pickQty[p.id];
     cartChanged(true);
     pulse(p.id);
   }
@@ -861,7 +858,7 @@
         '<p>' + (f.q ? 'No product matches “' + esc(f.q) + '”.' : 'No products in this category yet.') + '</p>' +
         '<button class="btn btn--outline btn--sm" data-qb="add-product">' + icon('plus') + 'Add product</button></div>';
     }
-    return '<div class="qb-grid">' + list.slice(0, S.catLimit).map(function (p) { return cardHTML(p); }).join('') + '</div>' +
+    return '<div class="qb-grid qb-grid--list">' + list.slice(0, S.catLimit).map(function (p) { return cardHTML(p); }).join('') + '</div>' +
       (list.length > S.catLimit
         ? '<div class="qb-more"><button class="btn btn--outline btn--sm" data-qb="cat-more">Show more (' + (list.length - S.catLimit) + ')</button></div>'
         : '');
@@ -882,26 +879,29 @@
     var left = p.qty - used;
     var st = stockState(p);
     var many = hasVariants(p) && p.variants.length > 1;
-    var qty = S.pickQty[p.id] || 1;
-    var meta = [catName(p.categoryId), p.sku ? 'SKU ' + p.sku : '', p.shelf ? 'Shelf ' + p.shelf : '',
-      hasVariants(p) ? p.variants.length + (p.variants.length === 1 ? ' variant' : ' variants') : ''].filter(Boolean).join(' · ');
-    return '<article class="qb-card' + (used ? ' is-in' : '') + (left <= 0 ? ' is-out' : '') + '" data-id="' + esc(p.id) + '">' +
+    var meta = [catName(p.categoryId), p.sku ? 'SKU ' + p.sku : '', p.shelf ? 'Shelf ' + p.shelf : ''].filter(Boolean).join(' · ');
+    /* One tap adds, and the same place then holds the bill's own quantity. Several
+       variants, or a line for another model, keep Add: + could not say which. */
+    var lines = S.cart.lines.filter(function (l) { return l.productId === p.id; });
+    var line = lines.length === 1 && !many && (!fits || lines[0].modelName === fits) ? lines[0] : null;
+    return '<article class="qb-card' + (used ? ' is-in' : '') + (left <= 0 ? ' is-out' : '') + '" data-id="' + esc(p.id) + '" title="' + esc(meta) + '">' +
       thumbHTML(p, 'qb-thumb--card') +
       '<div class="qb-card__body">' +
       (fits ? '<span class="qb-card__fits">Requested model: <b>' + esc(fits) + '</b></span><span class="qb-card__tag">Actual stock product</span>' : '') +
       '<b class="qb-card__name">' + esc(p.name) + '</b>' +
-      '<span class="qb-card__meta">' + esc(meta) + '</span>' +
       '<span class="qb-card__nums"><b class="qb-card__price">' + (many ? 'From ' : '') + inr(p.pricePaise) + '</b>' +
       '<span class="qb-stock qb-stock--' + st + '">' + (p.qty <= 0 ? 'Out of stock' : p.qty + ' in stock') + '</span>' +
-      (used ? '<span class="qb-card__in">' + used + ' on the bill</span>' : '') + '</span>' +
-      (left > 0
-        ? '<div class="qb-card__add"><div class="qb-qty" role="group" aria-label="Quantity of ' + esc(p.name) + '">' +
-          '<button type="button" data-qb="pick-dec" data-id="' + esc(p.id) + '" aria-label="Decrease">' + icon('minus') + '</button>' +
-          '<input class="qb-qty__in" inputmode="numeric" autocomplete="off" value="' + qty + '" data-qbi="pick-qty" data-id="' + esc(p.id) + '" aria-label="Quantity to add" />' +
-          '<button type="button" data-qb="pick-inc" data-id="' + esc(p.id) + '" aria-label="Increase">' + icon('plus') + '</button></div>' +
-          '<button type="button" class="btn qb-btn btn--sm qb-card__go" data-qb="add" data-id="' + esc(p.id) + '" aria-label="Add ' + esc(p.name) + ' to the bill">' + icon('plus') + 'Add to Bill</button></div>'
-        : '') +
-      '</div></article>';
+      (p.shelf ? '<span class="qb-card__shelf">Shelf ' + esc(p.shelf) + '</span>' : '') +
+      (used && !line ? '<span class="qb-card__in">' + used + ' on the bill</span>' : '') + '</span></div>' +
+      (line
+        ? '<div class="qb-qty qb-card__qty" role="group" aria-label="Quantity of ' + esc(p.name) + ' on the bill">' +
+          '<button type="button" data-qb="qty-dec" data-id="' + esc(line.key) + '" aria-label="Decrease">' + icon('minus') + '</button>' +
+          '<b>' + line.qty + '</b>' +
+          '<button type="button" data-qb="qty-inc" data-id="' + esc(line.key) + '" aria-label="Increase">' + icon('plus') + '</button></div>'
+        : left > 0
+          ? '<button type="button" class="btn qb-btn btn--sm qb-card__go" data-qb="add" data-id="' + esc(p.id) + '" aria-label="Add ' + esc(p.name) + ' to the bill">' + icon('plus') + 'Add</button>'
+          : '') +
+      '</article>';
   }
 
   /* ----------------------------------------------- finding stock by phone
@@ -1038,17 +1038,6 @@
     n.classList.remove('is-pulse');
     void n.offsetWidth;
     n.classList.add('is-pulse');
-  }
-  /** How many of this product can still go on the bill. */
-  function pickRoom(id) {
-    var p = productById(id);
-    return p ? Math.max(1, Math.min(M.MAX_QTY, p.qty - inCart(id))) : 1;
-  }
-  function setPick(id, n) {
-    var qty = Math.max(1, Math.min(pickRoom(id), n));
-    S.pickQty[id] = qty;
-    var box = document.querySelector('[data-qbi="pick-qty"][data-id="' + id + '"]');
-    if (box) box.value = qty;
   }
 
   /* ------------------------------------------------------------- customer
@@ -1611,7 +1600,7 @@
       S.cart = emptyCart();
       S.compat = null;
       S.filter.q = '';
-      S.pickQty = {};
+
       S.custPicked = null;
       S.priceEdit = {};
       saveCart();
@@ -4482,8 +4471,8 @@
   }
 
   /* ------------------------------------------------------ variant picker */
-  function openVariantPicker(p, model, qty) {
-    S.sheet = { type: 'variant', id: p.id, model: model || null, qty: qty || 1 };
+  function openVariantPicker(p, model) {
+    S.sheet = { type: 'variant', id: p.id, model: model || null };
     openSheet('variant',
       '<div class="sheet__grab"></div><div class="sheet__head">' + thumbHTML(p, 'qb-thumb--sm') +
       '<div class="grow"><h3 class="t-h3">' + esc(p.name) + '</h3><span class="qb-sub">Choose the variant being sold</span></div>' +
@@ -4810,13 +4799,9 @@
       case 'qr-retry': if (S.sheet && S.sheet.type === 'qr') makeQr(); break;
       case 'add': {
         var p = productById(id);
-        var pickBox = document.querySelector('[data-qbi="pick-qty"][data-id="' + id + '"]');
-        var pickNow = pickBox ? Number(pickBox.value) : 1;
-        if (p) addToCart(p, null, compatContext(p), pickNow >= 1 ? pickNow : 1);
+        if (p) addToCart(p, null, compatContext(p));
         break;
       }
-      case 'pick-inc': setPick(id, (S.pickQty[id] || 1) + 1); break;
-      case 'pick-dec': setPick(id, (S.pickQty[id] || 1) - 1); break;
       case 'cat-more': S.catLimit += 60; paint('qbCatalog', catalogHTML()); break;
       case 'to-cart': { var cb = el('qbBill'); if (cb) cb.scrollIntoView({ block: 'start' }); break; }
       case 'pick-variant': {
@@ -4825,7 +4810,7 @@
         var vp = productById(sv.id);
         var vv = vp && variantOf(vp, id);
         closeSheet();
-        if (vv) addToCart(vp, vv, sv.model, sv.qty);
+        if (vv) addToCart(vp, vv, sv.model);
         break;
       }
       case 'pick-model': pickModel(id); break;
@@ -5195,11 +5180,6 @@
         clearTimeout(modelHitTimer);
         modelHitTimer = setTimeout(modelSearchSettled, 280);
         break;
-      case 'pick-qty': {
-        var want = t.value.trim();
-        if (/^\d{1,4}$/.test(want) && Number(want) >= 1) S.pickQty[t.getAttribute('data-id')] = Math.min(Number(want), pickRoom(t.getAttribute('data-id')));
-        break;
-      }
       case 'cwhats': c.customer.whatsapp = t.value; cartChanged(false); break;
       case 'caddr': c.customer.address = t.value; cartChanged(false); break;
       case 'cgstin': c.customer.gstin = t.value.toUpperCase(); cartChanged(false); break;
@@ -5295,7 +5275,7 @@
     var k = t.getAttribute && t.getAttribute('data-qbi');
     if (!k || !onBilling()) return;
     switch (k) {
-      case 'pick-qty': setPick(t.getAttribute('data-id'), S.pickQty[t.getAttribute('data-id')] || 1); break;
+
       case 'line-qty': {
         /* on leaving the field, an unreadable quantity goes back to what it was */
         var l = lineByKey(t.getAttribute('data-id'));
