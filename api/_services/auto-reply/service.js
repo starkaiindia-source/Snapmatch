@@ -58,6 +58,7 @@ const { createMetaClient, SCOPES, FIELDS } = require('./meta');
 const events = require('./events');
 const responder = require('./responder');
 const sales = require('./sales');
+const feedback = require('./feedback');
 
 const WEBHOOK_URL = 'https://www.mobilepartsfinder.com/api/instagram-webhook';
 const MODES = ['off', 'review', 'auto'];
@@ -87,6 +88,10 @@ const DEFAULTS = {
   salesOn: true, salesKeywords: '9h\n9 h\n9h temper\n9h price\nprice\nrate',
   salesPriceText: '🔥 {brand} 9H Flexible Fiber + Ceramic Coated Temper\n\n📦 1 box = {pieces} pieces of one model → {box} (just {piece} a piece)\n🛒 Wholesale only: minimum {min} boxes ({minTotal})\n🚚 Courier: {homeState} {home} · South India {near} · Other states {far}\n💡 One master glass fits many models, so one box covers several phones.\n\n👉 Send your phone models and how many boxes of each, for example: Realme 5 - 2 boxes',
   salesComment: 'Sent you the price in DM 📩', salesThanks: '✅ Payment received! Thank you. Your order will be dispatched soon. 🚚',
+  feedbackOn: true, feedbackAsk: '👋 Hi! Quick question: is {brand} useful for your shop?',
+  feedbackYes: '🙏 Thank you! Could you rate {brand} ⭐⭐⭐⭐⭐ on the Play Store? It takes a minute and helps other shop owners find it.',
+  feedbackNo: '🙏 Thanks for telling us. What should we make better? Reply here, we read every message.',
+  feedbackButton: 'Rate on Play Store',
   boxPrice: 299, boxPieces: 10, minBoxes: 4, homeState: 'Tamil Nadu',
   courierHome: 60, courierNear: 100, courierFar: 200, nearStates: 'Kerala, Karnataka, Andhra Pradesh, Telangana, Puducherry',
   tone: 'Friendly and short, like a helpful shop owner. No hashtags.',
@@ -147,6 +152,9 @@ function normalise(s) {
     salesOn: d.salesOn !== false, salesKeywords: text(d.salesKeywords, 600),
     salesPriceText: text(d.salesPriceText, 900) || DEFAULTS.salesPriceText,
     salesComment: text(d.salesComment, 200) || DEFAULTS.salesComment, salesThanks: text(d.salesThanks, 300) || DEFAULTS.salesThanks,
+    feedbackOn: d.feedbackOn !== false, feedbackAsk: text(d.feedbackAsk, 300) || DEFAULTS.feedbackAsk,
+    feedbackYes: text(d.feedbackYes, 400) || DEFAULTS.feedbackYes, feedbackNo: text(d.feedbackNo, 300) || DEFAULTS.feedbackNo,
+    feedbackButton: text(d.feedbackButton, 20) || DEFAULTS.feedbackButton,
     boxPrice: num(d.boxPrice, 1, 100000, DEFAULTS.boxPrice), boxPieces: num(d.boxPieces, 1, 1000, DEFAULTS.boxPieces),
     minBoxes: num(d.minBoxes, 1, 1000, DEFAULTS.minBoxes), homeState: text(d.homeState, 40) || DEFAULTS.homeState,
     courierHome: num(d.courierHome, 0, 10000, DEFAULTS.courierHome), courierNear: num(d.courierNear, 0, 10000, DEFAULTS.courierNear),
@@ -277,11 +285,29 @@ async function sendLink(id, ev, s, c) {
   return deliver(id, plain, 'app-link', c, async (meta, e) => {
     if (e.kind === 'dm') {
       await meta.sendMessage(e.senderId, linkIntro(s));
-      return meta.sendCard(e.senderId, linkCard(s)).catch(() => meta.sendMessage(e.senderId, s.appLink));
+      const sent = await meta.sendCard(e.senderId, linkCard(s)).catch(() => meta.sendMessage(e.senderId, s.appLink));
+      if (s.feedbackOn) await feedback.linkSent(ev, Date.now()).catch(() => null);
+      return sent;
     }
     const messaged = await meta.privateCard(e.targetId, linkCard(s))
       .catch(() => meta.privateReply(e.targetId, plain)).then(() => true, () => false);
     return meta.replyToComment(e.targetId, messaged ? s.appLinkComment : plain);
+  });
+}
+
+/* The answer to "is it useful?": a yes gets the rating link, a no is asked what to
+   make better, and the owner sees it on the Auto Reply page. */
+async function sendFeedbackReply(id, said, s, c) {
+  const words = brandIn(said === 'yes' ? s.feedbackYes : s.feedbackNo, s);
+  await finish(id, { intent: 'feedback', reason: null, feedback: said });
+  return deliver(id, words, 'feedback', c, async (meta, e) => {
+    const sent = await meta.sendMessage(e.senderId, words);
+    if (said === 'yes' && s.appLink) {
+      await meta.sendCard(e.senderId, { title: brandIn('Rate {brand} ⭐', s).slice(0, 80), subtitle: 'Google Play Store',
+        default_action: { type: 'web_url', url: s.appLink }, buttons: [{ type: 'web_url', url: s.appLink, title: s.feedbackButton }] })
+        .catch(() => meta.sendMessage(e.senderId, s.appLink));
+    }
+    return sent;
   });
 }
 
@@ -325,6 +351,9 @@ async function sellStep(id, ev, s, c, now) {
       return meta.replyToComment(e.targetId, messaged ? s.salesComment : out.reply.slice(0, 2000));
     }
     const sent = await meta.sendMessage(e.senderId, out.reply);
+    for (const extra of out.more || []) await meta.sendMessage(e.senderId, extra);
+    /* the QR as a picture; where Instagram will not take it, its address */
+    if (out.image) await meta.sendImage(e.senderId, out.image).catch(() => meta.sendMessage(e.senderId, 'Payment QR: ' + out.image));
     if (out.card) await meta.sendCard(e.senderId, out.card).catch(() => meta.sendMessage(e.senderId, out.lead.payUrl || out.lead.invoiceUrl));
     return sent;
   });
@@ -344,12 +373,29 @@ async function salesTick(s, c, now) {
       }
     }
     for (const lead of await sales.settlePaid(now)) {
-      if (now - lead.lastCustomerAt < 23 * HOUR_MS) await meta.sendMessage(lead.senderId, s.salesThanks).catch(() => null);
+      if (now - lead.lastCustomerAt < 23 * HOUR_MS) await meta.sendMessage(lead.senderId, sales.paidMessage(lead, s)).catch(() => null);
     }
   } catch (err) {
     console.warn('[auto-reply] sales tick failed', err.code || err.message);
   }
   return sent;
+}
+
+/* The day-after question to people who were sent the app link. */
+async function feedbackTick(s, c, now) {
+  if (!s.feedbackOn || !s.appLink) return 0;
+  const meta = metaClient(c);
+  let asked = 0;
+  try {
+    for (const d of await feedback.due(now)) {
+      if (Date.now() - now > BUDGET_MS) break;
+      const ok = await meta.sendQuick(d.senderId, brandIn(s.feedbackAsk, s), feedback.ANSWERS).then(() => true, () => false);
+      if (ok) { await feedback.asked(d.senderId, now); asked++; }
+    }
+  } catch (err) {
+    console.warn('[auto-reply] feedback tick failed', err.code || err.message);
+  }
+  return asked;
 }
 
 /** One claimed event, as far as the settings allow it to go. */
@@ -363,9 +409,15 @@ async function work(id, ev, settings, c, now) {
   if (!selling) {
     const sender = await consume({ key: 'auto-reply:' + ev.senderId, limit: settings.perSenderHour, now, windowMs: HOUR_MS });
     if (!sender.allowed) return finish(id, { status: 'skipped', reason: 'sender-limit' });
-    if (settings.iosLink && responder.asksForIos(ev.text, settings.appKeywords)) return sendIos(id, ev, settings, c);
-    if (settings.appLink && responder.asksForApp(ev.text, settings.appKeywords)) return sendLink(id, ev, settings, c);
   }
+  /* a yes or no to "is it useful?" */
+  if (settings.feedbackOn) {
+    const said = await feedback.answer(ev, now).catch(() => null);
+    if (said) return sendFeedbackReply(id, said, settings, c);
+  }
+  /* asking for the app is answered with the app, even in the middle of an order */
+  if (settings.iosLink && responder.asksForIos(ev.text, settings.appKeywords)) return sendIos(id, ev, settings, c);
+  if (settings.appLink && responder.asksForApp(ev.text, settings.appKeywords)) return sendLink(id, ev, settings, c);
   if (settings.salesOn) {
     const sold = await sellStep(id, ev, settings, c, now);
     if (sold !== null) return sold;
@@ -477,7 +529,7 @@ async function poll() {
   const me = await meta.username().catch(() => '');
   const list = events.fromRead(read, c.igUserId, String(me).toLowerCase());
   const answered = await handle(list, settings, c, now) + await catchUp(settings, c, now);
-  const followed = await salesTick(settings, c, now);
+  const followed = await salesTick(settings, c, now) + await feedbackTick(settings, c, now);
   await pollRef().set({ readAt: now, found: list.length, answered, followed });
   return { status: 200, body: { polled: true, found: list.length, answered, followed } };
 }

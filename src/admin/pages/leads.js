@@ -40,7 +40,9 @@
       (a.name ? '<p class="adm__none">' + ui.esc([a.name, a.phone, a.address, a.city, a.state, a.pincode].filter(Boolean).join(', ')) + '</p>' : '') +
       (l.billId ? '<p><b>' + rupees(l.totalPaise) + '</b> incl. courier ' + rupees(l.courierPaise) + ' (' + ui.esc(l.courierZone || '') + ') · ' +
         '<a href="/billing/bills/' + encodeURIComponent(l.billId) + '" target="_blank" rel="noopener">Bill ' + ui.esc(l.billNumber || '') + '</a>' +
-        (l.payUrl ? ' · <a href="' + ui.esc(l.payUrl) + '" target="_blank" rel="noopener">Payment link</a>' : ' · <span class="adm__none">no payment link: Razorpay not connected</span>') + '</p>' : '') +
+        (l.qrImage ? ' · <a href="' + ui.esc(l.qrImage) + '" target="_blank" rel="noopener">Payment QR</a>'
+          : l.payUrl ? ' · <a href="' + ui.esc(l.payUrl) + '" target="_blank" rel="noopener">Payment link</a>'
+          : ' · <span class="adm__none">no payment QR: Razorpay not connected</span>') + '</p>' : '') +
       '<details><summary>Conversation</summary><ol class="ld-log">' + (l.log || []).map(function (m) {
         return '<li class="' + (m.who === 'bot' ? 'is-bot' : '') + '"><span>' + ui.esc(ui.ago(m.at)) + '</span>' + ui.esc(m.text) + '</li>';
       }).join('') + '</ol></details>' +

@@ -435,6 +435,31 @@ async function createQr(uid, body) {
   return { qr: { id: r.data.id, imageUrl: r.data.image_url, amountPaise, closeBy: closeBy * 1000 } };
 }
 
+/**
+ * A UPI QR for one bill made away from the counter, an Instagram order: the same
+ * Razorpay QR, open long enough for the customer to pay from their phone, and not
+ * tied to the counter's automatic-collection switch. Checked by qrStatus.
+ */
+async function orderQr(uid, { amountPaise, billId, lifeS }) {
+  if (!money.isInt(amountPaise) || amountPaise < 100 || amountPaise > money.MAX_BILL_PAISE) throw bad('qr-amount-bad');
+  const keys = await keysOf(uid);
+  if (!keys) throw conflict('razorpay-off');
+  const closeBy = Math.floor(Date.now() / 1000) + (lifeS || QR_LIFE_S);
+  const r = await razorpay(keys, 'POST', '/payments/qr_codes', {
+    type: 'upi_qr', name: 'Order', usage: 'single_use', fixed_amount: true, payment_amount: amountPaise,
+    description: 'Instagram order', close_by: closeBy, notes: { shop: uid, bill: text(billId, 40) }
+  });
+  if (r.status >= 300 || !r.data.id || !/^https:\/\//.test(r.data.image_url || '')) {
+    console.warn('[shop] razorpay refused an order QR', r.status, refusal(r));
+    throw new ShopError(502, 'razorpay-qr', { reason: refusal(r) });
+  }
+  await qrRef(uid, r.data.id).set({
+    ownerUid: uid, amountPaise, status: 'active', paymentId: null, billId: null, kind: 'order',
+    orderBill: text(billId, 40), createdAt: Date.now(), createdBy: null
+  });
+  return { id: r.data.id, imageUrl: r.data.image_url, closeBy: closeBy * 1000 };
+}
+
 async function markPaid(uid, id, paymentId) {
   await qrRef(uid, id).set({ status: 'paid', paymentId: paymentId || null, paidAt: Date.now() }, { merge: true });
 }
@@ -513,5 +538,5 @@ module.exports = {
   actorFor, storeView, invoiceHeader, storeOf, saveStore, saveLogo,
   listStaff, addStaff, removeStaff, answerInvite, saveUpi, saveAutoCollect,
   connectRazorpay, disconnectRazorpay, loadSettings,
-  createQr, qrStatus, closeQr, shopWebhook, qrRef, qrId, paymentLink, paymentLinkStatus
+  createQr, orderQr, qrStatus, closeQr, shopWebhook, qrRef, qrId, paymentLink, paymentLinkStatus
 };
