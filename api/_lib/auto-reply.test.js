@@ -926,3 +926,45 @@ test('a question mid-order is answered in words, briefly, with the buttons back 
     assert.deepEqual(m.quick_replies.map(q => q.title), sales.ASK_BILL);
   } finally { n.restore(); }
 });
+
+test('a billed order can still grow: the old bill is voided, and Make bill makes the new one', async () => {
+  await fresh({ salesOn: true, mode: 'auto' });
+  const shopSettings = require('../_services/shop-settings');
+  const realQr = shopSettings.orderQr, realStatus = shopSettings.qrStatus, realClose = shopSettings.closeQr;
+  let made = 0;
+  const closed = [];
+  shopSettings.orderQr = async () => ({ id: 'qr_Grow000' + (++made), imageUrl: 'https://rzp.io/i/g' + made });
+  shopSettings.qrStatus = async () => ({ status: 'active' });
+  shopSettings.closeQr = async (uid, b) => { closed.push(b.id); return { closed: true }; };
+  const n = network(() => { throw new Error('the model is not needed'); });
+  const out = () => n.calls.filter(c => c.url.includes('/messages')).map(c => JSON.parse(c.body).message);
+  try {
+    await deliver(messageEvent('Realme 5 4 boxes', 'grow1'));
+    await deliver(messageEvent('Make bill', 'grow1'));
+    await deliver(messageEvent('Name: Ravi\nMobile: 9876543210\nAddress: 1 Main St\nCity: Madurai\nState: Tamil Nadu\nPincode: 625001', 'grow1'));
+    let lead = await sales.loadLead('grow1');
+    assert.equal(lead.stage, 'billed');
+    const first = lead.billId;
+
+    await deliver(messageEvent('9h', 'grow1'));
+    assert.match(out().pop().text, /Matte: out of stock[\s\S]*is ready above/, 'the price, not the bill again');
+
+    await deliver(messageEvent('I want add more', 'grow1'));
+    lead = await sales.loadLead('grow1');
+    assert.equal(lead.stage, 'models');
+    assert.deepEqual(closed, ['qr_Grow0001'], 'the old QR can no longer be paid');
+    const old = (await fake.db.collection('shops').doc('ownerUid000001').collection('bills').doc(first).get()).data();
+    assert.equal(old.status, 'void');
+    const more = out().pop();
+    assert.match(more.text, /Sure! 👍 Send the model and boxes[\s\S]*Trending boxes/);
+    assert.deepEqual(more.quick_replies.map(q => q.title), sales.ASK_BILL);
+
+    await deliver(messageEvent('Oppo F19 5 boxes', 'grow1'));
+    await deliver(messageEvent('Make bill', 'grow1'));
+    lead = await sales.loadLead('grow1');
+    assert.equal(lead.stage, 'billed', 'the address is known, so the new bill comes at once');
+    assert.notEqual(lead.billId, first);
+    assert.equal(lead.qrId, 'qr_Grow0002');
+    assert.equal(lead.totalPaise, 9 * 29900 + 6000);
+  } finally { n.restore(); Object.assign(shopSettings, { orderQr: realQr, qrStatus: realStatus, closeQr: realClose }); }
+});

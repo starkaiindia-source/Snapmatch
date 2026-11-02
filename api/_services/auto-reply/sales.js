@@ -304,7 +304,9 @@ async function assist(raw, lead, s, gemini, model, next) {
     .replace(/\{piece\}/g, rupees(s.boxPrice * 100 / s.boxPieces)).replace(/\{min\}/g, String(s.minBoxes))
     .replace(/\{minTotal\}/g, rupees(s.boxPrice * 100 * s.minBoxes)).replace(/\{homeState\}/g, s.homeState)
     .replace(/\{home\}/g, rupees(s.courierHome * 100)).replace(/\{near\}/g, rupees(s.courierNear * 100)).replace(/\{far\}/g, rupees(s.courierFar * 100));
-  const order = lead.items.length ? 'Their order so far: ' + addedText(lead.items) + '.\n' : '';
+  const order = (lead.items.length ? 'Their order so far: ' + addedText(lead.items) + '.\n' : '') +
+    (lead.billNumber ? `Their bill ${lead.billNumber} for ${rupees(lead.totalPaise)} is sent and waiting for payment.\n` : '') +
+    ((lead.log || []).length ? 'The conversation so far:\n' + lead.log.slice(-7, -1).map(m => (m.who === 'bot' ? 'You: ' : 'Customer: ') + String(m.text).slice(0, 160)).join('\n') + '\n' : '');
   const r = await gemini.interact({
     model, system: sys, schema: ANSWER, thinkingLevel: 'minimal', maxOutputTokens: 300, timeoutMs: 8000,
     input: [{ type: 'text', text: order + 'Customer: ' + redact(String(raw || '')).slice(0, 600) }]
@@ -504,6 +506,35 @@ const ADD_MORE = /\b(?:add more|more|next)\b/i;
 const PAID_SAID = /\b(?:paid|payment|sent|transferred|completed|done)\b|பணம்|அனுப்பி/i;
 const ASK_BILL = ['Make bill 🧾', 'Add more ➕'];
 
+const CHANGE = /\b(?:add|more|change|edit|modify|update|remove|less|reduce|increase|extra)\b|மாற்ற|சேர்/i;
+const SHOW_BILL = /\b(?:bill|qr|pay|link|invoice|resend|again)\b|பில்/i;
+
+/* "Sure! Send the model…" with the boxes that fit the most phones */
+async function addMoreText(lead, s) {
+  const ideas = await suggestions(lead, 3);
+  return 'Sure! 👍 Send the model and boxes, for example "Vivo Y20 - 2 boxes".' +
+    (ideas.length ? `\n\n🔥 Trending boxes, each fits many phones:\n${ideas.join('\n')}` : '');
+}
+
+/**
+ * The customer changes an order already billed. The unpaid bill is voided in Quick
+ * Billing and its QR closed, so nothing old can be paid, and the order goes back to
+ * taking models; Make bill makes the new bill.
+ */
+async function reopen(lead, uid, now) {
+  const old = lead.billNumber;
+  if (lead.qrId) await shopSettings.closeQr(uid, { id: lead.qrId }).catch(() => null);
+  if (lead.billId) {
+    await shop.voidBill(uid, { billId: lead.billId, reason: 'Order changed on Instagram',
+      actor: { uid, email: OWNER_EMAIL, name: 'Instagram auto reply', role: 'owner' } })
+      .catch(err => console.warn('[auto-reply] could not void a changed order bill', err.code || err.message));
+  }
+  ['billId', 'billNumber', 'qrId', 'qrImage', 'upiUri', 'payLinkId', 'payUrl', 'invoiceUrl', 'totalPaise'].forEach(k => { lead[k] = null; });
+  lead.billVersion = (lead.billVersion || 0) + 1;
+  lead.stage = 'models';
+  lead.log = logged(lead, 'bot', `(bill ${old} cancelled: the order changed)`, now);
+}
+
 /** Marks an order bill paid in Quick Billing, and the lead with it. */
 async function markLeadPaid(lead, uid, now) {
   await shop.updatePayment(uid, { billId: lead.billId, payment: { method: 'upi', status: 'paid', receivedPaise: lead.totalPaise },
@@ -546,11 +577,33 @@ async function advance(lead, ev, raw, s, gemini, model, now) {
         'If the payment failed, tap Pay now below or scan the QR again. 👇';
       card = billCard(lead, s);
     } else {
-      if (st && st.status === 'closed') {
-        Object.assign(lead, await payFor(uid, { id: lead.billId, totalPaise: lead.totalPaise, number: lead.billNumber }, lead.address, s));
+      const found = parseOrder(raw, s);
+      if (found.length || CHANGE.test(raw)) {
+        /* adding to an order already billed: a new bill, made when they ask */
+        await reopen(lead, uid, now);
+        if (found.length) {
+          const read = await addModels(lead, found, s);
+          const boxes = boxesOf(lead);
+          reply = (read.added.length ? `✅ Added ${addedText(read.added)}. ` : '') + `Your order: ${plural(boxes)} · ${rupees(boxes * s.boxPrice * 100)}\n\n` +
+            'Send more models, or tap Make bill for the new bill. 👇' +
+            (read.unknown.length ? `\n\nI could not find ${read.unknown.join(', ')}. Please send the exact brand and model.` : '');
+        } else {
+          reply = await addMoreText(lead, s);
+        }
+        quick = ASK_BILL;
+      } else if (PRICE_ASK.test(raw) || asksToBuy(raw, s.salesKeywords)) {
+        reply = priceText(s) + `\n\n🧾 Your bill ${lead.billNumber} (${rupees(lead.totalPaise)}) is ready above. Tap Pay now there, or send more models to add them. 👆`;
+      } else if (SHOW_BILL.test(raw)) {
+        if (st && st.status === 'closed') {
+          Object.assign(lead, await payFor(uid, { id: lead.billId, totalPaise: lead.totalPaise, number: lead.billNumber }, lead.address, s));
+        }
+        reply = billMessage(lead, s);
+        card = billCard(lead, s);
+      } else {
+        const a = await assist(raw, lead, s, gemini, model, 'pay with Pay now on the bill above, or send more models to add them');
+        reply = a ? a.reply : `Your bill ${lead.billNumber} is ready above 👆 Tap Pay now to pay, or send more models to add them.`;
+        if (a && a.handoff) person = 'question';
       }
-      reply = billMessage(lead, s);
-      card = billCard(lead, s);
     }
   } else {
     /* the order first, by rule, then the model for an order written some other way */
@@ -609,7 +662,7 @@ async function advance(lead, ev, raw, s, gemini, model, now) {
         /* enough for wholesale: keep taking models until they ask for the bill */
         lead.stage = 'models';
         reply = ADD_MORE.test(raw) && !found.length
-          ? 'Sure! Send the next model and boxes, for example "Vivo Y20 - 2 boxes". 📦'
+          ? await addMoreText(lead, s)
           : (read.added.length ? `✅ Added ${addedText(read.added)}. ` : '') + `Your order: ${plural(boxes)} · ${rupees(boxes * s.boxPrice * 100)}\n\nNeed more models? Send them, or tap Make bill. 👇` + notFound;
         quick = ASK_BILL;
       } else {
