@@ -167,6 +167,31 @@ function createMetaClient(opts = {}) {
     out.comments = { posts: (media.data || []).length, readable: stamps.length, latestAt: stamps.length ? Math.max.apply(null, stamps) : null };
   }
 
+  /**
+   * Comments and messages since a moment, read rather than delivered. Meta only
+   * delivers a stranger's comment or message to an app with Advanced Access, and
+   * reading the account's own inbox needs only what this app has.
+   */
+  async function recent(sinceMs) {
+    const account = login === 'instagram' ? 'me' : igUserId;
+    const out = { comments: [], messages: [] };
+    const media = await call('GET', `${account}/media`, {
+      params: { fields: 'id,comments.limit(25){id,text,timestamp,username,from,parent_id}', limit: 10 }
+    });
+    (media.data || []).forEach(m => ((m.comments && m.comments.data) || []).forEach(c => {
+      const at = Date.parse(c.timestamp) || 0;
+      if (at >= sinceMs) out.comments.push({ id: c.id, text: c.text || '', at, from: Object.assign({ username: c.username }, c.from || {}), mediaId: m.id, parentId: c.parent_id || null });
+    }));
+    const talks = await call('GET', `${account}/conversations`, {
+      params: { platform: 'instagram', fields: 'messages.limit(5){id,message,created_time,from}', limit: 10 }
+    });
+    (talks.data || []).forEach(t => ((t.messages && t.messages.data) || []).forEach(m => {
+      const at = Date.parse(m.created_time) || 0;
+      if (at >= sinceMs) out.messages.push({ id: m.id, text: m.message || '', at, from: m.from || {} });
+    }));
+    return out;
+  }
+
   /** What this token and account can do, as Meta reports it. No secret is in it. */
   async function check() {
     const out = { login, host, account: null, page: null, token: null, missing: [], webhook: null, subscribed: null, errors: [] };
@@ -211,7 +236,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, replyToComment, sendMessage, privateReply, caption, connectWebhook, subscribe, check };
+  return { login, host, replyToComment, sendMessage, privateReply, caption, recent, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };
