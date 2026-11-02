@@ -148,6 +148,18 @@ async function saveStore(uid, body, who) {
   return { store };
 }
 
+/* The shop's own UPI ID, for a bill QR that any UPI app pays straight away. It is
+   printed on every such QR, so it is not a secret. */
+const UPI_ID = /^[a-z0-9][a-z0-9._-]{1,254}@[a-z][a-z0-9]{1,63}$/;
+
+async function saveUpi(uid, body, who) {
+  ownerOnly(who);
+  const upiId = text(body.upiId, 255).replace(/\s+/g, '').toLowerCase();
+  if (upiId && !UPI_ID.test(upiId)) throw bad('upi-id');
+  await shopRef(uid).set({ ownerUid: uid, upiId, updatedAt: Date.now() }, { merge: true });
+  return { upiId };
+}
+
 /* The project has no Storage bucket, so a logo is a small image kept in a document of
    its own: every bill reads the shop's document, and none of them need the logo. */
 async function saveLogo(uid, body, who) {
@@ -330,9 +342,10 @@ async function disconnectRazorpay(uid, body, who) {
 /** Everything the Settings page shows. No secret is in it. */
 async function loadSettings(uid, query, who) {
   ownerOnly(who);
-  const [store, staff, keys, logo] = await Promise.all([storeOf(uid), listStaff(uid), keysRef(uid).get(), logoRef(uid).get()]);
+  const [store, staff, keys, logo, shop] = await Promise.all([storeOf(uid), listStaff(uid), keysRef(uid).get(), logoRef(uid).get(), shopRef(uid).get()]);
   return {
     store, staff, razorpay: keysView(uid, keys.exists ? keys.data() : null), maxStaff: MAX_STAFF,
+    upiId: (shop.exists && shop.data().upiId) || '',
     logo: logo.exists ? logo.data().data : ''
   };
 }
@@ -346,6 +359,17 @@ const isLink = id => id.startsWith('plink_');
 /* Razorpay answers "The requested URL was not found" for an API the account does
    not have. Any other refusal is about the request, and is said as it is. */
 const notOnAccount = r => r.status === 404 || (r.status === 400 && /url was not found/i.test(refusal(r)));
+
+/* A UPI QR with the amount in it, paid to the shop's own UPI ID: GPay, PhonePe and
+   every other UPI app open it as a payment, not a web page. Nothing tells this
+   server it was paid, so the shop checks its phone, as with any shop QR. */
+async function upiQr(uid, upiId, amountPaise) {
+  const store = await storeOf(uid);
+  const pay = 'upi://pay?pa=' + upiId + '&pn=' + encodeURIComponent(text(store.name, 50) || 'Shop') +
+    '&am=' + (amountPaise / 100).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent('Bill payment');
+  const svg = await QRCode.toString(pay, { type: 'svg', margin: 2, errorCorrectionLevel: 'M' });
+  return { qr: { id: '', kind: 'upi', upiId, amountPaise, imageUrl: 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64') } };
+}
 
 async function linkQr(uid, body, keys, amountPaise) {
   const closeBy = Math.floor(Date.now() / 1000) + LINK_LIFE_S;
@@ -374,15 +398,19 @@ async function linkQr(uid, body, keys, amountPaise) {
 async function createQr(uid, body) {
   const amountPaise = Number(body.amountPaise);
   if (!money.isInt(amountPaise) || amountPaise < 100 || amountPaise > money.MAX_BILL_PAISE) throw bad('qr-amount-bad');
-  const keys = await keysOf(uid);
-  if (!keys) throw conflict('razorpay-off');
+  const [keys, shop] = await Promise.all([keysOf(uid), shopRef(uid).get()]);
+  const upiId = (shop.exists && shop.data().upiId) || '';
+  if (!keys) {
+    if (upiId) return upiQr(uid, upiId, amountPaise);
+    throw conflict('razorpay-off');
+  }
   const closeBy = Math.floor(Date.now() / 1000) + QR_LIFE_S;
   const r = await razorpay(keys, 'POST', '/payments/qr_codes', {
     type: 'upi_qr', name: 'Bill', usage: 'single_use', fixed_amount: true, payment_amount: amountPaise,
     description: 'Quick Billing', close_by: closeBy,
     notes: { shop: uid, bill: text(body.fid, 40) }
   });
-  if (notOnAccount(r)) return linkQr(uid, body, keys, amountPaise);
+  if (notOnAccount(r)) return upiId ? upiQr(uid, upiId, amountPaise) : linkQr(uid, body, keys, amountPaise);
   if (r.status >= 300 || !r.data.id || !/^https:\/\//.test(r.data.image_url || '')) {
     /* the code only: a reply from a payment API is not for the logs in full */
     console.warn('[shop] razorpay refused a QR', r.status, refusal(r));
@@ -471,7 +499,7 @@ async function shopWebhook(uid, rawBody, signature) {
 
 module.exports = {
   actorFor, storeView, invoiceHeader, storeOf, saveStore, saveLogo,
-  listStaff, addStaff, removeStaff, answerInvite,
+  listStaff, addStaff, removeStaff, answerInvite, saveUpi,
   connectRazorpay, disconnectRazorpay, loadSettings,
   createQr, qrStatus, closeQr, shopWebhook, qrRef, qrId, paymentLink, paymentLinkStatus
 };

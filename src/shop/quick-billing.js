@@ -77,7 +77,7 @@
       categories: [], products: [], suggested: [], billCount: 0,
       offers: [], offerSettings: {}, offerFilter: { q: '', status: 'all' }, offerKey: '',
       sales: { preset: 'month', from: '', to: '', data: null, loading: false, error: null, ticket: 0 },
-      store: null, me: null, razorpayOn: false,
+      store: null, me: null, razorpayOn: false, upiId: '',
       settings: { data: null, loading: false, error: null, busy: false, keysOpen: false, storeEdit: false, place: '' },
       filter: { cat: 'all', q: '' }, catLimit: 60, lastAdd: null, custPicked: null,
       cart: null, saving: false, saveError: null, lastSaved: null, priceEdit: {},
@@ -187,6 +187,7 @@
       case 'staff-taken': return 'This Gmail ID is already working in another shop.';
       case 'staff-limit': return 'A shop can add up to 10 staff.';
       case 'staff-missing': return 'This staff member was already removed.';
+      case 'upi-id': return 'A UPI ID looks like yourname@okaxis or 9876543210@ybl.';
       case 'razorpay-key-id': return 'The Key ID starts with rzp_live_ or rzp_test_. Copy it from Razorpay.';
       case 'razorpay-key-secret': return 'Enter the Key Secret from Razorpay.';
       case 'razorpay-webhook-secret': return 'This webhook secret is too long.';
@@ -702,6 +703,7 @@
       S.store = r.store || null;
       S.me = r.me || null;
       S.razorpayOn = !!(r.payments && r.payments.razorpay);
+      S.upiId = (r.payments && r.payments.upiId) || '';
       S.loaded = true;
       S.loadError = null;
     }, function (err) {
@@ -1487,7 +1489,7 @@
     if (pay.qr) {
       return '<div class="qb-upiqr qb-upiqr--paid">' + icon('checkCircle') + '<span class="grow">UPI received by QR</span><b>' + inr(pay.qr.amountPaise) + '</b></div>';
     }
-    if (pay.method !== 'upi' || !S.razorpayOn || qrAmount(d) < 100) return '';
+    if (pay.method !== 'upi' || !(S.razorpayOn || S.upiId) || qrAmount(d) < 100) return '';
     return '<button type="button" class="qb-upiqr" data-qb="qr-open">' + icon('qr') + '<span class="grow">Show QR to scan</span><b>' + inr(qrAmount(d)) + '</b></button>';
   }
   function openQr() {
@@ -1510,8 +1512,15 @@
         '<button class="btn qb-btn btn--block" data-qb="qr-retry">Make a new QR</button>';
     }
     if (!sh.qr) return amount + '<p class="qb-sub"><span class="qb-spin qb-spin--dark"></span>Making the QR…</p>';
+    if (sh.qr.kind === 'upi') {
+      return amount + '<img class="qb-qr__img" src="' + esc(sh.qr.imageUrl) + '" alt="UPI QR code for this bill" />' +
+        '<p class="qb-sub">Scan with GPay, PhonePe, Paytm or any UPI app. The amount is filled in. Pays ' + esc(sh.qr.upiId) + '.</p>' +
+        '<p class="qb-sub">Check the money reached your phone, then tap Received.</p>' +
+        '<button class="btn qb-btn btn--block" data-qb="close-sheet">' + icon('checkCircle') + 'Received</button>';
+    }
     return amount + '<img class="qb-qr__img" src="' + esc(sh.qr.imageUrl) + '" alt="UPI QR code for this bill" />' +
-      '<p class="qb-sub">' + (sh.qr.payUrl ? 'Scan with any UPI or camera app. ' : '') + 'Waiting for the payment. This page updates by itself.</p>' +
+      '<p class="qb-sub">Waiting for the payment. This page updates by itself.</p>' +
+      (sh.qr.payUrl ? '<p class="qb-sub">This QR opens a payment page. Add your UPI ID in Settings, Payment Connectivity, so GPay pays it straight away.</p>' : '') +
       (sh.qr.payUrl ? '<a class="qb-link" href="' + esc(sh.qr.payUrl) + '" target="_blank" rel="noopener">Open the payment page</a>'
         : '<a class="qb-link" href="' + esc(sh.qr.imageUrl) + '" target="_blank" rel="noopener">Open the QR in a new tab</a>');
   }
@@ -1522,10 +1531,11 @@
     sh.error = null;
     paintQr();
     API.qr({ action: 'create', amountPaise: sh.amountPaise, fid: sh.fid }).then(function (r) {
-      if (S.sheet !== sh) { API.qr({ action: 'close', id: r.qr.id }).catch(function () {}); return; }
+      if (S.sheet !== sh) { if (r.qr.id) API.qr({ action: 'close', id: r.qr.id }).catch(function () {}); return; }
       sh.qr = r.qr;
       paintQr();
-      pollQr(sh);
+      /* a QR to the shop's own UPI ID tells no one it was paid: the shop checks */
+      if (r.qr.id) pollQr(sh);
     }, function (err) {
       if (S.sheet !== sh) return;
       sh.error = say(err);
@@ -1561,7 +1571,7 @@
   /* A QR left open must not be paid later with no bill to show for it. The customer
      may have paid in the moment it was closing, so it is asked once more. */
   function endQr(sh) {
-    if (!sh.qr || sh.paid) return;
+    if (!sh.qr || sh.paid || !sh.qr.id) return;
     API.qr({ action: 'close', id: sh.qr.id }).then(function () { return API.qrStatus(sh.qr.id); }).then(function (r) {
       if (r.status === 'paid') qrPaid(sh);
     }).catch(function () { /* the QR expires by itself */ });
@@ -3683,11 +3693,31 @@
       '</div><small class="qb-err" id="qbTErr"></small>' +
       '<div><button class="btn qb-btn" type="submit"' + (data.staff.length >= data.maxStaff ? ' disabled' : '') + '>' + icon('plus') + 'Add staff</button></div></form></section>';
   }
+  function upiFormHTML() {
+    var id = S.settings.data.upiId || '';
+    return '<form class="qb-form" data-qbf="upi" novalidate>' +
+      fieldHTML('qbUpi', 'upi', 'UPI ID for the bill QR', false, setInput('qbUpi', id,
+        'maxlength="255" spellcheck="false" autocomplete="off" autocapitalize="off" inputmode="email" placeholder="yourname@okaxis"')) +
+      '<span class="qb-sub">A UPI bill shows a QR with the amount in it. The customer scans it with GPay, PhonePe or any UPI app, and the money goes straight to this UPI ID.</span>' +
+      '<small class="qb-err" id="qbUpiErr"></small>' +
+      '<div class="qb-set__acts"><button class="btn qb-btn" type="submit">' + icon('check') + 'Save UPI ID</button></div></form>';
+  }
+  function submitUpi() {
+    var sent = settingsSend({ action: 'upi', upiId: el('qbUpi').value }, 'qbUpiErr');
+    if (sent) sent.then(function (r) {
+      if (!r) return;
+      S.upiId = r.upiId;
+      S.settings.data.upiId = r.upiId;
+      paint('qbSettings', settingsHTML());
+      toast(r.upiId ? 'UPI ID saved' : 'UPI ID removed', 'checkCircle');
+    });
+  }
   function payConnHTML(r) {
     var form = r.ready && (!r.connected || S.settings.keysOpen);
     return '<section class="qb-panel qb-set__p" aria-labelledby="qbSetPay"><div class="qb-sec"><h2 id="qbSetPay">Payment Connectivity</h2>' +
       (r.connected ? '<span class="pill pill--ok">Connected</span>' : '') + '</div>' +
-      '<p class="qb-sub">Connect your own Razorpay account. A UPI bill then shows a QR to scan, and the money goes to your account. Cash and Card bills do not change.</p>' +
+      upiFormHTML() +
+      '<p class="qb-sub">Connect your own Razorpay account too, and a UPI bill is marked paid by itself once Razorpay sees the money. Cash and Card bills do not change.</p>' +
       (r.ready ? '' : '<div class="qb-alert" role="status">' + icon('alert') + '<span>Connecting is switched off until secure key storage is set up on this site. Billing is not affected.</span></div>') +
       (r.connected
         ? '<dl class="qb-setkv"><div><dt>Razorpay key</dt><dd>' + esc(r.keyHint) + '</dd></div>' +
@@ -5395,6 +5425,7 @@
     else if (k === 'store') submitStore();
     else if (k === 'staff') submitStaff();
     else if (k === 'razorpay') submitRazorpay();
+    else if (k === 'upi') submitUpi();
     else if (k === 'cat-form') submitCatForm();
     else if (k === 'cat-new') {
       var n = el('qbNewCat');
