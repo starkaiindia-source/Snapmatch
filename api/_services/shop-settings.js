@@ -553,6 +553,9 @@ async function closeQr(uid, body) {
   if (!snap.exists || snap.data().status !== 'active') return { closed: false };
   const keys = await keysOf(uid);
   if (keys) await razorpay(keys, 'POST', isLink(id) ? '/payment_links/' + id + '/cancel' : '/payments/qr_codes/' + id + '/close');
+  /* closed here too, so no page offers it again; a payment made as it closed is
+     still found, since qrStatus asks Razorpay about anything not marked paid */
+  await qrRef(uid, id).set({ status: 'closed', closedAt: Date.now() }, { merge: true });
   return { closed: true };
 }
 
