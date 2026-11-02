@@ -1511,8 +1511,9 @@
     }
     if (!sh.qr) return amount + '<p class="qb-sub"><span class="qb-spin qb-spin--dark"></span>Making the QR…</p>';
     return amount + '<img class="qb-qr__img" src="' + esc(sh.qr.imageUrl) + '" alt="UPI QR code for this bill" />' +
-      '<p class="qb-sub">Waiting for the payment. This page updates by itself.</p>' +
-      '<a class="qb-link" href="' + esc(sh.qr.imageUrl) + '" target="_blank" rel="noopener">Open the QR in a new tab</a>';
+      '<p class="qb-sub">' + (sh.qr.payUrl ? 'Scan with any UPI or camera app. ' : '') + 'Waiting for the payment. This page updates by itself.</p>' +
+      (sh.qr.payUrl ? '<a class="qb-link" href="' + esc(sh.qr.payUrl) + '" target="_blank" rel="noopener">Open the payment page</a>'
+        : '<a class="qb-link" href="' + esc(sh.qr.imageUrl) + '" target="_blank" rel="noopener">Open the QR in a new tab</a>');
   }
   function paintQr() { paint('qbQrBody', qrBodyHTML()); }
   function makeQr() {

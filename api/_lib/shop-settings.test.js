@@ -397,6 +397,51 @@ test('a bill only takes a QR that Razorpay says was paid, for its amount, once',
   } finally { rp.restore(); }
 });
 
+test('an account without QR Codes gets a payment link shown as a QR, paid the same way', async () => {
+  const w = world();
+  const product = await withProduct(w);
+  let link = { status: 'created', amount_paid: 0, payments: [] };
+  const rp = razorpay((url, method) => {
+    if (/qr_codes$/.test(url)) return { status: 400, body: { error: { code: 'BAD_REQUEST_ERROR', description: 'The requested URL was not found on the server.' } } };
+    if (method === 'POST' && /payment_links$/.test(url)) return { body: { id: 'plink_TestAbc123', short_url: 'https://rzp.io/rzp/test1' } };
+    if (method === 'GET' && /payment_links\/plink_TestAbc123$/.test(url)) return { body: link };
+    return null;
+  });
+  try {
+    await connect(w);
+    const { qr } = ok(await w.post(w.tokA, 'qr', { action: 'create', amountPaise: 29900, fid: 'f1' }));
+    assert.equal(qr.id, 'plink_TestAbc123');
+    assert.equal(qr.payUrl, 'https://rzp.io/rzp/test1');
+    assert.match(qr.imageUrl, /^data:image\/svg\+xml;base64,/);
+    const sent = rp.calls.find(c => c.method === 'POST' && /payment_links$/.test(c.url)).body;
+    assert.equal(sent.amount, 29900);
+    assert.ok(sent.expire_by * 1000 - Date.now() > 15 * 60 * 1000, 'Razorpay wants at least 15 minutes');
+
+    assert.equal(ok(await w.get(w.tokA, 'qr', { id: qr.id })).status, 'active');
+    refused(await w.post(w.tokA, 'bill', billBody(product, { payment: { method: 'upi', status: 'paid', qrId: qr.id } })), 409, 'qr-unpaid');
+    link = { status: 'paid', amount_paid: 29900, payments: [{ payment_id: 'pay_Link1' }] };
+    assert.equal(ok(await w.get(w.tokA, 'qr', { id: qr.id })).status, 'paid');
+    const bill = ok(await w.post(w.tokA, 'bill', billBody(product, { payment: { method: 'upi', status: 'paid', qrId: qr.id } }))).bill;
+    assert.deepEqual(bill.payment.razorpay, { qrId: qr.id, paymentId: 'pay_Link1' });
+  } finally { rp.restore(); }
+});
+
+test('a payment link QR left open is cancelled at Razorpay', async () => {
+  const w = world();
+  ok(await w.get(w.tokA, 'state'));
+  const rp = razorpay((url, method) => {
+    if (/qr_codes$/.test(url)) return { status: 404, body: { error: { code: 'BAD_REQUEST_ERROR', description: 'The requested URL was not found on the server.' } } };
+    if (method === 'POST' && /payment_links$/.test(url)) return { body: { id: 'plink_TestAbc124', short_url: 'https://rzp.io/rzp/test2' } };
+    return null;
+  });
+  try {
+    await connect(w);
+    const { qr } = ok(await w.post(w.tokA, 'qr', { action: 'create', amountPaise: 10000 }));
+    assert.equal(ok(await w.post(w.tokA, 'qr', { action: 'close', id: qr.id })).closed, true);
+    assert.ok(rp.calls.some(c => c.method === 'POST' && /payment_links\/plink_TestAbc124\/cancel$/.test(c.url)));
+  } finally { rp.restore(); }
+});
+
 test('a QR for a shop with no Razorpay is refused', async () => {
   const w = world();
   ok(await w.get(w.tokA, 'state'));
@@ -445,5 +490,24 @@ test('a shop\'s webhook takes only that shop\'s signature, and marks its QR paid
     assert.equal(row.status, 'paid');
     assert.equal(row.paymentId, 'pay_Hook1');
     assert.equal(ok(await w.get(w.tokA, 'qr', { id: qr.id })).status, 'paid');
+  } finally { rp.restore(); }
+});
+
+test('a shop\'s webhook marks a payment link QR paid', async () => {
+  const w = world();
+  ok(await w.get(w.tokA, 'state'));
+  const rp = razorpay((url, method) => {
+    if (/qr_codes$/.test(url)) return { status: 400, body: { error: { code: 'BAD_REQUEST_ERROR', description: 'The requested URL was not found on the server.' } } };
+    if (method === 'POST' && /payment_links$/.test(url)) return { body: { id: 'plink_TestAbc125', short_url: 'https://rzp.io/rzp/test3' } };
+    return null;
+  });
+  try {
+    await connect(w, HOOK_SECRET);
+    const { qr } = ok(await w.post(w.tokA, 'qr', { action: 'create', amountPaise: 29900 }));
+    const event = { event: 'payment_link.paid', payload: { payment_link: { entity: { id: qr.id, amount_paid: 29900 } }, payment: { entity: { id: 'pay_Hook2' } } } };
+    assert.equal((await deliver(OWNER, event, HOOK_SECRET)).status, 200);
+    const row = w.fs.read(`shops/${OWNER}/qrPayments/${qr.id}`);
+    assert.equal(row.status, 'paid');
+    assert.equal(row.paymentId, 'pay_Hook2');
   } finally { rp.restore(); }
 });
