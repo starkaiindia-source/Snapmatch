@@ -62,8 +62,7 @@ function network(model) {
       return reply(200, { status: 'completed', model: 'gemini-test', output_text: JSON.stringify(model || GOOD), usage: { total_input_tokens: 10, total_output_tokens: 5 } });
     }
     if (u.includes('/replies')) return reply(200, { id: 'reply_1' });
-    if (u.includes('me/messages')) return reply(200, { message_id: 'mid_sent' });
-    if (u.includes('/me?')) return reply(200, { id: 'page1', name: 'The Page', instagram_business_account: { id: OWN } });
+    if (u.includes('/messages')) return reply(200, { message_id: 'mid_sent' });
     return reply(200, { caption: 'Realme 5 tempered glass' });
   };
   return { calls, restore() { global.fetch = real; }, model: () => calls.filter(c => c.url.includes('generativelanguage')), sent: () => calls.filter(c => c.method === 'POST' && c.url.includes('graph.')) };
@@ -213,7 +212,7 @@ test('in auto a comment is answered on its thread and a message by message', asy
     const list = await stored();
     assert.deepEqual(list.map(e => e.status), ['sent', 'sent']);
     assert.ok(n.calls.some(c => /\/c\d+\/replies/.test(c.url)));
-    const dm = n.calls.filter(c => c.url.includes('me/messages'))[0];
+    const dm = n.calls.filter(c => c.url.includes(`/${OWN}/messages`))[0];
     assert.deepEqual(JSON.parse(dm.body), { recipient: { id: 'user2' }, message: { text: GOOD.reply } });
   } finally { n.restore(); }
 });
@@ -292,6 +291,34 @@ test('one person cannot run the account out of replies', async () => {
     assert.equal(list.filter(e => e.status === 'sent').length, 2);
     assert.equal(list.filter(e => e.reason === 'sender-limit').length, 2);
   } finally { n.restore(); }
+});
+
+test('a token refused as the account goes through the linked Page instead', async () => {
+  const { createMetaClient } = require('../_services/auto-reply/meta');
+  const seen = [];
+  const client = createMetaClient({
+    token: 'EAAuser', igUserId: OWN,
+    fetchImpl: async url => {
+      const u = String(url);
+      seen.push(u);
+      if (u.includes(`/${OWN}/messages`)) return reply(400, { error: { code: 3, message: 'no capability' } });
+      if (u.includes('me/accounts')) return reply(200, { data: [{ id: 'page1', access_token: 'PAGE', instagram_business_account: { id: OWN } }] });
+      return reply(200, { message_id: 'via_page' });
+    }
+  });
+  assert.equal(await client.sendMessage('user1', 'hi'), 'via_page');
+  assert.ok(seen[seen.length - 1].includes('me/messages') && seen[seen.length - 1].includes('access_token=PAGE'));
+});
+
+test('a rate limit is not retried through the Page', async () => {
+  const { createMetaClient } = require('../_services/auto-reply/meta');
+  let calls = 0;
+  const client = createMetaClient({
+    token: 'EAAuser', igUserId: OWN,
+    fetchImpl: async () => { calls++; return reply(429, { error: { code: 4, message: 'slow down' } }); }
+  });
+  await assert.rejects(client.sendMessage('user1', 'hi'), /rate limit/i);
+  assert.equal(calls, 1);
 });
 
 /* -------------------------------------------------------------- the page */
