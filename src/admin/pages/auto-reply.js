@@ -231,7 +231,9 @@
           : e.reply ? '<p class="ar-reply">' + ui.esc(e.reply) + '</p>' : '') +
         (detail ? '<p class="adm__none ar-meta">' + ui.esc(detail) + '</p>' : '') +
         (e.reason || e.error ? '<p class="ar-why">' + ui.esc(REASONS[e.reason] || e.error || e.reason) + '</p>' : '') +
-        (open ? '<div class="ar-row"><button class="adm__btn adm__btn--primary" data-act="send">Send</button><button class="adm__btn" data-act="discard">Discard</button></div>'
+        (open ? '<div class="ar-row"><button class="adm__btn adm__btn--primary" data-act="send">Send</button>' +
+            (e.status === 'needs_human' ? '<button class="adm__btn" data-act="retry">Try again</button>' : '') +
+            '<button class="adm__btn" data-act="discard">Discard</button></div>'
           : e.status === 'queued' || e.status === 'failed' ? '<div class="ar-row"><button class="adm__btn" data-act="retry">Try again</button><button class="adm__btn" data-act="discard">Discard</button></div>' : '') +
         '</article>';
     }

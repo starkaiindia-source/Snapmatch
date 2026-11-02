@@ -622,7 +622,8 @@ async function retry(id) {
   const snap = await eventCol().doc(id).get();
   if (!snap.exists) return { ok: false, code: 'missing' };
   const ev = snap.data();
-  if (ev.status !== 'failed' && !waiting(ev, Date.now())) return { ok: false, code: 'not-open' };
+  /* held for a person too: after a fix, the owner can let it run again */
+  if (ev.status !== 'failed' && ev.status !== 'needs_human' && !waiting(ev, Date.now())) return { ok: false, code: 'not-open' };
   await work(id, ev, await loadSettings(), credentials(), Date.now());
   return { ok: true };
 }
