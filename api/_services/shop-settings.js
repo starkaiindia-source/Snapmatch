@@ -42,12 +42,15 @@ const money = require('../../src/data/shop-money');
 const secrets = require('../_lib/shop-secrets');
 const { verifyWebhookSignature } = require('../_lib/razorpay-signature');
 const { ShopError } = require('./shop-error');
+const QRCode = require('qrcode');
 
 const db = () => require('../_lib/firebase').db();
 
 const MAX_STAFF = 10;
 const STAFF_CACHE_MS = 30 * 1000;
 const QR_LIFE_S = 15 * 60;
+/* Razorpay takes no payment link that ends sooner than 15 minutes from now */
+const LINK_LIFE_S = 20 * 60;
 const LOGO_MAX_CHARS = 120000;
 const RAZORPAY = 'https://api.razorpay.com/v1';
 const RAZORPAY_TIMEOUT_MS = 12000;
@@ -335,7 +338,38 @@ async function loadSettings(uid, query, who) {
 }
 
 /* ------------------------------------------------------------- UPI by QR */
-const qrId = v => (typeof v === 'string' && /^qr_[A-Za-z0-9]{6,40}$/.test(v) ? v : '');
+/* qr_ is Razorpay's own UPI QR. plink_ is a payment link shown as a QR, for an
+   account where Razorpay has not turned QR Codes on. */
+const qrId = v => (typeof v === 'string' && /^(qr|plink)_[A-Za-z0-9]{6,40}$/.test(v) ? v : '');
+const isLink = id => id.startsWith('plink_');
+
+/* Razorpay answers "The requested URL was not found" for an API the account does
+   not have. Any other refusal is about the request, and is said as it is. */
+const notOnAccount = r => r.status === 404 || (r.status === 400 && /url was not found/i.test(refusal(r)));
+
+async function linkQr(uid, body, keys, amountPaise) {
+  const closeBy = Math.floor(Date.now() / 1000) + LINK_LIFE_S;
+  const r = await razorpay(keys, 'POST', '/payment_links', {
+    amount: amountPaise, currency: 'INR', description: 'Quick Billing', expire_by: closeBy,
+    notify: { sms: false, email: false }, reminder_enable: false,
+    notes: { shop: uid, bill: text(body.fid, 40) }
+  });
+  if (r.status >= 300 || !r.data.id || !/^https:\/\//.test(r.data.short_url || '')) {
+    console.warn('[shop] razorpay refused a payment link for a QR', r.status, refusal(r));
+    throw new ShopError(502, 'razorpay-qr', { reason: refusal(r) });
+  }
+  const svg = await QRCode.toString(r.data.short_url, { type: 'svg', margin: 2, errorCorrectionLevel: 'M' });
+  await qrRef(uid, r.data.id).set({
+    ownerUid: uid, amountPaise, status: 'active', paymentId: null, billId: null, kind: 'link',
+    fid: text(body.fid, 40), createdAt: Date.now(), createdBy: body.actor ? body.actor.uid : null
+  });
+  return {
+    qr: {
+      id: r.data.id, imageUrl: 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64'),
+      payUrl: r.data.short_url, amountPaise, closeBy: closeBy * 1000
+    }
+  };
+}
 
 async function createQr(uid, body) {
   const amountPaise = Number(body.amountPaise);
@@ -348,6 +382,7 @@ async function createQr(uid, body) {
     description: 'Quick Billing', close_by: closeBy,
     notes: { shop: uid, bill: text(body.fid, 40) }
   });
+  if (notOnAccount(r)) return linkQr(uid, body, keys, amountPaise);
   if (r.status >= 300 || !r.data.id || !/^https:\/\//.test(r.data.image_url || '')) {
     /* the code only: a reply from a payment API is not for the logs in full */
     console.warn('[shop] razorpay refused a QR', r.status, refusal(r));
@@ -374,6 +409,16 @@ async function qrStatus(uid, query) {
   if (d.status === 'paid') return { status: 'paid', amountPaise: d.amountPaise };
   const keys = await keysOf(uid);
   if (!keys) throw conflict('razorpay-off');
+  if (isLink(id)) {
+    const l = await razorpay(keys, 'GET', '/payment_links/' + id);
+    if (l.status >= 300) return { status: 'active', amountPaise: d.amountPaise };
+    if (l.data.status === 'paid' && (l.data.amount_paid || 0) >= d.amountPaise) {
+      const first = (l.data.payments || [])[0];
+      await markPaid(uid, id, first ? first.payment_id : null);
+      return { status: 'paid', amountPaise: d.amountPaise };
+    }
+    return { status: ['expired', 'cancelled'].includes(l.data.status) ? 'closed' : 'active', amountPaise: d.amountPaise };
+  }
   const r = await razorpay(keys, 'GET', '/payments/qr_codes/' + id);
   if (r.status >= 300) return { status: 'active', amountPaise: d.amountPaise };
   if ((r.data.payments_amount_received || 0) >= d.amountPaise) {
@@ -391,7 +436,7 @@ async function closeQr(uid, body) {
   const snap = await qrRef(uid, id).get();
   if (!snap.exists || snap.data().status !== 'active') return { closed: false };
   const keys = await keysOf(uid);
-  if (keys) await razorpay(keys, 'POST', '/payments/qr_codes/' + id + '/close');
+  if (keys) await razorpay(keys, 'POST', isLink(id) ? '/payment_links/' + id + '/cancel' : '/payments/qr_codes/' + id + '/close');
   return { closed: true };
 }
 
@@ -410,14 +455,17 @@ async function shopWebhook(uid, rawBody, signature) {
   }
   let event;
   try { event = JSON.parse(rawBody.toString('utf8')); } catch (err) { return { status: 400, body: { error: 'invalid json' } }; }
-  if (event.event !== 'qr_code.credited') return { status: 200, body: { received: true, ignored: event.event || null } };
-  const qr = event.payload && event.payload.qr_code && event.payload.qr_code.entity;
-  const pay = event.payload && event.payload.payment && event.payload.payment.entity;
-  const id = qrId(qr && qr.id);
+  const p = event.payload || {};
+  const qr = event.event === 'qr_code.credited' ? p.qr_code && p.qr_code.entity
+    : event.event === 'payment_link.paid' ? p.payment_link && p.payment_link.entity : null;
+  if (!qr) return { status: 200, body: { received: true, ignored: event.event || null } };
+  const pay = p.payment && p.payment.entity;
+  const id = qrId(qr.id);
   if (!id) return { status: 200, body: { received: true, ignored: 'no qr id' } };
   const snap = await qrRef(uid, id).get();
   if (!snap.exists) return { status: 200, body: { received: true, ignored: 'unknown qr' } };
-  if ((qr.payments_amount_received || 0) >= snap.data().amountPaise) await markPaid(uid, id, pay ? pay.id : null);
+  const received = event.event === 'payment_link.paid' ? qr.amount_paid : qr.payments_amount_received;
+  if ((received || 0) >= snap.data().amountPaise) await markPaid(uid, id, pay ? pay.id : null);
   return { status: 200, body: { received: true } };
 }
 
