@@ -48,7 +48,7 @@ const events = require('../_services/auto-reply/events');
 const replies = require('../_services/auto-reply/service');
 
 const reply = (status, body) => ({ ok: status < 300, status, headers: { get: () => null }, json: async () => body });
-const GOOD = { intent: 'compatibility', should_reply: true, needs_human: false, confidence: 0.9, reply: 'Yes, this glass fits.' };
+const GOOD = { intent: 'compatibility', should_reply: true, needs_human: false, claims_fit: false, confidence: 0.9, reply: 'Yes, this glass fits.' };
 
 /** Meta and Gemini, as far as these tests need them. */
 function network(model) {
@@ -154,6 +154,14 @@ test('a phone is found in the way people write, and only an exact phone counts',
   assert.equal(responder.phonesIn('super glass bro, price?').length, 0);
 });
 
+test('a phone is known by the name people use for it', () => {
+  const name = text => responder.phonesIn(text).map(p => p.name);
+  assert.deepEqual(name('iphone 14 ku temper irukka'), ['Apple iPhone 14']);
+  assert.deepEqual(name('samsung a52 glass'), ['Samsung Galaxy A52']);
+  assert.deepEqual(name('a52'), [], 'Oppo and Samsung both have one, so it is a question');
+  assert.deepEqual(name('note 10'), []);
+});
+
 test('the facts carry at most the names allowed, and no part code', async () => {
   const phones = responder.phonesIn('realme 5');
   const facts = await responder.factsFor(phones, 'temper', 2);
@@ -256,13 +264,14 @@ for (const [name, model, reason] of [
   ['the model asks for a person', Object.assign({}, GOOD, { needs_human: true }), 'needs-human'],
   ['the model is unsure', Object.assign({}, GOOD, { confidence: 0.3 }), 'low-confidence'],
   ['the reply names the other brand', Object.assign({}, GOOD, { reply: 'Try Mobile Parts Finder' }), 'blocked-word'],
-  ['the reply carries a stranger\'s link', Object.assign({}, GOOD, { reply: 'see https://evil.example' }), 'unknown-link']
+  ['the reply carries a stranger\'s link', Object.assign({}, GOOD, { reply: 'see https://evil.example' }), 'unknown-link'],
+  ['it claims a fit nothing was checked against', Object.assign({}, GOOD, { claims_fit: true }), 'unchecked-fit']
 ]) {
   test(`even in auto nothing goes out when ${name}`, async () => {
     await fresh({ mode: 'auto' });
     const n = network(model);
     try {
-      await deliver(commentEvent('realme 5 ku match aaguma'));
+      await deliver(commentEvent('nice, does it fit'));
       const [e] = await stored();
       assert.equal(e.status, 'needs_human');
       assert.equal(e.reason, reason);

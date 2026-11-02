@@ -31,6 +31,7 @@
   var REASONS = {
     'needs-human': 'The AI asked for a person.', 'low-confidence': 'The AI was not sure enough.', 'blocked-word': 'The reply had a blocked word.',
     'unknown-link': 'The reply had a link that is not in your links.', 'too-long': 'The reply was too long for Instagram.', empty: 'The AI wrote nothing.',
+    'unchecked-fit': 'It said a product fits, but the post names no phone to check that against.',
     'no-text': 'No text in this message, such as a photo.', 'auto-reply-off': 'Auto Reply was off.', 'channel-off': 'This channel was off.',
     'sender-limit': 'This person reached the hourly limit.', 'daily-limit': 'The daily limit was reached.'
   };
@@ -210,8 +211,8 @@
       if (!r.ok) return ui.banner('bad', '<b>No reply.</b> ' + ui.esc(r.reason || r.kind || 'The AI did not answer.'));
       return '<div class="ar-item">' + (r.shouldReply
         ? '<p class="ar-reply">' + ui.esc(r.reply) + '</p>' : '<p class="ar-why">No reply needed for this.</p>') +
-        '<p class="adm__none ar-meta">' + ui.esc([r.intent, Math.round(r.confidence * 100) + '% sure', r.needsHuman ? 'would wait for you' : ''].filter(Boolean).join(' · ')) + '</p>' +
-        (r.guard ? '<p class="ar-why">' + ui.esc(REASONS[r.guard] || r.guard) + ' It would not be sent.</p>' : '') +
+        '<p class="adm__none ar-meta">' + ui.esc([r.intent, Math.round(r.confidence * 100) + '% sure'].filter(Boolean).join(' · ')) + '</p>' +
+        (r.shouldReply && r.hold ? '<p class="ar-why">' + ui.esc(REASONS[r.hold] || r.hold) + ' It would wait for you.</p>' : '') +
         (r.facts ? '<pre class="ar-facts">' + ui.esc(r.facts) + '</pre>' : '') + '</div>';
     }
     function saveSettings(patch, then) {

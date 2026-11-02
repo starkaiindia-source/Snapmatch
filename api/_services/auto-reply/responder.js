@@ -14,7 +14,9 @@
    "Will this fit my phone?" is the dangerous one, because "this" is the post. The
    phones in the caption are checked against the customer's phone here, and the model
    is handed a YES or a NO. With no phone in the caption there is nothing to compare,
-   and the model is told it may list what shares a part but may not say yes.
+   and the model is told it may list what shares a part but may not say yes. In live
+   tests it said yes anyway, so that rule is not left to the model: it has to report
+   when a reply claims a fit, and hold() stops any claim no such line stands behind.
 
    HOW MANY NAMES GO OUT
 
@@ -45,6 +47,7 @@ const MAX_COMMENT_CHARS = 500;
 const MAX_NGRAM = 6;
 const MAX_MODELS = 3;
 const MAX_POST_PHONES = 20;
+const POOL = 60;
 const MAX_GROUPS = 3;
 
 const SCHEMA = {
@@ -53,17 +56,39 @@ const SCHEMA = {
     intent: { type: 'string', enum: ['compatibility', 'product', 'price', 'order', 'complaint', 'greeting', 'praise', 'spam', 'other'] },
     should_reply: { type: 'boolean' },
     needs_human: { type: 'boolean' },
+    claims_fit: { type: 'boolean' },
     confidence: { type: 'number' },
     reply: { type: 'string' }
   },
-  required: ['intent', 'should_reply', 'needs_human', 'confidence', 'reply']
+  required: ['intent', 'should_reply', 'needs_human', 'claims_fit', 'confidence', 'reply']
 };
+
+/**
+ * The one phone these words mean, or null. People leave out what they take as read:
+ * "iphone 14" is Apple iPhone 14 and "samsung a52" is Samsung Galaxy A52. So every
+ * word has to be a whole word of the name, and the name has to end on the last of
+ * them, which is why "iphone 14" is not the 14 Pro. If that leaves more than one,
+ * "a52" could be an Oppo or a Samsung, and that is a question for the customer.
+ */
+function namedBy(run) {
+  const exact = search.findModels(run.join(' '), { limit: 1 });
+  if (exact.matchType === 'exact') return exact.models[0];
+  const last = run[run.length - 1];
+  const pool = search.findModels(run.join(' '), { limit: POOL }).models
+    .concat(/[a-z]\d/i.test(last) ? search.findModels(last, { limit: POOL }).models : []);
+  const words = run.map(w => w.toLowerCase());
+  const fits = Array.from(new Map(pool.map(m => [m.id, m])).values()).filter(m => {
+    const name = m.name.toLowerCase().split(/\s+/);
+    return name[name.length - 1] === last.toLowerCase() && words.every(w => name.indexOf(w) > -1);
+  });
+  return fits.length === 1 ? fits[0] : null;
+}
 
 /**
  * Phones named in a message, however it is worded. "realme 5 ku match aaguma bro"
  * has no sentence a parser could use, so every run of words is tried against the
- * catalogue, longest first, and only an exact hit counts: a near miss is a question
- * to ask the customer, not a phone to answer about.
+ * catalogue, longest first. A near miss is a question to ask the customer, not a
+ * phone to answer about.
  */
 function phonesIn(text, max = MAX_MODELS) {
   const words = String(text || '').replace(/[^\p{L}\p{N}+ ]/gu, ' ').split(/\s+/).filter(Boolean);
@@ -73,9 +98,9 @@ function phonesIn(text, max = MAX_MODELS) {
     for (let at = 0; at + size <= words.length; at++) {
       const run = words.slice(at, at + size);
       if (used.slice(at, at + size).some(Boolean) || !run.some(w => /\d/.test(w))) continue;
-      const hit = search.findModels(run.join(' '), { limit: 1 });
-      if (hit.matchType !== 'exact') continue;
-      found.set(hit.models[0].id, hit.models[0]);
+      const phone = namedBy(run);
+      if (!phone) continue;
+      found.set(phone.id, phone);
       for (let i = at; i < at + size; i++) used[i] = true;
     }
   }
@@ -141,6 +166,8 @@ Rules:
 - If the customer asks about a phone and FACTS names none, ask for the exact brand and model.
 - If FACTS says nothing is recorded for a phone, that is not a no. Set needs_human true.
 - FACTS says which phones share a part with each other. It does not know what this post sells unless it has a line asking "Does ... take the same ...?". Follow that YES or NO. With no such line, never say this product fits: list the phones that share the part and ask which phone the customer has.
+- A NO means only that it is not the same part. Do not say whether another one is available.
+- claims_fit is true if your reply says a product of ours fits the customer's phone, and false if it only lists phones that share a part.
 - Reply in the language and script the customer used. Tamil written in English letters gets Tamil in English letters.
 - ${kind === 'comment' ? 'This is a public comment: at most two short sentences.' : 'This is a private message: at most five short lines.'}
 - Complaints, refunds and order problems: set needs_human true.
@@ -186,7 +213,7 @@ async function draft({ text, kind, settings, gemini, model, caption, history }) 
   const reply = typeof o.reply === 'string' ? o.reply.trim() : '';
   return {
     ok: true, reply, facts, phones: unique.map(p => p.name), intent: typeof o.intent === 'string' ? o.intent : 'other',
-    shouldReply: o.should_reply !== false, needsHuman: !!o.needs_human,
+    shouldReply: o.should_reply !== false, needsHuman: !!o.needs_human, claimsFit: !!o.claims_fit,
     confidence: Number.isFinite(Number(o.confidence)) ? Number(o.confidence) : 0,
     model: r.model, usage: r.usage
   };
@@ -215,4 +242,16 @@ function guard(reply, kind, settings) {
   return null;
 }
 
-module.exports = { draft, guard, phonesIn, factsFor, MAX_DM_BYTES, MAX_COMMENT_CHARS };
+/**
+ * Why this draft waits for a person, or null. Asked after guard() by both the
+ * pipeline and the test box, so the box shows what would really happen.
+ */
+function hold(d, kind, settings) {
+  if (d.needsHuman) return 'needs-human';
+  const blocked = guard(d.reply, kind, settings);
+  if (blocked) return blocked;
+  if (d.claimsFit && !/take the same .*\? (?:YES|NO)\./.test(d.facts)) return 'unchecked-fit';
+  return d.confidence < settings.minConfidence ? 'low-confidence' : null;
+}
+
+module.exports = { draft, guard, hold, phonesIn, factsFor, MAX_DM_BYTES, MAX_COMMENT_CHARS };

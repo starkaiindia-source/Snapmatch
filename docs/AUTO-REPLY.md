@@ -27,6 +27,9 @@ the project is at the 12-function limit.
 
 - **The catalogue answers, the model only writes.** A question with no recorded answer
   goes to a person.
+- **"Will this fit?" is a database question.** The phones in the caption are compared with
+  the customer's phone over the full group. The model is given a YES or a NO. A reply that
+  claims a fit with no such line behind it waits for a person, even in Auto.
 - **One reply per event.** The claim is a transaction made before anything is spent, so
   Meta delivering again changes nothing. An event cut short stays `queued`, and only the
   page runs it again.
