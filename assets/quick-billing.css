@@ -1035,6 +1035,11 @@ button.qb-upiqr:hover{ background:var(--surface-3); }
 /* ---- Settings ---- */
 .qb-invite{ display:flex; align-items:center; gap:8px; padding:8px var(--pad); background:var(--surface); border-bottom:1px solid var(--line); font-size:14px; }
 .qb-set{ display:flex; flex-direction:column; gap:14px; width:100%; max-width:720px; margin-inline:auto; padding-block:14px 28px; }
+.qb .qb-set{ max-width:720px; }
+@media (min-width:1100px){
+  .qb .qb-set{ display:grid; grid-template-columns:1fr 1fr; align-items:start; max-width:1240px; }
+  .qb-set__p:first-child{ grid-row:span 2; }
+}
 .qb-set__p{ gap:10px; padding:14px; }
 .qb-set .qb-form{ display:flex; flex-direction:column; }
 .qb-set__p .qb-sec{ justify-content:space-between; }
