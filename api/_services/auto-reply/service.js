@@ -295,6 +295,32 @@ async function handle(list, settings, c, started) {
   return done;
 }
 
+/* An event claimed but cut short by the time limit. Taken in a transaction, so a
+   read and a press of Try again cannot both answer it. */
+async function takeQueued(id) {
+  const ref = eventCol().doc(id);
+  return db().runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists || snap.data().status !== 'queued') return null;
+    tx.update(ref, { status: 'working', updatedAt: Date.now() });
+    return snap.data();
+  });
+}
+
+async function catchUp(settings, c, started) {
+  const snap = await eventCol().where('status', '==', 'queued').limit(MAX_PER_DELIVERY).get();
+  let done = 0;
+  for (const doc of snap.docs) {
+    if (Date.now() - started > BUDGET_MS) break;
+    const ev = await takeQueued(doc.id);
+    if (!ev) continue;
+    done++;
+    await work(doc.id, ev, settings, c, Date.now())
+      .catch(err => finish(doc.id, { status: 'failed', error: String(err.message).slice(0, 300), errorKind: 'error' }));
+  }
+  return done;
+}
+
 /**
  * Reads what arrived since the last read and answers it. Anyone may ask for this, so
  * it runs at most once a minute whoever asks, and it can only answer the account's
@@ -313,9 +339,9 @@ async function poll() {
   const since = last.exists && last.data().readAt ? last.data().readAt - READ_OVERLAP_MS : now - FIRST_LOOKBACK_MS;
   const meta = metaClient(c);
   const read = await meta.recent(since);
-  const me = await meta.check().then(k => (k.account && k.account.username) || '', () => '');
+  const me = await meta.username().catch(() => '');
   const list = events.fromRead(read, c.igUserId, String(me).toLowerCase());
-  const answered = await handle(list, settings, c, now);
+  const answered = await handle(list, settings, c, now) + await catchUp(settings, c, now);
   await pollRef().set({ readAt: now, found: list.length, answered });
   return { status: 200, body: { polled: true, found: list.length, answered } };
 }
