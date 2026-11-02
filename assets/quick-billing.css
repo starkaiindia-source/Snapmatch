@@ -1044,6 +1044,29 @@ button.qb-upiqr:hover{ background:var(--surface-3); }
 .qb-set .qb-form{ display:flex; flex-direction:column; }
 .qb-set__p .qb-sec{ justify-content:space-between; }
 .qb-set__here{ align-self:flex-start; margin-top:-6px; }
+.qb-store{ overflow:hidden; border:1px solid var(--line); border-radius:var(--r); background:var(--surface); }
+.qb-store__banner{ display:flex; align-items:center; gap:14px; padding:18px 16px; background:var(--qb-grad); color:#fff; }
+.qb-store__id{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+.qb-store__id h3{ margin:0; font-size:22px; font-weight:800; letter-spacing:-.02em; color:inherit; overflow-wrap:anywhere; }
+.qb-store__id span{ font-size:14px; font-weight:600; opacity:.92; }
+.qb-store__facts{ display:flex; flex-direction:column; gap:10px; margin:0; padding:14px 16px; list-style:none; }
+.qb-store__facts li{ display:flex; align-items:flex-start; gap:10px; font-size:15px; font-weight:600; color:var(--ink); overflow-wrap:anywhere; }
+.qb-store__facts svg{ flex:none; width:18px; height:18px; margin-top:1px; color:var(--ink-3); }
+.qb-store__map{ height:190px; border-top:1px solid var(--line); background:var(--surface-3); }
+.qb-map{ display:block; width:100%; height:100%; border:0; }
+.qb-store__nomap{ display:flex; align-items:center; justify-content:center; gap:8px; width:100%; height:96px; border:0; border-top:1px solid var(--line); background:var(--surface-3); font:inherit; font-size:14px; font-weight:700; color:var(--ink-2); cursor:pointer; }
+.qb-store__nomap svg{ width:18px; height:18px; }
+.qb-storelogo{ position:relative; flex:none; display:grid; place-items:center; width:76px; height:76px; border-radius:16px; background:var(--surface); color:var(--ink-2); box-shadow:0 2px 10px rgba(0,0,0,.18); cursor:pointer; }
+.qb-storelogo img{ display:block; width:100%; height:100%; object-fit:contain; border-radius:inherit; background:#fff; }
+.qb-storelogo input{ position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.qb-storelogo__add{ display:flex; flex-direction:column; align-items:center; gap:3px; font-size:11.5px; font-weight:700; }
+.qb-storelogo__add svg{ width:20px; height:20px; }
+.qb-storelogo__badge{ position:absolute; right:-7px; bottom:-7px; display:grid; place-items:center; width:27px; height:27px; border-radius:50%; background:var(--surface); color:var(--ink); box-shadow:0 1px 5px rgba(0,0,0,.25); }
+.qb-storelogo__badge svg{ width:14px; height:14px; }
+.qb-store__logoedit{ display:flex; align-items:center; gap:16px; }
+.qb-setmap{ height:190px; overflow:hidden; border:1px solid var(--line); border-radius:var(--r-sm); background:var(--surface-3); }
+.qb-setmap:empty{ display:none; }
+@media (min-width:1100px){ .qb-store__map{ height:260px; } }
 .qb-set__acts{ display:flex; flex-wrap:wrap; gap:8px; }
 .qb-setkv{ display:flex; flex-direction:column; gap:6px; margin:0; }
 .qb-setkv div{ display:flex; justify-content:space-between; gap:12px; font-size:14px; }

@@ -142,6 +142,26 @@ test('the store starts from the profile, and the shop can change it for its bill
   assert.ok(String(page.body).includes('Stark Mobiles'), 'the shared invoice prints the store');
 });
 
+test('a store logo is a small image only the owner saves, and bills do not carry it', async () => {
+  const w = world();
+  await withProduct(w);
+  await addRavi(w);
+  const logo = 'data:image/jpeg;base64,' + 'QUJD'.repeat(1000);
+
+  refused(await w.post(w.tokS, 'settings', { action: 'store-logo', data: logo }), 403, 'owner-only');
+  refused(await w.post(w.tokA, 'settings', { action: 'store-logo', data: 'data:image/svg+xml;base64,QUJD' }), 400, 'logo-type');
+  refused(await w.post(w.tokA, 'settings', { action: 'store-logo', data: 'javascript:alert(1)' }), 400, 'logo-type');
+  refused(await w.post(w.tokA, 'settings', { action: 'store-logo', data: 'data:image/jpeg;base64,' + 'A'.repeat(130000) }), 400, 'logo-size');
+
+  assert.equal(ok(await w.post(w.tokA, 'settings', { action: 'store-logo', data: logo })).logo, logo);
+  assert.equal(ok(await w.get(w.tokA, 'settings')).logo, logo);
+  assert.ok(!JSON.stringify(ok(await w.get(w.tokA, 'state'))).includes(logo));
+  assert.equal(w.fs.read(`shops/${OWNER}`).store, undefined, 'the shop\'s own document stays small');
+
+  ok(await w.post(w.tokA, 'settings', { action: 'store-logo', data: '' }));
+  assert.equal(ok(await w.get(w.tokA, 'settings')).logo, '');
+});
+
 /* ------------------------------------------------------------------- staff */
 test('a staff email has rules: one shop, not the owner, and a limit', async () => {
   const w = world();

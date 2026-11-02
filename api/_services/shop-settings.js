@@ -48,6 +48,7 @@ const db = () => require('../_lib/firebase').db();
 const MAX_STAFF = 10;
 const STAFF_CACHE_MS = 30 * 1000;
 const QR_LIFE_S = 15 * 60;
+const LOGO_MAX_CHARS = 120000;
 const RAZORPAY = 'https://api.razorpay.com/v1';
 const RAZORPAY_TIMEOUT_MS = 12000;
 
@@ -58,6 +59,7 @@ const shopRef = uid => db().collection(C.SHOPS).doc(uid);
 const staffCol = () => db().collection(C.SHOP_STAFF);
 const keysRef = uid => shopRef(uid).collection(C.SHOP_PRIVATE).doc('razorpay');
 const qrRef = (uid, id) => shopRef(uid).collection(C.SHOP_QR).doc(id);
+const logoRef = uid => shopRef(uid).collection(C.SHOP_PRIVATE).doc('logo');
 
 function text(v, max) {
   return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '';
@@ -141,6 +143,21 @@ async function saveStore(uid, body, who) {
   if (!store.name) throw bad('store-name');
   await shopRef(uid).set({ ownerUid: uid, store, updatedAt: Date.now() }, { merge: true });
   return { store };
+}
+
+/* The project has no Storage bucket, so a logo is a small image kept in a document of
+   its own: every bill reads the shop's document, and none of them need the logo. */
+async function saveLogo(uid, body, who) {
+  ownerOnly(who);
+  const data = typeof body.data === 'string' ? body.data : '';
+  if (!data) {
+    await logoRef(uid).delete();
+    return { logo: '' };
+  }
+  if (data.length > LOGO_MAX_CHARS) throw bad('logo-size');
+  if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(data)) throw bad('logo-type');
+  await logoRef(uid).set({ ownerUid: uid, data, updatedAt: Date.now() });
+  return { logo: data };
 }
 
 /* ---------------------------------------------------------------- staff */
@@ -274,8 +291,11 @@ async function disconnectRazorpay(uid, body, who) {
 /** Everything the Settings page shows. No secret is in it. */
 async function loadSettings(uid, query, who) {
   ownerOnly(who);
-  const [store, staff, keys] = await Promise.all([storeOf(uid), listStaff(uid), keysRef(uid).get()]);
-  return { store, staff, razorpay: keysView(uid, keys.exists ? keys.data() : null), maxStaff: MAX_STAFF };
+  const [store, staff, keys, logo] = await Promise.all([storeOf(uid), listStaff(uid), keysRef(uid).get(), logoRef(uid).get()]);
+  return {
+    store, staff, razorpay: keysView(uid, keys.exists ? keys.data() : null), maxStaff: MAX_STAFF,
+    logo: logo.exists ? logo.data().data : ''
+  };
 }
 
 /* ------------------------------------------------------------- UPI by QR */
@@ -366,7 +386,7 @@ async function shopWebhook(uid, rawBody, signature) {
 }
 
 module.exports = {
-  actorFor, storeView, invoiceHeader, storeOf, saveStore,
+  actorFor, storeView, invoiceHeader, storeOf, saveStore, saveLogo,
   listStaff, addStaff, removeStaff, answerInvite,
   connectRazorpay, disconnectRazorpay, loadSettings,
   createQr, qrStatus, closeQr, shopWebhook, qrRef, qrId
