@@ -174,6 +174,13 @@
         rows.push(subs && !wanted.length ? row('ok', 'Receiving events', subs.map(ui.esc).join(', '))
           : row('bad', 'Receiving events', errorFor('subscription') || 'Not subscribed to: ' + wanted.map(ui.esc).join(', ')));
       }
+      if (k && !state.checking) {
+        rows.push(k.conversations != null ? row('ok', 'Message access', 'Meta lets this app read the account\'s messages.')
+          : row('bad', 'Message access', errorFor('messages') || 'Not checked.'));
+        rows.push(k.comments ? row(k.comments.readable ? 'ok' : 'warn', 'Comments', k.comments.readable + ' recent comments can be read' +
+          (k.comments.latestAt ? ', the latest ' + ui.esc(ui.ago(k.comments.latestAt)) : '') + '.')
+          : row('bad', 'Comments', errorFor('comments') || 'Not checked.'));
+      }
       rows.push(c.gemini ? row('ok', 'AI model', ui.esc(c.model)) : row('bad', 'AI model', 'GEMINI_API_KEY is not set.'));
       return '<div class="ar-head"><h2>Connection</h2><div class="ar-row"><button class="adm__btn" data-act="subscribe">Connect webhook</button>' +
         '<button class="adm__btn" data-act="check">Check again</button></div></div>' +
