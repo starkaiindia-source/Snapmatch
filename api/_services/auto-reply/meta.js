@@ -51,7 +51,7 @@ function createMetaClient(opts = {}) {
   const host = login === 'instagram' ? 'graph.instagram.com' : 'graph.facebook.com';
   let page = null;
 
-  async function call(method, path, { params, body, as } = {}) {
+  async function call(method, path, { params, body, as, wait } = {}) {
     const useToken = as || token;
     if (!useToken) throw new GraphError('unconfigured', 'No Instagram access token is set.');
     const url = new URL(`https://${host}/${version}/${path}`);
@@ -63,7 +63,7 @@ function createMetaClient(opts = {}) {
     let res;
     try {
       res = await doFetch(url.toString(), {
-        method, signal: AbortSignal.timeout(timeoutMs),
+        method, signal: AbortSignal.timeout(wait || timeoutMs),
         headers: body ? { 'Content-Type': 'application/json' } : undefined,
         body: body ? JSON.stringify(body) : undefined
       });
@@ -178,12 +178,12 @@ function createMetaClient(opts = {}) {
   async function history() {
     const account = login === 'instagram' ? 'me' : igUserId;
     const reply = '{id,text,timestamp,username,from}';
-    const media = await call('GET', `${account}/media`, { params: {
+    const media = await call('GET', `${account}/media`, { wait: 25000, params: {
       fields: `id,caption,media_product_type,timestamp,permalink,comments_count,comments.limit(50){id,text,timestamp,username,from,replies.limit(10)${reply}}`,
-      limit: 40
+      limit: 25
     } });
-    const talks = await call('GET', `${account}/conversations`, { params: {
-      platform: 'instagram', fields: 'updated_time,messages.limit(30){id,message,created_time,from}', limit: 50
+    const talks = await call('GET', `${account}/conversations`, { wait: 25000, params: {
+      platform: 'instagram', fields: 'updated_time,messages.limit(30){id,message,created_time,from}', limit: 30
     } });
     return { media: media.data || [], conversations: talks.data || [] };
   }
