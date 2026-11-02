@@ -275,9 +275,10 @@
 .qb-recv{ display:flex; flex-direction:column; gap:6px; }
 /* how it was paid, on a phone. The tiles stay light in both themes, as the invoice
    does: the UPI logo is NPCI's own artwork and its grey is for a light ground. */
-.qb-paym{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
-.qb-paym button{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-width:0; padding:8px 4px; border-radius:var(--r-sm); border:1px solid #D9E0DE; background:#fff; font-size:13.5px; font-weight:700; color:#33423E; transition:border-color .14s, background .14s; }
-.qb-paym img{ display:block; width:auto; height:auto; max-width:100%; max-height:30px; object-fit:contain; }
+.qb-paym{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.qb-paym button{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-width:0; min-height:92px; padding:10px 8px 8px; border-radius:var(--r-sm); border:1px solid #D9E0DE; background:#fff; font-size:13.5px; font-weight:700; color:#33423E; transition:border-color .14s, background .14s; }
+.qb-paym img{ display:block; width:100%; height:38px; object-fit:contain; }
+.qb-paym img[src$="upi.png"]{ height:32px; margin-block:3px; }
 .qb-paym span{ line-height:1.2; }
 .qb-paym button:hover{ border-color:#9DB0AB; }
 .qb-paym button.is-on{ border-color:#2563EB; background:#EEF4FF; color:#1D4ED8; box-shadow:inset 0 0 0 1px #2563EB; }
@@ -298,22 +299,30 @@
 .qb-review__items .grow .qb-fits{ color:var(--qb-ink); }
 .qb-review__items li > b{ font-family:var(--f-mono); font-weight:600; flex:none; }
 
-/* the second page on a phone: the billing page's usual panels, with what is left
-   of the screen shared evenly around them, and the bar under the content rather
-   than over it. .qb-rv can still scroll, for a phone turned on its side or a keyboard. */
+/* the second page on a phone: the summary under the header, payment and Confirm
+   Bill together in a panel on the bottom edge, and whatever is left of the screen
+   between them. .qb-rv scrolls if the summary needs more room than that. */
 .qb--review{ height:100dvh; display:flex; flex-direction:column; padding:0; }
 .qb--review .qb-head{ flex:none; }
-.qb-rv{ flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
-.qb-rv__in{ min-height:100%; max-width:640px; margin-inline:auto; display:flex; flex-direction:column; justify-content:space-evenly; gap:10px; padding:10px var(--pad); }
+.qb-rv{ flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:10px var(--pad); }
+.qb-rv > .qb-panel{ max-width:640px; margin-inline:auto; }
+.qb-dock{ flex:none; display:flex; flex-direction:column; gap:10px; padding:12px var(--pad) calc(10px + env(safe-area-inset-bottom)); background:var(--surface); border-top:1px solid var(--line); border-radius:var(--r-lg) var(--r-lg) 0 0; box-shadow:0 -8px 24px -16px rgba(10,21,18,.28); }
+.qb-dock > *{ width:100%; max-width:640px; margin-inline:auto; }
+.qb-dock .qb-pay{ display:flex; flex-direction:column; gap:10px; }
 .qb--review .qb-recv{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 .qb--review .qb-bal{ flex-direction:column; align-items:flex-start; justify-content:center; }
-.qb--review .qb-cartbar{ position:static; flex:none; padding:0 8px calc(8px + env(safe-area-inset-bottom)); }
-.qb--review .qb-cartbar__in{ max-width:624px; margin-inline:auto; }
-/* a phone on its side: summary beside payment */
-@media (max-height:520px) and (min-width:640px){
-  .qb-rv__in{ max-width:none; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; align-content:start; }
-  .qb--review .qb-acts{ grid-column:1 / -1; }
-  .qb--review .qb-cartbar__in{ max-width:none; }
+.qb--review .qb-cartbar{ position:static; }
+/* with the browser's address bar showing: discount beside tax, so the panels still
+   clear each other at their usual size */
+@media (max-height:810px){
+  .qb--review .qb-adj{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .qb--review .qb-toggle{ padding:0 8px; gap:6px; white-space:nowrap; }
+}
+/* too short for that, a phone on its side above all: one page that scrolls */
+@media (max-height:620px){
+  .qb--review{ height:auto; min-height:100dvh; }
+  .qb-rv{ flex:none; overflow:visible; }
+  .qb-dock{ margin-top:auto; }
 }
 
 /* the third page */
