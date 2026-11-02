@@ -63,6 +63,20 @@ const SCHEMA = {
   required: ['intent', 'should_reply', 'needs_human', 'claims_fit', 'confidence', 'reply']
 };
 
+const LINK_WORDS = /\b(?:link|lnk|url|apk|playstore|download)\b|play\s*store|லிங்க்|டவுன்லோட்|ப்ளே ?ஸ்டோர்/i;
+const APP_WORDS = /\b(?:app|application)\b|ஆப்(?!பி)|அப்ளிகேஷன்|செயலி/i;
+const ASKING = /\?|\b(?:name|peru|enga|where|send|venum|vendum|want|need|kudu|kudunga|anuppu|anuppunga|pls|plz|please|edhu|what|which)\b|எங்க|வேண்டும்|வேணும்|அனுப்பு|கொடு|பெயர்|என்ன/i;
+
+/**
+ * Is this person asking for the app? Asked before the model, because the answer is
+ * one fixed link and needs no writing. "link" alone counts, since that is how people
+ * ask under a post. "app" needs a request with it: "nice app" is praise.
+ */
+function asksForApp(text) {
+  const t = String(text || '');
+  return LINK_WORDS.test(t) || (APP_WORDS.test(t) && ASKING.test(t));
+}
+
 /**
  * The one phone these words mean, or null. People leave out what they take as read:
  * "iphone 14" is Apple iPhone 14 and "samsung a52" is Samsung Galaxy A52. So every
@@ -157,7 +171,7 @@ async function factsFor(phones, text, maxNames, post) {
 function systemPrompt(s, kind) {
   const list = (label, value) => (value ? `\n${label}:\n${value}` : '');
   return `You answer customers on the Instagram account of ${s.brand || 'this shop'}, writing as the shop.` +
-    list('About the shop', s.about) + list('Products', s.products) + list('Links you may share', s.links) +
+    list('About the shop', s.about) + list('Products', s.products) + list('Links you may share', [s.appLink, s.links].filter(Boolean).join('\n')) +
     list('Tone', s.tone) + `
 
 Rules:
@@ -235,7 +249,7 @@ function guard(reply, kind, settings) {
   const lower = text.toLowerCase();
   const word = lines(settings.blocked).filter(b => lower.indexOf(b.toLowerCase()) > -1)[0];
   if (word) return 'blocked-word';
-  const allowed = lines(settings.links).join(' ').match(/https?:\/\/\S+/g) || [];
+  const allowed = lines(settings.links).concat(settings.appLink || []).join(' ').match(/https?:\/\/\S+/g) || [];
   const hosts = allowed.map(hostOf);
   const links = text.match(/(?:https?:\/\/|www\.)\S+/gi) || [];
   if (links.some(l => hosts.indexOf(hostOf(/^http/i.test(l) ? l : 'https://' + l)) < 0)) return 'unknown-link';
@@ -254,4 +268,4 @@ function hold(d, kind, settings) {
   return d.confidence < settings.minConfidence ? 'low-confidence' : null;
 }
 
-module.exports = { draft, guard, hold, phonesIn, factsFor, MAX_DM_BYTES, MAX_COMMENT_CHARS };
+module.exports = { draft, guard, hold, asksForApp, phonesIn, factsFor, MAX_DM_BYTES, MAX_COMMENT_CHARS };

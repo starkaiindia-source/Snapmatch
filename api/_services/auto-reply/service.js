@@ -29,6 +29,10 @@
    `review` writes the reply and waits for a person. `auto` is a choice the owner
    makes on the page, after reading some. Off means nothing is spent at all.
 
+   The one exception to waiting is the app link. Someone asking for the app gets the
+   link at once, in review too: the owner wrote the words, no model is involved, and
+   nothing in it can be wrong about a phone.
+
    Delivery is answered inline: Vercel freezes a function once it has responded, so
    work left for after the 200 may never run.
    ========================================================================== */
@@ -61,6 +65,7 @@ const MEMORY = 3;
 const DEFAULTS = {
   mode: 'review', comments: true, dms: true,
   brand: 'ProGlide', about: '', products: '', links: '',
+  appLink: '', appLinkText: 'Here is the {brand} app: {link}', appLinkComment: 'Sent you the link in DM',
   tone: 'Friendly and short, like a helpful shop owner. No hashtags.',
   handoff: 'Our team will reply to you soon.',
   blocked: 'Mobile Parts Finder\nmobilepartsfinder\nSnapMatch',
@@ -104,6 +109,9 @@ function normalise(s) {
     mode: MODES.indexOf(d.mode) > -1 ? d.mode : DEFAULTS.mode,
     comments: d.comments !== false, dms: d.dms !== false,
     brand: text(d.brand, 60), about: text(d.about, 2000), products: text(d.products, 4000), links: text(d.links, 600),
+    appLink: /^https:\/\/\S+$/.test(text(d.appLink, 300)) ? text(d.appLink, 300) : '',
+    appLinkText: text(d.appLinkText, 300) || DEFAULTS.appLinkText,
+    appLinkComment: text(d.appLinkComment, 200) || DEFAULTS.appLinkComment,
     tone: text(d.tone, 300), handoff: text(d.handoff, 200) || DEFAULTS.handoff, blocked: text(d.blocked, 600),
     maxNames: num(d.maxNames, 0, 20, DEFAULTS.maxNames),
     perSenderHour: num(d.perSenderHour, 1, 60, DEFAULTS.perSenderHour),
@@ -173,7 +181,7 @@ function cost(c, r) {
 }
 
 /** Sends a reply already decided on, once. */
-async function deliver(id, reply, by, c) {
+async function deliver(id, reply, by, c, send) {
   const ref = eventCol().doc(id);
   const ev = await db().runTransaction(async tx => {
     const snap = await tx.get(ref);
@@ -184,13 +192,31 @@ async function deliver(id, reply, by, c) {
   if (!ev) return { ok: false, code: 'not-open' };
   const meta = metaClient(c);
   try {
-    const sentId = ev.kind === 'comment' ? await meta.replyToComment(ev.targetId, reply) : await meta.sendMessage(ev.senderId, reply);
+    const sentId = send ? await send(meta, ev)
+      : ev.kind === 'comment' ? await meta.replyToComment(ev.targetId, reply) : await meta.sendMessage(ev.senderId, reply);
     await finish(id, { status: 'sent', reply, sentId, sentAt: Date.now(), sentBy: by, error: null });
     return { ok: true };
   } catch (err) {
     await finish(id, { status: 'failed', reply, error: String(err.message).slice(0, 300), errorKind: err.kind || 'error' });
     return { ok: false, code: 'send-failed', message: err.message };
   }
+}
+
+function linkMessage(s) {
+  const body = s.appLinkText.replace(/\{brand\}/g, s.brand);
+  return body.indexOf('{link}') > -1 ? body.replace(/\{link\}/g, s.appLink) : body + ' ' + s.appLink;
+}
+
+/* A comment gets the link by message, with a word on the comment to say so. If the
+   message cannot go, Meta allows one per person, the comment carries the link itself. */
+async function sendLink(id, ev, s, c) {
+  const message = linkMessage(s);
+  await finish(id, { intent: 'app_link', reason: null });
+  return deliver(id, message, 'app-link', c, async (meta, e) => {
+    if (e.kind === 'dm') return meta.sendMessage(e.senderId, message);
+    const messaged = await meta.privateReply(e.targetId, message).then(() => true, () => false);
+    return meta.replyToComment(e.targetId, messaged ? s.appLinkComment : message);
+  });
 }
 
 /** One claimed event, as far as the settings allow it to go. */
@@ -201,6 +227,7 @@ async function work(id, ev, settings, c, now) {
 
   const sender = await consume({ key: 'auto-reply:' + ev.senderId, limit: settings.perSenderHour, now, windowMs: HOUR_MS });
   if (!sender.allowed) return finish(id, { status: 'skipped', reason: 'sender-limit' });
+  if (settings.appLink && responder.asksForApp(ev.text)) return sendLink(id, ev, settings, c);
   const day = await consume({ key: 'auto-reply:day', limit: settings.dailyReplies, now, windowMs: DAY_MS });
   if (!day.allowed) return finish(id, { status: 'skipped', reason: 'daily-limit' });
 
@@ -290,6 +317,9 @@ async function tryReply({ text: said, kind, caption }) {
   const c = credentials();
   const settings = await loadSettings();
   const k = kind === 'dm' ? 'dm' : 'comment';
+  if (settings.appLink && responder.asksForApp(said)) {
+    return { ok: true, reply: linkMessage(settings), intent: 'app_link', confidence: 1, shouldReply: true, hold: null, instant: true };
+  }
   const d = await responder.draft({ text: said, kind: k, settings, gemini: createGemini({ key: c.geminiKey }), model: c.model, caption: text(caption, 2000) });
   if (!d.ok) return d;
   return Object.assign({}, d, { hold: responder.hold(d, k, settings), costMicroUsd: cost(c, d), usage: undefined });

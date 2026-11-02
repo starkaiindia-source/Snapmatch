@@ -36,6 +36,9 @@
     'sender-limit': 'This person reached the hourly limit.', 'daily-limit': 'The daily limit was reached.'
   };
   var FIELDS = [
+    ['appLink', 'App link', 'input', 'Your Play Store link. Anyone asking for the app gets it at once, even in Review.'],
+    ['appLinkText', 'Message with the link', 'input', 'Use {link} and {brand}'],
+    ['appLinkComment', 'Reply on the comment', 'input', 'Links in comments cannot be tapped, so the link goes by DM'],
     ['brand', 'Brand name', 'input', 'The name replies are written as'],
     ['about', 'About the shop', 'text', 'What the shop and the app do, in your own words'],
     ['products', 'Products', 'text', 'Each product with its price, material, warranty and how to order'],
@@ -212,6 +215,7 @@
       return '<div class="ar-item">' + (r.shouldReply
         ? '<p class="ar-reply">' + ui.esc(r.reply) + '</p>' : '<p class="ar-why">No reply needed for this.</p>') +
         '<p class="adm__none ar-meta">' + ui.esc([r.intent, Math.round(r.confidence * 100) + '% sure'].filter(Boolean).join(' · ')) + '</p>' +
+        (r.instant ? '<p class="adm__none ar-meta">Sent at once, without waiting for you.</p>' : '') +
         (r.shouldReply && r.hold ? '<p class="ar-why">' + ui.esc(REASONS[r.hold] || r.hold) + ' It would wait for you.</p>' : '') +
         (r.facts ? '<pre class="ar-facts">' + ui.esc(r.facts) + '</pre>' : '') + '</div>';
     }
