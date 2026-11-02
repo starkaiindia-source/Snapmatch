@@ -321,6 +321,28 @@ test('a rate limit is not retried through the Page', async () => {
   assert.equal(calls, 1);
 });
 
+test('Connect webhook points the app here with its own token, then starts the account', async () => {
+  await fresh();
+  const n = network();
+  const real = global.fetch;
+  global.fetch = async (url, init) => {
+    if (String(url).includes('debug_token')) {
+      return reply(200, { data: { is_valid: true, type: 'SYSTEM_USER', app_id: '1988', scopes: ['instagram_basic'] } });
+    }
+    return real(url, init);
+  };
+  try {
+    assert.equal((await adminCall('owner-token', 'POST', {}, { action: 'subscribe' })).status, 200);
+    const hook = n.calls.filter(c => c.method === 'POST' && c.url.includes('/1988/subscriptions'))[0];
+    const params = new URL(hook.url).searchParams;
+    assert.equal(params.get('callback_url'), 'https://www.mobilepartsfinder.com/api/instagram-webhook');
+    assert.equal(params.get('verify_token'), replies.verifyToken());
+    assert.equal(params.get('fields'), 'comments,messages');
+    assert.equal(params.get('access_token'), '1988|' + SECRET);
+    assert.ok(n.calls.some(c => c.method === 'POST' && c.url.includes(`/${OWN}/subscribed_apps`)));
+  } finally { global.fetch = real; n.restore(); }
+});
+
 /* -------------------------------------------------------------- the page */
 test('only the owner reaches the page, and no secret is on it', async () => {
   await fresh();

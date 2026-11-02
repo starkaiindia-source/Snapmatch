@@ -58,9 +58,10 @@ everything except the app's Live state, which a token cannot see.
    `instagram_manage_messages`. A system-user token acts as the Instagram account and needs
    no Page. Instagram Login uses `instagram_business_basic`,
    `instagram_business_manage_comments` and `instagram_business_manage_messages`.
-3. A webhook on the app's `instagram` object, with the Callback URL and Verify token from
-   the page, subscribed to `comments` and `messages`.
-4. The account subscribed: **Subscribe this account** on the page.
+3. A webhook on the app's `instagram` object, subscribed to `comments` and `messages`, and
+   the account subscribed. **Connect webhook** on the page does both through Meta's API,
+   using the app's own token. The Callback URL and Verify token are on the page for doing
+   it by hand instead.
 5. In the Instagram app, **Allow access to messages** under Message controls.
 
 Meta's own pages disagree on whether a business answering its own account needs Advanced
