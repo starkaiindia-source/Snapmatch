@@ -354,6 +354,24 @@ test('a token refused as the account goes through the linked Page instead', asyn
   assert.ok(seen[seen.length - 1].includes('me/messages') && seen[seen.length - 1].includes('access_token=PAGE'));
 });
 
+test('a Page is subscribed with a Page\'s fields, and the first refusal is the one reported', async () => {
+  const { createMetaClient } = require('../_services/auto-reply/meta');
+  const seen = [];
+  const client = createMetaClient({
+    token: 'EAAuser', igUserId: OWN,
+    fetchImpl: async url => {
+      const u = String(url);
+      seen.push(u);
+      if (u.includes('me/accounts')) return reply(200, { data: [{ id: 'page1', access_token: 'PAGE', instagram_business_account: { id: OWN } }] });
+      if (u.includes(`/${OWN}/subscribed_apps`)) return reply(400, { error: { code: 200, message: 'the token lacks a permission' } });
+      return reply(400, { error: { code: 100, message: 'a Page has no such field' } });
+    }
+  });
+  await assert.rejects(client.subscribe(), /lacks a permission/);
+  const page = seen.filter(u => u.includes('/page1/subscribed_apps'))[0];
+  assert.equal(new URL(page).searchParams.get('subscribed_fields'), 'feed,messages');
+});
+
 test('a rate limit is not retried through the Page', async () => {
   const { createMetaClient } = require('../_services/auto-reply/meta');
   let calls = 0;
