@@ -194,7 +194,7 @@
       case 'razorpay-down': return 'Razorpay is not answering right now. Try again in a minute.';
       case 'secrets-unavailable': return 'Keys cannot be stored safely on the server right now, so nothing was saved.';
       case 'razorpay-off': return 'Razorpay is not connected. The owner can connect it in Settings.';
-      case 'razorpay-qr': return 'Razorpay did not make a QR. Check that QR Codes is enabled on your Razorpay account.';
+      case 'razorpay-qr': return 'Razorpay did not make a QR' + (d.reason ? ': ' + d.reason : '. Check that QR Codes is enabled on your Razorpay account.');
       case 'qr-amount-bad': return 'A QR needs an amount of at least ₹1.';
       case 'qr-unpaid': return 'Razorpay has not reported this QR as paid.';
       case 'qr-used': return 'This QR payment is already on another bill.';

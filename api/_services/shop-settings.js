@@ -235,6 +235,13 @@ async function razorpay(keys, method, path, body) {
   return { status: res.status, data };
 }
 
+/* Razorpay's own words for a refusal: a code and a sentence about the request, which
+   never carry a key. Without them "BAD_REQUEST_ERROR" says nothing a shop can act on. */
+function refusal(r) {
+  const e = (r.data && r.data.error) || {};
+  return [e.code, e.description, e.field ? 'field ' + e.field : ''].filter(Boolean).join(': ').slice(0, 240) || 'HTTP ' + r.status;
+}
+
 async function keysOf(uid) {
   const snap = await keysRef(uid).get();
   if (!snap.exists) return null;
@@ -257,8 +264,8 @@ async function paymentLink(uid, { amountPaise, reference, name, phone, descripti
     notify: { sms: false, email: false }, reminder_enable: false
   });
   if (r.status >= 300 || !r.data.short_url) {
-    console.warn('[shop] razorpay refused a payment link', r.status, r.data.error && r.data.error.code);
-    throw new ShopError(502, 'razorpay-link');
+    console.warn('[shop] razorpay refused a payment link', r.status, refusal(r));
+    throw new ShopError(502, 'razorpay-link', { reason: refusal(r) });
   }
   return { id: r.data.id, url: r.data.short_url };
 }
@@ -343,8 +350,8 @@ async function createQr(uid, body) {
   });
   if (r.status >= 300 || !r.data.id || !/^https:\/\//.test(r.data.image_url || '')) {
     /* the code only: a reply from a payment API is not for the logs in full */
-    console.warn('[shop] razorpay refused a QR', r.status, r.data.error && r.data.error.code);
-    throw new ShopError(502, 'razorpay-qr');
+    console.warn('[shop] razorpay refused a QR', r.status, refusal(r));
+    throw new ShopError(502, 'razorpay-qr', { reason: refusal(r) });
   }
   await qrRef(uid, r.data.id).set({
     ownerUid: uid, amountPaise, status: 'active', paymentId: null, billId: null,
