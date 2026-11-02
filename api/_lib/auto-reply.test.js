@@ -616,8 +616,8 @@ test('a sale runs from the price to an unpaid bill in the owner\'s Quick Billing
     lead = await sales.loadLead('buyer1');
     assert.equal(lead.stage, 'models');
     const short = texts().pop().text;
-    assert.match(short, /Wholesale orders start at 4 boxes/);
-    assert.match(short, /Add 2 more boxes/);
+    assert.match(short, /Wholesale starts at 4 boxes/);
+    assert.match(short, /add 2 more boxes/);
     assert.equal(n.model().length, 0, 'an order like this is read by rule');
 
     next = said({ models: [{ phone: 'samsung a52', boxes: 2 }] });
@@ -626,13 +626,13 @@ test('a sale runs from the price to an unpaid bill in the owner\'s Quick Billing
     assert.equal(lead.stage, 'models', 'more models may follow, so the bill waits to be asked for');
     assert.equal(lead.items.reduce((k, i) => k + i.boxes, 0), 4);
     const ready = texts().pop();
-    assert.match(ready.text, /Wholesale minimum reached/);
+    assert.match(ready.text, /Added Samsung Galaxy A52 \(.+ glass\) × 2[\s\S]*Need more models\? Send them, or tap Make bill/, 'the phone they asked for, and its glass');
     assert.deepEqual(ready.quick_replies.map(q => q.title), sales.ASK_BILL);
 
     await deliver(messageEvent('Price', 'buyer1'));
     const price = texts().pop().text;
     assert.match(price, /Matte: out of stock/, 'the price, with what is in stock');
-    assert.match(price, /4 boxes \(40 pieces\)/, 'and the order so far');
+    assert.match(price, /Your order: .+\(4 boxes\)/, 'and the order so far');
 
     await deliver(messageEvent('Make bill 🧾', 'buyer1'));
     lead = await sales.loadLead('buyer1');
@@ -640,7 +640,9 @@ test('a sale runs from the price to an unpaid bill in the owner\'s Quick Billing
     const form = texts().pop().text;
     assert.equal(form, sales.FORM, 'the form to copy, fill in and send back');
     assert.match(form, /Name:\nMobile:\nAddress:\nCity:\nState:\nPincode:$/);
-    assert.match(texts().slice(-2)[0].text, /4 boxes \(40 pieces\) × ₹299 = ₹1,196/);
+    const summary = texts().slice(-2)[0].text;
+    assert.match(summary, /^🧾 YOUR ORDER\n\n1\. Realme 5 glass · 2 boxes · ₹598\n {4}Fits .+ \+\d+ more\n\n2\. Samsung Galaxy A52 \(.+ glass\) · 2 boxes · ₹598/, 'laid out like a bill');
+    assert.match(summary, /Boxes: 4 \(40 pieces\)\nAmount: ₹1,196/);
 
     next = said({ name: 'Ravi', address: '12 Main Road', city: 'Madurai', pincode: '625001' });
     await deliver(messageEvent('Ravi, 12 Main Road, Madurai 625001, 98765 43210', 'buyer1'));
@@ -708,11 +710,11 @@ test('a filled form gets the bill and its own payment QR, and the payment is con
     assert.equal(lead.courierPaise, 6000, 'tamilnadu is Tamil Nadu');
     assert.equal(lead.totalPaise, 14 * 29900 + 6000);
     const sent = out();
-    assert.ok(sent.some(m => m.text && /Total: ₹4,246/.test(m.text) && /GPay/.test(m.text)), 'the bill, with how to pay');
+    assert.ok(sent.some(m => m.text && /TOTAL: ₹4,246/.test(m.text) && /UPI app/.test(m.text)), 'the bill, with how to pay');
     const card = sent.filter(m => m.attachment && m.attachment.type === 'template').pop().attachment.payload.elements[0];
     assert.equal(card.image_url, 'https://api.razorpay.com/v1/l/qrcode/qr_Order0001', 'the QR is the card picture, at an address with no redirect');
     assert.equal(card.buttons[0].title, 'Pay now');
-    assert.ok(card.buttons[0].url.startsWith('https://www.mobilepartsfinder.com/i/'), 'Pay now opens the bill page');
+    assert.ok(card.buttons[0].url.startsWith('https://www.mobilepartsfinder.com/o/'), 'Pay now opens the bill through its loading page');
     assert.ok(!sent.some(m => m.text && /rzp\.io/.test(m.text)), 'no bare link');
     assert.equal(n.model().length, 0, 'nothing here needed the model');
 
@@ -739,8 +741,8 @@ test('short of the minimum, the customer is told why and shown boxes that fit ma
     await deliver(messageEvent('9H temper price?', 'buyer3'));
     await deliver(messageEvent('realme 5 2 boxes', 'buyer3'));
     const last = JSON.parse(n.calls.filter(c => c.url.includes('/messages')).pop().body).message.text;
-    assert.match(last, /Wholesale orders start at 4 boxes \(₹1,196\)/);
-    assert.match(last, /Popular boxes/);
+    assert.match(last, /Wholesale starts at 4 boxes \(₹1,196\)/);
+    assert.match(last, /Trending boxes/);
     assert.ok(!/Realme 5 glass: fits/.test(last), 'not the box already in the order');
   } finally { n.restore(); }
 });
@@ -882,4 +884,45 @@ test('an order bill page shows the brand, hides the shop number, and pays by QR 
   assert.match(html, /Download bill/);
   const plain = invoicePage(Object.assign({}, bill, { brand: undefined }), { name: 'Ozo', mobile: '09894301600' });
   assert.match(plain, /Mobile: 09894301600/, 'a shop bill still shows the shop');
+});
+
+test('messages sent close together are answered once, in the order written', async () => {
+  await fresh({ salesOn: true, mode: 'auto' });
+  await sales.saveLead('burst1', { senderId: 'burst1', stage: 'price_sent', items: [], address: {}, followUps: 0, canMessage: true,
+    needsHuman: false, lastCustomerAt: Date.now() - 60000, lastSentAt: Date.now() - 60000, createdAt: Date.now() - 60000, log: [] });
+  const t = Date.now() - 30000;
+  /* the conversation comes back newest first */
+  const r = reader([], [
+    { id: 'mid_b3', message: 'Make bill', created_time: iso(t + 2000), from: { id: 'burst1', username: 'burst' } },
+    { id: 'mid_b2', message: '3 boxes', created_time: iso(t + 1000), from: { id: 'burst1', username: 'burst' } },
+    { id: 'mid_b1', message: 'iPhone 14 promax', created_time: iso(t), from: { id: 'burst1', username: 'burst' } }
+  ]);
+  try { await poll(); } finally { r.restore(); }
+  const lead = await sales.loadLead('burst1');
+  assert.deepEqual(lead.items.map(i => [i.asked, i.boxes]), [['Apple iPhone 14 Pro Max', 3]], 'the count on the next line is the phone\'s');
+  assert.equal(lead.stage, 'models', 'three boxes is short of wholesale, so no bill yet');
+  const sent = r.calls.filter(c => c.url.includes('/messages')).map(c => JSON.parse(c.body).message);
+  assert.equal(sent.length, 1, 'one answer to the three messages');
+  assert.match(sent[0].text, /Added Apple iPhone 14 Pro Max/);
+});
+
+test('someone still typing is answered once they stop', async () => {
+  await fresh({ salesOn: true, mode: 'auto' });
+  const r = reader([], [{ id: 'mid_now', message: '9H price', created_time: iso(Date.now() - 1000), from: { id: 'typer1', username: 'typer' } }]);
+  try { await poll(); } finally { r.restore(); }
+  assert.ok(!r.calls.some(c => c.url.includes('/messages') && c.method === 'POST'), 'nothing yet');
+  assert.equal((await fake.db.collection('autoReplyEvents').get()).docs.length, 0, 'not even claimed');
+});
+
+test('a question mid-order is answered in words, briefly, with the buttons back to the order', async () => {
+  await fresh({ salesOn: true, mode: 'auto' });
+  await sales.saveLead('ask1', { senderId: 'ask1', stage: 'models', items: [{ key: 'sg-x', asked: 'Realme 5', master: 'Realme 5', covers: ['Realme 5'], boxes: 4 }],
+    address: {}, followUps: 0, canMessage: true, needsHuman: false, lastCustomerAt: Date.now(), lastSentAt: Date.now(), createdAt: Date.now(), log: [] });
+  const n = network(() => ({ reply: 'Matte is out of stock right now, Clear is available at the same price.', handoff: false }));
+  try {
+    await deliver(messageEvent('matte irukka bro?', 'ask1'));
+    const m = JSON.parse(n.calls.filter(c => c.url.includes('/messages')).pop().body).message;
+    assert.match(m.text, /Matte is out of stock/);
+    assert.deepEqual(m.quick_replies.map(q => q.title), sales.ASK_BILL);
+  } finally { n.restore(); }
 });

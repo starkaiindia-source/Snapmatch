@@ -10,6 +10,10 @@
       "use": "@vercel/static"
     },
     {
+      "src": "order.html",
+      "use": "@vercel/static"
+    },
+    {
       "src": "favicon.svg",
       "use": "@vercel/static"
     },
@@ -157,6 +161,10 @@
     {
       "src": "/api/shop/([^/.]+)/?$",
       "dest": "/api/shop.js?section=$1"
+    },
+    {
+      "src": "/o/([A-Za-z0-9_-]{20,64})/?$",
+      "dest": "/order.html"
     },
     {
       "src": "/i/([A-Za-z0-9_-]{20,64})/qr\\.png$",
