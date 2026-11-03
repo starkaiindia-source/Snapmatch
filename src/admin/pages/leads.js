@@ -7,8 +7,9 @@
    The conversation is what the bot and the customer said, so the owner can step
    in. A lead marked "needs you" asked something the bot does not answer.
 
-   While this page is open it also reads Instagram every minute, the same as the
-   Auto Reply page, so new messages and follow-ups do not wait for anyone else.
+   While this page is open and in view it also reads Instagram every minute, the
+   same as the Auto Reply page. The lead list is read again only when that finds
+   something, or every ten minutes: each lead is a Firestore read.
    ========================================================================== */
 (function (global) {
   'use strict';
@@ -97,9 +98,17 @@
       }, function (err) { ctx.toast(err.message || 'Could not save', 'bad'); });
     });
 
+    /* Every list read is one Firestore read a lead, so the list is read again only
+       when the minute's poll found or sent something, or every ten minutes, and
+       never while the tab is hidden. */
+    var ticks = 0;
     var timer = global.setInterval(function () {
       if (!document.body.contains(root)) { global.clearInterval(timer); return; }
-      ADM.api.autoReplyAction({ action: 'poll' }).then(load, load);
+      if (document.hidden) return;
+      ticks++;
+      ADM.api.autoReplyAction({ action: 'poll' }).then(function (r) {
+        if ((r && (r.found || r.answered || r.followed)) || ticks % 10 === 0) load();
+      }, function () { /* the next tick tries again */ });
     }, 60000);
 
     root.innerHTML = '<div class="adm__head"><div><h1>Leads</h1></div></div><div class="adm__card"><div class="adm__skel" style="height:60px"></div></div>';

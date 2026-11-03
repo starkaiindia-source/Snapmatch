@@ -77,6 +77,13 @@ const POLL_EVERY_MS = 60 * 1000;
 /* Between the minute's reads, messages are read again this often, so a chat moves
    at the pace of a chat. Only on Vercel, where the function may outlive its answer. */
 const QUICK_READ_MS = 15 * 1000;
+/* Follow-ups are due in hours, and each check reads every open lead and every
+   person waiting for the feedback question, so they run every ten minutes, not
+   with every read. Run every minute they were most of the project's daily
+   Firestore reads, and Spark stops at 50,000. */
+const TICK_EVERY_MS = 10 * 60 * 1000;
+/* a read that cannot finish (Firestore over quota retries for minutes) gives up */
+const READ_LIMIT_MS = 25 * 1000;
 const QUICK_READS = 3;
 /* someone who wrote this recently may still be typing: their messages wait a moment
    and are answered together */
@@ -577,17 +584,23 @@ async function poll() {
 
   const settings = await loadSettings();
   if (settings.mode === 'off') return { status: 200, body: { polled: false, reason: 'off' } };
-  const body = await readOnce(settings, c, now, false);
+  const body = await capped(readOnce(settings, c, now, false));
   /* the quick reads go on after the answer, so the caller is not kept waiting */
   if (process.env.VERCEL) {
     waitUntil((async () => {
       for (let i = 0; i < QUICK_READS; i++) {
         await new Promise(r => setTimeout(r, QUICK_READ_MS));
-        await readOnce(settings, c, Date.now(), true).catch(err => console.warn('[auto-reply] quick read failed', err.message));
+        await capped(readOnce(settings, c, Date.now(), true)).catch(err => console.warn('[auto-reply] quick read failed', err.message));
       }
     })());
   }
   return { status: 200, body };
+}
+
+function capped(work) {
+  let timer;
+  return Promise.race([work, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('the read took too long')), READ_LIMIT_MS); })])
+    .finally(() => clearTimeout(timer));
 }
 
 /* One read of the account and everything it brings. `quick` reads messages only,
@@ -600,8 +613,10 @@ async function readOnce(settings, c, now, quick) {
   const me = await meta.username().catch(() => '');
   const list = events.fromRead(read, c.igUserId, String(me).toLowerCase());
   const answered = await handle(list, settings, c, now) + (quick ? 0 : await catchUp(settings, c, now));
-  const followed = quick ? 0 : await salesTick(settings, c, now) + await feedbackTick(settings, c, now);
-  if (!quick) await pollRef().set({ readAt: now, found: list.length, answered, followed });
+  const lastTick = (last.exists && last.data().tickAt) || 0;
+  const ticking = !quick && now - lastTick >= TICK_EVERY_MS;
+  const followed = ticking ? await salesTick(settings, c, now) + await feedbackTick(settings, c, now) : 0;
+  if (!quick) await pollRef().set({ readAt: now, tickAt: ticking ? now : lastTick, found: list.length, answered, followed });
   return { polled: true, found: list.length, answered, followed };
 }
 

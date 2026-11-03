@@ -33,7 +33,10 @@ const photos = require('./picture-ai');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_DAYS = 14;
-const EVENTS_READ = 400;
+const EVENTS_READ = 150;
+/* the lists change slowly and each costs Firestore reads, so a warm instance keeps them a while */
+const IDEAS_MS = 10 * 60 * 1000;
+let ideasCache = null;
 const LIST = 12;
 const GROUP_ID = /^[a-z]{2}-\d{1,6}$/;
 
@@ -90,6 +93,15 @@ async function biggest() {
 
 /** Every source at once; a source that cannot be read is empty, not an error. */
 async function ideas(now = Date.now()) {
+  if (ideasCache && now - ideasCache.at < IDEAS_MS) {
+    return Object.assign({}, ideasCache.value, { today: poster.planFor(poster.dayNumber(now)) });
+  }
+  const value = await readIdeas(now);
+  if (value.searched.length || value.asked.length || value.biggest.length) ideasCache = { at: now, value };
+  return value;
+}
+
+async function readIdeas(now) {
   const safe = (name, p) => Promise.resolve(p).catch(err => { console.warn('[content]', name, err && err.message); return []; });
   const [s, a, b] = await Promise.all([safe('searched', searched(now)), safe('asked', asked()), safe('biggest', biggest())]);
   return {

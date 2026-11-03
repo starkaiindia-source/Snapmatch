@@ -333,6 +333,8 @@
        the schedule. It stops when the page is left. */
     var timer = global.setInterval(function () {
       if (!document.body.contains(root)) { global.clearInterval(timer); return; }
+      /* a page left open in a hidden tab reads nothing: the schedule still answers */
+      if (document.hidden) return;
       ADM.api.autoReplyAction({ action: 'poll' }).then(function (r) {
         if (r && r.found && state.data) refreshInbox();
       }, function () { /* the next tick tries again */ });
