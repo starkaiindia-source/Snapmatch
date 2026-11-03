@@ -29,7 +29,7 @@
     host.innerHTML = '';
     var root = document.createElement('div');
     host.appendChild(root);
-    var state = { ideas: null, source: 'asked', found: null, model: null, groups: null, group: null, kind: 'single', slides: [], busy: false };
+    var state = { ideas: null, source: 'asked', found: null, model: null, groups: null, group: null, kind: 'single', design: '', palette: '', photo: false, making: false, slides: [], busy: false };
     var urls = [];
 
     function modelRow(m) {
@@ -65,7 +65,7 @@
         (state.group ? '<div class="adm__card"><div class="ar-head"><h2>' + ui.esc(state.group.master) + ' group</h2>' +
           '<div class="ar-tabs" style="margin:0">' + [['single', 'Single poster'], ['carousel', 'Carousel']].map(function (k) {
             return '<span role="button" tabindex="0" data-kind="' + k[0] + '" class="' + (state.kind === k[0] ? 'is-on' : '') + '">' + k[1] + '</span>';
-          }).join('') + '</div></div>' +
+          }).join('') + '</div></div>' + options() +
           '<div class="ct-slides">' + state.slides.map(function (s, i) {
             return '<figure><img src="' + s + '" alt="Slide ' + (i + 1) + '"><a class="adm__btn" download="proglide-' + ui.esc(state.group.groupId) + '-' +
               state.kind + (state.slides.length > 1 ? '-' + (i + 1) : '') + '.jpg" href="' + s + '">Download' + (state.slides.length > 1 ? ' ' + (i + 1) : '') + '</a></figure>';
@@ -74,6 +74,36 @@
       var input = root.querySelector('#ctFind');
       if (state.query) input.value = state.query;
       if (state.query && typingHere) { input.focus(); input.setSelectionRange(state.query.length, state.query.length); }
+    }
+
+    /* the design and the colour (today's unless chosen), and the part's AI photo */
+    function options() {
+      var ideas = state.ideas || {}, today = ideas.today || {};
+      var name = function (list, id) { return ((list || []).filter(function (x) { return x.id === id; })[0] || {}).name || id; };
+      var chips = function (attr, list, on, auto) {
+        return '<div class="ar-tabs">' + [['', auto]].concat((list || []).map(function (x) { return [x.id, x.name]; })).map(function (o) {
+          return '<span role="button" tabindex="0" ' + attr + '="' + o[0] + '" class="' + (on === o[0] ? 'is-on' : '') + '">' + ui.esc(o[1]) + '</span>';
+        }).join('') + '</div>';
+      };
+      return '<h3>Design</h3>' + chips('data-design', ideas.designs, state.design, "Today's: " + name(ideas.designs, today.design)) +
+        '<h3>Colour</h3>' + chips('data-palette', ideas.palettes, state.palette, "Today's: " + name(ideas.palettes, today.palette)) +
+        '<div class="ar-row" style="margin:4px 0 14px"><button class="adm__btn" data-photo="1"' + (state.making ? ' disabled' : '') + '>' +
+        (state.making ? 'Making the AI photo…' : state.photo ? 'Make a new AI photo' : 'Make AI photo') + '</button>' +
+        '<span class="adm__none">' + (state.photo ? 'Using the AI photo of this part.' : 'Using the plain part picture. An AI photo is one Gemini image call.') + '</span></div>';
+    }
+
+    function makePhoto() {
+      state.making = true;
+      paint();
+      ADM.api.contentAction({ action: 'photo', group: state.group.groupId }).then(function () {
+        state.making = false;
+        ctx.toast('AI photo ready');
+        draw();
+      }, function (err) {
+        state.making = false;
+        paint();
+        ctx.toast(err.message || 'Could not make the photo', 'bad');
+      });
     }
 
     function draw() {
@@ -86,8 +116,9 @@
       function next(i, total) {
         if (state.group !== group || state.kind !== kind) return;
         if (i >= total) { state.busy = false; paint(); return; }
-        ADM.api.poster({ group: group.groupId, kind: kind, slide: i }).then(function (r) {
+        ADM.api.poster({ group: group.groupId, kind: kind, slide: i, design: state.design, palette: state.palette }).then(function (r) {
           if (state.group !== group || state.kind !== kind) return;
+          state.photo = r.photo;
           var u = URL.createObjectURL(r.blob);
           urls.push(u);
           state.slides.push(u);
@@ -137,7 +168,10 @@
         if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
       }
-      if ((t = e.target.closest('[data-kind]'))) { state.kind = t.getAttribute('data-kind'); draw(); }
+      if ((t = e.target.closest('[data-kind]'))) { state.kind = t.getAttribute('data-kind'); draw(); return; }
+      if ((t = e.target.closest('[data-design]'))) { state.design = t.getAttribute('data-design'); draw(); return; }
+      if ((t = e.target.closest('[data-palette]'))) { state.palette = t.getAttribute('data-palette'); draw(); return; }
+      if (e.target.closest('[data-photo]') && !state.making) makePhoto();
     });
 
     paint();

@@ -29,6 +29,7 @@ const search = require('../search-service');
 const entitlements = require('../entitlement-service');
 const responder = require('../auto-reply/responder');
 const poster = require('./poster');
+const photos = require('./picture-ai');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_DAYS = 14;
@@ -91,7 +92,10 @@ async function biggest() {
 async function ideas(now = Date.now()) {
   const safe = (name, p) => Promise.resolve(p).catch(err => { console.warn('[content]', name, err && err.message); return []; });
   const [s, a, b] = await Promise.all([safe('searched', searched(now)), safe('asked', asked()), safe('biggest', biggest())]);
-  return { searched: s, asked: a, newest: newest(), biggest: b };
+  return {
+    searched: s, asked: a, newest: newest(), biggest: b,
+    designs: poster.DESIGNS, palettes: poster.PALETTES, today: poster.planFor(poster.dayNumber(now))
+  };
 }
 
 /** A model's groups, one a part, with what the poster would say. */
@@ -119,20 +123,43 @@ const brandOf = m => {
   return brand ? brand.name : null;
 };
 
+const DESIGN_IDS = poster.DESIGNS.map(x => x.id);
+const PALETTE_IDS = poster.PALETTES.map(x => x.id);
+
+async function groupOf(groupId) {
+  if (!GROUP_ID.test(String(groupId)) || !poster.categoryOf(groupId)) return null;
+  const group = await entitlements.groupForUser(groupId, TIERS.PAID);
+  return group && group.members && group.members.length ? group : null;
+}
+
 /**
  * One picture of a group's poster, as JPEG: the single poster, or one slide of
  * the carousel. Slides are drawn one a request so no answer is larger than a
- * picture.
- * @returns {Promise<{jpeg: Buffer, slides: number}|null>}
+ * picture. The design and colour are today's unless asked; the part's photo is
+ * the kept AI photo when there is one.
+ * @returns {Promise<{jpeg: Buffer, slides: number, photo: boolean}|null>}
  */
-async function picture(groupId, kind, slide) {
-  if (!GROUP_ID.test(String(groupId)) || !poster.categoryOf(groupId)) return null;
-  const group = await entitlements.groupForUser(groupId, TIERS.PAID);
-  if (!group || !group.members || !group.members.length) return null;
+async function picture(groupId, o = {}) {
+  const group = await groupOf(groupId);
+  if (!group) return null;
+  const category = poster.categoryOf(groupId);
+  const photo = await photos.stored(category, group.masterModelName).catch(() => null);
   await poster.ready();
-  const pages = kind === 'carousel' ? poster.carousel(group, brandOf) : [poster.single(group, brandOf)];
-  const at = Math.min(Math.max(0, Number(slide) || 0), pages.length - 1);
-  return { jpeg: Buffer.from(poster.toJpeg(pages[at])), slides: pages.length };
+  const opts = {
+    design: DESIGN_IDS.indexOf(o.design) > -1 ? o.design : undefined,
+    palette: PALETTE_IDS.indexOf(o.palette) > -1 ? o.palette : undefined,
+    picture: photo || undefined
+  };
+  const pages = o.kind === 'carousel' ? poster.carousel(group, brandOf, opts) : [poster.single(group, brandOf, opts)];
+  const at = Math.min(Math.max(0, Number(o.slide) || 0), pages.length - 1);
+  return { jpeg: Buffer.from(poster.toJpeg(pages[at])), slides: pages.length, photo: !!photo };
 }
 
-module.exports = { ideas, groupsOf, find, picture };
+/** Makes (or makes again) the AI photo of a group's part and master. */
+async function makePhoto(groupId, uid) {
+  const group = await groupOf(groupId);
+  if (!group) return { ok: false, code: 'missing', message: 'No such group.' };
+  return photos.make(poster.categoryOf(groupId), group.masterModelName, uid);
+}
+
+module.exports = { ideas, groupsOf, find, picture, makePhoto };
