@@ -215,9 +215,11 @@ function update(ctx) {
     line(M + 112, by + 72, ctx.master, fit(ctx.master, 400, { size: 48, font: 'archivo', fill: '#FFFFFF' })) +
     rect(M + 530, by + 22, 3, 72, '#FFFFFF', 0, ' opacity=".5"') +
     line(M + 556, by + 52, 'Compatible Models', { size: 30, font: 'archivo', fill: '#FFFFFF' }) +
-    line(M + 556, by + 90, `${ctx.n} Models  •  ${ctx.brands.length} Brands`, { size: 25, weight: 700, fill: p.accent });
+    line(M + 556, by + 90, `${ctx.n} Models  •  ${ctx.brands.length} Brand${ctx.brands.length === 1 ? '' : 's'}`, { size: 25, weight: 700, fill: p.accent });
 
-  const rows = chipRows(ctx, ctx.brands, { brand: 0, model: 0 }, by + 134, BOTTOM - 46, { maxLines: 2 });
+  /* fewer brands, more lines each, so a one-brand group fills the space */
+  const lines = [0, 8, 4, 3][ctx.brands.length] || 2;
+  const rows = chipRows(ctx, ctx.brands, { brand: 0, model: 0 }, by + 134, BOTTOM - 46, { maxLines: lines });
   return s + rows.svg + more(ctx, ctx.n - rows.drawn, W / 2, BOTTOM - 8, p.primary);
 }
 
