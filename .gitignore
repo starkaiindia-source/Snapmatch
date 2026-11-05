@@ -40,3 +40,6 @@ data/build/poc-apple/
 # bundle. NOT committed while this repository is public: pushing it here would
 # republish exactly what the subscription sells.
 /api/_data/
+
+# Cloudflare Pages bundle — regenerate with: node scripts/build-cloudflare.js
+.cloudflare/
