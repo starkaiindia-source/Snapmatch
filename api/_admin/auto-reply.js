@@ -1,6 +1,7 @@
 /* ============================================================================
-   GET  /api/admin/auto-reply?view=overview|check|history|leads
-   POST /api/admin/auto-reply {action}   save, test, send, discard, retry, subscribe, poll, lead
+   GET  /api/admin/auto-reply?view=overview|check|history|leads|inbox|people|thread
+   POST /api/admin/auto-reply {action}   save, test, send, discard, retry, subscribe, poll, lead,
+                                        reply, contact, suggest, bill, paid (the inbox)
    ----------------------------------------------------------------------------
    The owner's page for answering the Instagram account. A section of the one admin
    function, like every other: the project is at Vercel Hobby's 12-function limit.
@@ -40,6 +41,13 @@ module.exports = async function handler(req, res) {
     const view = (req.query || {}).view;
     if (req.method === 'GET') {
       if (view === 'leads') return ok(res, { leads: await replies.sales.listLeads() });
+      /* the inbox: every chat on every channel, the leads and notes behind them, one chat */
+      if (view === 'inbox') return ok(res, await replies.inboxList());
+      if (view === 'people') return ok(res, await replies.inboxLeads());
+      if (view === 'thread') {
+        const t = await replies.inboxThread(req.query || {});
+        return t ? ok(res, t) : bad(res, 'channel and userId are required');
+      }
       if (view === 'performance') return ok(res, await replies.performance());
       return ok(res, view === 'check' ? await replies.liveCheck() : view === 'history' ? await replies.history() : await replies.overview());
     }
@@ -71,6 +79,32 @@ async function act(req, res, admin) {
     case 'lead': {
       const lead = typeof input.id === 'string' && /^[A-Za-z0-9_-]{3,64}$/.test(input.id) ? await replies.sales.setStage(input.id, input.stage) : null;
       return lead ? ok(res, { lead }) : bad(res, 'no such lead or stage');
+    }
+    /* the inbox: a message, notes, a bill and a payment, all from the owner */
+    case 'reply': {
+      const r = await replies.inboxReply(input);
+      if (!r.ok) return bad(res, r.error);
+      await done(audit.ACTIONS.AUTO_REPLY_SENT, String(input.userId || ''), { channel: input.channel, from: 'inbox' });
+      return ok(res, r);
+    }
+    case 'contact': {
+      const c = await replies.inboxContact(input);
+      return c ? ok(res, { contact: c }) : bad(res, 'channel and userId are required');
+    }
+    case 'suggest': {
+      const r = await replies.inboxSuggest(input);
+      return r.ok ? ok(res, r) : bad(res, r.error);
+    }
+    case 'bill': case 'paid': {
+      if (input.channel !== 'instagram' || !/^[0-9A-Za-z_-]{3,64}$/.test(String(input.userId || ''))) return bad(res, 'bills are made for Instagram chats');
+      try {
+        const r = input.action === 'bill' ? await replies.inboxBill(input) : await replies.inboxPaid(input);
+        await done(audit.ACTIONS.AUTO_REPLY_SENT, String(input.userId), { action: input.action, bill: r.billNumber });
+        return ok(res, r);
+      } catch (err) {
+        if (err.code === 'bad-input') return bad(res, err.message);
+        throw err;
+      }
     }
     case 'subscribe': {
       const r = await replies.subscribe();

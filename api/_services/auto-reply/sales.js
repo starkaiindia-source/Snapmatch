@@ -755,7 +755,94 @@ async function setStage(id, stage) {
   return saveLead(id, lead);
 }
 
+/* ------------------------------------------------------ the owner's inbox
+
+   The owner chatting from the admin inbox works on the same lead the bot does,
+   so the bot, the owner and Quick Billing never disagree about an order. */
+
+const inputError = message => Object.assign(new Error(message), { code: 'bad-input' });
+
+function blankLead(id, username, now) {
+  return {
+    senderId: String(id), username: username || '', source: 'dm', stage: 'models', items: [], address: {},
+    courierPaise: 0, totalPaise: 0, followUps: 0, canMessage: true, needsHuman: false,
+    lastCustomerAt: now, createdAt: now, log: []
+  };
+}
+
+/**
+ * A bill the owner makes from the inbox: the models and boxes, and the address.
+ * An unpaid bill already out is voided first, as when a customer changes an
+ * order. Prices and courier are the shop's own, never typed.
+ *
+ * @param {string} id  the customer's Instagram id
+ * @param {{items:{phone:string,boxes:number}[], address:object, username?:string}} input
+ * @returns {Promise<{lead:object, reply:string, card:object}>}
+ */
+async function manualBill(id, input, s, now) {
+  const uid = await ownerShopUid();
+  let lead = await loadLead(id);
+  if (lead && lead.stage === 'billed') await reopen(lead, uid, now);
+  else if (!activeLead(lead)) lead = Object.assign(blankLead(id, input.username, now), lead ? { log: lead.log || [], lastCustomerAt: lead.lastCustomerAt || now } : {});
+  lead.username = lead.username || input.username || '';
+
+  const wanted = (Array.isArray(input.items) ? input.items : [])
+    .map(i => ({ phone: String(i.phone || '').trim().slice(0, 80), boxes: Math.max(1, Math.min(100, Math.floor(Number(i.boxes) || 1))) }))
+    .filter(i => i.phone).slice(0, 30);
+  if (!wanted.length) throw inputError('Add at least one model.');
+  lead.items = [];
+  const read = await addModels(lead, wanted, s);
+  if (read.unknown.length) throw inputError('Not in the catalogue: ' + read.unknown.join(', ') + '. Type the exact brand and model.');
+
+  lead.address = mergeAddress(lead.address || {}, input.address || {});
+  const missing = needAddress(lead.address);
+  if (missing.length) throw inputError('Still needed: ' + missing.join(', ') + '.');
+  const state = courierState(lead.address);
+  const courier = courierFor(state, s) || { zone: 'Other states', paise: s.courierFar * 100 };
+  if (state && state !== 'other') lead.address.state = state;
+  lead.courierPaise = courier.paise;
+  lead.courierZone = courier.zone;
+
+  Object.assign(lead, await bill(lead, s));
+  lead.stage = 'billed';
+  lead.followUps = 0;
+  lead.needsHuman = false;
+  lead.log = logged(lead, 'owner', `(bill ${lead.billNumber} for ${rupees(lead.totalPaise)} made from the inbox)`, now);
+  await saveLead(id, lead);
+  return { lead, reply: billMessage(lead, s), card: billCard(lead, s) };
+}
+
+/** The owner saw the money arrive: the bill is marked paid in Quick Billing too. */
+async function ownerMarkPaid(id, now) {
+  const lead = await loadLead(id);
+  if (!lead || lead.stage !== 'billed' || !lead.billId) throw inputError('There is no unpaid bill for this customer.');
+  const uid = await ownerShopUid();
+  if (lead.qrId) await shopSettings.closeQr(uid, { id: lead.qrId }).catch(() => null);
+  await markLeadPaid(lead, uid, now);
+  await saveLead(id, lead);
+  return lead;
+}
+
+/** A line the owner sent from the inbox, kept on the lead with the bot's. */
+async function logOwner(id, text, now) {
+  const lead = await loadLead(id);
+  if (!lead) return null;
+  lead.log = logged(lead, 'owner', text, now);
+  lead.lastSentAt = now;
+  lead.needsHuman = false;
+  return saveLead(id, lead);
+}
+
+/** A reply for the owner to edit, from the same facts the bot answers with. */
+async function suggestFor(id, raw, s, gemini, model) {
+  const lead = (await loadLead(id)) || blankLead(id, '', Date.now());
+  const next = lead.stage === 'billed' ? 'pay with Pay now on the bill above'
+    : boxesOf(lead) ? 'send more models or ask for the bill' : 'send their phone models and how many boxes of each';
+  return assist(raw, lead, s, gemini, model, next);
+}
+
 module.exports = {
+  manualBill, ownerMarkPaid, logOwner, suggestFor, paidMessage, ownerShopUid,
   ACTIVE, asksToBuy, courierFor, stateOfPincode, priceText, step, saveLead, loadLead, activeLead,
-  dueFollowUps, markFollowedUp, settlePaid, listLeads, setStage, billCard, paidMessage, parseOrder, parseAddress, FORM, ASK_BILL
+  dueFollowUps, markFollowedUp, settlePaid, listLeads, setStage, billCard, parseOrder, parseAddress, FORM, ASK_BILL
 };

@@ -44,15 +44,15 @@
       '<p>Generated ' + ui.dateTime(d.generatedAt) + ' · ' + d.windowDays + '-day window</p>' +
       '</div></div>';
 
-    /* An index that has not finished building makes a count() throw, and the
-       service reports null rather than failing the page. Saying so once at the
-       top beats leaving an admin to wonder why four tiles are dashes. */
-    if (hasMissingCounts(d)) {
+    /* A figure the server could not count comes back null and shows as a dash.
+       Name which ones, once, at the top. The cause is in the server log
+       ("[metrics] …"), which carries Firestore's own words. */
+    var missing = missingFigures(d);
+    if (missing.length) {
       out += ui.banner('warn',
-        '<b>Some figures are unavailable.</b> They need Firestore indexes that are ' +
-        'not built yet — run <code>firebase deploy --only firestore:indexes</code>, ' +
-        'then give Firestore a few minutes. Tiles showing an em dash were not counted; ' +
-        'they are not zero.');
+        '<b>' + missing.length + (missing.length === 1 ? ' figure' : ' figures') + ' could not be counted:</b> ' +
+        ui.esc(missing.join(', ')) + '. They show a dash, not zero. Reload to try again; ' +
+        'the server log ("[metrics]") has the reason.');
     }
 
     out += tiles('Users', [
@@ -96,21 +96,19 @@
         '<p class="adm__hint">Your role does not include revenue figures.</p></div>';
     }
 
-    /* ---- growth ---- */
-    out += '<div class="adm__grid2" style="margin-top:16px">';
-    out += chartCard('New users per day', d.growth.users);
-    out += chartCard('New subscriptions per day', d.growth.subscriptions);
-    out += '</div>';
-
+    /* ---- growth: one colour a chart, hover a day for its value ---- */
+    out += '<div class="adm__charts">';
+    out += chartCard('New users per day', 'Accounts created', d.growth.users, { color: '#2B6AEB' });
+    out += chartCard('New subscriptions per day', 'Paid plans started', d.growth.subscriptions, { color: '#7C3AED' });
     if (d.growth.revenuePaise) {
-      out += '<div class="adm__card" style="margin-top:16px"><h2>Revenue per day</h2>' +
-        '<p class="adm__hint">Captured payments, in rupees.</p>' +
-        ui.barChart((d.growth.revenuePaise.points || []).map(function (p) {
-          return { date: p.date, value: Math.round(p.value / 100) };
-        })) +
-        truncationNote(d.growth.revenuePaise) +
-        '</div>';
+      var rev = d.growth.revenuePaise;
+      out += chartCard('Revenue per day', 'Captured payments, in rupees', {
+        available: rev.available,
+        truncated: rev.truncated,
+        points: (rev.points || []).map(function (p) { return { date: p.date, value: Math.round(p.value / 100) }; })
+      }, { color: '#0E9F6E', rupees: true });
     }
+    out += '</div>';
 
     /* ---- website activity ---- */
     out += '<div class="adm__card" style="margin-top:16px"><h2>Website activity</h2>';
@@ -145,10 +143,20 @@
     return out;
   }
 
-  function hasMissingCounts(d) {
-    var checks = [d.users.total, d.users.newToday, d.subscriptions.totalActive];
-    if (d.revenue) checks.push(d.revenue.lifetimePaise);
-    return checks.some(function (v) { return v === null || v === undefined; });
+  function missingFigures(d) {
+    var checks = [
+      ['Total users', d.users.total], ['New users today', d.users.newToday],
+      ['Active subscriptions', d.subscriptions.totalActive]
+    ];
+    if (d.revenue) {
+      checks.push(['Lifetime revenue', d.revenue.lifetimePaise], ['Failed payments', d.revenue.failedPayments]);
+    }
+    var out = checks.filter(function (c) { return c[1] === null || c[1] === undefined; })
+      .map(function (c) { return c[0]; });
+    if (d.growth.users && d.growth.users.available === false) out.push('the users chart');
+    if (d.growth.subscriptions && d.growth.subscriptions.available === false) out.push('the subscriptions chart');
+    if (d.growth.revenuePaise && d.growth.revenuePaise.available === false) out.push('the revenue chart');
+    return out;
   }
 
   function tile(label, value) {
@@ -164,11 +172,13 @@
       '</dl></div>';
   }
 
-  function chartCard(title, series) {
-    return '<div class="adm__card"><h2>' + ui.esc(title) + '</h2>' +
+  function chartCard(title, hint, series, opts) {
+    opts = Object.assign({ label: title, totalLabel: 'in the last ' + ((series && series.points && series.points.length) || WINDOW_DAYS) + ' days' }, opts);
+    return '<div class="adm__card adm__chartcard"><h2>' + ui.esc(title) + '</h2>' +
+      '<p class="adm__hint">' + ui.esc(hint) + '</p>' +
       (series && series.available
-        ? ui.barChart(series.points) + truncationNote(series)
-        : ui.emptyState('No data yet', 'Nothing has been recorded in this window.')) +
+        ? ui.barChart(series.points, opts) + truncationNote(series)
+        : ui.emptyState('Not available', 'This chart could not be counted. Reload to try again.')) +
       '</div>';
   }
 

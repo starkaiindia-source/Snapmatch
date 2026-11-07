@@ -60,14 +60,17 @@ function urlKey() {
   const t = token();
   return t ? crypto.createHmac('sha256', t).update('mpf-poster-url-v1').digest() : null;
 }
-const FIELDS = ['g', 'k', 's', 'd', 'p', 'b', 'e'];
+const FIELDS = ['g', 'k', 's', 'd', 'p', 'b', 't', 'w', 'e'];
 const canonical = q => FIELDS.map(f => f + '=' + String(q[f] == null ? '' : q[f])).join('&');
 
 /** The public address of one poster picture, good for URL_TTL_MS. */
 function imageUrl(o, now = Date.now()) {
   const key = urlKey();
   if (!key) throw new GraphError('unconfigured', 'INSTAGRAM_PUBLISH_ACCESS_TOKEN is not set.');
-  const q = { g: o.groupId, k: o.kind, s: o.slide || 0, d: o.design || '', p: o.palette || '', b: o.brand, e: (now + URL_TTL_MS).toString(36) };
+  const q = { g: o.groupId, k: o.kind, s: o.slide || 0, d: o.design || '', p: o.palette || '', b: o.brand };
+  if (o.template) q.t = o.template;
+  if (o.keyword) q.w = o.keyword;
+  q.e = (now + URL_TTL_MS).toString(36);
   q.sig = crypto.createHmac('sha256', key).update(canonical(q)).digest('hex').slice(0, 32);
   return SITE + '/api/poster?' + Object.keys(q).map(k => k + '=' + encodeURIComponent(q[k])).join('&');
 }
@@ -79,7 +82,10 @@ function verify(q, now = Date.now()) {
   const want = crypto.createHmac('sha256', key).update(canonical(q)).digest('hex').slice(0, 32);
   if (want.length !== q.sig.length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(q.sig))) return null;
   if (!(parseInt(String(q.e), 36) > now)) return null;
-  return { groupId: String(q.g), kind: q.k === 'carousel' ? 'carousel' : 'single', slide: Number(q.s) || 0, design: q.d || undefined, palette: q.p || undefined, brand: String(q.b) };
+  const out = { groupId: String(q.g), kind: q.k === 'carousel' || q.k === 'promo' ? q.k : 'single', slide: Number(q.s) || 0, design: q.d || undefined, palette: q.p || undefined, brand: String(q.b) };
+  if (q.t) out.template = String(q.t);
+  if (q.w) out.keyword = String(q.w);
+  return out;
 }
 
 /* ---------------------------------------------------------------- Graph */
@@ -137,7 +143,7 @@ const TAGS = {
 };
 
 /** A caption from the group itself: what fits, every model by brand, and the way in. */
-function captionFor(group, brandOf, brandId) {
+function captionFor(group, brandOf, brandId, keyword) {
   const category = poster.categoryOf(group.groupId);
   const part = poster.PARTS[category];
   const master = group.masterModelName || (group.members[0] || {}).name || '';
@@ -149,10 +155,10 @@ function captionFor(group, brandOf, brandId) {
     brands.get(b).push(m.name.toLowerCase().indexOf(b.toLowerCase() + ' ') === 0 ? m.name.slice(b.length + 1) : m.name);
   });
   const mpf = brandId === 'mpf';
-  const head = `${master} ${part.word} fits ${n} phones ✅\nஒரே ${part.ta} • ${n} மொபைல்களுக்கு!`;
+  const head = `${master} ${part.word} fits ${n} phones ✅\nOne ${part.word} • ${n} phones • check before you buy`;
   const way = mpf
     ? `🔎 Check the compatible parts of any phone free at mobilepartsfinder.com (link in bio)`
-    : `📲 Comment LINK for the ProGlide app${part.price ? '\n💰 Comment 9H for price' : ''}`;
+    : `📲 Comment ${keyword || 'LINK'} for the ProGlide app${part.price ? '\n💰 Comment 9H for price' : ''}`;
   const tags = `${TAGS[category] || '#mobilespares'} #mobileshop #mobilerepair #spareparts #compatibility` +
     (mpf ? ' #mobilepartsfinder' : ' #proglide');
   const room = CAPTION_MAX - head.length - way.length - tags.length - 40;
@@ -168,6 +174,24 @@ function captionFor(group, brandOf, brandId) {
   }
   if (left > 0) lines.push(`+ ${left} more ${mpf ? 'on the website' : 'in the app'}`);
   return [head, lines.join('\n'), way, tags].join('\n\n');
+}
+
+/** A marketing poster's caption: what the app or site does, in plain English, and the way in. */
+function promoCaption(template, group, brandId, keyword, models) {
+  const part = poster.PARTS[poster.categoryOf(group.groupId)];
+  const n = group.members.length;
+  const mpf = brandId === 'mpf';
+  const thing = mpf ? 'mobilepartsfinder.com' : 'the ProGlide app';
+  const heads = {
+    search: `Find the matching parts for any phone in seconds 🔎\nType a model in ${thing} and see every part that fits it.`,
+    oneglass: `1 ${part.word} = ${n} phones ✅\nStock one, fit many. Find universal ${part.word} for any model with ${thing}.`,
+    wrongpart: `Stop ordering the wrong spare part ❌\nCheck what fits before you buy: tempered glass, back cover, display, battery and more.`,
+    steps: `3 steps to the right part 🛠️\n1. Type the phone model\n2. See every part that fits\n3. Sell the right one, first time`,
+    numbers: `The parts finder for mobile shops 📱\n${models ? Math.floor(models / 100) * 100 + '+ phone models, ' : ''}8 part types, one search.`
+  };
+  const way = mpf ? '🔗 Search free at mobilepartsfinder.com (link in bio)' : `💬 Comment ${keyword || 'LINK'} and get the app link in your DM`;
+  const tags = '#mobileshop #mobilerepair #spareparts #temperedglass #mobileaccessories #phonerepair #compatibility' + (mpf ? ' #mobilepartsfinder' : ' #proglide');
+  return [heads[template] || heads.search, 'Made for mobile shop owners, anywhere in the world.', way, tags].join('\n\n');
 }
 
 /* --------------------------------------------------------------- publish */
@@ -197,17 +221,22 @@ async function publish(o, deps = {}) {
   if (!token()) return { ok: false, code: 'unconfigured', message: 'INSTAGRAM_PUBLISH_ACCESS_TOKEN is not set in Vercel.' };
   const ig = acct.igUserId();
   if (!ig) return { ok: false, code: 'unconfigured', message: `No Instagram account id for ${acct.label}.` };
-  const kind = o.kind === 'carousel' ? 'carousel' : 'single';
+  const kind = o.kind === 'carousel' || o.kind === 'promo' ? o.kind : 'single';
   const group = await content.groupOf(o.group);
   if (!group) return { ok: false, code: 'missing', message: 'No such group.' };
-  const caption = String(o.caption || '').trim().slice(0, CAPTION_MAX) || captionFor(group, content.brandOf, acct.brand);
-  const first = await content.picture(group.groupId, { kind, slide: 0, design: o.design, palette: o.palette, brand: acct.brand });
+  /* a comment word only where the reply bot answers it: the ProGlide account */
+  const keyword = acct.brand === 'proglide' && poster.KEYWORDS.indexOf(o.keyword) > -1 ? o.keyword : undefined;
+  const template = kind === 'promo' ? (poster.PROMOS.find(t => t.id === o.template) || poster.PROMOS[0]).id : undefined;
+  const caption = String(o.caption || '').trim().slice(0, CAPTION_MAX) || (kind === 'promo'
+    ? promoCaption(template, group, acct.brand, keyword, o.models || content.modelCount())
+    : captionFor(group, content.brandOf, acct.brand, keyword));
+  const first = await content.picture(group.groupId, { kind, slide: 0, design: o.design, palette: o.palette, brand: acct.brand, template, keyword });
   const slides = kind === 'carousel' ? Math.min(first.slides, 10) : 1;
-  const base = { groupId: group.groupId, kind, design: o.design, palette: o.palette, brand: acct.brand };
+  const base = { groupId: group.groupId, kind, design: o.design, palette: o.palette, brand: acct.brand, template, keyword };
   const f = deps.fetch;
 
   let creation;
-  if (kind === 'single') {
+  if (kind !== 'carousel') {
     creation = (await graph('POST', `${ig}/media`, { image_url: imageUrl(base), caption }, f)).id;
   } else {
     const children = await Promise.all(Array.from({ length: slides }, (_, i) =>
@@ -221,6 +250,7 @@ async function publish(o, deps = {}) {
 
   const record = {
     account: acct.id, groupId: group.groupId, kind, slides, design: o.design || null, palette: o.palette || null,
+    template: template || null, keyword: keyword || null, scheduleId: o.scheduleId || null,
     caption, mediaId: posted.id, permalink: info.permalink || null, at: Date.now(), by: o.uid || null
   };
   await (deps.db || db)().collection(C.CONTENT_POSTS).doc(String(posted.id)).set(record).catch(err => console.warn('[publish] record', err && err.message));
@@ -253,8 +283,9 @@ async function recent(limit = 12) {
   const snap = await db().collection(C.CONTENT_POSTS).orderBy('at', 'desc').limit(limit).get();
   return snap.docs.map(d => {
     const v = d.data();
-    return { mediaId: v.mediaId, account: v.account, groupId: v.groupId, kind: v.kind, permalink: v.permalink, at: v.at };
+    return { mediaId: v.mediaId, account: v.account, groupId: v.groupId, kind: v.kind, permalink: v.permalink, at: v.at,
+      design: v.design || null, palette: v.palette || null, template: v.template || null, keyword: v.keyword || null, scheduleId: v.scheduleId || null };
   });
 }
 
-module.exports = { ACCOUNTS, imageUrl, verify, captionFor, publish, check, recent, URL_TTL_MS };
+module.exports = { ACCOUNTS, imageUrl, verify, captionFor, promoCaption, publish, check, recent, graph, token, URL_TTL_MS };

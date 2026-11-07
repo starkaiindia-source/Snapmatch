@@ -4,8 +4,20 @@
     {
       "name": "mpf-local",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["scripts/dev-server.js"],
+      "runtimeArgs": [
+        "scripts/dev-server.js"
+      ],
       "port": 4321
+    },
+    {
+      "name": "mpf-live-data",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/dev-server.js",
+        "--api-from=https://www.mobilepartsfinder.com",
+        "--port=4322"
+      ],
+      "port": 4322
     }
   ]
 }

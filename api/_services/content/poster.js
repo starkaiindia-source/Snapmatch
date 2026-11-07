@@ -22,20 +22,22 @@
 const path = require('path');
 const draw = require('./draw');
 const designs = require('./designs');
+const promos = require('./promos');
 
 const CUTOUTS = path.join(__dirname, '..', '..', '..', 'assets', 'categories', 'cutout');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const IST_MS = 5.5 * 60 * 60 * 1000;
 
+/* English only: the account is read worldwide, and Instagram translates for the reader */
 const PARTS = {
-  'screen-guards': { en: 'TEMPERED GLASS', word: 'tempered glass', unit: 'GLASS', ta: 'டெம்பர் கிளாஸ்', price: true },
-  'back-cover': { en: 'BACK COVER', word: 'back cover', unit: 'COVER', ta: 'பேக் கவர்' },
-  'combo-display': { en: 'COMBO DISPLAY', word: 'display', unit: 'DISPLAY', ta: 'காம்போ டிஸ்ப்ளே' },
-  'middle-frame': { en: 'MIDDLE FRAME', word: 'middle frame', unit: 'FRAME', ta: 'மிடில் ஃப்ரேம்' },
-  'cc-board': { en: 'CC BOARD', word: 'CC board', unit: 'BOARD', ta: 'சிசி போர்டு' },
-  battery: { en: 'BATTERY', word: 'battery', unit: 'BATTERY', ta: 'பேட்டரி' },
-  'button-flex': { en: 'BUTTON FLEX', word: 'button flex', unit: 'FLEX', ta: 'பட்டன் ஃப்ளெக்ஸ்' },
-  'sim-tray': { en: 'SIM TRAY', word: 'SIM tray', unit: 'TRAY', ta: 'சிம் ட்ரே' }
+  'screen-guards': { en: 'TEMPERED GLASS', word: 'tempered glass', unit: 'GLASS', price: true },
+  'back-cover': { en: 'BACK COVER', word: 'back cover', unit: 'COVER' },
+  'combo-display': { en: 'COMBO DISPLAY', word: 'display', unit: 'DISPLAY' },
+  'middle-frame': { en: 'MIDDLE FRAME', word: 'middle frame', unit: 'FRAME' },
+  'cc-board': { en: 'CC BOARD', word: 'CC board', unit: 'BOARD' },
+  battery: { en: 'BATTERY', word: 'battery', unit: 'BATTERY' },
+  'button-flex': { en: 'BUTTON FLEX', word: 'button flex', unit: 'FLEX' },
+  'sim-tray': { en: 'SIM TRAY', word: 'SIM tray', unit: 'TRAY' }
 };
 const PREFIX = { sg: 'screen-guards', bc: 'back-cover', cd: 'combo-display', mf: 'middle-frame', cc: 'cc-board', bt: 'battery', bf: 'button-flex', st: 'sim-tray' };
 const categoryOf = groupId => PREFIX[String(groupId || '').split('-')[0]] || null;
@@ -60,7 +62,9 @@ function byBrand(group, brandOf) {
  * Everything a design draws from.
  * opts: design, palette (ids; today's when absent), picture (a data URI of the
  *       part's photo), tag (the label over the master), day, brand (whose
- *       account: 'proglide' when absent, or 'mpf')
+ *       account: 'proglide' when absent, or 'mpf'), keyword (the word the
+ *       poster asks for in the comments: LINK, PROGLIDE or TOOL), models (how
+ *       many phones the catalogue holds, for the marketing posters)
  */
 function context(group, brandOf, opts = {}) {
   const category = categoryOf(group.groupId);
@@ -80,7 +84,9 @@ function context(group, brandOf, opts = {}) {
     pic: opts.picture || null,
     cutout: draw.asset(path.join(CUTOUTS, category + '.png')),
     tag: opts.tag || 'COMPATIBILITY UPDATE',
-    taLine: `ஒரே ${part.ta} • ${n} மொபைல்களுக்கு!`
+    oneLine: `One ${part.word} • ${n} phones`,
+    keyword: designs.KEYWORDS.indexOf(opts.keyword) > -1 ? opts.keyword : 'LINK',
+    models: Number(opts.models) || 0
   };
 }
 
@@ -88,6 +94,13 @@ function context(group, brandOf, opts = {}) {
 function single(group, brandOf, opts) {
   const ctx = context(group, brandOf, opts);
   return draw.page(() => ctx.design.draw(ctx) + designs.footer(ctx));
+}
+
+/** A marketing poster for the app or the website, its numbers from a real group. */
+function promo(group, brandOf, opts) {
+  const ctx = context(group, brandOf, opts);
+  const t = promos.TEMPLATES.find(x => x.id === (opts && opts.template)) || promos.TEMPLATES[0];
+  return draw.page(() => t.draw(ctx) + designs.footer(ctx));
 }
 
 /**
@@ -117,7 +130,9 @@ function carousel(group, brandOf, opts) {
 }
 
 module.exports = {
-  PARTS, categoryOf, dayNumber, single, carousel,
+  PARTS, categoryOf, dayNumber, single, carousel, promo,
+  PROMOS: promos.TEMPLATES.map(x => ({ id: x.id, name: x.name, about: x.about })),
+  KEYWORDS: designs.KEYWORDS,
   DESIGNS: designs.DESIGNS.map(x => ({ id: x.id, name: x.name })),
   PALETTES: designs.PALETTES.map(p => ({ id: p.id, name: p.name, color: p.primary })),
   BRANDS: Object.keys(designs.BRANDS),

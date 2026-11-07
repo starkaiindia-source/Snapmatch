@@ -50,8 +50,8 @@
       var list = state.found || (state.ideas ? state.ideas[state.source] || [] : null);
       var typingHere = document.activeElement && document.activeElement.id === 'ctFind';
       var src = SOURCES.filter(function (s) { return s[0] === state.source; })[0];
-      root.innerHTML = '<div class="adm__head"><div><h1>Posters</h1><p>Instagram pictures from the compatibility data. ' +
-        'Each one carries the logo and the way in of the account it is posted to.</p></div></div>' + accountsCard() +
+      root.innerHTML = '<div class="adm__head"><div><h1>Create a poster</h1><p>One poster by hand, from any phone. ' +
+        'Each one carries the logo and the way in of the account it is posted to.</p></div><a class="adm__btn" href="/admin/posters" data-go>← Posters</a></div>' + accountsCard() +
 
         '<div class="adm__card"><div class="ar-form"><label>Any phone<input id="ctFind" type="search" placeholder="Type a model, e.g. Realme 5" autocomplete="off"></label></div>' +
         (state.found ? '' : '<div class="ar-tabs" style="margin-top:14px">' + SOURCES.map(function (s) {
@@ -251,6 +251,7 @@
 
     root.addEventListener('click', function (e) {
       var t;
+      if ((t = e.target.closest('[data-go]'))) { e.preventDefault(); ctx.go(t.getAttribute('href')); return; }
       if ((t = e.target.closest('[data-filter]'))) { state.source = t.getAttribute('data-filter'); paint(); return; }
       if ((t = e.target.closest('[data-model]'))) { openModel(t.getAttribute('data-model')); return; }
       if ((t = e.target.closest('[data-group]'))) {
@@ -271,6 +272,12 @@
     paint();
     loadAccounts();
     loadPosts();
+    /* opened from the Posters board with a group: draw it straight away */
+    var want = new URLSearchParams(global.location.search);
+    if (/^[a-z]{2}-d{1,6}$/.test(want.get('group') || '')) {
+      state.group = { groupId: want.get('group'), master: want.get('master') || want.get('group') };
+      draw();
+    }
     ADM.api.content({ view: 'ideas' }).then(function (r) {
       state.ideas = r;
       if (!(r.asked || []).length) state.source = (r.searched || []).length ? 'searched' : 'newest';

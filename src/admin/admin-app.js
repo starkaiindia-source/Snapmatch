@@ -35,11 +35,12 @@
   var ui = ADM.ui;
 
   var NAV = [
-    { path: '/admin', id: 'dashboard', label: 'Dashboard', permission: null },
-    { path: '/admin/users', id: 'users', label: 'Users', permission: 'users.read' },
+    { path: '/admin', id: 'dashboard', label: 'Dashboard', permission: null, group: 'Overview' },
+    { path: '/admin/users', id: 'users', label: 'Users', permission: 'users.read', group: 'Customers' },
+    { path: '/admin/leads', id: 'leads', label: 'Leads', permission: 'autoreply.manage', group: 'Customers' },
     { path: '/admin/missing-models', id: 'missingModels', label: 'Missing models',
-      permission: 'missing_models.read' },
-    { path: '/admin/ai', id: 'ai', label: 'Local AI', permission: 'ai.read' },
+      permission: 'missing_models.read', group: 'Catalogue' },
+    { path: '/admin/ai', id: 'ai', label: 'Local AI', permission: 'ai.read', group: 'Catalogue' },
     /* Instagram compatibility intelligence: where a scan starts, the pages it
        reads, and the groups it leaves behind. The technical record — jobs,
        extraction results, the review queue, history — is still routed (below)
@@ -48,10 +49,9 @@
     { path: '/admin/instagram', id: 'igImporter', label: 'Instagram Data Importer', permission: 'instagram.read', group: 'Instagram data' },
     { path: '/admin/instagram/sources', id: 'igSources', label: 'Instagram Sources', permission: 'instagram.read', group: 'Instagram data' },
     { path: '/admin/instagram/groups', id: 'igGroups', label: 'Compatibility Management', permission: 'instagram.read', group: 'Instagram data' },
-    { path: '/admin/auto-reply', id: 'autoReply', label: 'Auto Reply', permission: 'autoreply.manage' },
-    { path: '/admin/leads', id: 'leads', label: 'Leads', permission: 'autoreply.manage' },
-    { path: '/admin/posters', id: 'posters', label: 'Posters', permission: 'autoreply.manage' },
-    { path: '/admin/settings', id: 'settings', label: 'Settings', permission: 'admins.read' }
+    { path: '/admin/auto-reply', id: 'autoReply', label: 'Auto Reply', permission: 'autoreply.manage', group: 'Marketing' },
+    { path: '/admin/posters', id: 'posters', label: 'Posters', permission: 'autoreply.manage', group: 'Marketing' },
+    { path: '/admin/settings', id: 'settings', label: 'Settings', permission: 'admins.read', group: 'Account' }
   ];
 
   var session = null;
@@ -171,31 +171,91 @@
   function mount(root) {
     var allowed = NAV.filter(function (n) { return !n.permission || can(n.permission); });
 
+    var me = session.admin;
+    var who = me.name || me.email || me.uid;
+
+    /* The navigation in sections, each with its own label, the way a console
+       groups what it can do. */
+    var sections = [];
+    allowed.forEach(function (n) {
+      var last = sections[sections.length - 1];
+      if (!last || last.group !== n.group) sections.push(last = { group: n.group, items: [] });
+      last.items.push(n);
+    });
+
     root.innerHTML =
       '<div class="adm">' +
-      '<aside class="adm__rail">' +
-        '<a class="adm__brand" href="/finder">' + SM.logoMark(28) +
-        '<span>Mobile Parts Finder<small>Backend</small></span></a>' +
-        '<nav class="adm__nav" id="admNav">' + allowed.map(function (n, i) {
-          var prev = allowed[i - 1];
-          var label = n.group && (!prev || prev.group !== n.group)
-            ? '<div class="adm__navgroup">' + ui.esc(n.group) + '</div>' : '';
-          return label + '<a href="' + n.path + '" data-nav="' + n.id + '">' +
-            SM.icon(iconFor(n.id)) + '<span>' + ui.esc(n.label) + '</span></a>';
-        }).join('') + '</nav>' +
-        '<div class="adm__me">' +
-          '<b>' + ui.esc(session.admin.name || session.admin.email || session.admin.uid) + '</b>' +
-          ui.esc(session.admin.email || '') +
-          '<span class="adm__role">' + ui.esc(session.admin.role.replace(/_/g, ' ')) + '</span>' +
-          '<button id="admSignOut">Sign out</button>' +
+      '<header class="adm__top">' +
+        '<button class="adm__burger" id="admBurger" aria-label="Menu" aria-expanded="false">' + SM.icon('list') + '</button>' +
+        '<a class="adm__brand" href="/admin">' + SM.logoMark(26) + '<span>Mobile Parts Finder</span></a>' +
+        '<span class="adm__crumb">Backend</span>' +
+        '<div class="adm__topright">' +
+          '<a class="adm__toplink" href="/finder" target="_blank" rel="noopener"><span>Open site</span>' + SM.icon('linkOut') + '</a>' +
+          '<div class="adm__acct" title="' + ui.esc(me.email || '') + '">' +
+            '<span class="adm__initial">' + ui.esc(String(who).trim().charAt(0).toUpperCase() || '?') + '</span>' +
+            '<span class="adm__acctname"><b>' + ui.esc(who) + '</b><small>' + ui.esc(me.role.replace(/_/g, ' ')) + '</small></span>' +
+          '</div>' +
+          '<button class="adm__toplink" id="admSignOut">' + SM.icon('logout') + '<span>Sign out</span></button>' +
         '</div>' +
+      '</header>' +
+      '<aside class="adm__rail" id="admRail">' +
+        '<label class="adm__find">' + SM.icon('search') +
+          '<input type="search" id="admNavFind" placeholder="Quick search…" autocomplete="off" /></label>' +
+        '<nav class="adm__nav" id="admNav">' + sections.map(function (sec) {
+          return '<div class="adm__navsec">' +
+            (sec.group ? '<div class="adm__navgroup">' + ui.esc(sec.group) + '</div>' : '') +
+            sec.items.map(function (n) {
+              return '<a href="' + n.path + '" data-nav="' + n.id + '">' +
+                SM.icon(iconFor(n.id)) + '<span>' + ui.esc(n.label) + '</span>' +
+                '<i class="adm__chev">' + SM.icon('chevronRight') + '</i></a>';
+            }).join('') + '</div>';
+        }).join('') + '</nav>' +
+        '<div class="adm__me">' + ui.esc(me.email || '') + '</div>' +
       '</aside>' +
-      '<main class="adm__main" id="admPage"></main>' +
+      '<div class="adm__scrim" id="admScrim"></div>' +
+      '<main class="adm__main"><div class="adm__wrap" id="admPage"></div></main>' +
       '</div>' +
       '<div id="admToasts" class="toasts" aria-live="polite"></div>';
 
     document.getElementById('admSignOut').addEventListener('click', function () {
       SM.fb.signOut().then(function () { location.href = '/finder'; });
+    });
+
+    /* Phone: the menu is a drawer behind the button in the top bar. */
+    var shell = root.querySelector('.adm');
+    function menu(open) {
+      shell.classList.toggle('is-menu', open);
+      document.getElementById('admBurger').setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    document.getElementById('admBurger').addEventListener('click', function () { menu(!shell.classList.contains('is-menu')); });
+    document.getElementById('admScrim').addEventListener('click', function () { menu(false); });
+    document.getElementById('admNav').addEventListener('click', function () { menu(false); });
+
+    /* Quick search narrows the menu to what matches (a section's name matches
+       everything in it); Enter opens the first match. */
+    var find = document.getElementById('admNavFind');
+    find.addEventListener('input', function () {
+      var q = find.value.trim().toLowerCase();
+      Array.prototype.forEach.call(document.querySelectorAll('.adm__navsec'), function (sec) {
+        var label = sec.querySelector('.adm__navgroup');
+        var whole = !q || (label && label.textContent.toLowerCase().indexOf(q) > -1);
+        var any = false;
+        Array.prototype.forEach.call(sec.querySelectorAll('a'), function (a) {
+          var hit = whole || a.textContent.toLowerCase().indexOf(q) > -1;
+          a.hidden = !hit;
+          any = any || hit;
+        });
+        sec.hidden = !any;
+      });
+    });
+    find.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      var first = document.querySelector('#admNav a:not([hidden])');
+      if (!first) return;
+      find.value = '';
+      find.dispatchEvent(new Event('input'));
+      menu(false);
+      go(first.getAttribute('href'));
     });
 
     /* Real anchors so a middle-click opens a new tab, intercepted so a normal
@@ -258,6 +318,7 @@
       : name === 'posters' ? 'posters'
       : name);
     page.innerHTML = '';
+    page.className = 'adm__wrap';
     global.scrollTo(0, 0);
 
     /* Every page is behind its permission here AND behind the same permission
@@ -285,7 +346,9 @@
     }
     if (name === 'posters') {
       if (!can('autoreply.manage')) return denied(page);
-      return ADM.pages.content.render(page, ctx);
+      if (parts[1] === 'templates') return ADM.pages.posters.templates(page, ctx);
+      if (parts[1] === 'create') return ADM.pages.content.render(page, ctx);
+      return ADM.pages.posters.render(page, ctx);
     }
     if (name === 'auto-reply') {
       if (!can('autoreply.manage')) return denied(page);

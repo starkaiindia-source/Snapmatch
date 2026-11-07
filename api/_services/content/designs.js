@@ -41,8 +41,17 @@ const PALETTES = [
   { id: 'sunset', name: 'Sunset orange', primary: '#FF5A1F', primary2: '#FF2E63', accent: '#FFD23F', hot: '#1F6BFF',
     dark: '#3B1010', bg: '#FFF4EC', soft: '#FFE0CF', ink: '#2A1210', dim: '#7B5B52' },
   { id: 'mint', name: 'Mint green', primary: '#0E9F84', primary2: '#0B78A0', accent: '#FFB800', hot: '#FF5A36',
-    dark: '#073836', bg: '#EEFAF5', soft: '#D2F1E6', ink: '#0B2B29', dim: '#4E6D69' }
+    dark: '#073836', bg: '#EEFAF5', soft: '#D2F1E6', ink: '#0B2B29', dim: '#4E6D69' },
+  { id: 'berry', name: 'Berry pink', primary: '#D6246E', primary2: '#8E2DE2', accent: '#FFD23F', hot: '#00A99D',
+    dark: '#3A0B26', bg: '#FFF0F6', soft: '#FFD6E7', ink: '#2B0D1E', dim: '#7A5268' },
+  { id: 'ocean', name: 'Ocean blue', primary: '#0069B4', primary2: '#00A6D6', accent: '#FFC531', hot: '#FF4D6D',
+    dark: '#03263B', bg: '#EEF7FC', soft: '#D3ECF8', ink: '#062436', dim: '#4B6878' },
+  { id: 'noir', name: 'Noir gold', primary: '#1E1E2E', primary2: '#45456A', accent: '#FFC531', hot: '#FF5A36',
+    dark: '#0E0E16', bg: '#FFF9EB', soft: '#FFEDC2', ink: '#14141F', dim: '#5E5A4E' }
 ];
+/* The order above is the order the rows of the Instagram grid take: three
+   posts a day make one row, and each day takes the next colour. Cool and warm
+   alternate, so two rows next to each other never look alike. */
 
 /* a brand is its name in its own colour, the same on every poster */
 const BRAND_COLORS = {
@@ -85,7 +94,7 @@ const shadow = (x, y, w, h, rx, color) => rect(x + 6, y + 10, w, h, color || '#0
 const BRANDS = {
   proglide: {
     id: 'proglide', logo: 'proglide.png', name: 'PRO-GLIDE', tagline: 'Compatible Device Finder app', play: true,
-    lead: 'Comment LINK',
+    lead: 'Comment LINK', keyword: true,
     rest: part => (part.price ? 'for the app   •   Comment 9H for price' : 'get the ProGlide app link in your DM'),
     chip: 'Comment "LINK"', chipIcon: 'chat',
     more: n => `+ ${n} more models in the ProGlide app`,
@@ -102,6 +111,9 @@ const BRANDS = {
   }
 };
 const brandFor = id => BRANDS[id] || BRANDS.proglide;
+/* the comment word a poster asks for; the reply bot answers each of them */
+const KEYWORDS = ['LINK', 'PROGLIDE', 'TOOL'];
+const chipOf = ctx => (ctx.brand.keyword ? `Comment "${ctx.keyword || 'LINK'}"` : ctx.brand.chip);
 
 /** The logo and the name, small, at the top of a design. */
 function mark(ctx, x, y, color, sub, subColor) {
@@ -127,7 +139,7 @@ function footer(ctx) {
   const b = ctx.brand;
   const badgeH = 86;
   const badgeW = Math.round(badgeH * 646 / 250);
-  const lead = b.lead;
+  const lead = b.keyword ? 'Comment ' + (ctx.keyword || 'LINK') : b.lead;
   const rest = b.rest(ctx.part);
   const leadO = { size: 28, font: 'archivo', fill: '#161616' };
   const restO = { size: 23, weight: 700, fill: '#161616' };
@@ -235,7 +247,7 @@ function update(ctx) {
   const sub = { size: 24, weight: 400, fill: p.dim };
   wrap(`Same ${ctx.part.word} fits ${ctx.n} phones. Check before you buy and avoid wrong parts.`, colW, sub).slice(0, 2)
     .forEach((t, i) => { s += line(M, 464 + i * 33, t, sub); });
-  s += line(M, 548, ctx.taLine, fit(ctx.taLine, colW, { size: 27, fill: p.primary }));
+  s += line(M, 548, ctx.oneLine, fit(ctx.oneLine, colW, { size: 27, font: 'archivo', fill: p.primary }));
   s += shadow(660, 100, 364, 456, 34) + hero(ctx, 660, 100, 364, 456, 34);
 
   const by = 584;
@@ -422,8 +434,8 @@ function series(ctx) {
     `<circle cx="${M + 38}" cy="810" r="28" fill="#FFFFFF"/>` + image(asset(ctx.brand.logo), M + 14, 786, 48, 48) +
     line(M + 80, 820, `${ctx.n} MODELS`, { size: 28, font: 'archivo', fill: '#FFFFFF' }) +
     line(M + 96 + width(`${ctx.n} MODELS`, { size: 28, font: 'archivo' }), 819, `•  ${ctx.brands.length} brands  •  one ${ctx.part.word}`, { size: 22, weight: 700, fill: '#FFFFFF', opacity: 0.85 }) +
-    icon(ctx.brand.chipIcon, W - M - 66 - width(ctx.brand.chip, { size: 24, font: 'archivo' }), 796, 28, p.accent) +
-    line(W - M - 28, 820, ctx.brand.chip, { size: 24, font: 'archivo', fill: p.accent, anchor: 'end' });
+    icon(ctx.brand.chipIcon, W - M - 66 - width(chipOf(ctx), { size: 24, font: 'archivo' }), 796, 28, p.accent) +
+    line(W - M - 28, 820, chipOf(ctx), { size: 24, font: 'archivo', fill: p.accent, anchor: 'end' });
   cards.forEach((b, i) => {
     const x = M + (i % 2) * (half + 22);
     const cw = i === cards.length - 1 && i % 2 === 0 ? W - 2 * M : half;
@@ -516,7 +528,7 @@ function appPage(ctx, left) {
     rect(W / 2 - 160, 120, 320, 320, '#FFFFFF', 60) + image(asset(b.logo), W / 2 - 140, 140, 280, 280) +
     line(W / 2, 560, b.name, fit(b.name, W - 2 * M, { size: 92, font: 'archivo', fill: '#FFFFFF', anchor: 'middle', spacing: 2 })) +
     line(W / 2, 630, lineA, fit(lineA, W - 2 * M, { size: 40, font: 'archivo', fill: p.accent, anchor: 'middle' })) +
-    line(W / 2, 690, 'எந்த மொபைலுக்கும் பொருந்தும் பார்ட்ஸ் • ஒரு நொடியில்!', { size: 30, fill: '#FFFFFF', anchor: 'middle' }) +
+    line(W / 2, 690, 'Every phone. Every part. One search.', { size: 30, weight: 700, fill: '#FFFFFF', anchor: 'middle' }) +
     (left > 0 ? line(W / 2, 766, b.moreLast(left, ctx.part), { size: 30, weight: 900, fill: '#FFFFFF', anchor: 'middle' }) : '') +
     (b.play ? image(asset('google-play-badge.png'), W / 2 - 233, 820, 466, 180)
       : rect(W / 2 - 400, 846, 800, 110, '#FFFFFF', 55) + icon('search', W / 2 - 400 + 40, 877, 48, p.primary) +
@@ -533,4 +545,8 @@ function planFor(day) {
   return { design: DESIGNS[Math.floor(n / 3) % DESIGNS.length].id, palette: PALETTES[n % PALETTES.length].id };
 }
 
-module.exports = { DESIGNS, PALETTES, BRANDS, brandFor, brandColor, footer, listPage, appPage, planFor, roundRobin };
+module.exports = {
+  DESIGNS, PALETTES, BRANDS, KEYWORDS, brandFor, brandColor, footer, listPage, appPage, planFor, roundRobin,
+  /* the pieces the marketing posters (promos.js) are built from */
+  kit: { M, FOOT, BOTTOM, rect, shadow, icon, mark, hero, chipRows, chipOf }
+};

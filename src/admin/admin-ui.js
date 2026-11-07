@@ -212,21 +212,56 @@
    * An all-zero series draws a flat row of one-pixel bars, which is the honest
    * picture of a month with no signups. It does not draw a placeholder curve.
    */
-  function barChart(points) {
+  function barChart(points, opts) {
     if (!points || !points.length) return emptyState('No data yet');
+    opts = opts || {};
 
-    var max = points.reduce(function (m, p) { return Math.max(m, Number(p.value) || 0); }, 0);
-    var bars = points.map(function (p) {
-      var value = Number(p.value) || 0;
-      var height = max > 0 ? Math.round((value / max) * 100) : 0;
-      return '<div style="height:' + Math.max(height, value > 0 ? 3 : 0) + '%" ' +
-             'title="' + esc(p.date) + ': ' + value + '"></div>';
+    var fmt = function (v) { return (opts.rupees ? '₹' : '') + Number(v).toLocaleString('en-IN'); };
+    var values = points.map(function (p) { return Number(p.value) || 0; });
+    var max = values.reduce(function (m, v) { return Math.max(m, v); }, 0);
+    var total = values.reduce(function (t, v) { return t + v; }, 0);
+    var top = niceCeil(max);
+    var n = points.length;
+
+    var cols = points.map(function (p, i) {
+      var value = values[i];
+      var height = top > 0 ? (value / top) * 100 : 0;
+      var edge = i < n * 0.15 ? ' is-start' : i >= n * 0.85 ? ' is-end' : '';
+      return '<div class="adm-chart__col' + edge + '" style="--h:' + (value > 0 ? Math.max(height, 1.5).toFixed(2) : 0) + '%">' +
+        (value > 0 ? '<i style="height:' + Math.max(height, 1.5).toFixed(2) + '%"></i>' : '') +
+        '<span class="adm-chart__tip"><b>' + esc(fmt(value)) + '</b><span>' + esc(dayLabel(p.date, true)) + '</span></span></div>';
     }).join('');
 
-    return '<div class="adm__chart">' + bars + '</div>' +
-      '<div class="adm__chartfoot"><span>' + esc(points[0].date) + '</span>' +
-      '<span>peak ' + count(max) + '</span>' +
-      '<span>' + esc(points[points.length - 1].date) + '</span></div>';
+    return '<div class="adm-chart__sum"><b>' + esc(fmt(total)) + '</b><span>' +
+        esc(opts.totalLabel || 'in ' + n + ' days') + ' · peak ' + esc(fmt(max)) + '</span></div>' +
+      '<div class="adm-chart" style="--bar:' + esc(opts.color || 'var(--teal-600)') + '" role="img" aria-label="' +
+        esc((opts.label || 'Daily values') + ': ' + fmt(total) + ' over ' + n + ' days, peak ' + fmt(max)) + '">' +
+        '<div class="adm-chart__y"><span>' + esc(fmt(top)) + '</span><span>' + esc(fmt(top / 2)) + '</span><span>0</span></div>' +
+        '<div class="adm-chart__plot"><div class="adm-chart__bars">' + cols + '</div></div>' +
+        '<div class="adm-chart__x"><span>' + esc(dayLabel(points[0].date)) + '</span>' +
+          '<span>' + esc(dayLabel(points[Math.floor((n - 1) / 2)].date)) + '</span>' +
+          '<span>' + esc(dayLabel(points[n - 1].date)) + '</span></div>' +
+      '</div>';
+  }
+
+  /* The axis top: the next 1, 2 or 5 step above the peak, so the gridlines
+     read as round numbers. An empty series still gets an axis of 1. */
+  function niceCeil(v) {
+    if (!(v > 0)) return 1;
+    var p = Math.pow(10, Math.floor(Math.log10(v)));
+    var steps = [1, 2, 5, 10];
+    for (var i = 0; i < steps.length; i++) if (steps[i] * p >= v) return steps[i] * p;
+    return 10 * p;
+  }
+
+  var WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  /** "2026-11-07" → "7 Nov", or "Sat, 7 Nov 2026" with long. UTC, like the series. */
+  function dayLabel(key, long) {
+    var d = new Date(String(key) + 'T00:00:00Z');
+    if (isNaN(d.getTime())) return String(key);
+    var short = d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()];
+    return long ? WEEKDAYS[d.getUTCDay()] + ', ' + short + ' ' + d.getUTCFullYear() : short;
   }
 
   /** A "top ten" list, or an honest note when nothing has been recorded. */

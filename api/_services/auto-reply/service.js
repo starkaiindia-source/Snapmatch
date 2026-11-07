@@ -60,6 +60,8 @@ const events = require('./events');
 const responder = require('./responder');
 const sales = require('./sales');
 const feedback = require('./feedback');
+const inbox = require('./inbox');
+const shop = require('../shop-service');
 
 const WEBHOOK_URL = 'https://www.mobilepartsfinder.com/api/instagram-webhook';
 const MODES = ['off', 'review', 'auto'];
@@ -392,7 +394,9 @@ async function salesTick(s, c, now) {
   const meta = metaClient(c);
   let sent = 0;
   try {
-    for (const due of await sales.dueFollowUps(now)) {
+    const dueNow = await sales.dueFollowUps(now);
+    const quiet = dueNow.length ? await inbox.pausedIds(db, 'instagram').catch(() => new Set()) : new Set();
+    for (const due of dueNow.filter(d => !quiet.has(String(d.lead.senderId)))) {
       if (Date.now() - now > BUDGET_MS) break;
       if (await meta.sendMessage(due.lead.senderId, due.text).then(() => true, () => false)) {
         await sales.markFollowedUp(due.lead, due.text, now);
@@ -429,6 +433,7 @@ async function feedbackTick(s, c, now) {
 async function work(id, ev, settings, c, now) {
   if (settings.mode === 'off') return finish(id, { status: 'skipped', reason: 'auto-reply-off' });
   if (!(ev.kind === 'comment' ? settings.comments : settings.dms)) return finish(id, { status: 'skipped', reason: 'channel-off' });
+  if (ev.kind === 'dm' && await inbox.paused(db, 'instagram', ev.senderId)) return finish(id, { status: 'needs_human', reason: 'owner-chatting' });
   if (!ev.text) {
     /* a picture from someone whose bill is waiting is a payment screenshot to check */
     const lead = settings.salesOn && ev.kind === 'dm' ? await sales.loadLead(ev.senderId) : null;
@@ -570,6 +575,18 @@ async function catchUp(settings, c, started) {
   return done;
 }
 
+/* Scheduled posts (content/schedule.js): looked at every CONTENT_RUN_MS at most,
+   whoever polls, and only for an account whose auto posting is on. */
+const CONTENT_RUN_MS = 10 * 60 * 1000;
+async function contentRun(now) {
+  const gate = await consume({ key: 'content:run', limit: 1, now, windowMs: CONTENT_RUN_MS });
+  if (!gate.allowed) return null;
+  const schedule = require('../content/schedule');
+  const r = await schedule.runDue(schedule.liveDeps(), now);
+  if (r.posted) console.log('[content] scheduled post', r.posted.id, r.posted.ok ? 'posted' : 'failed: ' + r.posted.error);
+  return r;
+}
+
 /**
  * Reads what arrived since the last read and answers it. Anyone may ask for this, so
  * it runs at most once a minute whoever asks, and it can only answer the account's
@@ -581,6 +598,8 @@ async function poll() {
   const now = Date.now();
   const gate = await consume({ key: 'auto-reply:poll', limit: 1, now, windowMs: POLL_EVERY_MS });
   if (!gate.allowed) return { status: 200, body: { polled: false, reason: 'too soon' } };
+  /* the scheduled Instagram posts ride on the same clock, after the answer */
+  if (process.env.VERCEL) waitUntil(contentRun(now).catch(err => console.warn('[content] scheduled post run failed', err.message)));
 
   const settings = await loadSettings();
   if (settings.mode === 'off') return { status: 200, body: { polled: false, reason: 'off' } };
@@ -689,6 +708,86 @@ async function tryReply({ text: said, kind, caption }) {
   return Object.assign({}, d, { hold: responder.hold(d, k, settings), costMicroUsd: cost(c, d), usage: undefined });
 }
 
+/* ------------------------------------------------------------------ inbox */
+
+function inboxDeps(now) {
+  return {
+    meta: metaClient(credentials()), sales, db, now: now || Date.now(),
+    customer: async mobile => {
+      const uid = await sales.ownerShopUid();
+      const r = await shop.getCustomer(uid, { id: 'm_' + mobile });
+      return { customer: r.customer, insights: r.insights, bills: (r.bills || []).slice(0, 25) };
+    }
+  };
+}
+
+const inboxList = () => inbox.list(inboxDeps());
+const inboxThread = q => inbox.thread(inboxDeps(), q);
+const inboxReply = input => inbox.reply(inboxDeps(), input);
+const inboxContact = input => inbox.saveContact(db, input, Date.now());
+
+async function inboxLeads() {
+  const [leads, contacts] = await Promise.all([sales.listLeads(), inbox.contacts(db)]);
+  return { leads: leads.map(l => ({ id: l.id, username: l.username || '', stage: l.stage, needsHuman: !!l.needsHuman,
+    totalPaise: l.totalPaise || 0, billNumber: l.billNumber || null, source: l.source, updatedAt: l.updatedAt || null,
+    lastCustomerAt: l.lastCustomerAt || null, boxes: (l.items || []).reduce((n, i) => n + i.boxes, 0) })), contacts };
+}
+
+/** A reply for the owner to edit: the sales assistant's, or the general one's. */
+async function inboxSuggest(input) {
+  const c = credentials();
+  const settings = await loadSettings();
+  const said = text(input.text, 1000);
+  if (!said) return { ok: false, error: 'There is no customer message to answer.' };
+  const gemini = createGemini({ key: c.geminiKey });
+  const lead = input.channel === 'instagram' ? await sales.loadLead(input.userId) : null;
+  if (lead || (settings.salesOn && sales.asksToBuy(said, settings.salesKeywords))) {
+    const a = await sales.suggestFor(String(input.userId), said, settings, gemini, c.model);
+    if (a) return { ok: true, reply: a.reply };
+  }
+  const d = await responder.draft({ text: said, kind: 'dm', settings, gemini, model: c.model, history: [] });
+  return d.ok && d.reply ? { ok: true, reply: d.reply } : { ok: false, error: 'The AI could not suggest a reply.' };
+}
+
+/* The bill message, then its card; a card Meta refuses goes as the QR and a link. */
+async function sendBill(meta, userId, out) {
+  await meta.sendMessage(userId, out.reply);
+  await meta.sendCard(userId, out.card).catch(async () => {
+    if (out.card.image_url) await meta.sendImage(userId, out.card.image_url).catch(() => null);
+    const { image_url: _drop, ...plain } = out.card;
+    return meta.sendCard(userId, plain).catch(() => meta.sendMessage(userId, out.lead.invoiceUrl));
+  });
+}
+
+/** A bill made by the owner, sent to the customer when Instagram still allows it. */
+async function inboxBill(input) {
+  const now = Date.now();
+  const settings = await loadSettings();
+  const out = await sales.manualBill(String(input.userId), input, settings, now);
+  let sent = false;
+  if (input.send) {
+    const meta = metaClient(credentials());
+    sent = await sendBill(meta, String(input.userId), out).then(() => true, err => {
+      console.warn('[auto-reply] inbox bill not sent', err.kind || err.message);
+      return false;
+    });
+    if (sent) await sales.logOwner(String(input.userId), out.reply, now).catch(() => null);
+  }
+  return { ok: true, sent, billNumber: out.lead.billNumber, totalPaise: out.lead.totalPaise, invoiceUrl: out.lead.invoiceUrl };
+}
+
+/** Marked paid by the owner, and the customer thanked when the window is open. */
+async function inboxPaid(input) {
+  const now = Date.now();
+  const settings = await loadSettings();
+  const lead = await sales.ownerMarkPaid(String(input.userId), now);
+  let told = false;
+  if (input.tell && now - (lead.lastCustomerAt || 0) < inbox.WINDOW_MS) {
+    told = await metaClient(credentials()).sendMessage(lead.senderId, sales.paidMessage(lead, settings)).then(() => true, () => false);
+  }
+  return { ok: true, told, billNumber: lead.billNumber };
+}
+
 async function sendDraft(id, reply, by) {
   const c = credentials();
   const snap = await eventCol().doc(id).get();
@@ -723,5 +822,6 @@ async function retry(id) {
 
 module.exports = {
   DEFAULTS, MODES, sales, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, history, subscribe,
-  tryReply, sendDraft, discard, retry, performance, GraphError
+  tryReply, sendDraft, discard, retry, performance, GraphError,
+  inboxList, inboxThread, inboxReply, inboxContact, inboxLeads, inboxSuggest, inboxBill, inboxPaid
 };

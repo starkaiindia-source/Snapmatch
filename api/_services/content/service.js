@@ -106,7 +106,7 @@ async function readIdeas(now) {
   const [s, a, b] = await Promise.all([safe('searched', searched(now)), safe('asked', asked()), safe('biggest', biggest())]);
   return {
     searched: s, asked: a, newest: newest(), biggest: b,
-    designs: poster.DESIGNS, palettes: poster.PALETTES, today: poster.planFor(poster.dayNumber(now))
+    designs: poster.DESIGNS, palettes: poster.PALETTES, promos: poster.PROMOS, keywords: poster.KEYWORDS, today: poster.planFor(poster.dayNumber(now))
   };
 }
 
@@ -137,6 +137,7 @@ const brandOf = m => {
 
 const DESIGN_IDS = poster.DESIGNS.map(x => x.id);
 const PALETTE_IDS = poster.PALETTES.map(x => x.id);
+const PROMO_IDS = poster.PROMOS.map(x => x.id);
 
 async function groupOf(groupId) {
   if (!GROUP_ID.test(String(groupId)) || !poster.categoryOf(groupId)) return null;
@@ -161,9 +162,13 @@ async function picture(groupId, o = {}) {
     design: DESIGN_IDS.indexOf(o.design) > -1 ? o.design : undefined,
     palette: PALETTE_IDS.indexOf(o.palette) > -1 ? o.palette : undefined,
     brand: poster.BRANDS.indexOf(o.brand) > -1 ? o.brand : undefined,
+    keyword: poster.KEYWORDS.indexOf(o.keyword) > -1 ? o.keyword : undefined,
+    template: PROMO_IDS.indexOf(o.template) > -1 ? o.template : undefined,
+    models: search.loadIndex().models.length,
     picture: photo || undefined
   };
-  const pages = o.kind === 'carousel' ? poster.carousel(group, brandOf, opts) : [poster.single(group, brandOf, opts)];
+  const pages = o.kind === 'carousel' ? poster.carousel(group, brandOf, opts)
+    : o.kind === 'promo' ? [poster.promo(group, brandOf, opts)] : [poster.single(group, brandOf, opts)];
   const at = Math.min(Math.max(0, Number(o.slide) || 0), pages.length - 1);
   return { jpeg: Buffer.from(poster.toJpeg(pages[at])), slides: pages.length, photo: !!photo };
 }
@@ -175,4 +180,7 @@ async function makePhoto(groupId, uid) {
   return photos.make(poster.categoryOf(groupId), group.masterModelName, uid);
 }
 
-module.exports = { ideas, groupsOf, find, picture, makePhoto, groupOf, brandOf };
+/** How many phones the catalogue holds, for the marketing posters' numbers. */
+const modelCount = () => search.loadIndex().models.length;
+
+module.exports = { ideas, groupsOf, find, picture, makePhoto, groupOf, brandOf, modelCount };

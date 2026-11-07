@@ -251,6 +251,72 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
+  /* ------------------------------------------------------------- the inbox
+     The conversations themselves, read from Meta each time the owner looks:
+     nothing of a chat is copied into Firestore. Instagram is the account's own
+     inbox; Messenger is the linked Facebook Page's, read with the Page's token. */
+  const LAST = 'messages.limit(1){id,message,created_time,from}';
+  const MESSAGE = '{id,message,created_time,from,attachments}';
+  const PLAIN = '{id,message,created_time,from}';
+
+  async function conversations(limit) {
+    const account = login === 'instagram' ? 'me' : igUserId;
+    const r = await call('GET', `${account}/conversations`, { wait: 15000, params: {
+      platform: 'instagram', fields: `id,updated_time,participants,${LAST}`, limit: limit || 50
+    } });
+    return r.data || [];
+  }
+
+  /* Attachments are asked for, and dropped if Meta refuses them for this thread. */
+  async function messagesOf(convId, limit, as) {
+    const n = limit || 40;
+    const r = await call('GET', convId, { as, wait: 15000, params: { fields: `messages.limit(${n})${MESSAGE}` } })
+      .catch(() => call('GET', convId, { as, wait: 15000, params: { fields: `messages.limit(${n})${PLAIN}` } }));
+    return (r.messages && r.messages.data) || [];
+  }
+
+  async function conversationWith(userId) {
+    const account = login === 'instagram' ? 'me' : igUserId;
+    const r = await call('GET', `${account}/conversations`, { params: { platform: 'instagram', user_id: userId, fields: 'id' } });
+    return ((r.data || [])[0] || {}).id || null;
+  }
+
+  /* The person, as Instagram shows them to an account they have messaged. */
+  async function profile(userId) {
+    return call('GET', userId, { params: { fields: 'name,username,profile_pic,follower_count,is_user_follow_business,is_business_follow_user' } });
+  }
+
+  /* Messenger: the linked Page's inbox, with the Page's own token. Null when no
+     Page is linked or this token cannot reach its messages. */
+  async function pageConversations(limit) {
+    const p = await linkedPage();
+    if (!p) return null;
+    const r = await call('GET', `${p.id}/conversations`, { as: p.token, wait: 15000, params: {
+      platform: 'messenger', fields: `id,updated_time,participants,${LAST}`, limit: limit || 50
+    } });
+    return { page: { id: p.id, name: p.name }, data: r.data || [] };
+  }
+
+  async function pageMessages(convId, limit) {
+    const p = await linkedPage();
+    if (!p) throw new GraphError('unconfigured', 'No Facebook Page is linked.');
+    return messagesOf(convId, limit, p.token);
+  }
+
+  async function pageConversationWith(userId) {
+    const p = await linkedPage();
+    if (!p) return null;
+    const r = await call('GET', `${p.id}/conversations`, { as: p.token, params: { platform: 'messenger', user_id: userId, fields: 'id' } });
+    return ((r.data || [])[0] || {}).id || null;
+  }
+
+  async function pageSend(userId, text) {
+    const p = await linkedPage();
+    if (!p) throw new GraphError('unconfigured', 'No Facebook Page is linked.');
+    const r = await call('POST', `${p.id}/messages`, { as: p.token, body: { recipient: { id: userId }, messaging_type: 'RESPONSE', message: { text } } });
+    return r.message_id || null;
+  }
+
   async function username() {
     const r = await call('GET', login === 'instagram' ? 'me' : igUserId, { params: { fields: 'username' } });
     return r.username || '';
@@ -300,7 +366,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, performance, replyToComment, sendMessage, sendCard, sendImage, sendQuick, privateReply, privateCard, caption, recent, history, username, connectWebhook, subscribe, check };
+  return { login, host, igUserId, conversations, messagesOf, conversationWith, profile, pageConversations, pageMessages, pageConversationWith, pageSend, performance, replyToComment, sendMessage, sendCard, sendImage, sendQuick, privateReply, privateCard, caption, recent, history, username, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };

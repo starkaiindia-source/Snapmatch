@@ -125,9 +125,39 @@ async function runApi(name, req, res, extraQuery) {
 /* ---------------------------------------------------------------- server */
 const loaded = loadEnvLocal();
 
+/* --api-from=<origin>: every /api/* call goes to that site instead of running
+   here, so the pages on localhost (the admin panel above all) can be changed
+   and looked at against the live data, with the live Firebase sign-in. Only
+   the browser's own request is forwarded; nothing here holds a secret. */
+const arg = name => (process.argv.find(a => a.startsWith('--' + name + '=')) || '').split('=').slice(1).join('=');
+const API_FROM = arg('api-from').replace(/\/+$/, '');
+const LISTEN = Number(arg('port')) || PORT;
+
+async function forward(req, res) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const headers = {};
+  ['authorization', 'content-type', 'accept'].forEach(h => { if (req.headers[h]) headers[h] = req.headers[h]; });
+  try {
+    const r = await fetch(API_FROM + req.url, {
+      method: req.method, headers, redirect: 'manual',
+      body: ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(chunks)
+    });
+    const out = {};
+    r.headers.forEach((v, k) => { if (!['content-encoding', 'content-length', 'transfer-encoding', 'connection'].includes(k)) out[k] = v; });
+    res.writeHead(r.status, out);
+    res.end(Buffer.from(await r.arrayBuffer()));
+  } catch (err) {
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'could not reach ' + API_FROM }));
+  }
+}
+
 http.createServer((req, res) => {
   const url = req.url.split('?')[0];
   let p = decodeURIComponent(url);
+
+  if (API_FROM && /^\/(api|__)\//.test(p)) { forward(req, res); return; }
 
   /* /api/admin/<section> goes to the single dispatcher, exactly as the rewrite
      in vercel.json does it. Keeping the two in step matters: the admin API is
@@ -202,8 +232,8 @@ http.createServer((req, res) => {
     });
     res.end(buf);
   });
-}).listen(PORT, () => {
-  console.log('Mobile Parts Finder dev server on http://localhost:' + PORT);
+}).listen(LISTEN, () => {
+  console.log('Mobile Parts Finder dev server on http://localhost:' + LISTEN + (API_FROM ? ' (api from ' + API_FROM + ')' : ''));
   console.log(loaded
     ? `loaded ${loaded} variables from .env.local`
     : 'no .env.local — sign-in and payments will report themselves unconfigured');

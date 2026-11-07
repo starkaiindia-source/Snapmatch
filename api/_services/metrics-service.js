@@ -27,8 +27,10 @@
    more than the site. count() bills roughly one read per thousand index
    entries, so the whole metrics panel is single-digit reads.
 
-   Summing with sum(): the same for revenue. Adding up payments by downloading
-   them works at fifty payments and falls over at fifty thousand.
+   Revenue is the exception: sum() over payments failed in production with
+   INVALID_ARGUMENT, so the captured payments are read once (dozens of
+   documents) and added up here. Past thousands of payments it moves to a
+   maintained counter.
 
    The growth SERIES is different — it needs one number per day, not one total.
    Firestore cannot GROUP BY, so this reads the createdAt field only
@@ -39,11 +41,9 @@
    ========================================================================== */
 'use strict';
 
-const { db, admin } = require('../_lib/firebase');
+const { db } = require('../_lib/firebase');
 const { USERS, PAYMENTS, SUBSCRIPTIONS, ANALYTICS_EVENTS, ANALYTICS_DAILY } =
   require('../_schema/collections');
-
-const AggregateField = admin.firestore.AggregateField;
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -79,18 +79,6 @@ async function countOf(query, label) {
     return snap.data().count;
   } catch (err) {
     console.warn('[metrics] count failed', label, why(err));
-    return null;
-  }
-}
-
-/** sum() with the same fallback. @returns {Promise<number|null>} */
-async function sumOf(query, field, label) {
-  try {
-    const snap = await query.aggregate({ total: AggregateField.sum(field) }).get();
-    const total = snap.data().total;
-    return Number.isFinite(total) ? total : 0;
-  } catch (err) {
-    console.warn('[metrics] sum failed', label, why(err));
     return null;
   }
 }
@@ -235,70 +223,97 @@ async function subscriptionMetrics(now) {
  * the currency Razorpay charges in. Converting to rupees happens once, in the
  * UI, at the point of display.
  */
-async function revenueMetrics(now) {
+async function revenueMetrics(now, paid) {
   const store = db();
-  const captured = store.collection(PAYMENTS).where('status', '==', 'captured');
   const b = boundaries(now);
 
-  const [
-    lifetime, today, week, month,
-    monthlyPlan, yearlyPlan,
-    successCount, failedCount, payingUsers
-  ] = await Promise.all([
-    sumOf(captured, 'amount', 'revenue.lifetime'),
-    sumOf(captured.where('createdAt', '>=', b.today), 'amount', 'revenue.today'),
-    sumOf(captured.where('createdAt', '>=', b.week), 'amount', 'revenue.week'),
-    sumOf(captured.where('createdAt', '>=', b.month), 'amount', 'revenue.month'),
-    sumOf(captured.where('planId', '==', 'monthly'), 'amount', 'revenue.monthlyPlan'),
-    sumOf(captured.where('planId', '==', 'yearly'), 'amount', 'revenue.yearlyPlan'),
-    countOf(captured, 'revenue.successCount'),
-    countOf(store.collection(PAYMENTS).where('status', '==', 'failed'), 'revenue.failedCount'),
-    countDistinctPayers()
+  /* Every money figure comes from ONE read of the captured payments, added up
+     here. Firestore's sum() over this collection answered INVALID_ARGUMENT in
+     production (every index is deployed; it is not an index), which left six
+     tiles and the revenue chart blank. Payments number in the dozens, so the
+     read costs one document each and gives exact figures. */
+  const [captured, failedCount] = await Promise.all([
+    paid === undefined ? capturedPayments() : paid,
+    countOf(store.collection(PAYMENTS).where('status', '==', 'failed'), 'revenue.failedCount')
   ]);
 
-  const arppu = lifetime != null && payingUsers ? Math.round(lifetime / payingUsers) : null;
+  const none = {
+    currency: 'INR', todayPaise: null, thisWeekPaise: null, thisMonthPaise: null,
+    lifetimePaise: null, monthlyPlanPaise: null, yearlyPlanPaise: null,
+    averageRevenuePerPayingUserPaise: null, successfulPayments: null,
+    failedPayments: failedCount, pendingPayments: null, payingUsers: null
+  };
+  if (!captured) return none;
+
+  const add = keep => captured.rows.reduce((t, r) => t + (keep(r) ? r.amount : 0), 0);
+  const lifetime = add(() => true);
+  const payers = new Set(captured.rows.map(r => r.uid).filter(Boolean)).size;
 
   return {
     currency: 'INR',
-    todayPaise: today,
-    thisWeekPaise: week,
-    thisMonthPaise: month,
+    todayPaise: add(r => r.at != null && r.at >= b.today),
+    thisWeekPaise: add(r => r.at != null && r.at >= b.week),
+    thisMonthPaise: add(r => r.at != null && r.at >= b.month),
     lifetimePaise: lifetime,
-    monthlyPlanPaise: monthlyPlan,
-    yearlyPlanPaise: yearlyPlan,
-    averageRevenuePerPayingUserPaise: arppu,
-    successfulPayments: successCount,
+    monthlyPlanPaise: add(r => r.planId === 'monthly'),
+    yearlyPlanPaise: add(r => r.planId === 'yearly'),
+    averageRevenuePerPayingUserPaise: payers ? Math.round(lifetime / payers) : null,
+    successfulPayments: captured.rows.length,
     failedPayments: failedCount,
     /* Razorpay reports authorised-but-not-captured separately; nothing in this
        codebase writes that state, so it is honestly null rather than 0. */
     pendingPayments: null,
-    payingUsers
+    payingUsers: payers,
+    truncated: captured.truncated
   };
 }
 
 /**
- * How many DISTINCT accounts have ever paid.
+ * The captured payments, as plain rows. A plain filtered read: no projection
+ * and no aggregation, which are the two shapes that failed. Capped like every
+ * scan here, and says so when the cap bites.
  *
- * Firestore has no COUNT(DISTINCT), so this reads the uid field of captured
- * payments — projected, capped — and counts the set. At the scale where the
- * cap bites, the figure moves to a maintained counter; until then this is
- * exact and costs one read per payment, of which there are hundreds, not
- * millions.
+ * @returns {Promise<{rows:Array<{uid:?string,amount:number,planId:?string,at:?number}>, truncated:boolean}|null>}
  */
-async function countDistinctPayers() {
+async function capturedPayments() {
   try {
     const snap = await db().collection(PAYMENTS)
       .where('status', '==', 'captured')
-      .select('uid')
-      .limit(SERIES_SCAN_CAP)
+      .limit(SERIES_SCAN_CAP + 1)
       .get();
-    const uids = new Set();
-    snap.docs.forEach(d => { const u = d.data().uid; if (u) uids.add(u); });
-    return uids.size;
+    const truncated = snap.docs.length > SERIES_SCAN_CAP;
+    const rows = (truncated ? snap.docs.slice(0, SERIES_SCAN_CAP) : snap.docs).map(d => {
+      const x = d.data();
+      return { uid: x.uid || null, amount: Number(x.amount) || 0, planId: x.planId || null, at: millis(x.createdAt) };
+    });
+    return { rows, truncated };
   } catch (err) {
-    console.warn('[metrics] distinct payers failed', why(err));
+    console.warn('[metrics] payments read failed', why(err));
     return null;
   }
+}
+
+/** Epoch ms from a stored number or a Firestore Timestamp. */
+function millis(v) {
+  if (v && typeof v.toMillis === 'function') return v.toMillis();
+  const n = Number(v);
+  return v != null && Number.isFinite(n) ? n : null;
+}
+
+/** Daily revenue from the same rows, in the shape dailySeries returns. */
+function revenueSeries(captured, from, to) {
+  if (!captured) return { points: [], truncated: false, available: false };
+  const buckets = new Map();
+  for (let day = startOfDay(from); day <= to; day += DAY_MS) buckets.set(dayKey(day), 0);
+  captured.rows.forEach(r => {
+    if (r.at == null || r.at < from || r.at > to) return;
+    const key = dayKey(r.at);
+    buckets.set(key, (buckets.get(key) || 0) + r.amount);
+  });
+  const points = Array.from(buckets.entries())
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([date, value]) => ({ date, value }));
+  return { points, truncated: captured.truncated, available: true };
 }
 
 /* ------------------------------------------------------------ growth series */
@@ -510,11 +525,13 @@ async function topLists(now, days = 30) {
 async function dashboard({ now, growthDays = 30, includeRevenue = true }) {
   const from = startOfDay(now) - (growthDays - 1) * DAY_MS;
 
+  const paid = includeRevenue ? await capturedPayments() : null;
+
   const [users, subscriptions, revenue, userGrowth, subscriptionGrowth, activity, tops] =
     await Promise.all([
       userMetrics(now),
       subscriptionMetrics(now),
-      includeRevenue ? revenueMetrics(now) : Promise.resolve(null),
+      includeRevenue ? revenueMetrics(now, paid) : Promise.resolve(null),
       dailySeries({ collection: USERS, field: 'createdAt', from, to: now }),
       dailySeries({
         collection: SUBSCRIPTIONS, field: 'startedAt', from, to: now,
@@ -524,12 +541,7 @@ async function dashboard({ now, growthDays = 30, includeRevenue = true }) {
       topLists(now, growthDays)
     ]);
 
-  const revenueGrowth = includeRevenue
-    ? await dailySeries({
-        collection: PAYMENTS, field: 'createdAt', from, to: now,
-        valueField: 'amount', where: [['status', '==', 'captured']]
-      })
-    : null;
+  const revenueGrowth = includeRevenue ? revenueSeries(paid, from, now) : null;
 
   return {
     generatedAt: now,
@@ -551,7 +563,7 @@ async function dashboard({ now, growthDays = 30, includeRevenue = true }) {
 
 module.exports = {
   dashboard,
-  userMetrics, subscriptionMetrics, revenueMetrics,
+  userMetrics, subscriptionMetrics, revenueMetrics, revenueSeries, capturedPayments,
   activityMetrics, topLists, dailySeries, rollUpSeries,
   boundaries, startOfDay, startOfWeek, startOfMonth, dayKey,
   DAY_MS, SERIES_SCAN_CAP
