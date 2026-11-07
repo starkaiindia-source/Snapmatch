@@ -1,7 +1,9 @@
 /* ============================================================================
-   /api/firebase-config · /api/plans · /api/health
+   /api/firebase-config · /api/plans · /api/health · /api/poster
    ----------------------------------------------------------------------------
-   Three public GETs behind one serverless function.
+   Public GETs behind one serverless function. /api/poster is the poster
+   picture Instagram fetches when the owner posts; it answers only a URL
+   signed by api/_services/content/publish.js.
 
    ----------------------------------------------------------------------------
    WHY
@@ -31,7 +33,9 @@ const { json } = require('./_lib/http');
 const SECTIONS = {
   'firebase-config': require('./_public/firebase-config'),
   plans: require('./_public/plans'),
-  health: require('./_public/health')
+  health: require('./_public/health'),
+  /* loaded on first use: it draws pictures, and firebase-config is on every page */
+  poster: (req, res) => require('./_public/poster')(req, res)
 };
 
 function sectionFrom(req) {

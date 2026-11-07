@@ -160,6 +160,7 @@ async function picture(groupId, o = {}) {
   const opts = {
     design: DESIGN_IDS.indexOf(o.design) > -1 ? o.design : undefined,
     palette: PALETTE_IDS.indexOf(o.palette) > -1 ? o.palette : undefined,
+    brand: poster.BRANDS.indexOf(o.brand) > -1 ? o.brand : undefined,
     picture: photo || undefined
   };
   const pages = o.kind === 'carousel' ? poster.carousel(group, brandOf, opts) : [poster.single(group, brandOf, opts)];
@@ -174,4 +175,4 @@ async function makePhoto(groupId, uid) {
   return photos.make(poster.categoryOf(groupId), group.masterModelName, uid);
 }
 
-module.exports = { ideas, groupsOf, find, picture, makePhoto };
+module.exports = { ideas, groupsOf, find, picture, makePhoto, groupOf, brandOf };

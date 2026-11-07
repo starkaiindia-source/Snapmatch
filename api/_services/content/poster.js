@@ -59,7 +59,8 @@ function byBrand(group, brandOf) {
 /**
  * Everything a design draws from.
  * opts: design, palette (ids; today's when absent), picture (a data URI of the
- *       part's photo), tag (the label over the master), day
+ *       part's photo), tag (the label over the master), day, brand (whose
+ *       account: 'proglide' when absent, or 'mpf')
  */
 function context(group, brandOf, opts = {}) {
   const category = categoryOf(group.groupId);
@@ -75,6 +76,7 @@ function context(group, brandOf, opts = {}) {
     brands: byBrand(group, brandOf),
     pal: designs.PALETTES.find(p => p.id === opts.palette) || designs.PALETTES.find(p => p.id === plan.palette),
     design: designs.DESIGNS.find(x => x.id === opts.design) || designs.DESIGNS.find(x => x.id === plan.design),
+    brand: designs.brandFor(opts.brand),
     pic: opts.picture || null,
     cutout: draw.asset(path.join(CUTOUTS, category + '.png')),
     tag: opts.tag || 'COMPATIBILITY UPDATE',
@@ -118,6 +120,7 @@ module.exports = {
   PARTS, categoryOf, dayNumber, single, carousel,
   DESIGNS: designs.DESIGNS.map(x => ({ id: x.id, name: x.name })),
   PALETTES: designs.PALETTES.map(p => ({ id: p.id, name: p.name, color: p.primary })),
+  BRANDS: Object.keys(designs.BRANDS),
   planFor: designs.planFor,
   ready: draw.ready, toJpeg: draw.toJpeg, W: draw.W, H: draw.H
 };

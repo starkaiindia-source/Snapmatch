@@ -187,7 +187,7 @@
       "dest": "/api/admin.js?section=$1"
     },
     {
-      "src": "/api/(firebase-config|plans|health)/?$",
+      "src": "/api/(firebase-config|plans|health|poster)/?$",
       "dest": "/api/public.js?section=$1"
     },
     {

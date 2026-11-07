@@ -21,9 +21,10 @@
    page reads as three coloured stripes rather than a jumble. The design
    changes every three posts, so a grid row is one design in three colours.
 
-   THE FOOTER IS THE SAME ON EVERY DESIGN: the ProGlide logo and name, Google's
-   own Play badge, and "Comment LINK". No brand's logo is drawn anywhere; a
-   brand is its name in a colour.
+   THE FOOTER IS THE SAME ON EVERY DESIGN, and names whose account it is for
+   (BRANDS): ProGlide's logo, Google's Play badge and "Comment LINK", or
+   Mobile Parts Finder's logo and its website. No phone brand's logo is drawn
+   anywhere; a phone brand is its name in a colour.
    ========================================================================== */
 'use strict';
 
@@ -76,10 +77,37 @@ function icon(name, x, y, size, color) {
 const rect = (x, y, w, h, fill, rx, extra) => `<rect x="${x}" y="${y}" width="${w}" height="${h}"${rx ? ` rx="${rx}"` : ''} fill="${fill}"${extra || ''}/>`;
 const shadow = (x, y, w, h, rx, color) => rect(x + 6, y + 10, w, h, color || '#000000', rx, ' opacity=".10"');
 
+/* -------------------------------------------------------------- the brands
+   Whose account the poster is for. Everything that names an owner is here,
+   so a poster for one account never carries the other's name, logo or way in:
+   ProGlide sends people to its Play app through "Comment LINK" (the reply bot
+   answers it); Mobile Parts Finder sends them to its website. */
+const BRANDS = {
+  proglide: {
+    id: 'proglide', logo: 'proglide.png', name: 'PRO-GLIDE', tagline: 'Compatible Device Finder app', play: true,
+    lead: 'Comment LINK',
+    rest: part => (part.price ? 'for the app   •   Comment 9H for price' : 'get the ProGlide app link in your DM'),
+    chip: 'Comment "LINK"', chipIcon: 'chat',
+    more: n => `+ ${n} more models in the ProGlide app`,
+    moreLast: (n, part) => `+ ${n} more ${part.word} matches in the app`
+  },
+  mpf: {
+    id: 'mpf', logo: 'mpf.png', name: 'MOBILE PARTS FINDER', tagline: 'Spare parts compatibility for every phone', play: false,
+    site: 'www.mobilepartsfinder.com',
+    lead: 'Search any phone',
+    rest: () => 'free at www.mobilepartsfinder.com',
+    chip: 'Search free', chipIcon: 'search',
+    more: n => `+ ${n} more models on mobilepartsfinder.com`,
+    moreLast: (n, part) => `+ ${n} more ${part.word} matches on the website`
+  }
+};
+const brandFor = id => BRANDS[id] || BRANDS.proglide;
+
 /** The logo and the name, small, at the top of a design. */
-function mark(x, y, color, sub, subColor) {
-  return image(asset('proglide.png'), x, y, 60, 60, { rx: 12 }) +
-    line(x + 74, y + 40, 'PRO-GLIDE', { size: 30, font: 'archivo', fill: color, spacing: 1 }) +
+function mark(ctx, x, y, color, sub, subColor) {
+  const b = ctx.brand;
+  return image(asset(b.logo), x, y, 60, 60, { rx: 12 }) +
+    line(x + 74, y + 40, b.name, fit(b.name, 520, { size: 30, font: 'archivo', fill: color, spacing: 1 })) +
     (sub ? line(x + 76, y + 70, sub, { size: 17, weight: 700, fill: subColor || color, spacing: 4 }) : '');
 }
 
@@ -96,21 +124,23 @@ function footer(ctx) {
   const p = ctx.pal;
   const y = H - FOOT;
   const [gd, gf] = gradient([p.primary, p.primary2], 0, 0, W, 0);
+  const b = ctx.brand;
   const badgeH = 86;
   const badgeW = Math.round(badgeH * 646 / 250);
-  const lead = 'Comment LINK';
-  const rest = ctx.part.price ? 'for the app   •   Comment 9H for price' : 'get the ProGlide app link in your DM';
+  const lead = b.lead;
+  const rest = b.rest(ctx.part);
   const leadO = { size: 28, font: 'archivo', fill: '#161616' };
   const restO = { size: 23, weight: 700, fill: '#161616' };
   const total = 40 + width(lead, leadO) + 16 + width(rest, restO);
   const sx = W / 2 - total / 2;
+  const nameRoom = W - M - 126 - M - (b.play ? badgeW + 10 : 0);
   return gd + rect(0, y, W, FOOT, gf) +
-    rect(M, y + 18, 104, 104, '#FFFFFF', 24) + image(asset('proglide.png'), M + 7, y + 25, 90, 90) +
-    line(M + 126, y + 70, 'PRO-GLIDE', { size: 44, font: 'archivo', fill: '#FFFFFF', spacing: 1 }) +
-    line(M + 128, y + 106, 'Compatible Device Finder app', { size: 23, weight: 700, fill: '#FFFFFF', opacity: 0.9 }) +
-    image(asset('google-play-badge.png'), W - M - badgeW + 10, y + 26, badgeW, badgeH) +
+    rect(M, y + 18, 104, 104, '#FFFFFF', 24) + image(asset(b.logo), M + 7, y + 25, 90, 90) +
+    line(M + 126, y + 70, b.name, fit(b.name, nameRoom, { size: 44, font: 'archivo', fill: '#FFFFFF', spacing: 1 })) +
+    line(M + 128, y + 106, b.tagline, fit(b.tagline, nameRoom, { size: 23, weight: 700, fill: '#FFFFFF', opacity: 0.9 })) +
+    (b.play ? image(asset('google-play-badge.png'), W - M - badgeW + 10, y + 26, badgeW, badgeH) : '') +
     rect(M - 6, y + 136, W - 2 * M + 12, 52, p.accent, 26) +
-    icon('chat', sx, y + 147, 30, '#161616') +
+    icon(b.chipIcon, sx, y + 147, 30, '#161616') +
     line(sx + 40, y + 172, lead, leadO) + line(sx + 40 + width(lead, leadO) + 16, y + 171, rest, restO);
 }
 
@@ -187,13 +217,13 @@ function fitName(name, brand, maxWidth, o) {
 }
 
 const more = (ctx, left, x, y, color, size) => (left > 0
-  ? line(x, y, `+ ${left} more models in the ProGlide app`, { size: size || 28, font: 'archivo', fill: color, anchor: 'middle' }) : '');
+  ? line(x, y, ctx.brand.more(left), { size: size || 28, font: 'archivo', fill: color, anchor: 'middle' }) : '');
 
 /* ---------------------------------------------------------------- designs */
 function update(ctx) {
   const p = ctx.pal;
   const colW = 570;
-  let s = rect(0, 0, W, H, p.bg) + `<circle cx="${W - 40}" cy="70" r="300" fill="${p.soft}"/>` + mark(M, 30, p.ink);
+  let s = rect(0, 0, W, H, p.bg) + `<circle cx="${W - 40}" cy="70" r="300" fill="${p.soft}"/>` + mark(ctx, M, 30, p.ink);
   const tagO = { size: 24, font: 'archivo', fill: '#FFFFFF' };
   const tw = width(ctx.tag, tagO) + 48;
   const [td, tf] = gradient([p.hot, p.primary], M, 0, M + tw, 0);
@@ -268,7 +298,7 @@ function splash(ctx) {
       rect(0, 0, W, H, p.dark, 0, ' opacity=".55"');
   }
   s += `<polygon points="0,560 ${W},300 ${W},380 0,700" fill="#FFFFFF" opacity=".05"/><polygon points="0,900 ${W},640 ${W},690 0,980" fill="#FFFFFF" opacity=".04"/>`;
-  s += mark(M, 30, '#FFFFFF') +
+  s += mark(ctx, M, 30, '#FFFFFF') +
     line(W - M, 96, 'Smart choice for mobile shops', { size: 40, font: 'script', fill: '#FFFFFF', anchor: 'end', rotate: -5 });
 
   const nameO = fit(ctx.master, 650, { size: 128, font: 'anton', fill: '#FFFFFF' });
@@ -322,7 +352,7 @@ function numbered(ctx) {
   const p = ctx.pal;
   const [bd, bf] = gradient(['#FFFFFF', p.soft], 0, 0, 0, H);
   let s = bd + rect(0, 0, W, H, bf) + `<circle cx="${W + 60}" cy="560" r="330" fill="${tint(p.primary, 0.9)}"/>`;
-  s += mark(M, 30, p.ink, 'FIND WHAT FITS', p.dim);
+  s += mark(ctx, M, 30, p.ink, 'FIND WHAT FITS', p.dim);
   ['MOBILE PARTS', 'MADE EASY FOR', 'REPAIR SHOPS'].forEach((t, i) => {
     s += line(W - M, 50 + i * 24, t, { size: 16, weight: 700, fill: p.dim, anchor: 'end', spacing: 3 });
   });
@@ -377,7 +407,7 @@ function series(ctx) {
   const p = ctx.pal;
   const [bd, bf] = gradient(['#FFFFFF', p.soft], 0, 0, 0, H);
   let s = bd + rect(0, 0, W, H, bf) + `<circle cx="880" cy="270" r="200" fill="${tint(p.primary, 0.85)}"/>`;
-  s += mark(M, 30, p.ink, 'FIND COMPATIBLE PARTS', p.dim);
+  s += mark(ctx, M, 30, p.ink, 'FIND COMPATIBLE PARTS', p.dim);
   const [td, tf] = gradient([p.ink, p.primary], M, 0, M + 640, 0);
   s += td + line(M, 262, ctx.part.en, fit(ctx.part.en, 640, { size: 136, font: 'anton', fill: tf })) +
     line(M, 368, 'COMPATIBILITY', fit('COMPATIBILITY', 640, { size: 108, font: 'anton', fill: p.primary }));
@@ -389,11 +419,11 @@ function series(ctx) {
   const half = (W - 2 * M - 22) / 2;
   const rowsY = [[478, 760], [862, BOTTOM]];
   s += rect(M, 774, W - 2 * M, 72, p.dark, 36) +
-    `<circle cx="${M + 38}" cy="810" r="28" fill="#FFFFFF"/>` + image(asset('proglide.png'), M + 14, 786, 48, 48) +
+    `<circle cx="${M + 38}" cy="810" r="28" fill="#FFFFFF"/>` + image(asset(ctx.brand.logo), M + 14, 786, 48, 48) +
     line(M + 80, 820, `${ctx.n} MODELS`, { size: 28, font: 'archivo', fill: '#FFFFFF' }) +
     line(M + 96 + width(`${ctx.n} MODELS`, { size: 28, font: 'archivo' }), 819, `•  ${ctx.brands.length} brands  •  one ${ctx.part.word}`, { size: 22, weight: 700, fill: '#FFFFFF', opacity: 0.85 }) +
-    icon('chat', W - M - 66 - width('Comment "LINK"', { size: 24, font: 'archivo' }), 796, 28, p.accent) +
-    line(W - M - 28, 820, 'Comment "LINK"', { size: 24, font: 'archivo', fill: p.accent, anchor: 'end' });
+    icon(ctx.brand.chipIcon, W - M - 66 - width(ctx.brand.chip, { size: 24, font: 'archivo' }), 796, 28, p.accent) +
+    line(W - M - 28, 820, ctx.brand.chip, { size: 24, font: 'archivo', fill: p.accent, anchor: 'end' });
   cards.forEach((b, i) => {
     const x = M + (i % 2) * (half + 22);
     const cw = i === cards.length - 1 && i % 2 === 0 ? W - 2 * M : half;
@@ -418,7 +448,7 @@ function series(ctx) {
 function checklist(ctx) {
   const p = ctx.pal;
   let s = rect(0, 0, W, H, p.bg) + `<circle cx="${W - 60}" cy="150" r="320" fill="${tint(p.primary, 0.86)}" opacity=".7"/>`;
-  s += mark(M, 30, p.ink, 'FIND  •  MATCH  •  GROW', p.dim) +
+  s += mark(ctx, M, 30, p.ink, 'FIND  •  MATCH  •  GROW', p.dim) +
     line(W - M - 10, 112, 'For mobile shop owners', { size: 46, font: 'script', fill: p.ink, anchor: 'end', rotate: -8 }) +
     `<path d="M${W - M - 372} 184 q 180 -16 352 -58" fill="none" stroke="${p.primary}" stroke-width="4" stroke-linecap="round"/>`;
   const one = `ONE ${ctx.part.en}.`;
@@ -469,7 +499,7 @@ function listPage(ctx, start) {
   const head = `${ctx.master} group  •  ${ctx.part.en}`;
   const rows = chipRows(ctx, ctx.brands, start, 128, BOTTOM);
   return {
-    svg: rect(0, 0, W, H, p.bg) + mark(M, 30, p.ink) +
+    svg: rect(0, 0, W, H, p.bg) + mark(ctx, M, 30, p.ink) +
       line(W - M, 70, head, fit(head, 560, { size: 26, weight: 900, fill: p.primary, anchor: 'end' })) + rows.svg + footer(ctx),
     next: rows.next,
     drawn: rows.drawn
@@ -479,15 +509,18 @@ function listPage(ctx, start) {
 /** The carousel's last page: the app. */
 function appPage(ctx, left) {
   const p = ctx.pal;
+  const b = ctx.brand;
   const [bd, bf] = gradient([p.primary, p.primary2], 0, 0, W, H);
   const lineA = 'Find the matching part for any phone in seconds';
   return bd + rect(0, 0, W, H - FOOT, bf) + `<circle cx="${W}" cy="0" r="360" fill="#FFFFFF" opacity=".08"/>` +
-    rect(W / 2 - 160, 120, 320, 320, '#FFFFFF', 60) + image(asset('proglide.png'), W / 2 - 140, 140, 280, 280) +
-    line(W / 2, 560, 'PRO-GLIDE', { size: 92, font: 'archivo', fill: '#FFFFFF', anchor: 'middle', spacing: 2 }) +
+    rect(W / 2 - 160, 120, 320, 320, '#FFFFFF', 60) + image(asset(b.logo), W / 2 - 140, 140, 280, 280) +
+    line(W / 2, 560, b.name, fit(b.name, W - 2 * M, { size: 92, font: 'archivo', fill: '#FFFFFF', anchor: 'middle', spacing: 2 })) +
     line(W / 2, 630, lineA, fit(lineA, W - 2 * M, { size: 40, font: 'archivo', fill: p.accent, anchor: 'middle' })) +
     line(W / 2, 690, 'எந்த மொபைலுக்கும் பொருந்தும் பார்ட்ஸ் • ஒரு நொடியில்!', { size: 30, fill: '#FFFFFF', anchor: 'middle' }) +
-    (left > 0 ? line(W / 2, 766, `+ ${left} more ${ctx.part.word} matches in the app`, { size: 30, weight: 900, fill: '#FFFFFF', anchor: 'middle' }) : '') +
-    image(asset('google-play-badge.png'), W / 2 - 233, 820, 466, 180) + footer(ctx);
+    (left > 0 ? line(W / 2, 766, b.moreLast(left, ctx.part), { size: 30, weight: 900, fill: '#FFFFFF', anchor: 'middle' }) : '') +
+    (b.play ? image(asset('google-play-badge.png'), W / 2 - 233, 820, 466, 180)
+      : rect(W / 2 - 400, 846, 800, 110, '#FFFFFF', 55) + icon('search', W / 2 - 400 + 40, 877, 48, p.primary) +
+        line(W / 2 + 30, 917, b.site, fit(b.site, 640, { size: 44, font: 'archivo', fill: p.ink, anchor: 'middle' }))) + footer(ctx);
 }
 
 /**
@@ -500,4 +533,4 @@ function planFor(day) {
   return { design: DESIGNS[Math.floor(n / 3) % DESIGNS.length].id, palette: PALETTES[n % PALETTES.length].id };
 }
 
-module.exports = { DESIGNS, PALETTES, brandColor, footer, listPage, appPage, planFor, roundRobin };
+module.exports = { DESIGNS, PALETTES, BRANDS, brandFor, brandColor, footer, listPage, appPage, planFor, roundRobin };
