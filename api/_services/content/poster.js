@@ -154,9 +154,13 @@ function comboDraw(ctx, ctxs) {
   const weights = ctxs.map((c, i) => Math.sqrt(c.n) * (i === 0 ? 1.25 : 1));
   const sum = weights.reduce((a, b) => a + b, 0);
   const room = bottom - top - gap * (ctxs.length - 1);
-  let y = top;
+  /* a short list gets a short card, and the cards sit in the middle of the space */
+  const need = ctxs.map(c => 66 + Math.ceil(c.n / 4) * 42 + 10);
+  const heights = ctxs.map((c, i) => Math.min(need[i], Math.max(118, Math.floor(room * weights[i] / sum))));
+  const used = heights.reduce((a, b) => a + b, 0) + gap * (ctxs.length - 1);
+  let y = top + Math.max(0, Math.floor((bottom - top - used) / 2));
   ctxs.forEach((c, i) => {
-    const h = Math.max(118, Math.floor(room * weights[i] / sum));
+    const h = heights[i];
     const hh = Math.min(h, bottom - y);
     if (hh < 100) return;
     const first = i === 0;

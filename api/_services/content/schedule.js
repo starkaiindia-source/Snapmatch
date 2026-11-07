@@ -274,16 +274,19 @@ async function candidates(content, now) {
  * @param {Set} used         groups already posted or planned
  */
 function rowOf(groups, used) {
-  const free = groups.filter(g => g.count >= 2 && !used.has(g.groupId));
-  const glass = free.find(g => g.categoryId === 'screen-guards' && g.count >= 4);
-  const lead = glass || free.find(g => g.count >= 4);
+  /* a part worth a poster fits at least three phones; a carousel wants six */
+  const free = groups.filter(g => g.count >= 3 && !used.has(g.groupId));
+  const glass = free.find(g => g.categoryId === 'screen-guards' && g.count >= 6);
+  const lead = glass || free.find(g => g.count >= 6);
   if (!lead) return null;
   const others = free.filter(g => g !== lead && g.categoryId !== lead.categoryId)
     .filter((g, i, a) => a.findIndex(x => x.categoryId === g.categoryId) === i);
   const left = { kind: 'carousel', group: lead, also: others.length >= 3 ? others.slice(0, 5) : [] };
   const middle = others[0] ? { kind: 'single', group: others[0] } : { kind: 'promo' };
-  const right = others.length >= 3 ? { kind: 'combo', group: others[1], also: others.slice(2, 5) }
-    : others.length === 2 ? { kind: 'single', group: others[1] } : { kind: 'promo' };
+  /* the rest on one poster when there is enough of it to fill one */
+  const rest = others.slice(1, 5);
+  const right = rest.length >= 2 && rest.reduce((a, g) => a + g.count, 0) >= 10 ? { kind: 'combo', group: rest[0], also: rest.slice(1) }
+    : rest.length ? { kind: 'single', group: rest[0] } : { kind: 'promo' };
   return { lead, others, cells: [right, middle, left] };
 }
 
