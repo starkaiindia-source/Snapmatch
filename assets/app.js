@@ -1,3 +1,6 @@
+/* === models with a record in assets/models-active === */
+window.SM_ACTIVE_MODELS = ["apple-iphone-14"];
+
 /* === src/data/debug.js === */;
 /* ============================================================================
    Mobile Parts Finder · debug.js — diagnostics you can turn on from a phone
@@ -11668,6 +11671,14 @@
   function loadActive(id) {
     if (Object.prototype.hasOwnProperty.call(activeCache, id)) {
       return Promise.resolve(activeCache[id]);
+    }
+    /* The bundle names the models that have a record. Without that list (the
+       scripts loaded one by one, as the admin page does) every model is
+       asked for, as before. */
+    var known = global.SM_ACTIVE_MODELS;
+    if (known && known.indexOf(id) < 0) {
+      activeCache[id] = null;
+      return Promise.resolve(null);
     }
     /* No cache:'force-cache' here. A model that has not been migrated yet 404s,
        and force-cache replays that 404 from the HTTP cache long after the

@@ -65,9 +65,18 @@ function joined(files, comment) {
   return files.map(f => `${comment(f)}\n${read(f).replace(/^﻿/, '').replace(/\s*$/, '')}\n`).join('\n');
 }
 
+/* The models that have an enriched record in assets/models-active/. app.js
+   asks for a record only for these: asking for every model cost a request
+   that 404'd on all but a handful of the 8,366 pages. */
+function activeModels() {
+  const dir = path.join(ROOT, 'assets', 'models-active');
+  const ids = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5)).sort() : [];
+  return `/* === models with a record in assets/models-active === */\nwindow.SM_ACTIVE_MODELS = ${JSON.stringify(ids)};\n`;
+}
+
 function bundles() {
   return {
-    [OUT_JS]: joined(BOOT_JS, f => `/* === ${f} === */;`),
+    [OUT_JS]: activeModels() + '\n' + joined(BOOT_JS, f => `/* === ${f} === */;`),
     [OUT_CSS]: joined(BOOT_CSS, f => `/* === ${f} === */`)
   };
 }
