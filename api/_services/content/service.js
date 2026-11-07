@@ -30,6 +30,7 @@ const entitlements = require('../entitlement-service');
 const responder = require('../auto-reply/responder');
 const poster = require('./poster');
 const photos = require('./picture-ai');
+const phones = require('./phones');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_DAYS = 14;
@@ -74,13 +75,16 @@ async function asked() {
 }
 
 /** The latest models in the catalogue, newest year first, latest added first. */
-function newest() {
+function newest(limit = LIST) {
   const models = search.loadIndex().models;
   const top = models.reduce((y, m) => Math.max(y, m.year || 0), 0);
   return models.filter(m => m.year && m.year >= top - 1)
     .map((m, i) => ({ m, i })).sort((a, b) => (b.m.year - a.m.year) || (b.i - a.i))
-    .slice(0, LIST).map(({ m }) => ({ id: m.id, name: m.name, year: m.year }));
+    .slice(0, limit).map(({ m }) => ({ id: m.id, name: m.name, year: m.year }));
 }
+
+/** More of the newest phones, for a week of rows once the idea lists are used up. */
+const latest = limit => newest(Math.min(Number(limit) || LIST, 400));
 
 /** The groups with the most models. */
 async function biggest() {
@@ -136,13 +140,52 @@ const brandOf = m => {
 };
 
 const DESIGN_IDS = poster.DESIGNS.map(x => x.id);
+const CTA_IDS = ['bar', 'sticker', 'stripe'];
 const PALETTE_IDS = poster.PALETTES.map(x => x.id);
 const PROMO_IDS = poster.PROMOS.map(x => x.id);
 
+/* a carousel's slides are drawn one a request, each reading the same groups;
+   a warm function keeps them a while instead of reading Firestore again */
+const groupKept = new Map();
+const GROUP_KEEP_MS = 10 * 60 * 1000;
 async function groupOf(groupId) {
   if (!GROUP_ID.test(String(groupId)) || !poster.categoryOf(groupId)) return null;
+  const hit = groupKept.get(groupId);
+  if (hit && Date.now() - hit.at < GROUP_KEEP_MS) return hit.group;
   const group = await entitlements.groupForUser(groupId, TIERS.PAID);
-  return group && group.members && group.members.length ? group : null;
+  const out = group && group.members && group.members.length ? group : null;
+  if (groupKept.size > 300) groupKept.delete(groupKept.keys().next().value);
+  groupKept.set(groupId, { at: Date.now(), group: out });
+  return out;
+}
+
+/** The master's model id: the member named as the master, else the first. */
+function masterIdOf(group) {
+  const m = group.members.find(x => x.name === group.masterModelName) || group.members[0];
+  return m ? m.id : null;
+}
+
+/**
+ * The real pictures and numbers a poster shows, fetched before it is drawn:
+ * the master's photo, one photo a brand (its first model), its screen size,
+ * and ProGlide's store rating. Anything that cannot be fetched is left out.
+ */
+async function looks(group, brand) {
+  const masterId = masterIdOf(group);
+  const firstOf = new Map();
+  group.members.forEach(m => {
+    const b = brandOf(m) || m.name.split(' ')[0];
+    if (!firstOf.has(b)) firstOf.set(b, m.id);
+  });
+  const [phone, play, ...shots] = await Promise.all([
+    phones.phone(masterId),
+    brand === 'mpf' ? null : phones.play(),
+    ...Array.from(firstOf.values()).slice(0, 10).map(id => phones.phone(id))
+  ]);
+  const brandPhones = {};
+  Array.from(firstOf.keys()).slice(0, 10).forEach((b, i) => { if (shots[i]) brandPhones[b] = shots[i]; });
+  const info = phones.infoOf(masterId);
+  return { phone: phone || undefined, play: play || undefined, brandPhones, inches: info && info.inches ? info.inches : undefined };
 }
 
 /**
@@ -156,9 +199,17 @@ async function picture(groupId, o = {}) {
   const group = await groupOf(groupId);
   if (!group) return null;
   const category = poster.categoryOf(groupId);
-  const photo = await photos.stored(category, group.masterModelName).catch(() => null);
+  /* the other parts of the master: a combo poster's, or a carousel's extra slides */
+  const alsoIds = (Array.isArray(o.also) ? o.also : String(o.also || '').split(/[.,]/)).filter(id => GROUP_ID.test(id) && id !== groupId).slice(0, 5);
+  const [photo, look, also] = await Promise.all([
+    photos.stored(category, group.masterModelName).catch(() => null),
+    looks(group, o.brand).catch(() => ({})),
+    Promise.all(alsoIds.map(id => groupOf(id).catch(() => null)))
+  ]);
   await poster.ready();
   const opts = {
+    cta: CTA_IDS.indexOf(o.cta) > -1 ? o.cta : undefined,
+    phone: look.phone, play: look.play, brandPhones: look.brandPhones, inches: look.inches,
     design: DESIGN_IDS.indexOf(o.design) > -1 ? o.design : undefined,
     palette: PALETTE_IDS.indexOf(o.palette) > -1 ? o.palette : undefined,
     brand: poster.BRANDS.indexOf(o.brand) > -1 ? o.brand : undefined,
@@ -167,8 +218,10 @@ async function picture(groupId, o = {}) {
     models: search.loadIndex().models.length,
     picture: photo || undefined
   };
-  const pages = o.kind === 'carousel' ? poster.carousel(group, brandOf, opts)
-    : o.kind === 'promo' ? [poster.promo(group, brandOf, opts)] : [poster.single(group, brandOf, opts)];
+  const others = also.filter(Boolean);
+  const pages = o.kind === 'carousel' ? poster.carousel(group, brandOf, opts, others)
+    : o.kind === 'combo' ? [poster.combo([group].concat(others), brandOf, opts)]
+      : o.kind === 'promo' ? [poster.promo(group, brandOf, opts)] : [poster.single(group, brandOf, opts)];
   const at = Math.min(Math.max(0, Number(o.slide) || 0), pages.length - 1);
   return { jpeg: Buffer.from(poster.toJpeg(pages[at])), slides: pages.length, photo: !!photo };
 }
@@ -183,4 +236,4 @@ async function makePhoto(groupId, uid) {
 /** How many phones the catalogue holds, for the marketing posters' numbers. */
 const modelCount = () => search.loadIndex().models.length;
 
-module.exports = { ideas, groupsOf, find, picture, makePhoto, groupOf, brandOf, modelCount };
+module.exports = { ideas, groupsOf, find, picture, makePhoto, groupOf, brandOf, modelCount, masterIdOf, modelOf, latest };

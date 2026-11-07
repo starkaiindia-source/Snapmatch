@@ -19,7 +19,7 @@
 const d = require('./draw');
 const designs = require('./designs');
 const { W, line, fit, wrap, clip, width, image, gradient, tint, asset } = d;
-const { M, FOOT, rect, shadow, icon, mark } = designs.kit;
+const { M, FOOT, rect, shadow, icon, partIcon, mark, disc } = designs.kit;
 
 const TOP = d.H - FOOT; /* where the footer starts */
 const ALL_PARTS = ['Tempered glass', 'Back cover', 'Combo display', 'Middle frame', 'CC board', 'Battery', 'Button flex', 'SIM tray'];
@@ -69,54 +69,148 @@ function chipCloud(ctx, top, bottom, o = {}) {
 
 /* ------------------------------------------------------------- templates */
 
+/* The two ways in, drawn as they really look: ProGlide's app (white, blue,
+   the six part tiles, a group card) and Mobile Parts Finder's website (dark
+   teal, the photo cards, the group in mint). Screenshots of both are kept in
+   D:\PosterAssets\<account>\app-ui. */
+const CATS = [
+  ['screen-guards', 'Tempered Glass'], ['back-cover', 'Back Cover'], ['combo-display', 'Combo / Display'],
+  ['middle-frame', 'Middle Frame'], ['cc-board', 'CC Board'], ['battery', 'Battery']
+];
+const APP = { blue: '#3B7BF6', blueSoft: '#EAF1FF', ink: '#1F2430', dim: '#6B7280', line: '#E3E6EC', chip: '#F3F4F6', red: '#E0262F', crown: '#F59E0B' };
+const WEB = { bg: '#09130F', top: '#0F3D35', card: '#0F1F1B', edge: '#1F3A34', mint: '#2DD4BF', peach: '#F6B26B', ink: '#E8F3F0', dim: '#93ABA5' };
+
+/** The phone's frame; returns where its screen is. */
+function phoneFrame(px, py, pw, ph, glass) {
+  return shadow(px, py, pw, ph, 64, '#000000') + rect(px, py, pw, ph, '#101018', 64) + rect(px + 14, py + 14, pw - 28, ph - 28, glass, 52);
+}
+
+/** ProGlide's app: search, the part tiles, and the group card the search finds. */
+function appScreen(ctx, sx, sy, sw, bottom) {
+  let s = '';
+  s += disc(ctx, sx + 26, sy + 30, 24, APP.blueSoft) +
+    line(sx + 62, sy + 26, ctx.brand.name, { size: 22, font: 'archivo', fill: APP.ink }) +
+    line(sx + 62, sy + 50, 'Compatible Device Finder', { size: 16, weight: 700, fill: APP.dim });
+  /* the search box, the master typed in */
+  const by = sy + 76;
+  const typed = clip(ctx.master, sw - 90, { size: 24, weight: 700 });
+  s += rect(sx, by, sw, 58, '#FFFFFF', 29, ` stroke="${APP.blue}" stroke-width="3"`) + icon('search', sx + 18, by + 16, 26, APP.blue) +
+    line(sx + 56, by + 38, typed, { size: 24, weight: 700, fill: APP.ink }) +
+    rect(sx + 60 + width(typed, { size: 24, weight: 700 }), by + 14, 3, 30, APP.blue);
+  /* the six part tiles, this poster's part chosen */
+  const tw = (sw - 16) / 3, th = 54;
+  CATS.forEach(([id, name], i) => {
+    const x = sx + (i % 3) * (tw + 8), y = by + 76 + Math.floor(i / 3) * (th + 8);
+    const on = id === ctx.category;
+    s += rect(x, y, tw, th, on ? APP.blueSoft : '#FFFFFF', 16, ` stroke="${on ? APP.blue : APP.line}" stroke-width="${on ? 3 : 1.5}"`) +
+      partIcon(id, x + 10, y + 15, 24, on ? APP.blue : APP.ink) +
+      line(x + 40, y + 35, name, fit(name, tw - 48, { size: 17, weight: 700, fill: on ? APP.blue : APP.ink }));
+  });
+  /* the group card */
+  const cy = by + 76 + 2 * (th + 8) + 14;
+  const ch = bottom - cy + 40;
+  s += rect(sx, cy, sw, ch, '#FFFFFF', 22, ` stroke="${APP.line}" stroke-width="2"`);
+  if (ctx.inches) {
+    const t = ctx.inches + '"';
+    s += `<path d="M${sx + sw - 96} ${cy}h74a22 22 0 0 1 22 22v38h-60a36 36 0 0 1-36-36z" fill="${APP.red}"/>` +
+      line(sx + sw - 50, cy + 40, t, { size: 21, weight: 900, fill: '#FFFFFF', anchor: 'middle' });
+  }
+  s += `<circle cx="${sx + 20}" cy="${cy + 30}" r="5" fill="${APP.blue}"/>` + line(sx + 32, cy + 37, ctx.category === 'screen-guards' ? 'Flat Screen' : 'Group', { size: 17, weight: 700, fill: APP.blue });
+  const imgW = 150;
+  if (ctx.phone) {
+    const k = Math.min(imgW / ctx.phone.w, 210 / ctx.phone.h);
+    s += image(ctx.phone.uri, sx + 14 + (imgW - ctx.phone.w * k) / 2, cy + 56, ctx.phone.w * k, ctx.phone.h * k);
+  } else {
+    s += image(ctx.cutout, sx + 14, cy + 56, imgW, 200);
+  }
+  const lx = sx + imgW + 28, lw = sw - imgW - 44;
+  s += rect(lx, cy + 16, 34, 34, '#FEF3C7', 9) + `<path d="M${lx + 7} ${cy + 41}l3-15 7 7 7-7 3 15z" fill="${APP.crown}"/>` +
+    line(lx + 44, cy + 42, ctx.master, fit(ctx.master, lw - 100, { size: 25, weight: 900, fill: APP.ink }));
+  const names = designs.roundRobin(ctx.brands).filter(m => m.name !== ctx.master);
+  const rows = Math.max(1, Math.floor((bottom - (cy + 64) - 50) / 48));
+  names.slice(0, rows).forEach((m, i) => {
+    const y = cy + 64 + i * 48;
+    s += rect(lx, y, lw, 40, APP.chip, 12, ` stroke="${APP.line}" stroke-width="1.5"`) +
+      rect(lx + 8, y + 8, 14, 24, m.brand.color, 4) +
+      line(lx + 32, y + 28, clip(m.name, lw - 44, { size: 19, weight: 700 }), { size: 19, weight: 700, fill: APP.ink });
+  });
+  const left = ctx.n - 1 - Math.min(rows, names.length);
+  if (left > 0) {
+    const y = cy + 64 + Math.min(rows, names.length) * 48;
+    s += rect(lx, y, lw, 40, APP.blueSoft, 12, ` stroke="${APP.blue}" stroke-width="1.5"`) +
+      line(lx + lw / 2, y + 27, '+' + left + ' more', { size: 19, weight: 900, fill: APP.blue, anchor: 'middle' });
+  }
+  return s;
+}
+
+/** Mobile Parts Finder's website: the question, the search, the part photos, the group. */
+function webScreen(ctx, sx, sy, sw, bottom, px, pw) {
+  const [hd, hf] = gradient([WEB.top, WEB.bg], 0, sy - 30, 0, sy + 330);
+  let s = hd + rect(px + 14, sy - 30, pw - 28, 360, hf, 0);
+  s += disc(ctx, sx + 24, sy + 24, 22, WEB.mint) +
+    line(sx + 58, sy + 32, 'Mobile Parts', { size: 22, font: 'archivo', fill: '#FFFFFF' }) +
+    line(sx + 58 + width('Mobile Parts ', { size: 22, font: 'archivo' }), sy + 32, 'Finder', { size: 22, font: 'archivo', fill: WEB.mint });
+  s += line(sx, sy + 98, 'Which parts fit', { size: 36, font: 'archivo', fill: '#FFFFFF' }) +
+    line(sx, sy + 140, 'this phone?', { size: 36, font: 'archivo', fill: WEB.peach });
+  const by = sy + 166;
+  const typed = clip(ctx.master, sw - 80, { size: 22, weight: 700 });
+  s += rect(sx, by, sw, 56, WEB.card, 18, ` stroke="${WEB.mint}" stroke-width="2"`) + icon('search', sx + 16, by + 15, 26, WEB.mint) +
+    line(sx + 54, by + 36, typed, { size: 22, weight: 700, fill: WEB.ink }) + rect(sx + 58 + width(typed, { size: 22, weight: 700 }), by + 13, 3, 30, WEB.mint);
+  /* the part photos, this poster's part first and chosen */
+  const order = [ctx.category].concat(CATS.map(c => c[0]).filter(c => c !== ctx.category)).slice(0, 3);
+  const cw = (sw - 20) / 3;
+  order.forEach((id, i) => {
+    const x = sx + i * (cw + 10), y = by + 74;
+    s += rect(x, y, cw, 110, '#FFFFFF', 16, i === 0 ? ` stroke="${WEB.mint}" stroke-width="4"` : '') +
+      image(require('./draw').asset(require('path').join(__dirname, '..', '..', '..', 'assets', 'categories', 'cutout', id + '.png')), x + 10, y + 8, cw - 20, 94);
+  });
+  /* the group, as the site lists it */
+  const gy = by + 202;
+  s += rect(sx, gy, sw, bottom - gy + 40, WEB.card, 18, ` stroke="${WEB.edge}" stroke-width="2"`) +
+    line(sx + 18, gy + 40, ctx.master, fit(ctx.master, sw - 170, { size: 25, weight: 900, fill: '#FFFFFF' })) +
+    rect(sx + sw - 140, gy + 16, 124, 32, 'none', 16, ` stroke="${WEB.mint}" stroke-width="2"`) +
+    line(sx + sw - 78, gy + 38, 'MASTER', { size: 16, font: 'archivo', fill: WEB.mint, anchor: 'middle' }) +
+    line(sx + 18, gy + 72, `${ctx.part.word[0].toUpperCase() + ctx.part.word.slice(1)} · fits ${ctx.n} phones`, fit(`${ctx.part.word} · fits ${ctx.n} phones`, sw - 36, { size: 20, weight: 700, fill: WEB.mint }));
+  const chipO = { size: 18, weight: 700, fill: WEB.ink };
+  let x = sx + 18, y = gy + 92;
+  for (const m of designs.roundRobin(ctx.brands)) {
+    const t = clip(m.name, sw - 60, chipO);
+    const w = width(t, chipO) + 26;
+    if (x + w > sx + sw - 18) { x = sx + 18; y += 44; }
+    if (y + 36 > bottom) break;
+    s += rect(x, y, w, 36, 'none', 18, ` stroke="${WEB.mint}" stroke-width="1.5" stroke-opacity=".55"`) + line(x + 13, y + 24, t, chipO);
+    x += w + 8;
+  }
+  return s;
+}
+
 /** The app's (or site's) search, in a phone: type a model, see what fits. */
 function search(ctx) {
   const p = ctx.pal;
-  const [bd, bf] = gradient([p.primary, p.primary2], 0, 0, W, TOP);
+  const web = !ctx.brand.play;
+  const [bd, bf] = gradient(web ? ['#0B2A25', '#07120F'] : [p.primary, p.primary2], 0, 0, W, TOP);
   let s = bd + rect(0, 0, W, TOP, bf) +
     `<circle cx="${W - 40}" cy="40" r="340" fill="#FFFFFF" opacity=".07"/><circle cx="0" cy="${TOP}" r="300" fill="#FFFFFF" opacity=".06"/>` +
     mark(ctx, M, 30, '#FFFFFF');
+  const accent = web ? WEB.mint : p.accent;
   s += line(M, 236, 'FIND MATCHING', fit('FIND MATCHING', W - 2 * M, { size: 124, font: 'anton', fill: '#FFFFFF' })) +
-    line(M, 356, 'PARTS IN SECONDS', fit('PARTS IN SECONDS', W - 2 * M, { size: 124, font: 'anton', fill: p.accent })) +
-    line(M, 414, 'Type any phone model. See every part that fits it.', fit('Type any phone model. See every part that fits it.', W - 2 * M, { size: 32, weight: 700, fill: '#FFFFFF', opacity: 0.92 }));
-
-  /* the phone */
-  const px = 250, pw = 580, py = 470, ph = 820;
-  s += shadow(px, py, pw, ph, 64, '#000000') + rect(px, py, pw, ph, '#101018', 64) + rect(px + 14, py + 14, pw - 28, ph - 28, '#FFFFFF', 52) +
-    rect(px + pw / 2 - 60, py + 28, 120, 26, '#101018', 13);
-  const sx = px + 40, sw = pw - 80;
-  s += image(asset(ctx.brand.logo), sx, py + 74, 44, 44, { rx: 10 }) +
-    line(sx + 56, py + 106, ctx.brand.name, fit(ctx.brand.name, sw - 60, { size: 24, font: 'archivo', fill: p.ink, spacing: 1 }));
-  /* the search box, with the master typed in */
-  const by = py + 140;
-  const typed = clip(ctx.master, sw - 90, { size: 26, weight: 700 });
-  s += rect(sx, by, sw, 64, p.bg, 32, ` stroke="${p.primary}" stroke-width="3"`) + icon('search', sx + 20, by + 18, 28, p.primary) +
-    line(sx + 62, by + 42, typed, { size: 26, weight: 700, fill: p.ink }) +
-    rect(sx + 66 + width(typed, { size: 26, weight: 700 }), by + 16, 3, 32, p.primary);
-  /* the answer: the real group, then the other parts */
-  const ry = by + 90;
-  const [gd, gf] = gradient([p.primary, p.primary2], sx, 0, sx + sw, 0);
-  s += gd + rect(sx, ry, sw, 128, gf, 22) +
-    rect(sx + 14, ry + 14, 100, 100, '#FFFFFF', 18) + image(ctx.cutout, sx + 22, ry + 22, 84, 84) +
-    line(sx + 132, ry + 54, ctx.part.en, fit(ctx.part.en, sw - 150, { size: 30, font: 'archivo', fill: '#FFFFFF' })) +
-    line(sx + 132, ry + 96, `fits ${ctx.n} phones`, { size: 30, weight: 900, fill: p.accent });
-  ALL_PARTS.filter(x => x.toUpperCase() !== ctx.part.en).slice(0, 4).forEach((name, i) => {
-    const y = ry + 148 + i * 74;
-    s += rect(sx, y, sw, 62, '#FFFFFF', 16, ` stroke="${tint(p.ink, 0.85)}" stroke-width="2"`) +
-      `<circle cx="${sx + 34}" cy="${y + 31}" r="14" fill="${tint(p.primary, 0.8)}"/>` +
-      line(sx + 62, y + 40, name, { size: 25, weight: 700, fill: p.ink }) + icon('arrow', sx + sw - 46, y + 17, 28, p.primary);
-  });
-
+    line(M, 356, 'PARTS IN SECONDS', fit('PARTS IN SECONDS', W - 2 * M, { size: 124, font: 'anton', fill: accent })) +
+    line(M, 414, web ? 'Type any phone on the website. See every part that fits.' : 'Type any phone in the app. See every part that fits.',
+      fit(web ? 'Type any phone on the website. See every part that fits.' : 'Type any phone in the app. See every part that fits.', W - 2 * M, { size: 32, weight: 700, fill: '#FFFFFF', opacity: 0.92 }));
+  const px = 230, pw = 620, py = 452, ph = 860;
+  s += phoneFrame(px, py, pw, ph, web ? WEB.bg : '#F7F8FA') + rect(px + pw / 2 - 60, py + 26, 120, 26, '#101018', 13);
+  const sx = px + 38, sw = pw - 76, sy = py + 66;
+  s += web ? webScreen(ctx, sx, sy, sw, TOP - 10, px, pw) : appScreen(ctx, sx, sy, sw, TOP - 10);
   /* a few of the phones it found, either side */
   const names = designs.roundRobin(ctx.brands).slice(0, 6);
   const chipO = { size: 21, weight: 900, fill: '#FFFFFF' };
   names.forEach((m, i) => {
-    const left = i % 2 === 0;
-    const room = left ? px - 36 - 16 : W - 16 - (px + pw + 20);
+    const leftSide = i % 2 === 0;
+    const room = leftSide ? px - 36 - 16 : W - 16 - (px + pw + 20);
     const text = clip(m.name, room - 34, chipO);
     const w = width(text, chipO) + 34;
-    const x = left ? px - 20 - w : px + pw + 20;
-    const y = 560 + Math.floor(i / 2) * 150 + (left ? 0 : 70);
+    const x = leftSide ? px - 16 - w : px + pw + 16;
+    const y = 560 + Math.floor(i / 2) * 150 + (leftSide ? 0 : 70);
     s += rect(x, y, w, 46, m.brand.color, 23, ' stroke="#FFFFFF" stroke-width="3"') + line(x + 17, y + 31, text, chipO);
   });
   return s;
@@ -148,11 +242,11 @@ function oneglass(ctx) {
 
   const head = 'Stock one. Fit many. Sell more.';
   s += line(W / 2, 640, head, fit(head, W - 2 * M, { size: 46, font: 'archivo', fill: p.ink, anchor: 'middle' }));
-  const cloud = chipCloud(ctx, 680, 1040);
+  const cloud = chipCloud(ctx, 680, 1010);
   s += cloud.svg;
   const left = ctx.n - cloud.shown;
   const tail = left > 0 ? `+ ${left} more, every one ${where(ctx)}` : `Find universal ${ctx.part.word} for any phone`;
-  return s + line(W / 2, 1100, tail, fit(tail, W - 2 * M, { size: 34, font: 'archivo', fill: p.primary, anchor: 'middle' }));
+  return s + line(W / 2, TOP - 34, tail, fit(tail, W - 2 * M, { size: 34, font: 'archivo', fill: p.primary, anchor: 'middle' }));
 }
 
 /** Stop ordering the wrong part: every part the finder knows, checked. */
@@ -179,7 +273,7 @@ function wrongpart(ctx) {
       line(x + 92, y + 56, name, fit(name, colW - 110, { size: 32, font: 'archivo', fill: p.ink }));
   });
   const tail = `${ctx.part.en === 'TEMPERED GLASS' ? 'Tempered glass' : ctx.part.word[0].toUpperCase() + ctx.part.word.slice(1)} for ${ctx.master} fits ${ctx.n} phones`;
-  return s + line(W / 2, 1090, tail, fit(tail, W - 2 * M, { size: 32, font: 'archivo', fill: p.accent, anchor: 'middle' }));
+  return s + line(W / 2, TOP - 34, tail, fit(tail, W - 2 * M, { size: 32, font: 'archivo', fill: p.accent, anchor: 'middle' }));
 }
 
 /** How a shop finds the right part: three steps. */
@@ -197,14 +291,14 @@ function steps(ctx) {
     ['check', 'Sell the right one, first time', 'No wrong orders. No returns.']
   ];
   list.forEach(([ic, title, sub], i) => {
-    const y = 430 + i * 228;
+    const y = 420 + i * 214;
     const [cd, cf] = gradient([p.primary, p.primary2], M, y, M + 150, y + 150);
-    s += shadow(M, y, W - 2 * M, 200, 30) + rect(M, y, W - 2 * M, 200, '#FFFFFF', 30) +
+    s += shadow(M, y, W - 2 * M, 190, 30) + rect(M, y, W - 2 * M, 190, '#FFFFFF', 30) +
       cd + rect(M + 24, y + 25, 150, 150, cf, 28) +
       line(M + 99, y + 145, String(i + 1), { size: 120, font: 'anton', fill: '#FFFFFF', anchor: 'middle' }) +
       line(M + 206, y + 92, title, fit(title, W - 2 * M - 330, { size: 42, font: 'archivo', fill: p.ink })) +
       line(M + 206, y + 140, clip(sub, W - 2 * M - 330, { size: 27, weight: 700 }), { size: 27, weight: 700, fill: p.dim }) +
-      `<circle cx="${W - M - 80}" cy="${y + 100}" r="48" fill="${tint(p.primary, 0.86)}"/>` + icon(ic, W - M - 106, y + 74, 52, p.primary);
+      `<circle cx="${W - M - 80}" cy="${y + 95}" r="48" fill="${tint(p.primary, 0.86)}"/>` + icon(ic, W - M - 106, y + 74, 52, p.primary);
   });
   return s;
 }
@@ -233,7 +327,7 @@ function numbers(ctx) {
       wrap(label, tw - 80, { size: 30, weight: 700 }).slice(0, 2).map((t, k) => line(x + 40, y + 222 + k * 38, t, { size: 30, weight: 700, fill: p.ink })).join('');
   });
   const tail = 'Every phone. Every part. One search.';
-  return s + line(W / 2, 1110, tail, fit(tail, W - 2 * M, { size: 36, font: 'archivo', fill: '#FFFFFF', anchor: 'middle' }));
+  return s + line(W / 2, TOP - 34, tail, fit(tail, W - 2 * M, { size: 36, font: 'archivo', fill: '#FFFFFF', anchor: 'middle' }));
 }
 
 const TEMPLATES = [

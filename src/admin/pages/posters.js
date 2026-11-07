@@ -34,12 +34,13 @@
     'screen-guards': 'Tempered glass', 'back-cover': 'Back cover', 'combo-display': 'Combo display', 'middle-frame': 'Middle frame',
     'cc-board': 'CC board', battery: 'Battery', 'button-flex': 'Button flex', 'sim-tray': 'SIM tray'
   };
-  var KIND = { single: 'Single', carousel: 'Carousel', promo: 'Marketing', reel: 'Reel' };
+  var KIND = { single: 'Single', carousel: 'Carousel', promo: 'Marketing', combo: 'All parts', reel: 'Reel' };
   var STATUS = { planned: ['Planned', 'info'], posting: ['Posting', 'warn'], posted: ['Posted', 'ok'], failed: ['Failed', 'bad'],
     missed: ['Missed', 'bad'], skipped: ['Skipped', ''], open: ['Not planned', ''], next: ['Coming', ''] };
   var SWATCH = { royal: '#5B2EE8', sunset: '#FF5A1F', mint: '#0E9F84', berry: '#D6246E', ocean: '#0069B4', noir: '#1E1E2E' };
   /* left to right in a row of the grid, as Instagram shows it */
-  var ROW_ORDER = { carousel: 0, promo: 1, single: 2 };
+  var ROW_ORDER = { carousel: 0, promo: 1, single: 2, combo: 2 };
+  var COL_ORDER = { left: 0, middle: 1, right: 2 };
   var KEY = 'adm.posters.account';
   var PICS = 'adm.posters.pics';
 
@@ -59,7 +60,7 @@
      Posters are drawn on the server, one JPEG a request, so they load a few
      at a time, one after another, and are kept for the visit. */
   var pics = { cache: {}, queue: [], busy: 0 };
-  function picKey(p) { return [p.group, p.kind, p.slide || 0, p.design || '', p.palette || '', p.brand || '', p.template || '', p.keyword || ''].join('|'); }
+  function picKey(p) { return [p.group, p.kind, p.slide || 0, p.design || '', p.palette || '', p.brand || '', p.template || '', p.keyword || '', p.also || '', p.cta || ''].join('|'); }
   function picture(params) {
     var key = picKey(params);
     if (pics.cache[key]) return pics.cache[key];
@@ -95,7 +96,8 @@
   }
   function picAttr(p) { return " data-pic='" + ui.esc(JSON.stringify(p)) + "'"; }
   function slotPic(s, account) {
-    return { group: s.groupId, kind: s.kind, slide: 0, design: s.design || '', palette: s.palette || '', brand: account, template: s.template || '', keyword: s.keyword || '' };
+    return { group: s.groupId, kind: s.kind, slide: 0, design: s.design || '', palette: s.palette || '', brand: account, template: s.template || '', keyword: s.keyword || '',
+      also: (s.also || []).join('.'), cta: s.cta || '' };
   }
 
   /* --------------------------------------------------------------- bits */
@@ -192,8 +194,8 @@
 
     function paint() {
       root.innerHTML = hub('posters', state.account) + top() + nextPost() +
-        section('Scheduled posts', 'Planned for the next three days, each at its time. A row is one day, in one colour: carousel, marketing, single.', scheduled(), planButton()) +
-        section('Schedule next', 'The days after those, as they will be planned. Each day joins the schedule by itself three days ahead.', upcoming()) +
+        section('Scheduled posts', 'The week, planned at once: nine posts a day, three rows. A row is one phone in one colour: its carousel, its biggest other part, then its other parts or marketing. Posted right first, left last.', scheduled(), planButton()) +
+        section('Posting hours', 'When this account\'s followers are online, in India time. The coloured bars are the hours it posts in.', hours()) +
         section('Your grid', 'How the profile will look, newest top-left, three a row. Reels are not part of the poster grid.', grid()) +
         section('Suggest', 'More groups people want, in the colours they would take. Put one in a slot, or open it in the editor.', suggest()) +
         drawer();
@@ -234,7 +236,7 @@
       if (!s) {
         var open = b.slots.filter(function (x) { return x.status === 'open' && x.at > Date.now(); }).sort(function (x, y) { return x.at - y.at; })[0];
         return '<div class="pz-next"><span class="pz-next__pic is-empty">' + ICON.clock + '</span><div class="pz-next__txt"><span class="pz-next__lbl">Next post</span><b>Nothing planned yet</b><small>' +
-          (open ? 'The next slot is ' + dayLabel(open.at) + ', ' + timeOf(open.at) + '. Plan it to see the poster here.' : 'No slot left in the next three days.') + '</small></div>' + planButton() + '</div>';
+          (open ? 'The next slot is ' + dayLabel(open.at) + ', ' + timeOf(open.at) + '. Plan it to see the poster here.' : 'Plan the week to see the next poster here.') + '</small></div>' + planButton() + '</div>';
       }
       var title = s.kind === 'promo' ? 'Marketing poster' : (PARTS[s.categoryId] || 'Poster') + ' · ' + (s.master || '');
       return '<div class="pz-next"><button class="pz-next__pic" data-slot="' + s.id + '"' + picAttr(slotPic(s, state.account)) + '></button>' +
@@ -245,16 +247,20 @@
         '<div class="pz-next__act"><button class="adm__btn adm__btn--sm" data-slot="' + s.id + '">Open</button></div></div>';
     }
 
-    /* days, oldest first; each day's posts left to right as the grid shows them */
+    /* rows, oldest first; each row's posts left to right as the grid shows them */
     function byDay(list) {
       var days = [];
       var at = {};
       list.slice().sort(function (x, y) { return x.at - y.at; }).forEach(function (s) {
-        var k = s.date || new Date(s.at).toDateString();
-        if (!at[k]) { at[k] = { key: k, at: s.at, palette: s.palette, items: [] }; days.push(at[k]); }
+        var k = (s.date || new Date(s.at).toDateString()) + (s.row != null ? '_' + s.row : '');
+        if (!at[k]) { at[k] = { key: k, at: s.at, palette: s.palette, master: s.master, row: s.row, items: [] }; days.push(at[k]); }
         at[k].items.push(s);
       });
-      days.forEach(function (d) { d.items.sort(function (x, y) { return ROW_ORDER[x.kind] - ROW_ORDER[y.kind]; }); });
+      days.forEach(function (d) {
+        d.items.sort(function (x, y) {
+          return x.column && y.column ? COL_ORDER[x.column] - COL_ORDER[y.column] : ROW_ORDER[x.kind] - ROW_ORDER[y.kind];
+        });
+      });
       return days;
     }
 
@@ -274,7 +280,7 @@
 
     function dayRows(days, coming) {
       return '<div class="pz-days">' + days.map(function (d) {
-        return '<div class="pz-day"><div class="pz-day__lbl"><i style="background:' + (SWATCH[d.palette] || '#999') + '"></i><b>' + ui.esc(dayLabel(d.at)) + '</b><small>' + ui.esc(d.palette || '') + '</small></div>' +
+        return '<div class="pz-day"><div class="pz-day__lbl"><i style="background:' + (SWATCH[d.palette] || '#999') + '"></i><b>' + ui.esc(dayLabel(d.at)) + (d.row != null ? ' · row ' + (d.row + 1) : '') + '</b><small>' + ui.esc((d.master ? d.master + ' · ' : '') + (d.palette || '')) + '</small></div>' +
           '<div class="pz-day__row">' + d.items.map(function (s) { return bigCard(s, coming); }).join('') + '</div></div>';
       }).join('') + '</div>';
     }
@@ -284,14 +290,14 @@
       if (!b && state.boardErr) return ui.emptyState('Nothing to show yet', 'The schedule could not be read.');
       if (!b) return '<div class="pz-day__row">' + [1, 2, 3].map(function () { return '<div class="pz-big adm__skel" style="height:420px"></div>'; }).join('') + '</div>';
       var list = b.slots.filter(function (s) { return (s.status === 'planned' || s.status === 'posting' || s.status === 'open') && s.at > Date.now() - 60000; });
-      if (!list.length) return ui.emptyState('Nothing scheduled', 'Every slot of the next three days has gone out or was skipped.');
+      if (!list.length) return ui.emptyState('Nothing scheduled', 'Plan the week, and nine posts a day are laid out here.');
       return dayRows(byDay(list), false) + gaps();
     }
 
     function gaps() {
       var g = state.board.slots.filter(function (s) { return s.status === 'skipped' || s.status === 'missed' || s.status === 'failed'; });
       if (!g.length) return '';
-      return '<div class="pz-gaps"><b>' + g.length + ' slot' + (g.length > 1 ? 's' : '') + ' did not post</b><p>A day with fewer than three posts shifts every row below it. Open one to plan it again.</p>' +
+      return '<div class="pz-gaps"><b>' + g.length + ' slot' + (g.length > 1 ? 's' : '') + ' did not post</b><p>A row with fewer than three posts shifts every row below it; the next row starts with a marketing poster or two to even it. Open one to plan it again.</p>' +
         g.map(function (s) { return '<button class="pz-gap" data-slot="' + s.id + '">' + chip(STATUS[s.status][0], STATUS[s.status][1]) + ' ' + dayLabel(s.at) + ' ' + timeOf(s.at) + '</button>'; }).join('') + '</div>';
     }
 
@@ -326,10 +332,10 @@
             row.map(tile).join('') + '</div></div>';
         }).join('') + '</div>' +
         '<aside class="pz-gridside"><h3>How the rows are kept</h3><ul class="pz-list">' +
-        b.times.slice().sort(function (x, y) { return ROW_ORDER[x.kind] - ROW_ORDER[y.kind]; }).map(function (t) {
-          var h = Math.floor(t.minutes / 60), m = t.minutes % 60;
-          return '<li><b>' + KIND[t.kind] + '</b> <small>' + t.column + ' of the row · ' + (h % 12 || 12) + ':' + String(m).padStart(2, '0') + (h < 12 ? ' AM' : ' PM') + '</small></li>';
-        }).join('') + '</ul><p class="pz-note">Every day takes the next colour, cool and warm in turn, so two rows next to each other never look alike. The middle is always the ' + (state.account === 'proglide' ? 'app' : 'website') + '.</p>' +
+        '<li><b>Left</b> <small>the carousel: the phone\'s tempered glass, page by page, and its other parts</small></li>' +
+        '<li><b>Middle</b> <small>its biggest other part</small></li>' +
+        '<li><b>Right</b> <small>its other parts on one poster, or marketing</small></li>' +
+        '</ul><p class="pz-note">Every row takes the next colour, cool and warm in turn, so two rows next to each other never look alike. A row is posted right first and left last, so it lands as one row.</p>' +
         '<div class="pz-pals">' + (b.rows || []).map(function (p) { return '<i title="' + p + '" style="background:' + (SWATCH[p] || '#999') + '"></i>'; }).join('') + '</div></aside></div>';
     }
 
@@ -347,8 +353,33 @@
 
     function planButton() {
       var b = state.board;
-      var open = b ? b.slots.filter(function (s) { return s.status === 'open' && s.at > Date.now() + 600000; }).length : 0;
-      return open ? '<button class="adm__btn adm__btn--primary adm__btn--sm" data-plan' + (state.busy ? ' disabled' : '') + '>Plan ' + open + ' open slot' + (open > 1 ? 's' : '') + '</button>' : '';
+      if (!b) return '';
+      var waiting = b.slots.filter(function (s) { return s.status === 'planned' && s.at > Date.now(); }).length;
+      return '<button class="adm__btn ' + (waiting ? '' : 'adm__btn--primary ') + 'adm__btn--sm" data-plan' + (waiting ? ' data-fresh' : '') + (state.busy ? ' disabled' : '') + '>' +
+        (waiting ? 'Plan the week again' : 'Plan the week') + '</button>';
+    }
+
+    /* followers online by hour (India time), and the hours posted in */
+    function hours() {
+      var b = state.board;
+      if (!b) return state.boardErr ? '' : '<div class="adm__skel" style="height:160px"></div>';
+      var pk = b.peak;
+      if (!pk || !pk.hours) return ui.emptyState('No hours yet', 'They are worked out when the week is planned.');
+      var used = {};
+      (b.times || []).forEach(function (t) { var h = Math.floor(t.minutes / 60); used[h] = (used[h] || 0) + 1; });
+      var max = Math.max.apply(null, pk.hours) || 1;
+      var bars = '';
+      for (var h = 6; h <= 23; h++) {
+        var v = pk.hours[h] || 0;
+        var lbl = (h % 12 || 12) + (h < 12 ? 'a' : 'p');
+        bars += '<div title="' + lbl + ': ' + Math.round(v / max * 100) + '% of the busiest hour' + (used[h] ? ', ' + used[h] + ' post' + (used[h] > 1 ? 's' : '') : '') + '" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">' +
+          '<div style="width:100%;height:110px;display:flex;align-items:flex-end"><div style="width:100%;height:' + Math.max(2, Math.round(v / max * 110)) + 'px;border-radius:4px 4px 0 0;background:' + (used[h] ? accountOf(state.account).color : 'rgba(128,128,150,.28)') + '"></div></div>' +
+          '<small style="font-size:10px;opacity:.7">' + (h % 3 === 0 ? lbl : '&nbsp;') + '</small><b style="font-size:11px">' + (used[h] || '&nbsp;') + '</b></div>';
+      }
+      var times = (b.times || []).map(function (t) { var hh = Math.floor(t.minutes / 60), mm = t.minutes % 60; return (hh % 12 || 12) + ':' + String(mm).padStart(2, '0') + (hh < 12 ? ' AM' : ' PM'); });
+      return '<div style="display:flex;gap:3px;align-items:flex-end">' + bars + '</div>' +
+        '<p class="pz-note">' + (pk.source === 'followers' ? 'From this account\'s followers on Instagram, blended with a usual Indian day.' : 'Instagram has no follower hours for this account yet, so a usual Indian day is used. It switches by itself when Instagram has them.') +
+        ' Posts at ' + ui.esc(times.join(', ')) + '. Worked out again with each new week.</p>';
     }
 
     /* the groups left over, each drawn in the colour its day would have */
@@ -463,7 +494,7 @@
         return;
       }
       if (e.target.closest('[data-close]')) { state.open = null; paint(); return; }
-      if (e.target.closest('[data-plan]')) { act({ action: 'plan', account: state.account }, 'Planned').catch(function () {}); return; }
+      if ((t = e.target.closest('[data-plan]'))) { act({ action: 'plan', account: state.account, fresh: t.hasAttribute('data-fresh') }, 'The week is planned').catch(function () {}); return; }
       if ((t = e.target.closest('[data-slot]'))) { state.open = { slot: t.getAttribute('data-slot') }; paint(); return; }
       if ((t = e.target.closest('[data-post]'))) { if (state.ins) { state.open = { post: t.getAttribute('data-post') }; paint(); } return; }
       if (e.target.closest('[data-skip]')) { act({ action: 'slot', id: state.open.slot, op: 'skip' }, 'Skipped').catch(function () {}); return; }

@@ -1,44 +1,56 @@
 /* ============================================================================
    Mobile Parts Finder · api/_services/content/schedule.js
    ----------------------------------------------------------------------------
-   Three posts a day on each Instagram account, planned three days ahead and
-   posted on time.
+   Nine posts a day on each Instagram account, a week planned at once, each
+   post at an hour its followers are online.
 
-   A DAY IS ONE ROW OF THE GRID
+   A ROW OF THE GRID IS ONE PHONE
 
-   Instagram's profile grid is three wide, newest first, so a day's three posts
-   make one row. Each day takes one colour (designs.js PALETTES, in order, cool
-   and warm in turn), so every row is one colour and the row under it another.
-   The day's first post lands on the right of its row, the last on the left:
+   Instagram's profile grid is three wide, newest first, so three posts in a
+   row make one row of the grid. A day is three rows. Every row is about one
+   master phone, in one colour (designs.js PALETTES, cool and warm in turn), and
+   is posted right first, then middle, then left:
 
-       slot 0  09:30 IST  single poster      right
-       slot 1  14:00 IST  marketing poster   middle: the app / the website
-       slot 2  19:30 IST  carousel           left
+       right    the master's small parts on one poster ("combo"), or the
+                marketing poster when the master has only one other part
+       middle   the master's biggest other part, a single poster
+       left     a carousel: the tempered glass (else the biggest part), its
+                models a page at a time, and one slide for each other part
+                when the master has many
 
-   so the middle column of the grid is always the brand's own message. The two
-   accounts start the colours at different places, so they never look alike.
+   A master with no other part gets marketing in its free places. The two
+   accounts use the same groups and the same data but never the same phone in
+   a week, start their colours, designs and call-to-action styles at
+   different places, and never post marketing within an hour of each other.
 
-   WHAT GOES ON A POSTER
+   WHEN
 
-   Single and carousel posters are compatibility groups people want: phones
-   asked about on Instagram, searched on the site, new models, then the
-   biggest groups. A group already posted on that account (or planned) is not
-   planned again. The marketing poster is one of promos.js's templates, drawn
-   with the biggest tempered-glass group, so its numbers are real. On ProGlide
-   every poster asks for one comment word (LINK, PROGLIDE or TOOL, in turn),
-   and the reply bot answers each with the app's link.
+   The times come from the account's followers: Instagram's online_followers
+   (the followers online in each hour), turned to India time and blended with
+   a usual Indian day; with no data, the usual day alone. Nine posts go in
+   the best hours, two or three in the busiest ones. They are worked out
+   again with each new week.
 
-   WHAT IS STORED
+   KEEPING THE ROWS IN THREES
 
-     contentSchedule/{account}_{date}_{slot}   one planned post; the id makes
-                                               planning idempotent
-     contentSettings/schedule                  auto on/off per account, and
-                                               the groups each account used
+   A row stays a row only if exactly three posts go up for it. When a post is
+   missed, fails, or one is posted by hand, every row below shifts. So before
+   a row's first post the account's media count is compared with the count at
+   the start of the last row, and one or two marketing posters go first when
+   the count is off, which brings the rows back into line.
 
-   Posting happens only for an account whose auto posting is on, only within
-   LATE_MS of the slot's time (a slot missed by hours is marked missed, never
-   posted late out of order), one post a run, and a slot is taken for posting
-   in a transaction so two runs cannot post it twice.
+   WHAT IS STORED, AND WHAT IT COSTS
+
+     contentSettings/plan_{account}   the week: times, peak hours, every slot
+                                      (one document, written at once)
+     contentSettings/schedule         auto on/off per account, the groups each
+                                      account used, and when its next post is
+                                      due (`next`), and its last planned day
+
+   The runner looks every few minutes and reads only the settings document; it
+   opens a plan only when that account's `next` time has come. A slot is taken
+   in a transaction, so two runs never post it twice. A slot missed by hours is
+   marked missed, never posted late out of order.
    ========================================================================== */
 'use strict';
 
@@ -47,59 +59,152 @@ const designs = require('./designs');
 const promos = require('./promos');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MIN_MS = 60 * 1000;
 const IST_MS = 5.5 * 60 * 60 * 1000;
-const AHEAD_DAYS = 3;
-/* the days after the planned ones, shown as they will be planned */
-const PROJECT_DAYS = 3;
+const WEEK_DAYS = 7;
+/* a new week is planned when fewer than this many days are left */
+const RENEW_DAYS = 2;
 const LATE_MS = 3 * 60 * 60 * 1000;
 const STUCK_MS = 15 * 60 * 1000;
 const USED_KEEP_MS = 60 * DAY_MS;
 const CANDIDATES_MS = 30 * 60 * 1000;
-const PLAN_RETRY_MS = 6 * 60 * 60 * 1000;
+const PLAN_RETRY_MS = 3 * 60 * 60 * 1000;
+const PEAK_KEEP_MS = 7 * DAY_MS;
+/* the first post of today's plan: at least this far ahead */
+const LEAD_MS = 15 * MIN_MS;
+/* two accounts' marketing posters: at least this far apart */
+const PROMO_APART_MS = 60 * MIN_MS;
+const MAX_FILLERS = 2;
+const PER_DAY = 9;
 
 const ACCOUNTS = ['proglide', 'mpf'];
+/* where each account starts its colours, designs and call-to-action styles */
 const OFFSET = { proglide: 0, mpf: 3 };
-const SLOTS = [
-  { slot: 0, minutes: 9 * 60 + 30, kind: 'single', column: 'right' },
-  { slot: 1, minutes: 14 * 60, kind: 'promo', column: 'middle' },
-  { slot: 2, minutes: 19 * 60 + 30, kind: 'carousel', column: 'left' }
+/* the second account posts a little after the first, never at the same minute */
+const MINUTE_SHIFT = { proglide: 0, mpf: 8 };
+/* posting order inside a row: right first, left last */
+const POSITIONS = [
+  { pos: 0, column: 'right' },
+  { pos: 1, column: 'middle' },
+  { pos: 2, column: 'left' }
 ];
 const STATUSES = ['planned', 'posting', 'posted', 'failed', 'missed', 'skipped'];
 
+/* A usual Indian day on Instagram, by hour in India time: morning, a lunch
+   bump, and the evening peak. Used alone with no data, and blended with it. */
+const INDIA_DAY = [0, 0, 0, 0, 0, 0, 1, 3, 4, 5, 5, 5, 6, 7, 6, 5, 5, 6, 7, 9, 10, 10, 8, 4];
+const FIRST_HOUR = 7;
+const LAST_HOUR = 23;
+
 const dayNumber = now => Math.floor((now + IST_MS) / DAY_MS);
 const dateOf = day => new Date(day * DAY_MS).toISOString().slice(0, 10);
-const slotAt = (day, minutes) => day * DAY_MS - IST_MS + minutes * 60 * 1000;
-const idOf = (account, day, slot) => `${account}_${dateOf(day)}_${slot}`;
+const slotAt = (day, minutes) => day * DAY_MS - IST_MS + minutes * MIN_MS;
+const minutesOf = at => Math.floor(((at + IST_MS) % DAY_MS) / MIN_MS);
+/* p for a place in the day: the old three-a-day ids ended _0.._2 */
+const idOf = (account, day, i) => `${account}_${dateOf(day)}_p${i}`;
 const validAccount = a => (ACCOUNTS.indexOf(a) > -1 ? a : null);
+const SLOT_ID = /^(proglide|mpf)_\d{4}-\d{2}-\d{2}_p[0-8]$/;
 
-/** The colour of a day's row on an account's grid. */
-function rowPalette(account, day) {
-  const list = designs.PALETTES;
-  return list[(day + (OFFSET[account] || 0)) % list.length].id;
+/* ------------------------------------------------------------ peak hours */
+
+/**
+ * Instagram's followers-online hours, turned to India time. Its hour keys are
+ * not in India time, and which zone they are in is not stated reliably, so the
+ * zone is the one that puts the quiet hours in India's night.
+ * @param {number[]} raw  24 counts, Instagram's hour 0..23
+ * @returns {number[]|null}  24 counts by India hour, or null when too thin
+ */
+function toIndiaHours(raw) {
+  if (!Array.isArray(raw) || raw.length !== 24) return null;
+  const total = raw.reduce((a, b) => a + (Number(b) || 0), 0);
+  if (total < 30) return null;
+  /* UTC, Pacific daylight, Pacific standard: India is 5.5, 12.5 or 13.5 hours on */
+  const shifts = [13, 12, 5];
+  const quiet = curve => {
+    let best = Infinity;
+    let at = 0;
+    for (let h = 0; h < 24; h++) {
+      let s = 0;
+      for (let k = 0; k < 5; k++) s += curve[(h + k) % 24];
+      if (s < best) { best = s; at = (h + 2) % 24; }
+    }
+    return at;
+  };
+  for (const shift of shifts) {
+    const ist = new Array(24).fill(0);
+    raw.forEach((v, h) => {
+      const n = Number(v) || 0;
+      ist[(h + shift) % 24] += n / 2;
+      ist[(h + shift + 1) % 24] += n / 2;
+    });
+    const q = quiet(ist);
+    if (q >= 1 && q <= 6) return ist;
+  }
+  return null;
 }
 
-/** A day's three posts, without their groups: kind, time, design, colour, word. */
-function dayPlan(account, day) {
-  const D = designs.DESIGNS;
-  const T = promos.TEMPLATES;
-  const K = designs.KEYWORDS;
-  return SLOTS.map(s => ({
-    id: idOf(account, day, s.slot), account, date: dateOf(day), day, slot: s.slot, column: s.column,
-    at: slotAt(day, s.minutes), kind: s.kind, palette: rowPalette(account, day),
-    design: s.kind === 'single' ? D[day % D.length].id : s.kind === 'carousel' ? D[(day + 3) % D.length].id : null,
-    template: s.kind === 'promo' ? T[day % T.length].id : null,
-    keyword: account === 'proglide' ? K[(day + s.slot) % K.length] : null
-  }));
+/** The hours to post in: followers' hours blended with a usual Indian day. */
+function blend(ist) {
+  const norm = c => { const m = Math.max(...c) || 1; return c.map(v => v / m); };
+  const base = norm(INDIA_DAY);
+  if (!ist) return base;
+  const data = norm(ist);
+  return base.map((v, h) => Math.round((0.7 * data[h] + 0.3 * v) * 1000) / 1000);
+}
+
+/**
+ * Nine posting times, in minutes after midnight India time: the best hours
+ * first, two posts in a busy hour, three in the two busiest, spread inside it.
+ */
+function chooseTimes(curve, account) {
+  const hours = [];
+  for (let h = FIRST_HOUR; h <= LAST_HOUR; h++) if (curve[h] > 0) hours.push(h);
+  const top = hours.slice().sort((a, b) => curve[b] - curve[a]).slice(0, 2);
+  const count = {};
+  for (let n = 0; n < PER_DAY; n++) {
+    let best = null;
+    let score = -1;
+    hours.forEach(h => {
+      const c = count[h] || 0;
+      if (c >= (top.indexOf(h) > -1 ? 3 : 2)) return;
+      const s = curve[h] / (c + 1);
+      if (s > score) { score = s; best = h; }
+    });
+    if (best == null) break;
+    count[best] = (count[best] || 0) + 1;
+  }
+  const SPREAD = { 1: [15], 2: [10, 40], 3: [5, 25, 45] };
+  const out = [];
+  Object.keys(count).forEach(h => SPREAD[count[h]].forEach(m => out.push(Number(h) * 60 + m + (MINUTE_SHIFT[account] || 0))));
+  return out.sort((a, b) => a - b);
+}
+
+/**
+ * Today's times: those still ahead, in whole rows (the last ones, so the day
+ * ends on a full row). Late in the day with no row left, one row starts soon.
+ */
+function todayTimes(times, day, now) {
+  let ahead = times.filter(t => slotAt(day, t) > now + LEAD_MS);
+  if (ahead.length < 3) {
+    const start = Math.ceil((minutesOf(now + LEAD_MS)) / 5) * 5;
+    if (start + 40 < 24 * 60) ahead = [start, start + 20, start + 40];
+  }
+  /* a whole number of rows: one more late post when there is room, else fewer */
+  while (ahead.length % 3 && ahead[ahead.length - 1] + 30 <= 23 * 60 + 45) ahead.push(ahead[ahead.length - 1] + 30);
+  return ahead.slice(ahead.length % 3);
 }
 
 /* ----------------------------------------------------------------- store */
-const col = db => db().collection(C.CONTENT_SCHEDULE);
 const settingsRef = db => db().collection(C.CONTENT_SETTINGS).doc('schedule');
+const planRef = (db, account) => db().collection(C.CONTENT_SETTINGS).doc('plan_' + account);
 
 async function loadSettings(db) {
   const snap = await settingsRef(db).get();
   const v = snap.exists ? snap.data() : {};
-  return { auto: Object.assign({ proglide: false, mpf: false }, v.auto), used: v.used || {}, planTry: v.planTry || {}, by: v.by || null };
+  return {
+    auto: Object.assign({ proglide: false, mpf: false }, v.auto), used: v.used || {}, planTry: v.planTry || {},
+    next: v.next || {}, until: v.until || {}, by: v.by || null
+  };
 }
 
 async function setAuto(db, account, on, uid, now) {
@@ -118,177 +223,298 @@ async function usedGroups(db, account, settings, now) {
   return used;
 }
 
+/** When the account's next post is due: the earliest slot still planned. */
+function nextDue(slots) {
+  const t = slots.filter(s => s.status === 'planned').map(s => s.at).sort((a, b) => a - b)[0];
+  return t == null ? null : t;
+}
+
 /* ------------------------------------------------------------ candidates */
 let candidateCache = null;
 
 /**
- * Groups worth a post, best first, each with why. Asked on Instagram, searched
- * on the site, new models, then the biggest groups.
- * @param {object} content  service.js: ideas(now), groupsOf(modelId)
+ * Phones worth a row, best first, each with why: asked on Instagram, searched
+ * on the site, new models, the masters of the biggest groups, then more of
+ * the newest phones. Also the biggest tempered-glass group, for the
+ * marketing posters' numbers.
+ * @param {object} content  service.js
  */
 async function candidates(content, now) {
   if (candidateCache && now - candidateCache.at < CANDIDATES_MS) return candidateCache.list;
   const ideas = await content.ideas(now);
-  const out = [];
+  const masters = [];
   const seen = new Set();
-  const add = (g, source, why) => {
-    if (!g || !g.groupId || seen.has(g.groupId)) return;
-    seen.add(g.groupId);
-    out.push({ groupId: g.groupId, categoryId: g.categoryId, master: g.master, count: g.count, source, why });
+  const add = (id, name, source, why) => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    masters.push({ id, name, source, why });
   };
-  const models = [].concat(
-    (ideas.asked || []).slice(0, 3).map(m => [m, 'asked', `${m.name}: asked ${m.count}× on Instagram`]),
-    (ideas.searched || []).slice(0, 3).map(m => [m, 'searched', `${m.name}: opened ${m.count}× on the site`]),
-    (ideas.newest || []).slice(0, 2).map(m => [m, 'newest', `${m.name}: a new model${m.year ? ' of ' + m.year : ''}`])
-  );
-  for (const [m, source, why] of models) {
-    const r = await content.groupsOf(m.id).catch(() => null);
-    ((r && r.groups) || []).filter(g => g.count >= 3).slice(0, 2).forEach(g => add(g, source, why));
-  }
-  (ideas.biggest || []).forEach(g => add(g, 'biggest', `One part fits ${g.count} phones`));
+  (ideas.asked || []).forEach(m => add(m.id, m.name, 'asked', `${m.name}: asked ${m.count}× on Instagram`));
+  (ideas.searched || []).forEach(m => add(m.id, m.name, 'searched', `${m.name}: opened ${m.count}× on the site`));
+  (ideas.newest || []).forEach(m => add(m.id, m.name, 'newest', `${m.name}: a new model${m.year ? ' of ' + m.year : ''}`));
+  const big = (ideas.biggest || []).slice(0, 16);
+  const bigGroups = await Promise.all(big.map(g => content.groupOf(g.groupId).catch(() => null)));
+  big.forEach((g, i) => {
+    const group = bigGroups[i];
+    const id = group && content.masterIdOf ? content.masterIdOf(group) : null;
+    if (id) add(id, group.masterModelName || g.master, 'biggest', `One part of it fits ${g.count} phones`);
+  });
+  ((content.latest && content.latest(150)) || []).forEach(m => add(m.id, m.name, 'newest', `${m.name}: a new model${m.year ? ' of ' + m.year : ''}`));
+  const groups = (ideas.biggest || []).map(g => ({ groupId: g.groupId, categoryId: g.categoryId, master: g.master, count: g.count, source: 'biggest', why: `One part fits ${g.count} phones` }));
   const stat = (ideas.biggest || []).filter(g => g.categoryId === 'screen-guards').sort((a, b) => b.count - a.count)[0] || (ideas.biggest || [])[0] || null;
-  const list = { groups: out, stat: stat ? { groupId: stat.groupId, master: stat.master, count: stat.count, categoryId: stat.categoryId } : null };
-  if (out.length) candidateCache = { at: now, list };
+  const list = { masters, groups, stat: stat ? { groupId: stat.groupId, master: stat.master, count: stat.count, categoryId: stat.categoryId } : null };
+  if (masters.length) candidateCache = { at: now, list };
   return list;
 }
 
-/** The next group for a slot: not used, not already in the day, a carousel wants a long list. */
-function pick(groups, taken, kind, dayCats) {
-  const free = groups.filter(g => !taken.has(g.groupId));
-  const fits = g => (kind === 'carousel' ? g.count >= 12 : true);
-  return free.find(g => fits(g) && dayCats.indexOf(g.categoryId) < 0) || free.find(fits) || free[0] || null;
+/**
+ * One master's row, or null when it has too little: the carousel's part
+ * (tempered glass first), the middle single, and the right-hand poster.
+ * @param {object[]} groups  the master's groups, biggest first
+ * @param {Set} used         groups already posted or planned
+ */
+function rowOf(groups, used) {
+  const free = groups.filter(g => g.count >= 2 && !used.has(g.groupId));
+  const glass = free.find(g => g.categoryId === 'screen-guards' && g.count >= 4);
+  const lead = glass || free.find(g => g.count >= 4);
+  if (!lead) return null;
+  const others = free.filter(g => g !== lead && g.categoryId !== lead.categoryId)
+    .filter((g, i, a) => a.findIndex(x => x.categoryId === g.categoryId) === i);
+  const left = { kind: 'carousel', group: lead, also: others.length >= 3 ? others.slice(0, 5) : [] };
+  const middle = others[0] ? { kind: 'single', group: others[0] } : { kind: 'promo' };
+  const right = others.length >= 3 ? { kind: 'combo', group: others[1], also: others.slice(2, 5) }
+    : others.length === 2 ? { kind: 'single', group: others[1] } : { kind: 'promo' };
+  return { lead, others, cells: [right, middle, left] };
 }
 
 /* ------------------------------------------------------------------ plan */
 
-/**
- * Fills the next AHEAD_DAYS days of an account with what is missing. Slots
- * already planned (or posted, or skipped) are left as they are.
- * @returns {Promise<{planned:number, missing:number}>}
- */
-async function plan(deps, account, now) {
-  if (!validAccount(account)) return { planned: 0, missing: 0 };
-  const { db, content } = deps;
-  const today = dayNumber(now);
-  const want = [];
-  for (let d = today; d < today + AHEAD_DAYS; d++) dayPlan(account, d).forEach(s => { if (s.at > now + 10 * 60 * 1000) want.push(s); });
-  if (!want.length) return { planned: 0, missing: 0 };
-  const snaps = await db().getAll(...want.map(s => col(db).doc(s.id)));
-  const have = new Map(snaps.filter(s => s.exists).map(s => [s.id, s.data()]));
-  const missing = want.filter(s => !have.has(s.id));
-  if (!missing.length) return { planned: 0, missing: 0 };
-
-  const settings = await loadSettings(db);
-  const [cands, used] = await Promise.all([candidates(content, now), usedGroups(db, account, settings, now)]);
-  have.forEach(v => { if (v.groupId && v.kind !== 'promo') used.add(v.groupId); });
-  /* the marketing poster's group stays the marketing poster's, so no day shows it twice */
-  if (cands.stat) used.add(cands.stat.groupId);
-  const usedNow = {};
-  let planned = 0;
-  for (const s of missing) {
-    const dayCats = Array.from(have.values()).concat(missing).filter(x => x.day === s.day && x.categoryId).map(x => x.categoryId);
-    let g = null;
-    if (s.kind === 'promo') g = cands.stat;
-    else {
-      g = pick(cands.groups, used, s.kind, dayCats);
-      if (g) { used.add(g.groupId); usedNow[g.groupId] = now; }
-    }
-    if (!g) continue;
-    Object.assign(s, { groupId: g.groupId, categoryId: g.categoryId || null, master: g.master || '', count: g.count || 0,
-      why: s.kind === 'promo' ? 'Sells the ' + (account === 'proglide' ? 'app' : 'website') : g.why || '', source: s.kind === 'promo' ? 'promo' : g.source || '',
-      status: 'planned', createdAt: now });
-    const ok = await col(db).doc(s.id).create(s).then(() => true, () => false);
-    if (ok) planned++;
-  }
-  const patch = { planTry: { [account]: now } };
-  if (Object.keys(usedNow).length) patch.used = { [account]: usedNow };
-  await settingsRef(db).set(patch, { merge: true });
-  return { planned, missing: missing.length };
-}
-
-/* ----------------------------------------------------------------- board */
-
-/** What an account has planned from today on, each slot with its state, and the groups ready to go. */
-async function board(deps, account, now) {
-  if (!validAccount(account)) return null;
-  const { db, content } = deps;
-  const today = dayNumber(now);
-  const ids = [];
-  for (let d = today; d < today + AHEAD_DAYS; d++) dayPlan(account, d).forEach(s => ids.push(s));
-  const [snaps, settings] = await Promise.all([db().getAll(...ids.map(s => col(db).doc(s.id))), loadSettings(db)]);
-  const got = new Map(snaps.filter(s => s.exists).map(s => [s.id, s.data()]));
-  const slots = ids.map(s => Object.assign({}, s, got.get(s.id) || { status: 'open' }));
-
-  let ready = [];
-  let stat = null;
-  let upcoming = [];
-  try {
-    const [cands, used] = await Promise.all([candidates(content, now), usedGroups(db, account, settings, now)]);
-    slots.forEach(s => { if (s.groupId && s.kind !== 'promo') used.add(s.groupId); });
-    ready = cands.groups.filter(g => !used.has(g.groupId) && !(cands.stat && g.groupId === cands.stat.groupId)).slice(0, 18);
-    stat = cands.stat;
-    upcoming = project(account, today + AHEAD_DAYS, ready, stat);
-  } catch (err) {
-    console.warn('[schedule] ready list', err && err.message);
-  }
-  const inUpcoming = new Set(upcoming.map(s => s.groupId));
+/** A slot's look: its row's colour, and designs, words and styles that turn. */
+function looks(account, rowNo, pos, kind) {
+  const off = OFFSET[account] || 0;
+  const P = designs.PALETTES;
+  const D = designs.DESIGNS;
+  const T = promos.TEMPLATES;
+  const K = designs.KEYWORDS;
+  const CT = designs.CTAS;
   return {
-    account, auto: !!settings.auto[account], slots, ready, stat, upcoming,
-    suggest: ready.filter(g => !inUpcoming.has(g.groupId)),
-    rows: designs.PALETTES.map(p => p.id), times: SLOTS.map(s => ({ slot: s.slot, minutes: s.minutes, kind: s.kind, column: s.column }))
+    palette: P[(rowNo + off) % P.length].id,
+    design: kind === 'single' ? D[(rowNo * 2 + off) % D.length].id : kind === 'carousel' ? D[(rowNo * 2 + off + 3) % D.length].id : null,
+    template: null,
+    keyword: account === 'proglide' ? K[(rowNo + pos) % K.length] : null,
+    cta: CT[(rowNo + pos + off) % CT.length]
   };
 }
 
 /**
- * The days after the planned ones, as they will be planned: the ready groups
- * put in the same order plan() takes them, each in its own day's colour, so
- * the owner sees the grid that is coming, not a list. Nothing is stored; when
- * a day comes into the planned window, plan() makes it for real.
+ * Plans the account's week: every day from today to the seventh that has no
+ * slots yet gets its rows. Slots already planned are kept, unless `fresh`,
+ * when every slot still waiting is planned again (and the hours read again).
+ * The whole week is written as one document.
+ * @param {{db:Function, content:object, peak?:Function}} deps
+ * @returns {Promise<{planned:number, days:number, times:number[], source:string}>}
  */
-function project(account, firstDay, ready, stat) {
-  const taken = new Set();
-  const out = [];
-  for (let d = firstDay; d < firstDay + PROJECT_DAYS; d++) {
-    const cats = [];
-    dayPlan(account, d).forEach(s => {
-      const g = s.kind === 'promo' ? stat : pick(ready, taken, s.kind, cats);
-      if (!g) return;
-      if (s.kind !== 'promo') { taken.add(g.groupId); cats.push(g.categoryId); }
-      out.push(Object.assign(s, { groupId: g.groupId, categoryId: g.categoryId || null, master: g.master || '', count: g.count || 0,
-        why: s.kind === 'promo' ? 'Sells the ' + (account === 'proglide' ? 'app' : 'website') : g.why || '', source: s.kind === 'promo' ? 'promo' : g.source || '', status: 'next' }));
+async function plan(deps, account, now, opts = {}) {
+  if (!validAccount(account)) return { planned: 0, days: 0 };
+  const { db, content } = deps;
+  const today = dayNumber(now);
+  const other = ACCOUNTS.find(a => a !== account);
+  const [mineSnap, otherSnap, settings] = await Promise.all([planRef(db, account).get(), planRef(db, other).get(), loadSettings(db)]);
+  const old = mineSnap.exists ? mineSnap.data() : {};
+  const theirs = otherSnap.exists ? otherSnap.data() : {};
+
+  /* the hours: read again with a new week, or when asked */
+  let peak = old.peak && now - (old.peak.at || 0) < PEAK_KEEP_MS && !opts.fresh ? old.peak : null;
+  if (!peak) {
+    const raw = deps.peak ? await deps.peak(account).catch(() => null) : null;
+    const ist = toIndiaHours(raw);
+    peak = { source: ist ? 'followers' : 'usual', hours: blend(ist).map(v => Math.round(v * 100) / 100), at: now };
+  }
+  const times = chooseTimes(peak.hours, account);
+
+  /* keep what has gone out, is going out, or (unless fresh) is still planned */
+  const keep = (old.slots || []).filter(s => s.day >= today - 1 &&
+    (s.status !== 'planned' || !opts.fresh || s.at <= now + LEAD_MS));
+  const daysHave = new Set(keep.filter(s => s.day >= today).map(s => s.day));
+
+  const [cands, used] = await Promise.all([candidates(content, now), usedGroups(db, account, settings, now)]);
+  keep.forEach(s => { if (s.groupId && s.kind !== 'promo') used.add(s.groupId); (s.also || []).forEach(g => used.add(g)); });
+  /* the other account's week: its phones and groups are not this one's */
+  const theirMasters = new Set();
+  (theirs.slots || []).forEach(s => {
+    if (s.masterId) theirMasters.add(s.masterId);
+    if (s.groupId && s.kind !== 'promo') used.add(s.groupId);
+    (s.also || []).forEach(g => used.add(g));
+  });
+  const mineMasters = new Set(keep.map(s => s.masterId).filter(Boolean));
+  if (cands.stat) used.add(cands.stat.groupId);
+  const theirPromos = (theirs.slots || []).filter(s => s.kind === 'promo' && s.status !== 'skipped').map(s => s.at);
+
+  /* the days to plan, and their times */
+  const days = [];
+  for (let d = today; d < today + WEEK_DAYS; d++) {
+    if (daysHave.has(d)) continue;
+    const t = d === today ? todayTimes(times, d, now) : times;
+    if (t.length) days.push({ day: d, times: t });
+  }
+  const rowsWanted = days.reduce((a, d) => a + d.times.length / 3, 0);
+
+  /* the rows: one master each, taken in order of the candidates */
+  /* read a few phones at a time, in candidate order, until the week is full */
+  const rows = [];
+  /* groups read but not in a row: a single in place of marketing that would clash */
+  const spares = cands.groups.slice();
+  const pool = cands.masters.filter(m => !theirMasters.has(m.id) && !mineMasters.has(m.id)).slice(0, rowsWanted * 3 + 20);
+  for (let i = 0; i < pool.length && rows.length < rowsWanted; i += 6) {
+    const batch = pool.slice(i, i + 6);
+    const got = await Promise.all(batch.map(m => content.groupsOf(m.id).catch(() => null)));
+    batch.forEach((m, j) => {
+      ((got[j] && got[j].groups) || []).forEach(g => { if (g.count >= 4) spares.push(Object.assign({ why: m.why, source: m.source }, g)); });
+      if (rows.length >= rowsWanted) return;
+      const row = got[j] && rowOf(got[j].groups || [], used);
+      if (!row) return;
+      [row.lead].concat(row.others).forEach(g => used.add(g.groupId));
+      mineMasters.add(m.id);
+      rows.push(Object.assign(row, { master: m }));
     });
   }
-  return out;
+
+  /* the slots */
+  const usedNow = {};
+  const made = [];
+  let rowAt = 0;
+  let promoTurn = (OFFSET[account] || 0) + today;
+  const T = promos.TEMPLATES;
+  days.forEach(({ day, times: t }) => {
+    const rowsToday = t.length / 3;
+    for (let k = 0; k < rowsToday; k++) {
+      const r = 3 - rowsToday + k;
+      const rowNo = day * 3 + r;
+      const row = rows[rowAt++];
+      if (!row) return;
+      POSITIONS.forEach(({ pos, column }) => {
+        const cell = row.cells[pos];
+        const at = slotAt(day, t[k * 3 + pos]);
+        let kind = cell.kind;
+        let group = cell.group;
+        /* marketing never within the hour of the other account's */
+        if (kind === 'promo' && theirPromos.some(x => Math.abs(x - at) < PROMO_APART_MS)) {
+          const spare = spares.find(g => !used.has(g.groupId));
+          if (spare) { kind = 'single'; group = spare; used.add(spare.groupId); }
+        }
+        if (kind === 'promo' && !cands.stat) return;
+        const look = looks(account, rowNo, pos, kind);
+        if (kind === 'promo') look.template = T[promoTurn++ % T.length].id;
+        const g = kind === 'promo' ? cands.stat : group;
+        const slot = Object.assign({
+          id: idOf(account, day, r * 3 + pos), account, date: dateOf(day), day, i: r * 3 + pos, row: r, rowNo, pos, column, at, kind,
+          groupId: g.groupId, also: (cell.also || []).map(x => x.groupId), categoryId: g.categoryId || null,
+          master: kind === 'promo' ? row.master.name : g.master || row.master.name, masterId: row.master.id, count: g.count || 0,
+          why: kind === 'promo' ? 'Sells the ' + (account === 'proglide' ? 'app' : 'website') : row.master.why || '',
+          source: kind === 'promo' ? 'promo' : row.master.source || '', status: 'planned', createdAt: now
+        }, look);
+        if (kind !== 'promo') usedNow[g.groupId] = now;
+        made.push(slot);
+      });
+    }
+  });
+
+  const slots = keep.concat(made).sort((a, b) => a.at - b.at);
+  const until = slots.reduce((a, s) => Math.max(a, s.day), today - 1);
+  await planRef(db, account).set({
+    account, times, peak, slots, stat: cands.stat || null, align: old.align || {}, builtAt: now, from: today, until
+  });
+  const patch = { planTry: { [account]: now }, next: { [account]: nextDue(slots) }, until: { [account]: until } };
+  if (Object.keys(usedNow).length) patch.used = { [account]: usedNow };
+  await settingsRef(db).set(patch, { merge: true });
+  return { planned: made.length, days: days.length, rows: rows.length, times, source: peak.source };
 }
 
-/** The owner's changes to one planned slot: skip it, or plan another group in it. */
+/* ----------------------------------------------------------------- board */
+
+/** The account's week, slot by slot, the hours it posts in, and groups ready to put in a slot. */
+async function board(deps, account, now) {
+  if (!validAccount(account)) return null;
+  const { db, content } = deps;
+  const [snap, settings] = await Promise.all([planRef(db, account).get(), loadSettings(db)]);
+  const p = snap.exists ? snap.data() : {};
+  const today = dayNumber(now);
+  const slots = (p.slots || []).filter(s => s.day >= today - 1);
+  let ready = [];
+  try {
+    const [cands, used] = await Promise.all([candidates(content, now), usedGroups(db, account, settings, now)]);
+    slots.forEach(s => { if (s.groupId && s.kind !== 'promo') used.add(s.groupId); });
+    ready = cands.groups.filter(g => !used.has(g.groupId) && !(cands.stat && g.groupId === cands.stat.groupId)).slice(0, 18);
+  } catch (err) {
+    console.warn('[schedule] ready list', err && err.message);
+  }
+  return {
+    account, auto: !!settings.auto[account], slots, ready, stat: p.stat || null, upcoming: [], suggest: ready,
+    rows: designs.PALETTES.map(x => x.id), times: (p.times || []).map(m => ({ minutes: m })),
+    peak: p.peak || null, builtAt: p.builtAt || null, until: p.until != null ? dateOf(p.until) : null, next: settings.next[account] || null
+  };
+}
+
+/** Runs fn on the account's plan in a transaction; fn changes the slots and returns a result. */
+async function withPlan(db, account, fn) {
+  const ref = planRef(db, account);
+  return db().runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { none: true };
+    const p = snap.data();
+    const slots = (p.slots || []).map(s => Object.assign({}, s));
+    const out = fn(slots, p);
+    if (out && out.write) {
+      const patch = { slots };
+      if (out.align) patch.align = out.align;
+      tx.update(ref, patch);
+    }
+    return Object.assign({ slots }, out || {});
+  });
+}
+
+const setNext = (db, account, slots) => settingsRef(db).set({ next: { [account]: nextDue(slots) } }, { merge: true });
+
+/** The owner's changes to one planned slot: skip it, plan it again, or put another group in it. */
 async function change(deps, id, op, groupId) {
   const { db } = deps;
-  if (typeof id !== 'string' || !/^(proglide|mpf)_\d{4}-\d{2}-\d{2}_[0-2]$/.test(id)) return { ok: false, error: 'No such slot.' };
-  const ref = col(db).doc(id);
-  const snap = await ref.get();
-  if (!snap.exists) return { ok: false, error: 'That slot is not planned yet.' };
-  const v = snap.data();
-  if (v.status === 'posted' || v.status === 'posting') return { ok: false, error: 'That post is already on Instagram.' };
-  if (op === 'skip') { await ref.update({ status: 'skipped' }); return { ok: true }; }
-  if (op === 'restore') { await ref.update({ status: 'planned' }); return { ok: true }; }
-  if (op === 'group' && v.kind !== 'promo' && typeof groupId === 'string' && /^[a-z]{2}-\d{1,6}$/.test(groupId)) {
+  if (typeof id !== 'string' || !SLOT_ID.test(id)) return { ok: false, error: 'No such slot.' };
+  const account = id.split('_')[0];
+  let patch = null;
+  if (op === 'group') {
+    if (typeof groupId !== 'string' || !/^[a-z]{2}-\d{1,6}$/.test(groupId)) return { ok: false, error: 'No such group.' };
     const g = await deps.content.groupOf(groupId);
     if (!g) return { ok: false, error: 'No such group.' };
-    const cat = require('./poster').categoryOf(groupId);
-    await ref.update({ groupId, categoryId: cat, master: g.masterModelName || '', count: g.members.length, why: 'Chosen by the owner', source: 'owner', status: 'planned' });
-    await settingsRef(db).set({ used: { [v.account]: { [groupId]: Date.now() } } }, { merge: true });
-    return { ok: true };
-  }
-  return { ok: false, error: 'Unknown change.' };
+    patch = { groupId, categoryId: require('./poster').categoryOf(groupId), master: g.masterModelName || '', count: g.members.length,
+      also: [], why: 'Chosen by the owner', source: 'owner', status: 'planned' };
+  } else if (op !== 'skip' && op !== 'restore') return { ok: false, error: 'Unknown change.' };
+  const r = await withPlan(db, account, slots => {
+    const s = slots.find(x => x.id === id);
+    if (!s) return { error: 'That slot is not planned.' };
+    if (s.status === 'posted' || s.status === 'posting') return { error: 'That post is already on Instagram.' };
+    if (op === 'skip') s.status = 'skipped';
+    if (op === 'restore') { s.status = 'planned'; delete s.error; }
+    if (op === 'group') {
+      if (s.kind === 'promo') return { error: 'A marketing slot keeps its poster.' };
+      if (s.kind === 'combo') s.kind = 'single';
+      Object.assign(s, patch);
+    }
+    return { write: true };
+  });
+  if (r.none) return { ok: false, error: 'Nothing is planned yet.' };
+  if (r.error) return { ok: false, error: r.error };
+  await setNext(db, account, r.slots);
+  if (op === 'group') await settingsRef(db).set({ used: { [account]: { [groupId]: Date.now() } } }, { merge: true });
+  return { ok: true };
 }
 
 /* ------------------------------------------------------------------- run */
 
 /**
  * Posts what is due, at most one post a run, on accounts whose auto posting is
- * on; plans ahead when the plan runs short.
- * @param {{db:Function, content:object, publish:Function}} deps
+ * on, and plans a new week when the plan runs short. A run with nothing due
+ * reads one document.
+ * @param {{db:Function, content:object, publish:Function, mediaCount?:Function, peak?:Function}} deps
  */
 async function runDue(deps, now) {
   const { db } = deps;
@@ -296,56 +522,135 @@ async function runDue(deps, now) {
   const on = ACCOUNTS.filter(a => settings.auto[a]);
   if (!on.length) return { ran: false, reason: 'auto posting is off' };
   const today = dayNumber(now);
-  const slots = [];
-  on.forEach(a => [today - 1, today].forEach(d => dayPlan(a, d).forEach(s => slots.push(s))));
-  const snaps = await db().getAll(...slots.map(s => col(db).doc(s.id)));
-  const docs = snaps.filter(s => s.exists).map(s => Object.assign({ id: s.id }, s.data()));
-
-  for (const v of docs) {
-    if (v.status === 'planned' && now - v.at > LATE_MS) await col(db).doc(v.id).update({ status: 'missed' });
-    if (v.status === 'posting' && now - (v.startedAt || 0) > STUCK_MS) {
-      await col(db).doc(v.id).update({ status: 'failed', error: 'Posting did not finish. Check Instagram before posting it again.' });
-    }
-  }
-  const due = docs.filter(v => v.status === 'planned' && v.at <= now && now - v.at <= LATE_MS).sort((a, b) => a.at - b.at)[0];
   let posted = null;
-  if (due) posted = await postSlot(deps, due.id, now);
-
-  /* keep three days planned; tried at most every few hours, as it reads the idea lists */
+  for (const a of on) {
+    const due = settings.next[a];
+    if (due == null || due > now) continue;
+    posted = await runAccount(deps, a, now);
+    if (posted && posted.id) break;
+  }
   const planned = {};
   for (const a of on) {
+    const until = settings.until[a];
+    if (until != null && until >= today + RENEW_DAYS) continue;
     if (now - (settings.planTry[a] || 0) < PLAN_RETRY_MS) continue;
     planned[a] = await plan(deps, a, now).catch(err => ({ error: err.message }));
   }
   return { ran: true, posted, planned };
 }
 
-/** Takes one slot for posting (once), posts it, and records how it went. */
-async function postSlot(deps, id, now) {
+/** The account's due slot: missed and stuck ones marked, then the earliest planned one posted. */
+async function runAccount(deps, account, now) {
   const { db } = deps;
-  const ref = col(db).doc(id);
-  const took = await db().runTransaction(async tx => {
-    const snap = await tx.get(ref);
-    if (!snap.exists || snap.data().status !== 'planned') return null;
-    tx.update(ref, { status: 'posting', startedAt: now });
-    return snap.data();
-  });
-  if (!took) return null;
-  try {
-    const r = await deps.publish({
-      account: took.account, group: took.groupId, kind: took.kind, design: took.design || undefined, palette: took.palette,
-      template: took.template || undefined, keyword: took.keyword || undefined, uid: 'scheduler', scheduleId: id
+  const snap = await planRef(db, account).get();
+  if (!snap.exists) { await setNext(db, account, []); return null; }
+  const p = snap.data();
+  const slots = p.slots || [];
+  const stale = slots.some(s => (s.status === 'planned' && now - s.at > LATE_MS) || (s.status === 'posting' && now - (s.startedAt || 0) > STUCK_MS));
+  let current = slots;
+  if (stale) {
+    const r = await withPlan(db, account, list => {
+      list.forEach(s => {
+        if (s.status === 'planned' && now - s.at > LATE_MS) s.status = 'missed';
+        if (s.status === 'posting' && now - (s.startedAt || 0) > STUCK_MS) {
+          s.status = 'failed';
+          s.error = 'Posting did not finish. Check Instagram before posting it again.';
+        }
+      });
+      return { write: true };
     });
-    if (!r.ok) {
-      await ref.update({ status: 'failed', error: String(r.message || 'not posted').slice(0, 300), endedAt: Date.now() });
-      return { id, ok: false, error: r.message };
-    }
-    await ref.update({ status: 'posted', mediaId: r.mediaId, permalink: r.permalink || null, postedAt: Date.now() });
-    return { id, ok: true, mediaId: r.mediaId };
-  } catch (err) {
-    await ref.update({ status: 'failed', error: String(err.message || err).slice(0, 300), endedAt: Date.now() });
-    return { id, ok: false, error: err.message };
+    current = r.slots || slots;
   }
+  const due = current.filter(s => s.status === 'planned' && s.at <= now).sort((a, b) => a.at - b.at)[0];
+  if (!due) { await setNext(db, account, current); return null; }
+
+  /* a row's first post: bring the grid back to threes first, when it is off */
+  if (due.pos === 0 && !due.aligned && deps.mediaCount) {
+    const fill = await fillersFor(deps, account, p, now).catch(() => null);
+    if (fill && fill.need > 0 && (due.fillers || 0) < MAX_FILLERS) return postFiller(deps, account, due, p, now);
+    return postSlot(deps, due.id, now, fill ? fill.count : null);
+  }
+  return postSlot(deps, due.id, now, null);
+}
+
+/**
+ * How many posts the grid needs before a new row: the media count against the
+ * count at the last row's start. The first time, the rows of the old
+ * schedule (one row a day) tell where the grid stands.
+ */
+async function fillersFor(deps, account, p, now) {
+  const count = await deps.mediaCount(account);
+  if (!(count >= 0)) return null;
+  const align = p.align || {};
+  if (typeof align.base === 'number') {
+    const off = ((count - (align.base + 3)) % 3 + 3) % 3;
+    return { count, need: (3 - off) % 3 };
+  }
+  const snap = await deps.db().collection(C.CONTENT_POSTS).orderBy('at', 'desc').limit(30).get().catch(() => ({ docs: [] }));
+  const mine = snap.docs.map(d => d.data()).filter(v => v.account === account);
+  const lastOld = mine.findIndex(v => /_\d{4}-\d{2}-\d{2}_[0-2]$/.test(String(v.scheduleId || '')));
+  if (lastOld < 0) return { count, need: 0 };
+  const k = Number(String(mine[lastOld].scheduleId).slice(-1));
+  const into = (k + 1 + lastOld) % 3;
+  return { count, need: (3 - into) % 3 };
+}
+
+/** A marketing poster that only evens the grid; the row's slot waits for the next run. */
+async function postFiller(deps, account, due, p, now) {
+  const { db } = deps;
+  const stat = p.stat;
+  if (!stat) return postSlot(deps, due.id, now, null);
+  const T = promos.TEMPLATES;
+  const template = T[((due.rowNo || 0) + (due.fillers || 0) + 2) % T.length].id;
+  const r = await deps.publish({
+    account, group: stat.groupId, kind: 'promo', palette: due.palette, template, keyword: account === 'proglide' ? 'LINK' : undefined,
+    cta: designs.CTAS[((due.rowNo || 0) + 1) % designs.CTAS.length], uid: 'scheduler', scheduleId: due.id + '_fill',
+    meta: { filler: true, row: due.rowNo, column: 'filler' }
+  }).catch(err => ({ ok: false, message: err.message }));
+  await withPlan(db, account, slots => {
+    const s = slots.find(x => x.id === due.id);
+    if (s) s.fillers = (s.fillers || 0) + 1;
+    return { write: true };
+  });
+  return { id: due.id + '_fill', ok: !!r.ok, filler: true, mediaId: r.mediaId, error: r.ok ? undefined : r.message };
+}
+
+/** Takes one slot for posting (once), posts it, and records how it went. */
+async function postSlot(deps, id, now, alignBase) {
+  const { db } = deps;
+  if (typeof id !== 'string' || !SLOT_ID.test(id)) return null;
+  const account = id.split('_')[0];
+  const took = await withPlan(db, account, (slots, p) => {
+    const s = slots.find(x => x.id === id);
+    if (!s || s.status !== 'planned') return { took: null };
+    s.status = 'posting';
+    s.startedAt = now;
+    s.aligned = true;
+    const out = { took: Object.assign({}, s), write: true };
+    if (s.pos === 0 && typeof alignBase === 'number') out.align = { base: alignBase, at: now };
+    return out;
+  });
+  if (!took || !took.took) return null;
+  const s = took.took;
+  let r;
+  try {
+    r = await deps.publish({
+      account: s.account, group: s.groupId, kind: s.kind, design: s.design || undefined, palette: s.palette,
+      template: s.template || undefined, keyword: s.keyword || undefined, cta: s.cta || undefined, also: s.also || [],
+      uid: 'scheduler', scheduleId: id, meta: { row: s.rowNo, column: s.column, master: s.master, masterId: s.masterId || null }
+    });
+  } catch (err) {
+    r = { ok: false, message: err.message || String(err) };
+  }
+  const done = await withPlan(db, account, slots => {
+    const x = slots.find(y => y.id === id);
+    if (!x) return {};
+    if (r.ok) Object.assign(x, { status: 'posted', mediaId: r.mediaId, permalink: r.permalink || null, postedAt: Date.now() });
+    else Object.assign(x, { status: 'failed', error: String(r.message || 'not posted').slice(0, 300), endedAt: Date.now() });
+    return { write: true };
+  });
+  await setNext(db, account, done.slots || []);
+  return r.ok ? { id, ok: true, mediaId: r.mediaId } : { id, ok: false, error: r.message };
 }
 
 /** The live services, for the runner on the reply bot's poll and for the admin page. */
@@ -353,12 +658,20 @@ function liveDeps() {
   const { db } = require('../../_lib/firebase');
   const content = require('./service');
   const publisher = require('./publish');
-  return { db, content, publish: o => publisher.publish(o) };
+  return {
+    db, content,
+    publish: o => publisher.publish(o),
+    mediaCount: a => publisher.mediaCount(a),
+    peak: a => publisher.onlineFollowers(a)
+  };
 }
 
+/* The old three-a-day times, for the templates view's legend */
+const SLOTS = POSITIONS.map(x => ({ slot: x.pos, column: x.column, kind: x.pos === 2 ? 'carousel' : x.pos === 1 ? 'single' : 'combo' }));
+
 module.exports = {
-  liveDeps, ACCOUNTS, SLOTS, STATUSES, AHEAD_DAYS, LATE_MS,
-  dayNumber, dateOf, slotAt, idOf, rowPalette, dayPlan, pick,
-  loadSettings, setAuto, candidates, plan, board, change, runDue, postSlot,
+  liveDeps, ACCOUNTS, SLOTS, STATUSES, WEEK_DAYS, PER_DAY, LATE_MS, INDIA_DAY,
+  dayNumber, dateOf, slotAt, idOf, toIndiaHours, blend, chooseTimes, todayTimes, rowOf, looks,
+  loadSettings, setAuto, candidates, plan, board, change, runDue, runAccount, postSlot, nextDue,
   _reset: () => { candidateCache = null; }
 };

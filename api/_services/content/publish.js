@@ -60,7 +60,8 @@ function urlKey() {
   const t = token();
   return t ? crypto.createHmac('sha256', t).update('mpf-poster-url-v1').digest() : null;
 }
-const FIELDS = ['g', 'k', 's', 'd', 'p', 'b', 't', 'w', 'e'];
+const FIELDS = ['g', 'k', 's', 'd', 'p', 'b', 't', 'w', 'a', 'c', 'e'];
+const KINDS = ['single', 'carousel', 'promo', 'combo'];
 const canonical = q => FIELDS.map(f => f + '=' + String(q[f] == null ? '' : q[f])).join('&');
 
 /** The public address of one poster picture, good for URL_TTL_MS. */
@@ -70,6 +71,8 @@ function imageUrl(o, now = Date.now()) {
   const q = { g: o.groupId, k: o.kind, s: o.slide || 0, d: o.design || '', p: o.palette || '', b: o.brand };
   if (o.template) q.t = o.template;
   if (o.keyword) q.w = o.keyword;
+  if (o.also && o.also.length) q.a = o.also.join('.');
+  if (o.cta) q.c = o.cta;
   q.e = (now + URL_TTL_MS).toString(36);
   q.sig = crypto.createHmac('sha256', key).update(canonical(q)).digest('hex').slice(0, 32);
   return SITE + '/api/poster?' + Object.keys(q).map(k => k + '=' + encodeURIComponent(q[k])).join('&');
@@ -82,9 +85,11 @@ function verify(q, now = Date.now()) {
   const want = crypto.createHmac('sha256', key).update(canonical(q)).digest('hex').slice(0, 32);
   if (want.length !== q.sig.length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(q.sig))) return null;
   if (!(parseInt(String(q.e), 36) > now)) return null;
-  const out = { groupId: String(q.g), kind: q.k === 'carousel' || q.k === 'promo' ? q.k : 'single', slide: Number(q.s) || 0, design: q.d || undefined, palette: q.p || undefined, brand: String(q.b) };
+  const out = { groupId: String(q.g), kind: KINDS.indexOf(q.k) > -1 ? q.k : 'single', slide: Number(q.s) || 0, design: q.d || undefined, palette: q.p || undefined, brand: String(q.b) };
   if (q.t) out.template = String(q.t);
   if (q.w) out.keyword = String(q.w);
+  if (q.a) out.also = String(q.a).split('.');
+  if (q.c) out.cta = String(q.c);
   return out;
 }
 
@@ -136,44 +141,52 @@ const ALSO = {
   'screen-guards': 'screen guard', 'back-cover': 'back case', 'combo-display': 'combo LCD', 'middle-frame': 'housing frame',
   'cc-board': 'charging board', battery: 'battery replacement', 'button-flex': 'power button flex', 'sim-tray': 'SIM card tray'
 };
-const TAGS = {
-  'screen-guards': '#temperedglass #screenguard #screenprotector',
-  'back-cover': '#backcover #mobilecover #phonecase',
-  'combo-display': '#combodisplay #mobiledisplay #displayreplacement',
-  'middle-frame': '#middleframe #mobilespares',
-  'cc-board': '#ccboard #chargingboard #mobilespares',
-  battery: '#mobilebattery #batteryreplacement',
-  'button-flex': '#buttonflex #mobilespares',
-  'sim-tray': '#simtray #mobilespares'
+/* Instagram takes at most five hashtags a post, so each is chosen: the phone,
+   the phone with the part (what a shop types), the part, the trade, the brand.
+   The words people search for go in the caption's text instead, where
+   Instagram's search reads them. */
+const PART_TAG = {
+  'screen-guards': 'temperedglass', 'back-cover': 'backcover', 'combo-display': 'combodisplay', 'middle-frame': 'middleframe',
+  'cc-board': 'ccboard', battery: 'mobilebattery', 'button-flex': 'buttonflex', 'sim-tray': 'simtray'
 };
+const tagOf = text => String(text || '').toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '');
 
-/** A caption from the group itself: what fits, every model by brand, and the way in. */
-function captionFor(group, brandOf, brandId, keyword) {
-  const category = poster.categoryOf(group.groupId);
-  const part = poster.PARTS[category];
-  const master = group.masterModelName || (group.members[0] || {}).name || '';
-  const n = group.members.length;
+/** Five hashtags for a post about one phone's part. */
+function hashtags(master, category, brandId) {
+  const phone = tagOf(master);
+  const part = PART_TAG[category] || 'mobilespares';
+  const list = [phone && '#' + phone, phone && '#' + phone + part.replace(/^mobile/, ''), '#' + part,
+    brandId === 'mpf' ? '#mobilespareparts' : '#mobileshop', brandId === 'mpf' ? '#mobilepartsfinder' : '#proglide'];
+  return Array.from(new Set(list.filter(Boolean))).slice(0, 5).join(' ');
+}
+
+/* a few ways to open, turned by the group so the feed does not repeat itself;
+   ProGlide talks to the shop counter, Mobile Parts Finder to the searcher */
+const HOOKS = {
+  proglide: [
+    (m, w, n) => `${m} ${w}: one ${w} fits ${n} phones ✅`,
+    (m, w, n) => `Same ${w} for ${n} phones, starting with the ${m} 📦`,
+    (m, w, n) => `Stock one ${w}, sell it for ${n} models: the ${m} list ✅`
+  ],
+  mpf: [
+    (m, w, n) => `Which phones take the same ${w} as the ${m}? ${n} of them 🔎`,
+    (m, w, n) => `${m} ${w} compatible models: the full list of ${n} 📱`,
+    (m, w, n) => `Looking for a ${m} ${w}? These ${n} phones share it 🔎`
+  ]
+};
+const turn = (id, n) => String(id).split('').reduce((a, c) => a + c.charCodeAt(0), 0) % n;
+
+/** Every model by brand, as long as the caption has room. */
+function modelLines(group, brandOf, room, mpf) {
   const brands = new Map();
   group.members.forEach(m => {
     const b = brandOf(m) || m.name.split(' ')[0];
     if (!brands.has(b)) brands.set(b, []);
     brands.get(b).push(m.name.toLowerCase().indexOf(b.toLowerCase() + ' ') === 0 ? m.name.slice(b.length + 1) : m.name);
   });
-  const mpf = brandId === 'mpf';
-  /* The first line is what Instagram shows and what a search engine takes as the
-     title, so it says what someone would type: the phone, the part, "compatible". */
-  const head = `${master} ${part.word} compatible models: one ${part.word} fits ${n} phones ✅\n` +
-    `Which phones take the same ${part.word} as the ${master}? All ${n} below. Stock one, serve many customers, and check before you buy.`;
-  const way = mpf
-    ? `🔎 See every compatible part of any phone, free: mobilepartsfinder.com (link in bio)`
-    : `📲 Comment ${keyword || 'LINK'} and we DM you the free ProGlide app${part.price ? '\n💰 Comment 9H for the wholesale price' : ''}`;
-  const search = 'For mobile shop owners, repair technicians and accessory sellers, anywhere in the world.\n' +
-    `${master} ${part.word} · ${master} ${ALSO[category] || part.word} compatible · same ${part.word} models · ${part.word} compatibility list`;
-  const tags = `${TAGS[category] || '#mobilespares'} #mobileshop #mobilerepair` + (mpf ? ' #mobilepartsfinder' : ' #proglide');
-  const room = CAPTION_MAX - head.length - way.length - search.length - tags.length - 40;
   const lines = [];
   let used = 0;
-  let left = n;
+  let left = group.members.length;
   for (const [b, models] of Array.from(brands.entries()).sort((x, y) => y[1].length - x[1].length)) {
     const text = `${b}: ${models.join(', ')}`;
     if (used + text.length + 1 > room) break;
@@ -182,7 +195,55 @@ function captionFor(group, brandOf, brandId, keyword) {
     left -= models.length;
   }
   if (left > 0) lines.push(`+ ${left} more ${mpf ? 'on the website' : 'in the app'}`);
-  return [head, lines.join('\n'), way, search, tags].join('\n\n');
+  return lines.join('\n');
+}
+
+/** A caption from the group itself: what fits, every model by brand, and the way in. */
+function captionFor(group, brandOf, brandId, keyword, also) {
+  const category = poster.categoryOf(group.groupId);
+  const part = poster.PARTS[category];
+  const master = group.masterModelName || (group.members[0] || {}).name || '';
+  const n = group.members.length;
+  const mpf = brandId === 'mpf';
+  /* The first line is what Instagram shows and what search takes as the
+     title, so it says what someone would type: the phone, the part, "compatible". */
+  const hooks = HOOKS[mpf ? 'mpf' : 'proglide'];
+  const head = hooks[turn(group.groupId, hooks.length)](master, part.word, n) + '\n' +
+    (mpf ? `Check before you buy: every phone below takes the same ${part.word} as the ${master}.`
+      : `Check before you order: every phone below takes the same ${part.word} as the ${master}. Stock one, serve many customers.`);
+  const swipe = (also || []).length
+    ? '➡️ Swipe for the ' + master + "'s " + also.map(g => (poster.PARTS[poster.categoryOf(g.groupId)] || {}).word).filter(Boolean).join(', ') + ' too.'
+    : '';
+  const way = mpf
+    ? `🔎 Any phone's compatible parts, free: mobilepartsfinder.com (link in bio)`
+    : `📲 Comment ${keyword || 'LINK'} and we DM you the free ProGlide app${part.price ? '\n💰 Comment 9H for the wholesale price' : ''}`;
+  const search = (mpf ? 'For mobile shops, repair technicians and anyone fixing a phone.\n' : 'For mobile shop owners, repair technicians and accessory sellers.\n') +
+    `${master} ${part.word} · ${master} ${ALSO[category] || part.word} compatible · same ${part.word} models · ${part.word} compatibility list`;
+  const tags = hashtags(master, category, brandId);
+  const room = CAPTION_MAX - head.length - swipe.length - way.length - search.length - tags.length - 40;
+  return [head, swipe, modelLines(group, brandOf, room, mpf), way, search, tags].filter(Boolean).join('\n\n');
+}
+
+/** A combo poster's caption: one phone, each of its parts with the phones that share it. */
+function comboCaption(groups, brandOf, brandId, keyword) {
+  const first = groups[0];
+  const master = first.masterModelName || (first.members[0] || {}).name || '';
+  const mpf = brandId === 'mpf';
+  const words = groups.map(g => (poster.PARTS[poster.categoryOf(g.groupId)] || {}).word).filter(Boolean);
+  const head = (mpf ? `${master} spare parts: which phones share each one 🔎` : `${master} parts compatibility: ${words.length} parts, every phone that shares them 🛠️`) +
+    `\n${words.join(', ').replace(/^./, c => c.toUpperCase())}: check the list before you order.`;
+  const way = mpf
+    ? `🔎 Every part of any phone, free: mobilepartsfinder.com (link in bio)`
+    : `📲 Comment ${keyword || 'LINK'} and we DM you the free ProGlide app`;
+  const search = `${master} ${words.join(' · ' + master + ' ')} · compatible models`;
+  const tags = hashtags(master, poster.categoryOf(first.groupId), brandId);
+  const room = Math.floor((CAPTION_MAX - head.length - way.length - search.length - tags.length - 60) / groups.length);
+  const parts = groups.map(g => {
+    const word = (poster.PARTS[poster.categoryOf(g.groupId)] || {}).word || 'part';
+    const t = `🔧 ${word[0].toUpperCase() + word.slice(1)} · fits ${g.members.length} phones\n`;
+    return t + modelLines(g, brandOf, room - t.length, mpf);
+  });
+  return [head, parts.join('\n\n'), way, search, tags].join('\n\n');
 }
 
 /** A marketing poster's caption: what the app or site does, in plain English, and the way in. */
@@ -201,7 +262,8 @@ function promoCaption(template, group, brandId, keyword, models) {
   };
   const way = mpf ? '🔗 Search free at mobilepartsfinder.com (link in bio)' : `💬 Comment ${keyword || 'LINK'} and get the app link in your DM`;
   const search = 'Mobile spare parts compatibility · same tempered glass models · compatible back cover list · tool for mobile shops';
-  const tags = '#mobileshop #mobilerepair #spareparts #temperedglass #mobileaccessories' + (mpf ? ' #mobilepartsfinder' : ' #proglide');
+  const tags = mpf ? '#mobilepartsfinder #mobilespareparts #mobilerepair #temperedglass #phonerepair'
+    : '#proglide #mobileshop #mobileaccessories #temperedglass #mobilerepair';
   return [heads[template] || heads.search, 'Made for mobile shop owners, repair technicians and accessory sellers, anywhere in the world.', way, search, tags].join('\n\n');
 }
 
@@ -232,18 +294,24 @@ async function publish(o, deps = {}) {
   if (!token()) return { ok: false, code: 'unconfigured', message: 'INSTAGRAM_PUBLISH_ACCESS_TOKEN is not set in Vercel.' };
   const ig = acct.igUserId();
   if (!ig) return { ok: false, code: 'unconfigured', message: `No Instagram account id for ${acct.label}.` };
-  const kind = o.kind === 'carousel' || o.kind === 'promo' ? o.kind : 'single';
+  const kind = KINDS.indexOf(o.kind) > -1 ? o.kind : 'single';
   const group = await content.groupOf(o.group);
   if (!group) return { ok: false, code: 'missing', message: 'No such group.' };
+  /* the master's other parts: a combo poster's, a carousel's extra slides */
+  const alsoIds = (Array.isArray(o.also) ? o.also : []).filter(id => /^[a-z]{2}-\d{1,6}$/.test(String(id)) && id !== group.groupId).slice(0, 5);
+  const also = kind === 'combo' || kind === 'carousel' ? (await Promise.all(alsoIds.map(id => content.groupOf(id).catch(() => null)))).filter(Boolean) : [];
+  const cta = ['bar', 'sticker', 'stripe'].indexOf(o.cta) > -1 ? o.cta : undefined;
   /* a comment word only where the reply bot answers it: the ProGlide account */
   const keyword = acct.brand === 'proglide' && poster.KEYWORDS.indexOf(o.keyword) > -1 ? o.keyword : undefined;
   const template = kind === 'promo' ? (poster.PROMOS.find(t => t.id === o.template) || poster.PROMOS[0]).id : undefined;
   const caption = String(o.caption || '').trim().slice(0, CAPTION_MAX) || (kind === 'promo'
     ? promoCaption(template, group, acct.brand, keyword, o.models || content.modelCount())
-    : captionFor(group, content.brandOf, acct.brand, keyword));
-  const first = await content.picture(group.groupId, { kind, slide: 0, design: o.design, palette: o.palette, brand: acct.brand, template, keyword });
+    : kind === 'combo' ? comboCaption([group].concat(also), content.brandOf, acct.brand, keyword)
+      : captionFor(group, content.brandOf, acct.brand, keyword, kind === 'carousel' ? also : []));
+  const alsoUsed = also.map(g => g.groupId);
+  const first = await content.picture(group.groupId, { kind, slide: 0, design: o.design, palette: o.palette, brand: acct.brand, template, keyword, also: alsoUsed, cta });
   const slides = kind === 'carousel' ? Math.min(first.slides, 10) : 1;
-  const base = { groupId: group.groupId, kind, design: o.design, palette: o.palette, brand: acct.brand, template, keyword };
+  const base = { groupId: group.groupId, kind, design: o.design, palette: o.palette, brand: acct.brand, template, keyword, also: alsoUsed, cta };
   const f = deps.fetch;
 
   let creation;
@@ -261,11 +329,44 @@ async function publish(o, deps = {}) {
 
   const record = {
     account: acct.id, groupId: group.groupId, kind, slides, design: o.design || null, palette: o.palette || null,
-    template: template || null, keyword: keyword || null, scheduleId: o.scheduleId || null,
+    template: template || null, keyword: keyword || null, scheduleId: o.scheduleId || null, also: alsoUsed, cta: cta || null,
+    row: o.meta && o.meta.row != null ? o.meta.row : null, column: (o.meta && o.meta.column) || null,
+    master: (o.meta && o.meta.master) || group.masterModelName || null, filler: !!(o.meta && o.meta.filler),
     caption, mediaId: posted.id, permalink: info.permalink || null, at: Date.now(), by: o.uid || null
   };
   await (deps.db || db)().collection(C.CONTENT_POSTS).doc(String(posted.id)).set(record).catch(err => console.warn('[publish] record', err && err.message));
   return { ok: true, mediaId: posted.id, permalink: record.permalink, slides };
+}
+
+/** The account's post count, as the profile shows it; null when it cannot be read. */
+async function mediaCount(account, deps = {}) {
+  const acct = ACCOUNTS[account];
+  const ig = acct && acct.igUserId();
+  if (!ig || !token()) return null;
+  const r = await graph('GET', ig, { fields: 'media_count' }, deps.fetch).catch(() => null);
+  return r && typeof r.media_count === 'number' ? r.media_count : null;
+}
+
+/**
+ * How many followers are online in each hour, Instagram's own hours 0..23, or
+ * null when Instagram has no such numbers for the account (too few followers,
+ * or no insights permission).
+ */
+async function onlineFollowers(account, deps = {}) {
+  const acct = ACCOUNTS[account];
+  const ig = acct && acct.igUserId();
+  if (!ig || !token()) return null;
+  const r = await graph('GET', `${ig}/insights`, { metric: 'online_followers', period: 'lifetime' }, deps.fetch).catch(() => null);
+  const values = r && r.data && r.data[0] && r.data[0].values;
+  if (!Array.isArray(values) || !values.length) return null;
+  /* the days it gives, added up hour by hour */
+  const hours = new Array(24).fill(0);
+  let any = false;
+  values.forEach(v => Object.keys(v.value || {}).forEach(h => {
+    const i = Number(h);
+    if (i >= 0 && i < 24) { hours[i] += Number(v.value[h]) || 0; any = true; }
+  }));
+  return any ? hours : null;
 }
 
 /** What the token reaches: per account, its username and how many posts are left today. */
@@ -299,4 +400,4 @@ async function recent(limit = 12) {
   });
 }
 
-module.exports = { ACCOUNTS, imageUrl, verify, captionFor, promoCaption, publish, check, recent, graph, token, URL_TTL_MS };
+module.exports = { ACCOUNTS, imageUrl, verify, captionFor, promoCaption, comboCaption, hashtags, publish, check, recent, graph, token, mediaCount, onlineFollowers, URL_TTL_MS };

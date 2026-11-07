@@ -32,8 +32,14 @@ const d = require('./draw');
 const { W, H, line, fit, wrap, clip, width, image, gradient, tint, asset } = d;
 
 const M = 56;
-const FOOT = 200;
+const FOOT = 250;
+/* the strip at the very bottom: Instagram's own bar may sit on it, so it holds
+   only colour and the account's handle, never the way in */
+const SAFE = 84;
 const BOTTOM = H - FOOT - 16;
+/* the height of the top stripe, when a poster wears its call to action there */
+const STRIPE = 104;
+const HANDLES = { proglide: '@proglide_9h_screenguard', mpf: '@mobilepartsfinder' };
 
 const PALETTES = [
   { id: 'royal', name: 'Royal blue', primary: '#5B2EE8', primary2: '#2F7BFF', accent: '#FFC531', hot: '#FF3D6E',
@@ -74,8 +80,23 @@ const ICONS = {
   target: ['stroke', 'M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18z M12 7.5a4.5 4.5 0 1 1 0 9a4.5 4.5 0 1 1 0-9z M12 11a1 1 0 1 1 0 2a1 1 0 1 1 0-2z'],
   box: ['stroke', 'M3 7.5L12 3l9 4.5v9L12 21l-9-4.5z M3 7.5L12 12l9-4.5 M12 12v9'],
   stack: ['stroke', 'M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3z M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6 M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6'],
-  arrow: ['stroke', 'M4 12h15 M13 6l6 6-6 6']
+  arrow: ['stroke', 'M4 12h15 M13 6l6 6-6 6'],
+  star: ['fill', 'M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z'],
+  /* the parts, after the app's own category icons */
+  shield: ['stroke', 'M12 2.5l8 3v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10v-6z'],
+  layers: ['stroke', 'M12 3l9 5-9 5-9-5z M3 13l9 5 9-5'],
+  phone: ['stroke', 'M7.5 2.5h9a2 2 0 0 1 2 2v15a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2z M10.5 18.5h3'],
+  frame: ['stroke', 'M6 3h12v18H6z'],
+  chip: ['stroke', 'M7 7h10v10H7z M9.5 3v4 M14.5 3v4 M9.5 17v4 M14.5 17v4 M3 9.5h4 M3 14.5h4 M17 9.5h4 M17 14.5h4'],
+  battery: ['fill', 'M9.5 1.5h5v2h2A1.5 1.5 0 0 1 18 5v15.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 20.5V5a1.5 1.5 0 0 1 1.5-1.5h2z M12.8 7.5L9 13.5h2.6l-.9 4.5 3.9-6.2H12z'],
+  flex: ['stroke', 'M4 6h6v4h4v4h6 M4 6v3 M20 14v4'],
+  tray: ['stroke', 'M4 8h16v8H4z M7 11h4']
 };
+const PART_ICON = {
+  'screen-guards': 'shield', 'back-cover': 'layers', 'combo-display': 'phone', 'middle-frame': 'frame',
+  'cc-board': 'chip', battery: 'battery', 'button-flex': 'flex', 'sim-tray': 'tray'
+};
+const partIcon = (category, x, y, size, color) => icon(PART_ICON[category] || 'box', x, y, size, color);
 function icon(name, x, y, size, color) {
   const [mode, path] = ICONS[name];
   const k = size / 24;
@@ -116,9 +137,15 @@ const KEYWORDS = ['LINK', 'PROGLIDE', 'TOOL'];
 const chipOf = ctx => (ctx.brand.keyword ? `Comment "${ctx.keyword || 'LINK'}"` : ctx.brand.chip);
 
 /** The logo and the name, small, at the top of a design. */
+/** The account's logo in a white disc with a coloured ring. */
+function disc(ctx, cx, cy, r, ring) {
+  return `<circle cx="${cx}" cy="${cy}" r="${r + 4}" fill="${ring || ctx.pal.accent}"/><circle cx="${cx}" cy="${cy}" r="${r}" fill="#FFFFFF"/>` +
+    image(asset(ctx.brand.logo), cx - r * 0.8, cy - r * 0.8, r * 1.6, r * 1.6, { rx: r * 0.8 });
+}
+
 function mark(ctx, x, y, color, sub, subColor) {
   const b = ctx.brand;
-  return image(asset(b.logo), x, y, 60, 60, { rx: 12 }) +
+  return disc(ctx, x + 30, y + 32, 28) +
     line(x + 74, y + 40, b.name, fit(b.name, 520, { size: 30, font: 'archivo', fill: color, spacing: 1 })) +
     (sub ? line(x + 76, y + 70, sub, { size: 17, weight: 700, fill: subColor || color, spacing: 4 }) : '');
 }
@@ -126,34 +153,190 @@ function mark(ctx, x, y, color, sub, subColor) {
 /** The part: the owner's AI picture when there is one, else the cut-out on white. */
 function hero(ctx, x, y, w, h, rx, frame) {
   const back = frame ? rect(x - frame, y - frame, w + 2 * frame, h + 2 * frame, '#FFFFFF', rx + frame) : '';
+  if (ctx.phone && ctx.category === 'screen-guards') return back + rect(x, y, w, h, '#FFFFFF', rx) + glassOver(ctx, x, y, w, h);
   if (ctx.pic) return back + image(ctx.pic, x, y, w, h, { rx, fit: 'slice' });
   const pad = Math.round(Math.min(w, h) * 0.08);
-  return back + rect(x, y, w, h, '#FFFFFF', rx) + image(ctx.cutout, x + pad, y + pad, w - 2 * pad, h - 2 * pad);
+  if (!ctx.phone) return back + rect(x, y, w, h, '#FFFFFF', rx) + image(ctx.cutout, x + pad, y + pad, w - 2 * pad, h - 2 * pad);
+  /* the part large, the phone it is for small at its foot */
+  const ph = ctx.phone;
+  const tw = w * 0.34, th = Math.min(h * 0.42, tw * ph.h / ph.w);
+  const tws = th * ph.w / ph.h;
+  return back + rect(x, y, w, h, '#FFFFFF', rx) + image(ctx.cutout, x + pad, y + pad, w - 2 * pad, h - 2 * pad - th * 0.35) +
+    image(ph.uri, x + w - tws - pad * 0.6, y + h - th - pad * 0.6, tws, th);
 }
 
-/* ----------------------------------------------------------------- footer */
+/**
+ * A full-cover tempered glass over the master's own phone: black edge to edge,
+ * the glass sheet lifted off the screen, a shine across it.
+ */
+function glassOver(ctx, x, y, w, h) {
+  const ph = ctx.phone;
+  const k = Math.min((w * 0.62) / ph.w, (h * 0.84) / ph.h);
+  const pw = ph.w * k, phh = ph.h * k;
+  const px = x + w * 0.05, py = y + (h - phh) / 2 + h * 0.03;
+  const gw = Math.min(w * 0.5, phh * 0.49), gh = gw * 2.05;
+  const gx = x + w - gw - w * 0.07, gy = y + (h - gh) / 2 - h * 0.02;
+  const r = gw * 0.13;
+  const edge = Math.max(6, gw * 0.055);
+  const label = 'FULL COVER';
+  return image(ph.uri, px, py, pw, phh) +
+    rect(gx + 10, gy + 14, gw, gh, '#000000', r, ' opacity=".16"') +
+    rect(gx, gy, gw, gh, '#EEF4FA', r, ' opacity=".82"') +
+    `<polygon points="${gx + gw * 0.12},${gy + gh * 0.05} ${gx + gw * 0.62},${gy + gh * 0.05} ${gx + gw * 0.16},${gy + gh * 0.62} ${gx + gw * 0.06},${gy + gh * 0.62}" fill="#FFFFFF" opacity=".75"/>` +
+    `<rect x="${gx + edge / 2}" y="${gy + edge / 2}" width="${gw - edge}" height="${gh - edge}" rx="${r - edge / 2}" fill="none" stroke="#0B0B10" stroke-width="${edge}"/>` +
+    rect(gx + gw / 2 - gw * 0.13, gy + edge + gw * 0.04, gw * 0.26, gw * 0.06, '#0B0B10', gw * 0.03) +
+    rect(gx + gw / 2 - gw * 0.42, gy + gh - edge - gw * 0.24, gw * 0.84, gw * 0.17, ctx.pal.dark, gw * 0.085) +
+    line(gx + gw / 2, gy + gh - edge - gw * 0.115, label, fit(label, gw * 0.74, { size: Math.round(gw * 0.11), font: 'archivo', fill: '#FFFFFF', anchor: 'middle' }));
+}
+
+/* ----------------------------------------------------------------- footer
+   Three ways to ask for the comment, so the grid does not repeat one bar:
+
+     bar      the full call to action across the foot of the poster
+     sticker  a round sticker at the right of the foot
+     stripe   a stripe across the top of the poster (framed() moves the design
+              down to make room), the foot then shows the rating
+
+   The account's logo and name, Google's Play badge and the store's own rating
+   (or the website, for Mobile Parts Finder) are on every one. */
+const CTAS = ['bar', 'sticker', 'stripe'];
+
+function callWords(ctx) {
+  const b = ctx.brand;
+  if (b.keyword) {
+    return { lead: 'COMMENT', word: ctx.keyword || 'LINK', rest: ctx.part && ctx.part.price ? 'app link in DM  •  9H for price' : 'get the app link in your DM', small: 'for the app link' };
+  }
+  return { lead: 'SEARCH', word: 'FREE', rest: 'any phone at mobilepartsfinder.com', small: 'any phone, any part' };
+}
+
+/** The store's rating as a pill: ★ 4.2 · 10K+ downloads; for the website, what it holds. */
+function ratingPill(ctx, x, y, h, maxW) {
+  const p = ctx.pal;
+  const pl = ctx.play;
+  const n = ctx.models >= 100 ? Math.floor(ctx.models / 100) * 100 : 0;
+  const big = ctx.brand.play ? (pl ? pl.rating.toFixed(1) : '') : 'FREE';
+  const small = ctx.brand.play ? (pl ? (pl.downloads ? pl.downloads + ' downloads' : 'on Google Play') : '') : (n ? n.toLocaleString('en-US') + '+ phone models' : 'every phone model');
+  if (!big) return { svg: '', w: 0 };
+  const bigO = { size: Math.round(h * 0.56), font: 'archivo', fill: p.ink };
+  const smallO = fit(small, maxW - 140, { size: Math.round(h * 0.4), weight: 700, fill: p.dim });
+  const star = ctx.brand.play ? h * 0.62 : 0;
+  const w = 22 + star + (star ? 8 : 0) + width(big, bigO) + 12 + width(small, smallO) + 24;
+  return {
+    w,
+    svg: rect(x, y, w, h, '#FFFFFF', h / 2) + (star ? icon('star', x + 18, y + (h - star) / 2, star, '#FFB300') : '') +
+      line(x + 22 + star + (star ? 8 : 0), y + h * 0.7, big, bigO) +
+      line(x + 22 + star + (star ? 8 : 0) + width(big, bigO) + 12, y + h * 0.68, small, smallO)
+  };
+}
+
+/** Google's badge, or the website in a white pill. */
+function storeMark(ctx, right, y, h) {
+  if (ctx.brand.play) {
+    const w = Math.round(h * 646 / 250);
+    return { svg: image(asset('google-play-badge.png'), right - w, y, w, h), w };
+  }
+  const o = { size: Math.round(h * 0.36), font: 'archivo', fill: ctx.pal.ink };
+  const w = width(ctx.brand.site, o) + h + 30;
+  return { svg: rect(right - w, y + h * 0.1, w, h * 0.8, '#FFFFFF', h * 0.4) + icon('search', right - w + 18, y + h * 0.28, h * 0.44, ctx.pal.primary) +
+    line(right - 22, y + h * 0.63, ctx.brand.site, Object.assign({ anchor: 'end' }, o)), w };
+}
+
 function footer(ctx) {
   const p = ctx.pal;
-  const y = H - FOOT;
-  const [gd, gf] = gradient([p.primary, p.primary2], 0, 0, W, 0);
   const b = ctx.brand;
-  const badgeH = 86;
-  const badgeW = Math.round(badgeH * 646 / 250);
-  const lead = b.keyword ? 'Comment ' + (ctx.keyword || 'LINK') : b.lead;
-  const rest = b.rest(ctx.part);
-  const leadO = { size: 28, font: 'archivo', fill: '#161616' };
-  const restO = { size: 23, weight: 700, fill: '#161616' };
-  const total = 40 + width(lead, leadO) + 16 + width(rest, restO);
-  const sx = W / 2 - total / 2;
-  const nameRoom = W - M - 126 - M - (b.play ? badgeW + 10 : 0);
-  return gd + rect(0, y, W, FOOT, gf) +
-    rect(M, y + 18, 104, 104, '#FFFFFF', 24) + image(asset(b.logo), M + 7, y + 25, 90, 90) +
-    line(M + 126, y + 70, b.name, fit(b.name, nameRoom, { size: 44, font: 'archivo', fill: '#FFFFFF', spacing: 1 })) +
-    line(M + 128, y + 106, b.tagline, fit(b.tagline, nameRoom, { size: 23, weight: 700, fill: '#FFFFFF', opacity: 0.9 })) +
-    (b.play ? image(asset('google-play-badge.png'), W - M - badgeW + 10, y + 26, badgeW, badgeH) : '') +
-    rect(M - 6, y + 136, W - 2 * M + 12, 52, p.accent, 26) +
-    icon(b.chipIcon, sx, y + 147, 30, '#161616') +
-    line(sx + 40, y + 172, lead, leadO) + line(sx + 40 + width(lead, leadO) + 16, y + 171, rest, restO);
+  const y = H - FOOT;
+  const style = CTAS.indexOf(ctx.cta) > -1 ? ctx.cta : 'bar';
+  const [gd, gf] = gradient([p.primary, p.primary2], 0, y, W, H);
+  let s = gd + rect(0, y, W, FOOT, gf) +
+    `<circle cx="${W - 90}" cy="${y + 30}" r="190" fill="#FFFFFF" opacity=".07"/><circle cx="120" cy="${H}" r="150" fill="#FFFFFF" opacity=".06"/>` +
+    `<polygon points="${W * 0.55},${y} ${W * 0.62},${y} ${W * 0.5},${H} ${W * 0.43},${H}" fill="#FFFFFF" opacity=".05"/>` +
+    rect(0, H - SAFE, W, SAFE, '#000000', 0, ' opacity=".16"') +
+    line(W / 2, H - SAFE / 2 + 9, HANDLES[b.id] || '', { size: 24, weight: 700, fill: '#FFFFFF', anchor: 'middle', opacity: 0.75 });
+  /* the logo and the name */
+  s += disc(ctx, M + 46, y + 62, 44, p.accent);
+  const sticker = style === 'sticker';
+  const store = storeMark(ctx, sticker ? W - 228 : W - M, y + 24, 78);
+  const nameRoom = (sticker ? W - 228 : W - M) - store.w - 20 - (M + 108);
+  s += line(M + 108, y + 58, b.name, fit(b.name, nameRoom, { size: 42, font: 'archivo', fill: '#FFFFFF', spacing: 1 })) +
+    line(M + 110, y + 92, b.tagline, fit(b.tagline, nameRoom, { size: 22, weight: 700, fill: '#FFFFFF', opacity: 0.92 })) + store.svg;
+
+  const w = callWords(ctx);
+  if (style === 'bar') {
+    /* the call: a dark bubble, the word boxed, an arrow to the DM */
+    const top = y + 116, h = 54;
+    const leadO = { size: 30, font: 'archivo', fill: '#141414' };
+    const wordO = { size: 30, font: 'archivo', fill: p.accent };
+    const restO = fit(w.rest, W - 2 * M - 360, { size: 25, weight: 900, fill: '#141414' });
+    const ww = width(w.word, wordO) + 34;
+    const total = 54 + width(w.lead, leadO) + 14 + ww + 16 + width(w.rest, restO);
+    let x = W / 2 - total / 2;
+    s += rect(M - 10, top, W - 2 * M + 20, h, p.accent, h / 2) +
+      `<circle cx="${x + 22}" cy="${top + h / 2}" r="21" fill="#141414"/>` + icon(b.chipIcon, x + 10, top + h / 2 - 12, 24, p.accent);
+    x += 54;
+    s += line(x, top + 38, w.lead, leadO);
+    x += width(w.lead, leadO) + 14;
+    s += rect(x, top + 7, ww, h - 14, '#141414', 10) + line(x + 17, top + 38, w.word, wordO);
+    x += ww + 16;
+    s += line(x, top + 37, w.rest, restO) +
+      `<path d="M${W - M - 4} ${top + 15}l12 12-12 12 M${W - M - 22} ${top + 15}l12 12-12 12" fill="none" stroke="#141414" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>`;
+  } else {
+    /* the rating, and for the sticker the sticker itself */
+    s += ratingPill(ctx, M - 6, y + 116, 50, sticker ? W - 228 - M : W - 2 * M).svg;
+    if (!sticker) {
+      const note = b.play ? 'Free on Google Play' : 'Free, no sign-up to search';
+      s += line(W - M, y + 151, note, { size: 24, weight: 900, fill: '#FFFFFF', anchor: 'end', opacity: 0.92 });
+    }
+  }
+  if (sticker) {
+    const cx = W - 124, cy = y + 74, r = 88;
+    s += `<g transform="rotate(-9 ${cx} ${cy})"><circle cx="${cx + 4}" cy="${cy + 7}" r="${r}" fill="#000000" opacity=".22"/>` +
+      `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${p.accent}"/><circle cx="${cx}" cy="${cy}" r="${r - 9}" fill="none" stroke="#141414" stroke-width="2.5" stroke-dasharray="7 6"/>` +
+      icon(b.chipIcon, cx - 13, cy - 66, 26, '#141414') +
+      line(cx, cy - 20, w.lead, { size: 24, font: 'archivo', fill: '#141414', anchor: 'middle' }) +
+      line(cx, cy + 30, w.word, fit(w.word, 2 * r - 34, { size: 50, font: 'anton', fill: p.hot, anchor: 'middle' })) +
+      line(cx, cy + 58, w.small, fit(w.small, 2 * r - 40, { size: 18, weight: 900, fill: '#141414', anchor: 'middle' })) + '</g>';
+  }
+  return s;
+}
+
+/** The stripe across the top: the call to action as a header. */
+function stripe(ctx) {
+  const p = ctx.pal;
+  const w = callWords(ctx);
+  const [gd, gf] = gradient([p.accent, tint(p.accent, 0.25)], 0, 0, W, 0);
+  let s = gd + rect(0, 0, W, STRIPE, gf);
+  for (let i = -1; i < 22; i++) s += `<polygon points="${i * 56},${STRIPE} ${i * 56 + 18},${STRIPE} ${i * 56 + 46},${STRIPE - 12} ${i * 56 + 28},${STRIPE - 12}" fill="#141414" opacity=".22"/>`;
+  const leadO = { size: 38, font: 'archivo', fill: '#141414' };
+  const wordO = { size: 40, font: 'anton', fill: p.accent };
+  const restO = fit(w.rest.toUpperCase(), W - 2 * M - 420, { size: 28, font: 'archivo', fill: '#141414' });
+  const ww = width(w.word, wordO) + 36;
+  const total = 64 + width(w.lead, leadO) + 16 + ww + 18 + 40 + width(w.rest.toUpperCase(), restO);
+  let x = W / 2 - total / 2;
+  const cy = 52;
+  s += `<circle cx="${x + 26}" cy="${cy}" r="26" fill="#141414"/>` + icon(ctx.brand.chipIcon, x + 12, cy - 14, 28, p.accent);
+  x += 64;
+  s += line(x, cy + 14, w.lead, leadO);
+  x += width(w.lead, leadO) + 16;
+  s += rect(x, cy - 30, ww, 60, '#141414', 12) + line(x + 18, cy + 16, w.word, wordO);
+  x += ww + 18;
+  s += icon('arrow', x, cy - 16, 32, '#141414');
+  x += 40;
+  return s + line(x, cy + 11, w.rest.toUpperCase(), restO);
+}
+
+/**
+ * A design wearing the stripe: it is drawn a little smaller, as a card under
+ * the stripe, on the row's dark colour. Any other style is drawn as it is.
+ */
+function framed(ctx, body) {
+  if (ctx.cta !== 'stripe') return body;
+  const p = ctx.pal;
+  const k = (H - FOOT - STRIPE - 14) / (H - FOOT);
+  const dx = (W - W * k) / 2;
+  const [gd, gf] = gradient([p.dark, p.primary], 0, 0, W, H);
+  return gd + rect(0, 0, W, H, gf) +
+    `<clipPath id="frame"><rect x="${dx}" y="${STRIPE + 14}" width="${W * k}" height="${H - FOOT - STRIPE + 30}" rx="28"/></clipPath>` +
+    `<g clip-path="url(#frame)"><g transform="translate(${dx.toFixed(1)} ${STRIPE + 14}) scale(${k.toFixed(5)})">${body}</g></g>` + stripe(ctx);
 }
 
 /* ------------------------------------------------------------------ lists */
@@ -200,12 +383,18 @@ function chipRows(ctx, brands, start, top, bottom, o = {}) {
       chips.push({ name, x: cx, line: lines - 1, w });
       cx += w + gap;
     }
-    const h = Math.max(90, lines * (chipH + gap) - gap + 26);
+    const h = Math.max(96, lines * (chipH + gap) - gap + 26);
     const c = b.color;
+    const photo = ctx.brandPhones && ctx.brandPhones[b.name];
+    const pw = photo ? Math.min(58, (h - 26) * photo.w / photo.h) : 0;
+    const ph = photo ? pw * photo.h / photo.w : 0;
+    const tx = M + 8 + (photo ? pw + 14 : 0) + (tileW - (photo ? pw + 14 : 0)) / 2;
+    const tileRoom = tileW - (photo ? pw + 22 : 24);
     out += rect(M, y, W - 2 * M, h, '#FFFFFF', 22) +
       rect(M + 8, y + 8, tileW, h - 16, tint(c, 0.86), 16) +
-      line(M + 8 + tileW / 2, y + h / 2 + (h >= 90 ? 4 : 10), b.name, fit(b.name, tileW - 24, { size: 32, font: 'archivo', fill: c, anchor: 'middle' })) +
-      (h >= 90 ? line(M + 8 + tileW / 2, y + h / 2 + 34, b.models.length + ' models', { size: 19, weight: 700, fill: p.dim, anchor: 'middle' }) : '') +
+      (photo ? image(photo.uri, M + 16, y + (h - ph) / 2, pw, ph) : '') +
+      line(tx, y + h / 2 + 4, b.name, fit(b.name, tileRoom, { size: 32, font: 'archivo', fill: c, anchor: 'middle' })) +
+      line(tx, y + h / 2 + 32, b.models.length + (b.models.length === 1 ? ' model' : ' models'), fit(b.models.length + (b.models.length === 1 ? ' model' : ' models'), tileRoom, { size: 19, weight: 700, fill: p.dim, anchor: 'middle' })) +
       chips.map(ch => {
         const cy = y + 13 + ch.line * (chipH + gap);
         return rect(areaX + ch.x, cy, ch.w, chipH, tint(c, 0.9), 20, ` stroke="${tint(c, 0.55)}" stroke-width="1.5"`) +
@@ -270,8 +459,11 @@ function universal(ctx) {
   let s = rect(0, 0, W, H, p.bg);
   s += rect(M - 20, 34, W - 2 * M + 40, 312, p.dark, 36) +
     line(W / 2, 200, 'UNIVERSAL', { size: 168, font: 'anton', fill: '#FFFFFF', anchor: 'middle', spacing: 4 }) +
-    rect(M + 10, 222, W - 2 * M - 20, 104, tint(p.primary2, 0.72), 24) +
-    line(W / 2, 298, ctx.part.en, fit(ctx.part.en, W - 2 * M - 80, { size: 76, font: 'archivo', fill: p.dark, anchor: 'middle' }));
+    rect(M + 10, 222, W - 2 * M - 20, 104, tint(p.primary2, 0.72), 24);
+  const partO = fit(ctx.part.en, W - 2 * M - 200, { size: 76, font: 'archivo', fill: p.dark, anchor: 'middle' });
+  const pw = width(ctx.part.en, partO);
+  s += `<circle cx="${W / 2 + 36 - pw / 2 - 44}" cy="274" r="36" fill="${p.dark}"/>` + partIcon(ctx.category, W / 2 + 36 - pw / 2 - 66, 252, 44, '#FFFFFF') +
+    line(W / 2 + 36, 298, ctx.part.en, partO);
   const info = `Master model: ${ctx.master}   •   ${ctx.n} models`;
   s += line(W / 2, 394, info, fit(info, W - 2 * M, { size: 30, weight: 900, fill: p.ink, anchor: 'middle' }));
 
@@ -286,16 +478,24 @@ function universal(ctx) {
     const y = top + Math.floor(i / 2) * (ch + 22);
     const c = b.color;
     const cw = i === cards.length - 1 && i % 2 === 0 ? W - 2 * M : half;
-    const rowO = { size: 26, weight: 700, fill: p.ink };
-    const fits = Math.max(1, Math.floor((ch - 120) / 39));
+    const one = cards.length === 1;
+    const imgW = one ? Math.round(cw * 0.4) : cards.length === 2 ? 190 : 150;
+    const size = one ? 34 : cards.length === 2 ? 29 : 27;
+    const lh = Math.round(size * 1.42);
+    const rowO = { size, weight: 700, fill: p.ink };
+    const per = Math.max(1, Math.floor((ch - 112) / lh));
+    const cols = one && b.models.length > per ? 2 : 1;
+    const listW = cw - imgW - 56;
+    const colW = listW / cols;
+    const fits = per * cols;
     const list = b.models.length > fits ? b.models.slice(0, fits - 1) : b.models;
     drawn += list.length;
     s += rect(x, y, cw, ch, '#FFFFFF', 26, ` stroke="${tint(c, 0.6)}" stroke-width="3"`) +
       `<path d="M${x} ${y + 26}a26 26 0 0 1 26-26h${cw - 52}a26 26 0 0 1 26 26v52h-${cw}z" fill="${c}"/>` +
       line(x + cw / 2, y + 58, b.name.toUpperCase(), fit(b.name.toUpperCase(), cw - 40, { size: 44, font: 'archivo', fill: '#FFFFFF', anchor: 'middle' })) +
-      image(ctx.cutout, x + cw - 168, y + 96, 150, ch - 116) +
-      list.map((m, k) => line(x + 28, y + 122 + k * 39, fitName(m, b.name, cw - 210, rowO), rowO)).join('') +
-      (b.models.length > list.length ? line(x + 28, y + 122 + list.length * 39, `+ ${b.models.length - list.length} more`, { size: 24, font: 'archivo', fill: c }) : '');
+      image(ctx.cutout, x + cw - imgW - 18, y + 96, imgW, ch - 116) +
+      list.map((m, k) => line(x + 28 + Math.floor(k / per) * colW, y + 92 + size + (k % per) * lh, fitName(m, b.name, colW - 16, rowO), rowO)).join('') +
+      (b.models.length > list.length ? line(x + 28 + Math.floor(list.length / per) * colW, y + 92 + size + (list.length % per) * lh, `+ ${b.models.length - list.length} more`, { size: size - 2, font: 'archivo', fill: c }) : '');
   });
   return s + more(ctx, ctx.n - drawn, W / 2, BOTTOM - 8, p.primary);
 }
@@ -448,7 +648,7 @@ function series(ctx) {
     s += rect(x, y, cw, ch, '#FFFFFF', 24, ` stroke="${tint(p.primary, 0.75)}" stroke-width="2"`) + hd +
       `<path d="M${x} ${y + 24}a24 24 0 0 1 24-24h${cw - 48}a24 24 0 0 1 24 24v34h-${cw}z" fill="${hf}"/>` +
       line(x + 22, y + 41, b.name.toUpperCase(), fit(b.name.toUpperCase(), cw - 150, { size: 30, font: 'archivo', fill: '#FFFFFF' })) +
-      line(x + cw - 22, y + 40, b.models.length + ' models', { size: 21, weight: 700, fill: '#FFFFFF', anchor: 'end', opacity: 0.9 }) +
+      line(x + cw - 22, y + 40, b.models.length + (b.models.length === 1 ? ' model' : ' models'), { size: 21, weight: 700, fill: '#FFFFFF', anchor: 'end', opacity: 0.9 }) +
       image(ctx.cutout, x + cw - 134, y + 70, 116, ch - 86) +
       list.map((m, k) => `<circle cx="${x + 30}" cy="${y + 90 + k * 35}" r="5" fill="${p.primary}"/>` +
         line(x + 46, y + 99 + k * 35, fitName(m, b.name, cw - 196, rowO), rowO)).join('') +
@@ -470,7 +670,7 @@ function checklist(ctx) {
   s += rect(M, 364, width('Compatible Model Group', pillO) + 56, 60, p.primary, 30) + line(M + 28, 405, 'Compatible Model Group', pillO);
 
   const top = 448;
-  const h = 560;
+  const h = 520;
   const all = roundRobin(ctx.brands);
   const per = Math.floor((h - 40) / 46);
   const shown = all.length > per ? all.slice(0, per - 1) : all;
@@ -512,7 +712,7 @@ function listPage(ctx, start) {
   const rows = chipRows(ctx, ctx.brands, start, 128, BOTTOM);
   return {
     svg: rect(0, 0, W, H, p.bg) + mark(ctx, M, 30, p.ink) +
-      line(W - M, 70, head, fit(head, 560, { size: 26, weight: 900, fill: p.primary, anchor: 'end' })) + rows.svg + footer(ctx),
+      line(W - M, 70, head, fit(head, 560, { size: 26, weight: 900, fill: p.primary, anchor: 'end' })) + rows.svg,
     next: rows.next,
     drawn: rows.drawn
   };
@@ -546,7 +746,7 @@ function planFor(day) {
 }
 
 module.exports = {
-  DESIGNS, PALETTES, BRANDS, KEYWORDS, brandFor, brandColor, footer, listPage, appPage, planFor, roundRobin,
+  DESIGNS, PALETTES, BRANDS, KEYWORDS, CTAS, brandFor, brandColor, footer, framed, listPage, appPage, planFor, roundRobin,
   /* the pieces the marketing posters (promos.js) are built from */
-  kit: { M, FOOT, BOTTOM, rect, shadow, icon, mark, hero, chipRows, chipOf }
+  kit: { M, FOOT, SAFE, BOTTOM, rect, shadow, icon, partIcon, PART_ICON, mark, disc, hero, chipRows, chipOf, fitName }
 };

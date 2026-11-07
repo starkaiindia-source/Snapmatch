@@ -13,15 +13,16 @@
    POST /api/admin/content {action:'publish', account, group, kind, design, palette, template, keyword, caption}
                                                 posts the poster to Instagram
 
-   The schedule (three posts a day an account, content/schedule.js):
-   GET /api/admin/content?view=board&account=   the next three days, and the
-                                                groups ready to plan
+   The schedule (nine posts a day an account, a week at once, content/schedule.js):
+   GET /api/admin/content?view=board&account=   the week, its posting hours, and
+                                                the groups ready to put in a slot
    GET /api/admin/content?view=insights&account=[&fresh=1]
                                                 how each post did, and why
    GET /api/admin/content?view=templates        every design, colour and
                                                 marketing template, and the
                                                 order of the grid's colours
-   POST {action:'plan', account}                plans what is missing now
+   POST {action:'plan', account, fresh}         plans the week (fresh: every
+                                                waiting slot again, hours read again)
    POST {action:'auto', account, on}            auto posting on or off
    POST {action:'slot', id, op:'skip'|'restore'|'group', group}
                                                 the owner's change to a slot
@@ -57,7 +58,8 @@ async function post(req, res, admin) {
     const r = await publisher.publish({
       account: String(input.account || ''), group: String(input.group || ''), kind: input.kind,
       design: input.design || undefined, palette: input.palette || undefined, template: input.template || undefined,
-      keyword: input.keyword || undefined, caption: input.caption, uid: admin.uid, check: input.check === true
+      keyword: input.keyword || undefined, caption: input.caption, uid: admin.uid, check: input.check === true,
+      cta: input.cta || undefined, also: Array.isArray(input.also) ? input.also.map(String).slice(0, 5) : undefined
     });
     return r.ok ? ok(res, r) : json(res, r.code === 'missing' ? 404 : 409, { error: r.message, code: r.code });
   }
@@ -65,7 +67,7 @@ async function post(req, res, admin) {
     const r = await content.makePhoto(String(input.group || ''), admin.uid);
     return r.ok ? ok(res, r) : json(res, r.code === 'missing' ? 404 : 409, { error: r.message, code: r.code });
   }
-  if (a === 'plan') return ok(res, await schedule.plan(deps(), String(input.account || ''), Date.now()));
+  if (a === 'plan') return ok(res, await schedule.plan(deps(), String(input.account || ''), Date.now(), { fresh: input.fresh === true }));
   if (a === 'auto') {
     const s = await schedule.setAuto(db, String(input.account || ''), input.on === true, admin.uid, Date.now());
     return s ? ok(res, { auto: s.auto }) : bad(res, 'unknown account');
@@ -124,7 +126,7 @@ module.exports = async function handler(req, res) {
       return r ? ok(res, r) : json(res, 404, { error: 'no such model' });
     }
     if (q.view === 'poster') {
-      const r = await content.picture(q.group, { kind: q.kind, slide: q.slide, design: q.design, palette: q.palette, brand: q.brand, template: q.template, keyword: q.keyword });
+      const r = await content.picture(q.group, { kind: q.kind, slide: q.slide, design: q.design, palette: q.palette, brand: q.brand, template: q.template, keyword: q.keyword, also: q.also, cta: q.cta });
       if (!r) return json(res, 404, { error: 'no such group' });
       res.statusCode = 200;
       res.setHeader('Content-Type', 'image/jpeg');
