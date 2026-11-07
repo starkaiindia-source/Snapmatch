@@ -1,28 +1,38 @@
 /* ============================================================================
    Mobile Parts Finder · admin/pages/auto-reply.js
    ----------------------------------------------------------------------------
-   Auto Reply: the owner's Instagram account answered by AI. Instagram is the first
-   channel; WhatsApp and Facebook are shown as what comes next and do nothing yet.
+   Auto Reply: the owner's Instagram account answered by AI, as one overview.
+
+     · one switch for the whole thing (Off, Review first, Auto)
+     · what it did: replies today, this week and in 30 days, a bar a day,
+       what is waiting, and the sales it led to
+     · what is set: each rule as a card with its own switch and its numbers
+       (app link, 9H sales, the "is it useful?" follow-up, AI on comments, AI on
+       messages, answer everything)
+     · needs your eye: a model said to be wrong, a model suggested, a complaint,
+       a question only the owner can answer, with the post it is on
+     · the latest comments and what was said back
+     · training, words, connection and every message, folded away below
 
    ----------------------------------------------------------------------------
    WHAT THIS PAGE WILL AND WILL NOT SAY
 
-   "Connected" is what Meta answered a moment ago when this page asked, never what
-   was configured. Whether the app is Live is the one thing Meta will not tell a
-   token, so it is listed as a step for a person to confirm and is not ticked.
+   Every number is counted from the bot's own records. Instagram does not tell
+   anyone who taps a button in a message, so taps are not shown as a number;
+   the app link carries a campaign tag that Google Play's console reports.
 
-   The test box writes the reply a message would get and sends nothing. Every real
-   comment and message is in the inbox with what the AI wrote and why it did or did
-   not go out, so the owner can read a week of it before choosing Auto.
+   "Connected" is what Meta answered a moment ago when this page asked, never
+   what was configured. The test box writes the reply a message would get and
+   sends nothing.
    ========================================================================== */
 (function (global) {
   'use strict';
   var SM = global.SM, ADM = SM.adm, ui = ADM.ui;
 
   var MODES = [
-    ['off', 'Off', 'Nothing is read or answered.'],
-    ['review', 'Review first', 'AI writes each reply. You press Send.'],
-    ['auto', 'Auto', 'AI answers by itself. Anything unsure waits for you.']
+    ['off', 'Off', 'Nothing is answered.'],
+    ['review', 'Review first', 'AI writes, you press Send.'],
+    ['auto', 'Auto', 'AI answers by itself.']
   ];
   var STATUS = {
     queued: ['Queued', 'info'], draft: ['Draft', 'info'], needs_human: ['Needs you', 'warn'], sending: ['Sending', 'info'],
@@ -31,10 +41,13 @@
   var REASONS = {
     'needs-human': 'The AI asked for a person.', 'low-confidence': 'The AI was not sure enough.', 'blocked-word': 'The reply had a blocked word.',
     'unknown-link': 'The reply had a link that is not in your links.', 'too-long': 'The reply was too long for Instagram.', empty: 'The AI wrote nothing.',
-    'unchecked-fit': 'It said a product fits, but the post names no phone to check that against.',
+    'unchecked-fit': 'It said a product fits, but the post names no phone to check that against.', 'ai-failed': 'The AI did not answer in time.',
     'no-text': 'No text in this message, such as a photo.', 'auto-reply-off': 'Auto Reply was off.', 'channel-off': 'This channel was off.',
     'sender-limit': 'This person reached the hourly limit.', 'daily-limit': 'The daily limit was reached.',
     'link-already-sent': 'This person got the app link in the last day.'
+  };
+  var FLAGS = {
+    correction: ['Model said to be wrong', 'bad'], suggestion: ['Model suggested', 'info'], complaint: ['Complaint', 'warn'], question: ['Only you can answer', 'warn']
   };
   var FIELDS = [
     ['appLink', 'App link', 'input', 'Your Play Store link. Anyone asking for the app gets it at once, even in Review.'],
@@ -76,7 +89,17 @@
     ['courierNear', 'Courier, nearby states (₹)', 0, 10000, 1],
     ['courierFar', 'Courier, other states (₹)', 0, 10000, 1]
   ];
+  /* the rules as cards: setting, title, what it does, its count, and where its words are */
+  var RULES = [
+    ['appOn', 'App link', 'Anyone asking for the app ("link", "app", the comment word) gets the Play Store card in DM; iPhone users get the website.', 'app_link'],
+    ['salesOn', '9H sales and orders', 'Price and "9H" asks get the wholesale price; models and boxes make a bill in Quick Billing with a UPI QR.', 'sale'],
+    ['feedbackOn', '"Is it useful?" follow-up', 'About 20 hours after the app link, a Yes/No question; a yes gets the Play Store rating card.', 'feedback'],
+    ['comments', 'AI on comments', 'Questions under posts are answered from your catalogue: which phones share a glass, cover or display.', 'ai_comments'],
+    ['dms', 'AI on messages', 'Direct messages are answered the same way, with the last few lines of the chat in mind.', 'ai_dms'],
+    ['takeOver', 'Answer everything', 'In Auto, a message the AI may not answer alone still gets your holding line, and shows below for you.', 'holding']
+  ];
 
+  var n = function (v) { return v == null ? '—' : Number(v).toLocaleString('en-IN'); };
   function pill(tone, label) {
     return '<span class="adm__pill' + (tone ? ' adm__pill--' + tone : '') + '">' + ui.esc(label) + '</span>';
   }
@@ -89,7 +112,7 @@
     host.innerHTML = '';
     var root = document.createElement('div');
     host.appendChild(root);
-    var state = { data: null, check: null, checking: false, busy: false, result: null };
+    var state = { data: null, check: null, checking: false, busy: false, posts: {}, postsAsked: false };
 
     function el(id) { return root.querySelector('#' + id); }
     function fail(err) { ctx.toast((err && err.message) || 'Request failed', 'bad'); }
@@ -97,21 +120,29 @@
     function load() {
       ADM.api.autoReply({ view: 'overview' }).then(function (d) {
         state.data = d;
-        root.innerHTML = pageHTML();
+        paint();
         runCheck();
+        loadPosts();
       }, function (err) {
         root.innerHTML = '<div class="adm__head"><h1>Auto Reply</h1></div>' + ui.banner('bad', '<b>Could not load.</b> ' + ui.esc(err.message || 'request failed'));
       });
     }
-    function refreshInbox() {
-      ADM.api.autoReply({ view: 'overview' }).then(function (d) {
-        state.data = d;
-        el('arInbox').innerHTML = inboxHTML();
-      }, fail);
+    function refresh() {
+      ADM.api.autoReply({ view: 'overview' }).then(function (d) { state.data = d; paint(); loadPosts(); }, fail);
+    }
+    /* the posts the flagged comments are on, for their pictures and links */
+    function loadPosts() {
+      var st = state.data.stats || {};
+      var ids = (st.flagged || []).concat(st.comments || []).map(function (e) { return e.mediaId; }).filter(function (id) { return id && !state.posts[id]; });
+      if (!ids.length) return;
+      ADM.api.autoReply({ view: 'posts', ids: Array.from(new Set(ids)).slice(0, 12).join(',') }).then(function (r) {
+        Object.keys(r.posts || {}).forEach(function (k) { state.posts[k] = r.posts[k]; });
+        paint();
+      }, function () { /* the list works without pictures */ });
     }
     function runCheck() {
       state.checking = true;
-      el('arConn').innerHTML = connectionHTML();
+      if (el('arConn')) el('arConn').innerHTML = connectionHTML();
       ADM.api.autoReply({ view: 'check' }).then(function (c) {
         state.check = c;
       }, function (err) {
@@ -119,35 +150,112 @@
       }).then(function () {
         state.checking = false;
         if (el('arConn')) el('arConn').innerHTML = connectionHTML();
+        if (el('arStatus')) el('arStatus').innerHTML = statusHTML();
       });
     }
 
     /* ------------------------------------------------------------- the page */
-    function pageHTML() {
-      return '<div class="adm__head"><div><h1>Auto Reply</h1>' +
-        '<p>AI answers to comments and messages on your Instagram account.</p></div></div>' +
-        '<div class="ar-tabs"><span class="is-on">Instagram</span><span>WhatsApp · next</span><span>Facebook · later</span></div>' +
-        '<div class="adm__card"><h2>How it replies</h2><div id="arMode">' + modeHTML() + '</div></div>' +
-        '<div class="adm__card" id="arConn"></div>' +
-        '<div class="adm__card"><h2>Training</h2><p class="adm__hint">The AI answers only from this text and your compatibility data. ' +
-        'Anything not written here, it will not make up.</p>' + trainingHTML() + '</div>' +
-        '<div class="adm__card"><h2>Try a message</h2><p class="adm__hint">Shows the reply it would write. Nothing is sent to anyone.</p>' +
+    function paint() {
+      var open = {};
+      Array.prototype.forEach.call(root.querySelectorAll('details[id]'), function (d) { open[d.id] = d.open; });
+      root.innerHTML = headHTML() + numbersHTML() + rulesHTML() + flaggedHTML() + commentsHTML() + moreHTML();
+      Object.keys(open).forEach(function (id) { if (el(id)) el(id).open = open[id]; });
+    }
+
+    function headHTML() {
+      var s = state.data.settings;
+      return '<div class="ar2-head"><div><h1>Auto Reply</h1><p>AI answers comments and messages on your Instagram account. <span id="arStatus">' + statusHTML() + '</span></p></div>' +
+        '<div class="ar2-modes" role="group" aria-label="How it replies">' + MODES.map(function (m) {
+          return '<button class="ar2-mode' + (s.mode === m[0] ? ' is-on is-' + m[0] : '') + '" data-mode="' + m[0] + '" aria-pressed="' + (s.mode === m[0]) + '" title="' + ui.esc(m[2]) + '">' + m[1] + '</button>';
+        }).join('') + '</div></div>' +
+        (s.mode === 'auto' ? '' : ui.banner(s.mode === 'off' ? 'bad' : 'warn', s.mode === 'off' ? '<b>Auto Reply is off.</b> Nobody gets an answer until you switch it to Auto.'
+          : '<b>Review first.</b> The app link and sales go at once; every other reply waits for you to press Send.'));
+    }
+    function statusHTML() {
+      var k = state.check;
+      if (state.checking || !k) return '<span class="ar2-dot"></span>Asking Meta…';
+      var good = k.account && k.token && k.token.valid && !(k.errors || []).length;
+      return '<span class="ar2-dot ' + (good ? 'is-ok' : 'is-bad') + '"></span>' + (k.account ? '@' + ui.esc(k.account.username || k.account.id) : 'Instagram') + (good ? ' · connected' : ' · needs a look (see Connection below)');
+    }
+
+    function numbersHTML() {
+      var st = state.data.stats;
+      if (!st || st.error) return ui.banner('warn', '<b>The numbers could not be counted.</b> ' + ui.esc((st && st.error) || ''));
+      var t = st.totals;
+      var tile = function (label, value, hint, tone) { return '<div class="ar2-kpi' + (tone ? ' is-' + tone : '') + '"><span>' + label + '</span><b>' + value + '</b><small>' + hint + '</small></div>'; };
+      var stages = st.leads.stages || {};
+      return '<div class="ar2-kpis">' +
+        tile('Replied today', n(t.today), 'comments and messages') +
+        tile('This week', n(t.week), 'replies sent') +
+        tile('Last 30 days', n(t.sent), 'of ' + n(t.read) + ' read · ' + n(t.comments) + ' comments, ' + n(t.dms) + ' messages') +
+        tile('Waiting for you', n(t.waiting + (st.flagged || []).length), n((st.flagged || []).length) + ' flagged · ' + n(t.waiting) + ' held', t.waiting + (st.flagged || []).length ? 'warn' : '') +
+        tile('Sales', n(st.leads.total), n(stages.billed || 0) + ' billed · ' + n(st.leads.paid) + ' paid') +
+        '</div><div class="ar2-chart"><div class="ar2-chart__head"><h2>Replies a day</h2><small>' + (st.capped ? 'Counted from the latest ' + n(t.read) + ' records' : 'Last ' + st.days + ' days') + ' · ' + ui.esc(ui.ago(st.readAt)) + '</small></div>' +
+        ui.barChart((st.daily || []).map(function (d) { return { date: d.day, value: d.sent }; }), { label: 'Replies sent', totalLabel: 'replies in ' + st.days + ' days', color: '#D62976' }) + '</div>';
+    }
+
+    function rulesHTML() {
+      var s = state.data.settings, st = state.data.stats || {};
+      var r = st.rules || {};
+      return '<section class="ar2-sec"><div class="ar2-sec__head"><h2>What is set</h2><p>Each rule with its own switch. Numbers are replies sent: today, this week, 30 days.</p></div><div class="ar2-rules">' +
+        RULES.map(function (x) {
+          var on = !!s[x[0]];
+          var c = x[3] && r[x[3]];
+          var extra = x[0] === 'appOn' ? '<p class="ar2-rule__note">Taps on the button are not reported by Instagram. Installs from these links show in Google Play Console under the campaign <code>utm_source=instagram</code>.</p>'
+            : x[0] === 'salesOn' ? '<p class="ar2-rule__note">' + n(((st.leads || {}).stages || {}).price_sent || 0) + ' asked the price · ' + n(((st.leads || {}).stages || {}).billed || 0) + ' billed · ' + n((st.leads || {}).paid || 0) + ' paid. <a href="/admin/leads">Open Leads</a></p>'
+              : x[0] === 'takeOver' && s.mode !== 'auto' ? '<p class="ar2-rule__note">Works when the switch at the top is on Auto.</p>' : '';
+          return '<article class="ar2-rule' + (on ? ' is-on' : '') + '"><div class="ar2-rule__top"><b>' + x[1] + '</b><label class="pz-switch ar2-switch"><input type="checkbox" data-setting="' + x[0] + '"' + (on ? ' checked' : '') + '><i></i></label></div>' +
+            '<p>' + ui.esc(x[2]) + '</p>' +
+            (c ? '<div class="ar2-rule__nums"><span><b>' + n(c.today) + '</b>today</span><span><b>' + n(c.week) + '</b>week</span><span><b>' + n(c.all) + '</b>30 days</span></div>' : '') + extra + '</article>';
+        }).join('') + '</div></section>';
+    }
+
+    function postBit(id) {
+      var p = id && state.posts[id];
+      if (!p) return '';
+      return '<a class="ar2-post" href="' + ui.esc(p.permalink || '#') + '" target="_blank" rel="noopener">' + (p.picture ? '<span style="background-image:url(\'' + ui.esc(p.picture) + '\')"></span>' : '') +
+        '<small>' + ui.esc(p.caption || 'Open the post') + '</small></a>';
+    }
+
+    function flaggedHTML() {
+      var list = (state.data.stats || {}).flagged || [];
+      return '<section class="ar2-sec"><div class="ar2-sec__head"><h2>Needs your eye</h2><p>What people said that you should see: a model said to be wrong, a model suggested, a complaint, a question only you can answer. Each already got a reply.</p></div>' +
+        (list.length ? '<div class="ar2-flags">' + list.map(function (e) {
+          var f = FLAGS[e.flag] || FLAGS.question;
+          return '<article class="ar2-flag is-' + ui.esc(e.flag) + '" data-id="' + ui.esc(e.id) + '"><div class="ar2-flag__top">' + pill(f[1], f[0]) + '<b>' + (e.kind === 'dm' ? 'Message' : 'Comment') + (e.username ? ' from @' + ui.esc(e.username) : '') + '</b><span class="adm__none">' + ui.esc(ui.ago(e.at)) + '</span></div>' +
+            '<p class="ar2-flag__said">' + ui.esc(e.text || '(no text)') + '</p>' +
+            ((e.phones || []).length ? '<p class="ar2-flag__phones">Phones: ' + e.phones.map(ui.esc).join(', ') + '</p>' : '') +
+            (e.reply ? '<p class="ar-reply">' + ui.esc(e.reply) + '</p>' : '') +
+            (e.reason ? '<p class="ar-why">' + ui.esc(REASONS[e.reason] || e.reason) + '</p>' : '') +
+            postBit(e.mediaId) +
+            '<div class="ar-row">' + (e.kind === 'dm' ? '<a class="adm__btn adm__btn--sm" href="/admin/leads">Answer in Leads</a>' : '') +
+            '<button class="adm__btn adm__btn--sm adm__btn--primary" data-act="flagDone">Done</button></div></article>';
+        }).join('') + '</div>' : ui.emptyState('Nothing waiting', 'Corrections, suggestions and complaints show here as they come.')) + '</section>';
+    }
+
+    function commentsHTML() {
+      var list = (state.data.stats || {}).comments || [];
+      if (!list.length) return '';
+      return '<section class="ar2-sec"><div class="ar2-sec__head"><h2>Latest comments</h2><p>Comments under your posts, and what was said back.</p></div><div class="ar2-feed">' + list.slice(0, 15).map(function (e) {
+        var st = STATUS[e.status] || [e.status, ''];
+        var p = e.mediaId && state.posts[e.mediaId];
+        return '<div class="ar2-line">' + (p && p.picture ? '<a class="ar2-line__pic" href="' + ui.esc(p.permalink || '#') + '" target="_blank" rel="noopener" style="background-image:url(\'' + ui.esc(p.picture) + '\')"></a>' : '<span class="ar2-line__pic"></span>') +
+          '<div class="ar2-line__txt"><div><b>' + (e.username ? '@' + ui.esc(e.username) : 'Someone') + '</b> ' + ui.esc(e.text || '') + '</div>' +
+          (e.reply ? '<div class="ar2-line__reply">↳ ' + ui.esc(e.reply) + '</div>' : '') + '</div>' +
+          '<div class="ar2-line__meta">' + (e.flag ? pill((FLAGS[e.flag] || FLAGS.question)[1], (FLAGS[e.flag] || FLAGS.question)[0]) : '') + pill(st[1], st[0]) + '<small>' + ui.esc(ui.ago(e.at)) + '</small></div></div>';
+      }).join('') + '</div></section>';
+    }
+
+    /* training, words, the test box, the connection and every message, folded away */
+    function moreHTML() {
+      return '<details class="ar2-more" id="arMoreTrain"><summary>Training and words</summary><p class="adm__hint">The AI answers only from this text and your compatibility data. Anything not written here, it will not make up.</p>' + trainingHTML() + '</details>' +
+        '<details class="ar2-more" id="arMoreTest"><summary>Try a message</summary><p class="adm__hint">Shows the reply it would write. Nothing is sent to anyone.</p>' +
         '<form id="arTest" class="ar-form"><textarea name="text" rows="2" maxlength="1000" placeholder="realme 5 ku indha temper match aaguma?"></textarea>' +
         '<input name="caption" maxlength="2000" placeholder="Caption of the post, if the comment is on one">' +
         '<div class="ar-row"><select name="kind"><option value="comment">As a comment</option><option value="dm">As a message</option></select>' +
-        '<button class="adm__btn adm__btn--primary" type="submit">Write a reply</button></div></form><div id="arResult"></div></div>' +
-        '<div class="adm__card"><h2>Inbox</h2><div id="arInbox">' + inboxHTML() + '</div></div>';
-    }
-
-    function modeHTML() {
-      var s = state.data.settings;
-      return '<div class="ar-modes">' + MODES.map(function (m) {
-        return '<button class="ar-mode' + (s.mode === m[0] ? ' is-on' : '') + '" data-mode="' + m[0] + '" aria-pressed="' + (s.mode === m[0]) + '"><b>' + m[1] + '</b><span>' + m[2] + '</span></button>';
-      }).join('') + '</div><div class="ar-row">' +
-        '<label class="ar-check"><input type="checkbox" data-channel="comments"' + (s.comments ? ' checked' : '') + '> Comments</label>' +
-        '<label class="ar-check"><input type="checkbox" data-channel="dms"' + (s.dms ? ' checked' : '') + '> Direct messages</label>' +
-        '<label class="ar-check"><input type="checkbox" data-channel="salesOn"' + (s.salesOn ? ' checked' : '') + '> 9H sales and orders</label>' +
-        '<a class="adm__btn" href="/admin/leads">Open Leads</a></div>';
+        '<button class="adm__btn adm__btn--primary" type="submit">Write a reply</button></div></form><div id="arResult"></div></details>' +
+        '<details class="ar2-more" id="arMoreConn"><summary>Connection</summary><div id="arConn">' + connectionHTML() + '</div></details>' +
+        '<details class="ar2-more" id="arMoreAll"><summary>Every message (latest 50)</summary><div id="arInbox">' + inboxHTML() + '</div></details>';
     }
 
     function trainingHTML() {
@@ -157,8 +265,8 @@
         return '<label>' + f[1] + (f[2] === 'text'
           ? '<textarea name="' + f[0] + '" rows="' + (f[0] === 'products' ? 7 : 3) + '" placeholder="' + ui.esc(f[3]) + '">' + value + '</textarea>'
           : '<input name="' + f[0] + '" value="' + value + '" placeholder="' + ui.esc(f[3]) + '">') + '</label>';
-      }).join('') + '<div class="ar-nums">' + NUMBERS.map(function (n) {
-        return '<label>' + n[1] + '<input type="number" name="' + n[0] + '" min="' + n[2] + '" max="' + n[3] + '" step="' + n[4] + '" value="' + ui.esc(s[n[0]]) + '"></label>';
+      }).join('') + '<div class="ar-nums">' + NUMBERS.map(function (x) {
+        return '<label>' + x[1] + '<input type="number" name="' + x[0] + '" min="' + x[2] + '" max="' + x[3] + '" step="' + x[4] + '" value="' + ui.esc(s[x[0]]) + '"></label>';
       }).join('') + '</div><div><button class="adm__btn adm__btn--primary" type="submit">Save training</button></div></form>';
     }
 
@@ -182,24 +290,9 @@
         rows.push(k.token && k.token.valid
           ? row('ok', 'Access token', ui.esc(k.token.type || '') + (k.token.expiresAt ? ', expires ' + ui.date(k.token.expiresAt) : ''))
           : row('bad', 'Access token', errorFor('token') || 'Meta did not accept it.'));
-        if (k.login === 'facebook' && (!k.token || k.token.type !== 'SYSTEM_USER')) {
-          rows.push(k.page ? row('ok', 'Linked Facebook Page', ui.esc(k.page.name || k.page.id))
-            : row('bad', 'Linked Facebook Page', errorFor('page') || 'No Page linked to this account was found for this token.'));
-        }
         rows.push(!k.token || !k.token.scopes ? row('warn', 'Permissions', 'Meta does not list these for an Instagram Login token. A test comment will show it.')
           : k.missing && k.missing.length ? row('bad', 'Permissions', 'Missing: ' + k.missing.map(ui.esc).join(', '))
             : row('ok', 'Permissions', 'Comments and messages are allowed.'));
-        var subs = k.subscribed;
-        var wanted = c.fields.filter(function (f) { return !subs || subs.indexOf(f) < 0; });
-        var hooked = k.webhook && k.webhook.url === c.webhookUrl;
-        if (k.login === 'facebook') {
-          rows.push(hooked ? row('ok', 'App webhook', k.webhook.fields.map(ui.esc).join(', '))
-            : row('bad', 'App webhook', errorFor('webhook') || 'Not pointing at this site yet.'));
-        }
-        rows.push(subs && !wanted.length ? row('ok', 'Receiving events', subs.map(ui.esc).join(', '))
-          : row('bad', 'Receiving events', errorFor('subscription') || 'Not subscribed to: ' + wanted.map(ui.esc).join(', ')));
-      }
-      if (k && !state.checking) {
         rows.push(k.conversations != null ? row('ok', 'Message access', 'Meta lets this app read the account\'s messages.')
           : row('bad', 'Message access', errorFor('messages') || 'Not checked.'));
         rows.push(k.comments ? row(k.comments.readable ? 'ok' : 'warn', 'Comments', k.comments.readable + ' recent comments can be read' +
@@ -210,12 +303,7 @@
       return '<div class="ar-head"><h2>Connection</h2><div class="ar-row"><button class="adm__btn" data-act="subscribe">Connect webhook</button>' +
         '<button class="adm__btn" data-act="check">Check again</button></div></div>' +
         '<ul class="ar-conn">' + rows.join('') + '</ul>' +
-        '<h3>Steps only you can do</h3><ol class="ar-steps">' +
-        '<li>Press <b>Publish</b> on the Meta app. Meta sends nothing to an app that is not Live.</li>' +
-        '<li>In Business settings, System users, generate a new token for this app with <b>instagram_manage_comments</b> and <b>instagram_manage_messages</b> ticked, set to never expire. ' +
-        'Put it in Vercel as <code>INSTAGRAM_REPLY_ACCESS_TOKEN</code> and redeploy.</li>' +
-        '<li>In the Instagram app: Settings, Messages and story replies, Message controls, then turn on <b>Allow access to messages</b>.</li>' +
-        '<li>Press <b>Connect webhook</b> above, then comment on one of your posts from another account.</li></ol>' +
+        '<p class="adm__hint">Meta sends no webhooks to this app yet (Standard Access), so the account is read every minute instead.</p>' +
         '<h3>If you set the webhook by hand in Meta</h3>' + copyRow('Callback URL', c.webhookUrl) + copyRow('Verify token', c.verifyToken);
     }
 
@@ -240,7 +328,7 @@
     function inboxHTML() {
       var list = state.data.events;
       return list.length ? list.map(itemHTML).join('')
-        : ui.emptyState('Nothing yet', 'Comments and messages appear here once Meta starts sending them.');
+        : ui.emptyState('Nothing yet', 'Comments and messages appear here once the account is read.');
     }
 
     /* --------------------------------------------------------------- actions */
@@ -253,7 +341,7 @@
           '<b>' + ui.esc(r.card.title) + '</b><span>' + ui.esc(r.card.subtitle) + '</span>' +
           r.card.buttons.map(function (b) { return '<a href="' + ui.esc(b.url) + '" target="_blank" rel="noopener">' + ui.esc(b.title) + '</a>'; }).join('') + '</div>' : '') +
         (r.instant ? '<p class="adm__none ar-meta">Sent at once, without waiting for you.</p>' : '') +
-        (r.shouldReply && r.hold ? '<p class="ar-why">' + ui.esc(REASONS[r.hold] || r.hold) + ' It would wait for you.</p>' : '') +
+        (r.shouldReply && r.hold ? '<p class="ar-why">' + ui.esc(REASONS[r.hold] || r.hold) + (state.data.settings.mode === 'auto' && state.data.settings.takeOver ? ' Your holding line would go instead, and it would show under Needs your eye.' : ' It would wait for you.') + '</p>' : '') +
         (r.facts ? '<pre class="ar-facts">' + ui.esc(r.facts) + '</pre>' : '') + '</div>';
     }
     function saveSettings(patch, then) {
@@ -276,7 +364,7 @@
         ctx.toast(name === 'send' ? 'Reply sent' : name === 'discard' ? 'Discarded' : 'Done');
       }, fail).then(function () {
         state.busy = false;
-        refreshInbox();
+        refresh();
       });
     }
 
@@ -289,11 +377,9 @@
       var mode = e.target.closest('[data-mode]');
       if (mode) {
         var next = mode.getAttribute('data-mode');
+        if (next === state.data.settings.mode) return;
         if (next === 'auto' && !global.confirm('Turn on Auto? Replies will go out under your brand without you reading them first.')) return;
-        saveSettings({ mode: next }, function () {
-          el('arMode').innerHTML = modeHTML();
-          ctx.toast('Saved');
-        });
+        saveSettings({ mode: next }, function () { paint(); ctx.toast('Saved'); });
         return;
       }
       var button = e.target.closest('[data-act]');
@@ -303,11 +389,11 @@
     });
 
     root.addEventListener('change', function (e) {
-      var channel = e.target.getAttribute && e.target.getAttribute('data-channel');
-      if (!channel) return;
+      var key = e.target.getAttribute && e.target.getAttribute('data-setting');
+      if (!key) return;
       var patch = {};
-      patch[channel] = e.target.checked;
-      saveSettings(patch, function () { ctx.toast('Saved'); });
+      patch[key] = e.target.checked;
+      saveSettings(patch, function () { paint(); ctx.toast('Saved'); });
     });
 
     root.addEventListener('submit', function (e) {
@@ -336,11 +422,11 @@
       /* a page left open in a hidden tab reads nothing: the schedule still answers */
       if (document.hidden) return;
       ADM.api.autoReplyAction({ action: 'poll' }).then(function (r) {
-        if (r && r.found && state.data) refreshInbox();
+        if (r && r.found && state.data && !root.querySelector('details[open] textarea:focus, details[open] input:focus')) refresh();
       }, function () { /* the next tick tries again */ });
     }, 60000);
 
-    root.innerHTML = '<div class="adm__head"><div><h1>Auto Reply</h1></div></div><div class="adm__card"><div class="adm__skel" style="height:60px"></div></div>';
+    root.innerHTML = '<div class="adm__head"><div><h1>Auto Reply</h1></div></div><div class="ar2-kpis">' + [1, 2, 3, 4, 5].map(function () { return '<div class="ar2-kpi adm__skel" style="height:86px"></div>'; }).join('') + '</div>';
     load();
   }
 

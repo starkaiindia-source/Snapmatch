@@ -347,6 +347,7 @@
     if (name === 'posters') {
       if (!can('autoreply.manage')) return denied(page);
       if (parts[1] === 'templates') return ADM.pages.posters.templates(page, ctx);
+      if (parts[1] === 'analytics') return ADM.pages.posters.analytics(page, ctx);
       if (parts[1] === 'create') return ADM.pages.content.render(page, ctx);
       return ADM.pages.posters.render(page, ctx);
     }

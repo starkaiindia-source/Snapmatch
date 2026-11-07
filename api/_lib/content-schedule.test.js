@@ -186,3 +186,20 @@ test('a post is judged against the usual, with reasons on numbers; a young post 
   assert.ok(r.tips.some(x => /Carousels reach .* more than single posters/.test(x)));
   assert.equal(r.by.kind[0].key, 'carousel');
 });
+
+test('the days after the plan are shown as they will be planned, each in its own colour, no group twice', async () => {
+  schedule._reset();
+  const db = fakeDb();
+  await schedule.plan({ db, content }, 'proglide', NOW);
+  const b = await schedule.board({ db, content }, 'proglide', NOW);
+  const day = schedule.dayNumber(NOW);
+  assert.ok(b.upcoming.length > 0, 'something is shown after the planned days');
+  assert.ok(b.upcoming.every(s => s.status === 'next' && s.day >= day + schedule.AHEAD_DAYS), 'only days after the planned ones');
+  assert.ok(b.upcoming.every(s => s.palette === schedule.rowPalette('proglide', s.day)), 'each in the colour of its day');
+  const planned = new Set(b.slots.filter(s => s.kind !== 'promo').map(s => s.groupId));
+  const groups = b.upcoming.filter(s => s.kind !== 'promo').map(s => s.groupId);
+  assert.equal(new Set(groups).size, groups.length, 'no group twice');
+  assert.ok(groups.every(g => !planned.has(g)), 'nothing already planned');
+  assert.ok(b.suggest.every(g => groups.indexOf(g.groupId) < 0), 'suggestions are the groups left over');
+  assert.equal(Object.keys(db.cols.contentSchedule).length, 9, 'nothing is stored for those days');
+});

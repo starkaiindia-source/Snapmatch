@@ -131,6 +131,11 @@ async function call(method, path, params, fetchImpl, secret) {
 }
 
 /* -------------------------------------------------------------- captions */
+/* what else people call the part, for the search line */
+const ALSO = {
+  'screen-guards': 'screen guard', 'back-cover': 'back case', 'combo-display': 'combo LCD', 'middle-frame': 'housing frame',
+  'cc-board': 'charging board', battery: 'battery replacement', 'button-flex': 'power button flex', 'sim-tray': 'SIM card tray'
+};
 const TAGS = {
   'screen-guards': '#temperedglass #screenguard #screenprotector',
   'back-cover': '#backcover #mobilecover #phonecase',
@@ -155,13 +160,17 @@ function captionFor(group, brandOf, brandId, keyword) {
     brands.get(b).push(m.name.toLowerCase().indexOf(b.toLowerCase() + ' ') === 0 ? m.name.slice(b.length + 1) : m.name);
   });
   const mpf = brandId === 'mpf';
-  const head = `${master} ${part.word} fits ${n} phones ✅\nOne ${part.word} • ${n} phones • check before you buy`;
+  /* The first line is what Instagram shows and what a search engine takes as the
+     title, so it says what someone would type: the phone, the part, "compatible". */
+  const head = `${master} ${part.word} compatible models: one ${part.word} fits ${n} phones ✅\n` +
+    `Which phones take the same ${part.word} as the ${master}? All ${n} below. Stock one, serve many customers, and check before you buy.`;
   const way = mpf
-    ? `🔎 Check the compatible parts of any phone free at mobilepartsfinder.com (link in bio)`
-    : `📲 Comment ${keyword || 'LINK'} for the ProGlide app${part.price ? '\n💰 Comment 9H for price' : ''}`;
-  const tags = `${TAGS[category] || '#mobilespares'} #mobileshop #mobilerepair #spareparts #compatibility` +
-    (mpf ? ' #mobilepartsfinder' : ' #proglide');
-  const room = CAPTION_MAX - head.length - way.length - tags.length - 40;
+    ? `🔎 See every compatible part of any phone, free: mobilepartsfinder.com (link in bio)`
+    : `📲 Comment ${keyword || 'LINK'} and we DM you the free ProGlide app${part.price ? '\n💰 Comment 9H for the wholesale price' : ''}`;
+  const search = 'For mobile shop owners, repair technicians and accessory sellers, anywhere in the world.\n' +
+    `${master} ${part.word} · ${master} ${ALSO[category] || part.word} compatible · same ${part.word} models · ${part.word} compatibility list`;
+  const tags = `${TAGS[category] || '#mobilespares'} #mobileshop #mobilerepair` + (mpf ? ' #mobilepartsfinder' : ' #proglide');
+  const room = CAPTION_MAX - head.length - way.length - search.length - tags.length - 40;
   const lines = [];
   let used = 0;
   let left = n;
@@ -173,7 +182,7 @@ function captionFor(group, brandOf, brandId, keyword) {
     left -= models.length;
   }
   if (left > 0) lines.push(`+ ${left} more ${mpf ? 'on the website' : 'in the app'}`);
-  return [head, lines.join('\n'), way, tags].join('\n\n');
+  return [head, lines.join('\n'), way, search, tags].join('\n\n');
 }
 
 /** A marketing poster's caption: what the app or site does, in plain English, and the way in. */
@@ -182,16 +191,18 @@ function promoCaption(template, group, brandId, keyword, models) {
   const n = group.members.length;
   const mpf = brandId === 'mpf';
   const thing = mpf ? 'mobilepartsfinder.com' : 'the ProGlide app';
+  const count = models ? Math.floor(models / 100) * 100 + '+' : 'thousands of';
   const heads = {
-    search: `Find the matching parts for any phone in seconds 🔎\nType a model in ${thing} and see every part that fits it.`,
-    oneglass: `1 ${part.word} = ${n} phones ✅\nStock one, fit many. Find universal ${part.word} for any model with ${thing}.`,
-    wrongpart: `Stop ordering the wrong spare part ❌\nCheck what fits before you buy: tempered glass, back cover, display, battery and more.`,
-    steps: `3 steps to the right part 🛠️\n1. Type the phone model\n2. See every part that fits\n3. Sell the right one, first time`,
-    numbers: `The parts finder for mobile shops 📱\n${models ? Math.floor(models / 100) * 100 + '+ phone models, ' : ''}8 part types, one search.`
+    search: `Mobile parts compatibility finder: the matching parts for any phone in seconds 🔎\nType a model in ${thing} and see every tempered glass, back cover, display and battery that fits it.`,
+    oneglass: `Universal ${part.word} for ${n} phones: 1 ${part.word} = ${n} models ✅\nStock one, fit many. Find the compatible ${part.word} of any phone with ${thing}.`,
+    wrongpart: `Stop ordering the wrong mobile spare part ❌\nCheck what fits before you buy: tempered glass, back cover, display, battery, middle frame and more, for ${count} phone models.`,
+    steps: `How to find the right mobile spare part in 3 steps 🛠️\n1. Type the phone model\n2. See every compatible part\n3. Sell the right one, first time`,
+    numbers: `The mobile parts finder for phone shops 📱\n${count} phone models, 8 part types, one search. Same glass, same cover, same display: see which phones share them.`
   };
   const way = mpf ? '🔗 Search free at mobilepartsfinder.com (link in bio)' : `💬 Comment ${keyword || 'LINK'} and get the app link in your DM`;
-  const tags = '#mobileshop #mobilerepair #spareparts #temperedglass #mobileaccessories #phonerepair #compatibility' + (mpf ? ' #mobilepartsfinder' : ' #proglide');
-  return [heads[template] || heads.search, 'Made for mobile shop owners, anywhere in the world.', way, tags].join('\n\n');
+  const search = 'Mobile spare parts compatibility · same tempered glass models · compatible back cover list · tool for mobile shops';
+  const tags = '#mobileshop #mobilerepair #spareparts #temperedglass #mobileaccessories' + (mpf ? ' #mobilepartsfinder' : ' #proglide');
+  return [heads[template] || heads.search, 'Made for mobile shop owners, repair technicians and accessory sellers, anywhere in the world.', way, search, tags].join('\n\n');
 }
 
 /* --------------------------------------------------------------- publish */

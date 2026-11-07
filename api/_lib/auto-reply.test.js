@@ -269,8 +269,8 @@ for (const [name, model, reason] of [
   ['the reply carries a stranger\'s link', Object.assign({}, GOOD, { reply: 'see https://evil.example' }), 'unknown-link'],
   ['it claims a fit nothing was checked against', Object.assign({}, GOOD, { claims_fit: true }), 'unchecked-fit']
 ]) {
-  test(`even in auto nothing goes out when ${name}`, async () => {
-    await fresh({ mode: 'auto' });
+  test(`with take-over off, nothing goes out when ${name}`, async () => {
+    await fresh({ mode: 'auto', takeOver: false });
     const n = network(model);
     try {
       await deliver(commentEvent('nice, does it fit'));
@@ -280,7 +280,34 @@ for (const [name, model, reason] of [
       assert.equal(n.sent().length, 0);
     } finally { n.restore(); }
   });
+
+  test(`with take-over on, ${name} still gets an answer that passes every check, and the owner sees it`, async () => {
+    await fresh({ mode: 'auto' });
+    const n = network(model);
+    try {
+      await deliver(commentEvent('nice, does it fit'));
+      const [e] = await stored();
+      assert.equal(e.status, 'sent');
+      assert.equal(e.reason, reason);
+      assert.equal(e.flagOpen, true, 'it waits on the owner list');
+      const said = n.sent().map(c => c.body).join(' ');
+      assert.ok(!/Mobile Parts Finder|evil.example/.test(said), 'the unsafe words of the AI never go out');
+      if (reason !== 'needs-human') assert.equal(e.reply, replies.DEFAULTS.handoff, 'the holding line goes instead');
+    } finally { n.restore(); }
+  });
 }
+
+test('a model said to be wrong is answered and flagged for the owner', async () => {
+  await fresh({ mode: 'auto' });
+  const n = network(Object.assign({}, GOOD, { intent: 'correction', reply: 'Thanks! Our team will check it and update the list.' }));
+  try {
+    await deliver(commentEvent('vivo y20 is wrong in this list'));
+    const [e] = await stored();
+    assert.equal(e.status, 'sent');
+    assert.equal(e.flag, 'correction');
+    assert.equal(e.flagOpen, true);
+  } finally { n.restore(); }
+});
 
 test('praise needs no reply, and off spends nothing', async () => {
   await fresh({ mode: 'auto' });
@@ -311,7 +338,7 @@ test('a phone number in a message reaches neither the model nor the record', asy
 });
 
 test('the model being down loses nothing: Meta gets a 200 and the page can try again', async () => {
-  await fresh({ mode: 'auto' });
+  await fresh({ mode: 'auto', takeOver: false });
   let n = network('down');
   let id;
   try {
@@ -416,6 +443,8 @@ test('asking for the app is recognised, and praise is not', () => {
 });
 
 const PLAY = 'https://play.google.com/store/apps/details?id=test.app';
+/* the card's button carries a campaign tag, so Google Play counts who came from a reply */
+const TAGGED = PLAY + '&referrer=utm_source%3Dinstagram%26utm_medium%3Dauto_reply%26utm_campaign%3Dapp_link';
 
 test('a message asking for the app gets the link at once, even in review, with no AI', async () => {
   await fresh({ appLink: PLAY });
@@ -431,7 +460,7 @@ test('a message asking for the app gets the link at once, even in review, with n
     assert.ok(words.message.text.includes('ProGlide') && !words.message.text.includes('{'));
     const element = card.message.attachment.payload.elements[0];
     assert.equal(card.message.attachment.payload.template_type, 'generic');
-    assert.deepEqual(element.buttons, [{ type: 'web_url', url: PLAY, title: 'Download the app' }]);
+    assert.deepEqual(element.buttons, [{ type: 'web_url', url: TAGGED, title: 'Download the app' }]);
   } finally { n.restore(); }
 });
 
@@ -442,7 +471,7 @@ test('a comment asking for the app gets the link by message and a word on the co
     await deliver(commentEvent('link'));
     const dm = JSON.parse(n.calls.filter(c => c.url.includes('/messages'))[0].body);
     assert.ok(dm.recipient.comment_id);
-    assert.equal(dm.message.attachment.payload.elements[0].buttons[0].url, PLAY);
+    assert.equal(dm.message.attachment.payload.elements[0].buttons[0].url, TAGGED);
     const onComment = new URL(n.calls.filter(c => c.url.includes('/replies'))[0].url).searchParams.get('message');
     assert.equal(onComment, 'Sent you the link in DM 📩');
   } finally { n.restore(); }
@@ -754,7 +783,7 @@ test('asking for the app mid-order gets the app, and a day later the useful ques
     await deliver(messageEvent('9H temper price?', 'buyer4'));
     await deliver(messageEvent('Link', 'buyer4'));
     const card = JSON.parse(n.sent().pop().body).message.attachment.payload.elements[0];
-    assert.equal(card.buttons[0].url, 'https://play.google.com/store/apps/details?id=x');
+    assert.ok(card.buttons[0].url.startsWith('https://play.google.com/store/apps/details?id=x&referrer=utm_source'), 'the app link, with its campaign tag');
     const doc = fake.db.collection('autoReplyFeedback').doc('buyer4');
     assert.equal((await doc.get()).data().state, 'waiting');
 

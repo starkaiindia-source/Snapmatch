@@ -65,6 +65,7 @@ function postOf(m, rec) {
     kind: kindOf(m, rec),
     reach, views: Number(i.views) || 0, likes: Number(m.like_count) || 0, comments: Number(m.comments_count) || 0,
     saves: Number(i.saved) || 0, shares: Number(i.shares) || 0,
+    follows: i.follows == null ? null : Number(i.follows) || 0, visits: i.profile_visits == null ? null : Number(i.profile_visits) || 0,
     design: (rec && rec.design) || null, palette: (rec && rec.palette) || null, template: (rec && rec.template) || null,
     keyword: (rec && rec.keyword) || null, fromHere: !!rec
   };
@@ -135,6 +136,14 @@ function analyse(posts, now) {
     return Object.assign({}, p, { score: round(score, 2), young: age < YOUNG_MS, reasons });
   });
 
+  /* which posts and kinds brought followers: Instagram counts a follow made from a post */
+  const withFollows = out.filter(p => p.follows != null);
+  const follows = withFollows.length ? {
+    total: withFollows.reduce((a, p) => a + p.follows, 0),
+    top: withFollows.filter(p => p.follows > 0).sort((a, b) => b.follows - a.follows || b.reach - a.reach).slice(0, 8).map(p => p.id),
+    kind: Array.from(withFollows.reduce((m, p) => m.set(p.kind, (m.get(p.kind) || 0) + p.follows), new Map()).entries()).map(([key, v]) => ({ key, follows: v, posts: withFollows.filter(p => p.kind === key).length })).sort((a, b) => b.follows - a.follows)
+  } : null;
+
   const tips = [];
   const best = (list, min) => list.filter(x => x.posts >= (min || 2))[0];
   const bk = best(by.kind);
@@ -150,10 +159,11 @@ function analyse(posts, now) {
   if (bp && by.palette.length > 1) tips.push(`The ${bp.key} colour reaches most so far.`);
   const kw = by.keyword.filter(x => x.posts >= 2).sort((a, b) => b.comments - a.comments)[0];
   if (kw && by.keyword.length > 1) tips.push(`"Comment ${kw.key}" gets the most comments (usual ${kw.comments} a post).`);
+  if (follows && follows.kind[0] && follows.kind[0].follows > 0) tips.push(`${cap(KIND_NAMES[follows.kind[0].key] || follows.kind[0].key)} brought the most new followers (${num(follows.kind[0].follows)} from ${follows.kind[0].posts} posts).`);
   if (usual.saveRate) tips.push(`Usually ${round(usual.saveRate * 100, 1)}% of the people reached save a post. Long model lists get saved most.`);
   if (!tips.length) tips.push('Too few posts to compare yet. The reasons fill in as the schedule posts.');
 
-  return { usual: { reach: round(usual.reach), saveRate: round(usual.saveRate * 100, 2), comments: round(usual.comments, 1) }, by, posts: out, tips, judged: judged.length };
+  return { usual: { reach: round(usual.reach), saveRate: round(usual.saveRate * 100, 2), comments: round(usual.comments, 1) }, by, follows, posts: out, tips, judged: judged.length };
 }
 
 const cap = s => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
@@ -169,25 +179,43 @@ async function read(deps, account, now, fresh) {
   if (!fresh && hit && now - hit.at < CACHE_MS) return hit.value;
   const ig = acct.igUserId();
   const [profile, media, records] = await Promise.all([
-    deps.graph('GET', ig, { fields: 'username,followers_count,media_count,profile_picture_url' }).catch(() => ({})),
+    deps.graph('GET', ig, { fields: 'username,name,biography,website,followers_count,follows_count,media_count,profile_picture_url' }).catch(() => ({})),
     deps.graph('GET', `${ig}/media`, { fields: 'id,caption,media_type,media_product_type,timestamp,permalink,thumbnail_url,media_url,like_count,comments_count', limit: READ }),
     deps.db().collection(C.CONTENT_POSTS).orderBy('at', 'desc').limit(80).get().then(s => s.docs.map(d => d.data())).catch(() => [])
   ]);
   const list = media.data || [];
   await Promise.all(list.map(async m => {
-    const got = await deps.graph('GET', `${m.id}/insights`, { metric: 'reach,views,saved,shares,total_interactions' })
-      .catch(() => deps.graph('GET', `${m.id}/insights`, { metric: 'reach,saved,total_interactions' }).catch(() => null));
+    const ask = metric => deps.graph('GET', `${m.id}/insights`, { metric });
+    const got = await ask('reach,views,saved,shares,total_interactions,follows,profile_visits')
+      .catch(() => ask('reach,views,saved,shares,total_interactions'))
+      .catch(() => ask('reach,saved,total_interactions')).catch(() => null);
     m.insights = {};
     ((got && got.data) || []).forEach(x => { m.insights[x.name] = (x.values && x.values[0] && x.values[0].value) || (x.total_value && x.total_value.value) || 0; });
   }));
+  const growth = await growthOf(deps, ig, now);
   const byMedia = new Map(records.filter(r => r.account === account).map(r => [String(r.mediaId), r]));
   const value = Object.assign({
     account,
-    profile: { username: profile.username || null, followers: profile.followers_count == null ? null : profile.followers_count, posts: profile.media_count == null ? null : profile.media_count, picture: profile.profile_picture_url || null },
-    readAt: now
+    profile: { username: profile.username || null, name: profile.name || null, bio: profile.biography || '', website: profile.website || null, following: profile.follows_count == null ? null : profile.follows_count, followers: profile.followers_count == null ? null : profile.followers_count, posts: profile.media_count == null ? null : profile.media_count, picture: profile.profile_picture_url || null },
+    growth, readAt: now
   }, analyse(list.map(m => postOf(m, byMedia.get(String(m.id)))), now));
   cache.set(account, { at: now, value });
   return value;
+}
+
+/**
+ * The account's last 30 days: new followers and people reached, a day each.
+ * Instagram keeps follower_count for 30 days and only for accounts of 100+
+ * followers; either list is null when Instagram does not answer it.
+ */
+async function growthOf(deps, ig, now) {
+  const until = Math.floor(now / 1000);
+  const since = until - 29 * 24 * 3600;
+  const series = metric => deps.graph('GET', `${ig}/insights`, { metric, period: 'day', since, until })
+    .then(r => (((r.data || [])[0] || {}).values || []).map(v => ({ day: String(v.end_time || '').slice(0, 10), value: Number(v.value) || 0 })))
+    .catch(() => null);
+  const [followers, reach] = await Promise.all([series('follower_count'), series('reach')]);
+  return { followers, reach };
 }
 
 module.exports = { analyse, postOf, median, read, bucketOf };

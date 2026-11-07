@@ -116,7 +116,9 @@ const DEFAULTS = {
   tone: 'Friendly and short, like a helpful shop owner. No hashtags.',
   handoff: 'Our team will reply to you soon.',
   blocked: 'Mobile Parts Finder\nmobilepartsfinder\nSnapMatch',
-  maxNames: 6, perSenderHour: 6, dailyReplies: 200, minConfidence: 0.7
+  maxNames: 6, perSenderHour: 6, dailyReplies: 200, minConfidence: 0.7,
+  /* in Auto, a message the AI may not answer alone still gets the holding line, and waits for the owner */
+  takeOver: true, appOn: true
 };
 
 const settingsRef = () => db().collection(C.AUTO_REPLY).doc('instagram');
@@ -184,7 +186,8 @@ function normalise(s) {
     maxNames: num(d.maxNames, 0, 20, DEFAULTS.maxNames),
     perSenderHour: num(d.perSenderHour, 1, 60, DEFAULTS.perSenderHour),
     dailyReplies: num(d.dailyReplies, 1, 2000, DEFAULTS.dailyReplies),
-    minConfidence: num(d.minConfidence, 0, 1, DEFAULTS.minConfidence)
+    minConfidence: num(d.minConfidence, 0, 1, DEFAULTS.minConfidence),
+    takeOver: d.takeOver !== false, appOn: d.appOn !== false
   };
 }
 
@@ -283,9 +286,21 @@ function linkMessage(s) {
 }
 
 function linkCard(s) {
+  const url = tagged(s.appLink);
   return Object.assign({ title: brandIn(s.appCardTitle, s).slice(0, 80), subtitle: brandIn(s.appCardSubtitle, s).slice(0, 80) },
     s.appImage ? { image_url: s.appImage } : {},
-    { default_action: { type: 'web_url', url: s.appLink }, buttons: [{ type: 'web_url', url: s.appLink, title: s.appButton.slice(0, 20) }] });
+    { default_action: { type: 'web_url', url }, buttons: [{ type: 'web_url', url, title: s.appButton.slice(0, 20) }] });
+}
+
+/* A Play Store link carries a campaign tag, so Google Play's console counts the
+   people who came from these replies. A link that has its own tag is left alone. */
+function tagged(link) {
+  try {
+    const u = new URL(link);
+    if (u.hostname !== 'play.google.com' || u.searchParams.has('referrer')) return link;
+    u.searchParams.set('referrer', 'utm_source=instagram&utm_medium=auto_reply&utm_campaign=app_link');
+    return u.toString();
+  } catch (err) { return link; }
 }
 
 /* One link a day is enough for one person, however often they ask. */
@@ -455,8 +470,8 @@ async function work(id, ev, settings, c, now) {
   /* asking for the app is answered with the app, even in the middle of an order;
      "iPhone 14 Pro Max 3 boxes" in an order is a phone, not the app */
   const ordering = selling && sales.parseOrder(ev.raw || ev.text, settings).length > 0;
-  if (!ordering && settings.iosLink && responder.asksForIos(ev.text, settings.appKeywords)) return sendIos(id, ev, settings, c);
-  if (settings.appLink && responder.asksForApp(ev.text, settings.appKeywords)) return sendLink(id, ev, settings, c);
+  if (!ordering && settings.appOn && settings.iosLink && responder.asksForIos(ev.text, settings.appKeywords)) return sendIos(id, ev, settings, c);
+  if (settings.appOn && settings.appLink && responder.asksForApp(ev.text, settings.appKeywords)) return sendLink(id, ev, settings, c);
   if (settings.salesOn) {
     const sold = await sellStep(id, ev, settings, c, now);
     if (sold !== null) return sold;
@@ -468,21 +483,38 @@ async function work(id, ev, settings, c, now) {
   const history = ev.kind === 'dm' ? await earlier(ev.senderId, id) : [];
   const gemini = createGemini({ key: c.geminiKey });
   const d = await responder.draft({ text: ev.text, kind: ev.kind, settings, gemini, model: c.model, caption, history });
-  if (!d.ok) return finish(id, { status: 'failed', error: d.reason, errorKind: d.kind });
+  const takeOver = settings.mode === 'auto' && settings.takeOver;
+  if (!d.ok) {
+    if (!takeOver) return finish(id, { status: 'failed', error: d.reason, errorKind: d.kind });
+    await finish(id, { status: 'draft', reason: 'ai-failed', error: d.reason, flag: 'question', flagOpen: true });
+    return deliver(id, brandIn(settings.handoff, settings), 'auto-hold', c);
+  }
 
+  /* what the owner should see: a model said to be wrong, a model suggested, a complaint */
+  const flag = FLAGS[d.intent] || null;
   const fields = {
     reply: d.reply, intent: d.intent, confidence: d.confidence, phones: d.phones, facts: d.facts, needsHuman: d.needsHuman,
-    model: d.model, costMicroUsd: cost(c, d)
+    model: d.model, costMicroUsd: cost(c, d), flag, flagOpen: !!flag
   };
   if (!d.shouldReply) return finish(id, Object.assign(fields, { status: 'ignored' }));
 
   const person = responder.hold(d, ev.kind, settings);
+  if (person && takeOver) {
+    /* Nobody is left unanswered: the AI's own words when it only asked for a person
+       and they pass every check, else the holding line. The owner still sees it. */
+    const words = person === 'needs-human' && !responder.guard(d.reply, ev.kind, settings) && !d.claimsFit ? d.reply : brandIn(settings.handoff, settings);
+    if (responder.guard(words, ev.kind, settings)) return finish(id, Object.assign(fields, { status: 'needs_human', reason: person }));
+    await finish(id, Object.assign(fields, { status: 'draft', reason: person, flag: flag || 'question', flagOpen: true }));
+    return deliver(id, words, 'auto-hold', c);
+  }
   if (person) return finish(id, Object.assign(fields, { status: 'needs_human', reason: person }));
   if (settings.mode === 'review') return finish(id, Object.assign(fields, { status: 'draft', reason: null }));
 
   await finish(id, Object.assign(fields, { status: 'draft', reason: null }));
   return deliver(id, d.reply, 'auto', c);
 }
+
+const FLAGS = { correction: 'correction', suggestion: 'suggestion', complaint: 'complaint' };
 
 /**
  * One delivery from Meta.
@@ -655,8 +687,106 @@ async function listEvents() {
 }
 
 async function overview() {
-  const [settings, list] = await Promise.all([loadSettings(), listEvents()]);
-  return { settings, connection: connection(), events: list, scopes: SCOPES };
+  const [settings, list, numbers] = await Promise.all([loadSettings(), listEvents(), stats(Date.now()).catch(err => ({ error: err.message }))]);
+  return { settings, connection: connection(), events: list, scopes: SCOPES, stats: numbers };
+}
+
+/* ------------------------------------------------------------- the numbers
+   What the bot did in the last 30 days, counted from its own records: every
+   comment and message it read, what it sent for each, and the sales it led to.
+   Read when the owner opens the page (one read a record, kept two minutes), never
+   on the per-minute poll. Instagram does not tell anyone who taps a button in a
+   message, so taps are not counted here; the app link carries a campaign tag
+   that Google Play's console reports. */
+const STATS_DAYS = 30;
+const STATS_READ = 600;
+const STATS_KEEP_MS = 2 * 60 * 1000;
+let statsCache = null;
+const RULES = [
+  ['app_link', e => e.intent === 'app_link' && e.status === 'sent'],
+  ['sale', e => e.intent === 'sale' && e.status === 'sent'],
+  ['feedback', e => e.intent === 'feedback' && e.status === 'sent'],
+  ['ai_comments', e => e.status === 'sent' && e.sentBy === 'auto' && e.kind === 'comment'],
+  ['ai_dms', e => e.status === 'sent' && e.sentBy === 'auto' && e.kind !== 'comment'],
+  ['holding', e => e.status === 'sent' && e.sentBy === 'auto-hold'],
+  ['owner', e => e.status === 'sent' && e.sentBy && ['auto', 'auto-hold', 'app-link', 'feedback', 'sales'].indexOf(e.sentBy) < 0 && e.intent !== 'sale']
+];
+
+async function stats(now, fresh) {
+  if (!fresh && statsCache && now - statsCache.at < STATS_KEEP_MS) return statsCache.value;
+  const since = now - STATS_DAYS * DAY_MS;
+  const [snap, leads] = await Promise.all([
+    eventCol().where('at', '>=', since).orderBy('at', 'desc').limit(STATS_READ).get(),
+    sales.listLeads().catch(() => [])
+  ]);
+  const list = snap.docs.map(d => Object.assign({ id: d.id }, d.data())).filter(e => e.status !== 'merged');
+  const dayOf = t => new Date(t + 5.5 * HOUR_MS).toISOString().slice(0, 10);
+  const days = [];
+  for (let i = STATS_DAYS - 1; i >= 0; i--) days.push(dayOf(now - i * DAY_MS));
+  const daily = new Map(days.map(d => [d, { day: d, read: 0, sent: 0 }]));
+  const rules = {};
+  RULES.forEach(([k]) => { rules[k] = { all: 0, week: 0, today: 0 }; });
+  const today = dayOf(now);
+  const totals = { read: list.length, comments: 0, dms: 0, sent: 0, waiting: 0, ignored: 0, failed: 0, week: 0, today: 0 };
+  list.forEach(e => {
+    const at = e.at || 0;
+    const day = daily.get(dayOf(at));
+    if (day) day.read++;
+    if (e.kind === 'comment') totals.comments++; else totals.dms++;
+    if (e.status === 'sent') {
+      totals.sent++;
+      if (day) day.sent++;
+      if (now - at < 7 * DAY_MS) totals.week++;
+      if (dayOf(at) === today) totals.today++;
+    }
+    if (e.status === 'needs_human' || e.status === 'draft') totals.waiting++;
+    if (e.status === 'ignored') totals.ignored++;
+    if (e.status === 'failed') totals.failed++;
+    RULES.forEach(([k, test]) => {
+      if (!test(e)) return;
+      rules[k].all++;
+      if (now - at < 7 * DAY_MS) rules[k].week++;
+      if (dayOf(at) === today) rules[k].today++;
+    });
+  });
+  const stages = {};
+  leads.forEach(l => { stages[l.stage || 'other'] = (stages[l.stage || 'other'] || 0) + 1; });
+  const flagged = list.filter(e => e.flagOpen).slice(0, 40).map(e => ({
+    id: e.id, kind: e.kind, at: e.at, username: e.username || null, text: e.text || '', reply: e.reply || '', status: e.status,
+    flag: e.flag || 'question', reason: e.reason || null, phones: e.phones || [], mediaId: e.mediaId || null, intent: e.intent || null
+  }));
+  const comments = list.filter(e => e.kind === 'comment').slice(0, 30).map(e => ({
+    id: e.id, at: e.at, username: e.username || null, text: e.text || '', reply: e.status === 'sent' ? e.reply || '' : '', status: e.status,
+    intent: e.intent || null, flag: e.flag || null, mediaId: e.mediaId || null
+  }));
+  const value = {
+    days: STATS_DAYS, readAt: now, capped: snap.size >= STATS_READ, totals, rules, daily: Array.from(daily.values()),
+    leads: { total: leads.length, stages, paid: leads.filter(l => l.stage === 'paid' || l.stage === 'won').length },
+    flagged, comments
+  };
+  statsCache = { at: now, value };
+  return value;
+}
+
+/** Marks one flagged comment or message as dealt with. */
+async function resolveFlag(id) {
+  const ref = eventCol().doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) return false;
+  await ref.set({ flagOpen: false, flagDoneAt: Date.now() }, { merge: true });
+  statsCache = null;
+  return true;
+}
+
+/** The posts the flagged comments are on: picture, caption and link, one call a post. */
+async function postsOf(ids) {
+  const c = credentials();
+  const list = Array.from(new Set((ids || []).filter(id => /^\d{5,30}$/.test(String(id))))).slice(0, 12);
+  if (!c.token || !list.length) return {};
+  const meta = metaClient(c);
+  const out = {};
+  await Promise.all(list.map(id => meta.media(id).then(m => { out[id] = m; }, () => null)));
+  return out;
 }
 
 /** The account's recent posts, comments and conversations, read for the owner. */
@@ -694,13 +824,13 @@ async function tryReply({ text: said, kind, caption }) {
   const c = credentials();
   const settings = await loadSettings();
   const k = kind === 'dm' ? 'dm' : 'comment';
-  if (settings.iosLink && responder.asksForIos(said, settings.appKeywords)) {
+  if (settings.appOn && settings.iosLink && responder.asksForIos(said, settings.appKeywords)) {
     return { ok: true, reply: brandIn(settings.iosText, settings), card: iosCard(settings), intent: 'app_link', confidence: 1, shouldReply: true, hold: null, instant: true };
   }
   if (settings.salesOn && sales.asksToBuy(said, settings.salesKeywords)) {
     return { ok: true, reply: sales.priceText(settings), intent: 'sale', confidence: 1, shouldReply: true, hold: null, instant: true };
   }
-  if (settings.appLink && responder.asksForApp(said, settings.appKeywords)) {
+  if (settings.appOn && settings.appLink && responder.asksForApp(said, settings.appKeywords)) {
     return { ok: true, reply: linkIntro(settings), card: linkCard(settings), intent: 'app_link', confidence: 1, shouldReply: true, hold: null, instant: true };
   }
   const d = await responder.draft({ text: said, kind: k, settings, gemini: createGemini({ key: c.geminiKey }), model: c.model, caption: text(caption, 2000) });
@@ -846,6 +976,6 @@ async function retry(id) {
 
 module.exports = {
   DEFAULTS, MODES, sales, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, history, subscribe,
-  tryReply, sendDraft, discard, retry, performance, GraphError,
+  tryReply, sendDraft, discard, retry, performance, GraphError, stats, resolveFlag, postsOf,
   inboxList, inboxThread, inboxReply, inboxContact, inboxLeads, inboxSuggest, inboxBill, inboxPaid
 };

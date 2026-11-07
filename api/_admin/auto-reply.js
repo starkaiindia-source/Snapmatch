@@ -49,6 +49,9 @@ module.exports = async function handler(req, res) {
         return t ? ok(res, t) : bad(res, 'channel and userId are required');
       }
       if (view === 'performance') return ok(res, await replies.performance());
+      /* the numbers again, read fresh; the posts flagged comments are on */
+      if (view === 'stats') return ok(res, await replies.stats(Date.now(), true));
+      if (view === 'posts') return ok(res, { posts: await replies.postsOf(String(req.query.ids || '').split(',')) });
       return ok(res, view === 'check' ? await replies.liveCheck() : view === 'history' ? await replies.history() : await replies.overview());
     }
     return await act(req, res, admin);
@@ -76,6 +79,10 @@ async function act(req, res, admin) {
       return ok(res, await replies.tryReply({ text: input.text, kind: input.kind, caption: input.caption }));
     }
     case 'poll': return ok(res, (await replies.poll()).body);
+    case 'flagDone': {
+      if (!id) return bad(res, 'id is required');
+      return (await replies.resolveFlag(id)) ? ok(res, { done: true }) : bad(res, 'no such message');
+    }
     case 'lead': {
       const lead = typeof input.id === 'string' && /^[A-Za-z0-9_-]{3,64}$/.test(input.id) ? await replies.sales.setStage(input.id, input.stage) : null;
       return lead ? ok(res, { lead }) : bad(res, 'no such lead or stage');

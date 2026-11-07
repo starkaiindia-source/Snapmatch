@@ -133,6 +133,10 @@ function createMetaClient(opts = {}) {
   const privateReply = (commentId, text) => send({ comment_id: commentId }, { text });
   const privateCard = (commentId, card) => send({ comment_id: commentId }, template(card));
 
+  /* one post, for the owner's list of flagged comments */
+  const media = mediaId => call('GET', mediaId, { params: { fields: 'caption,permalink,media_type,media_url,thumbnail_url,timestamp' } })
+    .then(r => ({ id: mediaId, caption: String(r.caption || '').split(/\r?\n/)[0].slice(0, 140), permalink: r.permalink || null, picture: r.media_type === 'VIDEO' ? r.thumbnail_url || null : r.media_url || r.thumbnail_url || null, at: Date.parse(r.timestamp) || 0 }));
+
   async function caption(mediaId) {
     const r = await call('GET', mediaId, { params: { fields: 'caption' } });
     return typeof r.caption === 'string' ? r.caption : '';
@@ -366,7 +370,7 @@ function createMetaClient(opts = {}) {
     return out;
   }
 
-  return { login, host, igUserId, conversations, messagesOf, conversationWith, profile, pageConversations, pageMessages, pageConversationWith, pageSend, performance, replyToComment, sendMessage, sendCard, sendImage, sendQuick, privateReply, privateCard, caption, recent, history, username, connectWebhook, subscribe, check };
+  return { login, host, igUserId, conversations, messagesOf, conversationWith, profile, pageConversations, pageMessages, pageConversationWith, pageSend, performance, replyToComment, sendMessage, sendCard, sendImage, sendQuick, privateReply, privateCard, caption, media, recent, history, username, connectWebhook, subscribe, check };
 }
 
 module.exports = { createMetaClient, SCOPES, FIELDS };

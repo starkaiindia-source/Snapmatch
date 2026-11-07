@@ -49,6 +49,8 @@ const promos = require('./promos');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const IST_MS = 5.5 * 60 * 60 * 1000;
 const AHEAD_DAYS = 3;
+/* the days after the planned ones, shown as they will be planned */
+const PROJECT_DAYS = 3;
 const LATE_MS = 3 * 60 * 60 * 1000;
 const STUCK_MS = 15 * 60 * 1000;
 const USED_KEEP_MS = 60 * DAY_MS;
@@ -219,18 +221,44 @@ async function board(deps, account, now) {
 
   let ready = [];
   let stat = null;
+  let upcoming = [];
   try {
     const [cands, used] = await Promise.all([candidates(content, now), usedGroups(db, account, settings, now)]);
     slots.forEach(s => { if (s.groupId && s.kind !== 'promo') used.add(s.groupId); });
     ready = cands.groups.filter(g => !used.has(g.groupId) && !(cands.stat && g.groupId === cands.stat.groupId)).slice(0, 18);
     stat = cands.stat;
+    upcoming = project(account, today + AHEAD_DAYS, ready, stat);
   } catch (err) {
     console.warn('[schedule] ready list', err && err.message);
   }
+  const inUpcoming = new Set(upcoming.map(s => s.groupId));
   return {
-    account, auto: !!settings.auto[account], slots, ready, stat,
+    account, auto: !!settings.auto[account], slots, ready, stat, upcoming,
+    suggest: ready.filter(g => !inUpcoming.has(g.groupId)),
     rows: designs.PALETTES.map(p => p.id), times: SLOTS.map(s => ({ slot: s.slot, minutes: s.minutes, kind: s.kind, column: s.column }))
   };
+}
+
+/**
+ * The days after the planned ones, as they will be planned: the ready groups
+ * put in the same order plan() takes them, each in its own day's colour, so
+ * the owner sees the grid that is coming, not a list. Nothing is stored; when
+ * a day comes into the planned window, plan() makes it for real.
+ */
+function project(account, firstDay, ready, stat) {
+  const taken = new Set();
+  const out = [];
+  for (let d = firstDay; d < firstDay + PROJECT_DAYS; d++) {
+    const cats = [];
+    dayPlan(account, d).forEach(s => {
+      const g = s.kind === 'promo' ? stat : pick(ready, taken, s.kind, cats);
+      if (!g) return;
+      if (s.kind !== 'promo') { taken.add(g.groupId); cats.push(g.categoryId); }
+      out.push(Object.assign(s, { groupId: g.groupId, categoryId: g.categoryId || null, master: g.master || '', count: g.count || 0,
+        why: s.kind === 'promo' ? 'Sells the ' + (account === 'proglide' ? 'app' : 'website') : g.why || '', source: s.kind === 'promo' ? 'promo' : g.source || '', status: 'next' }));
+    });
+  }
+  return out;
 }
 
 /** The owner's changes to one planned slot: skip it, or plan another group in it. */
