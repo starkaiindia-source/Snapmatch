@@ -47,6 +47,10 @@ const AggregateField = admin.firestore.AggregateField;
 
 const DAY_MS = 24 * 3600 * 1000;
 
+/* The code and Firestore's own words, which name the missing index or the bad
+   argument; the code alone (3, 9) says only that something is wrong. */
+const why = err => (err ? `${err.code || ''} ${String(err.details || err.message || '').slice(0, 300)}` : '');
+
 /**
  * The most user documents a growth series will scan.
  *
@@ -74,7 +78,7 @@ async function countOf(query, label) {
     const snap = await query.count().get();
     return snap.data().count;
   } catch (err) {
-    console.warn('[metrics] count failed', label, err && (err.code || err.message));
+    console.warn('[metrics] count failed', label, why(err));
     return null;
   }
 }
@@ -86,7 +90,7 @@ async function sumOf(query, field, label) {
     const total = snap.data().total;
     return Number.isFinite(total) ? total : 0;
   } catch (err) {
-    console.warn('[metrics] sum failed', label, err && (err.code || err.message));
+    console.warn('[metrics] sum failed', label, why(err));
     return null;
   }
 }
@@ -292,7 +296,7 @@ async function countDistinctPayers() {
     snap.docs.forEach(d => { const u = d.data().uid; if (u) uids.add(u); });
     return uids.size;
   } catch (err) {
-    console.warn('[metrics] distinct payers failed', err && (err.code || err.message));
+    console.warn('[metrics] distinct payers failed', why(err));
     return null;
   }
 }
@@ -321,7 +325,7 @@ async function dailySeries({ collection, field, from, to, valueField, where = []
   try {
     snap = await q.select.apply(q, projection).limit(SERIES_SCAN_CAP + 1).get();
   } catch (err) {
-    console.warn('[metrics] series failed', collection, field, err && (err.code || err.message));
+    console.warn('[metrics] series failed', collection, field, why(err));
     return { points: [], truncated: false, available: false };
   }
 
@@ -444,7 +448,7 @@ async function topLists(now, days = 30) {
       keys.map(k => db().collection(ANALYTICS_DAILY).doc(k))
     );
   } catch (err) {
-    console.warn('[metrics] rollups unavailable', err && (err.code || err.message));
+    console.warn('[metrics] rollups unavailable', why(err));
     return { available: false, windowDays: days };
   }
 
