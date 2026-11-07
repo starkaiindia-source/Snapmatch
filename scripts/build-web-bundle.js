@@ -10,15 +10,14 @@
      and three stylesheets one by one cost twenty-one of them before it had
      shown anything, and a visitor opening five model pages cost a hundred.
      That is what paused the site on 3 November 2026. Two files instead of
-     twenty-one, cached in the browser for fifteen minutes (vercel.json), turn
-     the next page view into one request: its HTML.
+     twenty-one, kept on the phone by sw.js under a version this script
+     writes into it, cost a returning visitor nothing until the next change.
 
    WHY NOT A HASHED FILE NAME
      8,366 pre-rendered model pages name these files. A hash in the name would
      rewrite every one of them on every change to any script. A stable name
-     with a short browser cache costs at most fifteen minutes of the previous
-     script after a deploy, which the network-first service worker already
-     tolerates.
+     is versioned in sw.js instead, which a visitor's browser checks at most
+     once an hour, so a deploy reaches everyone within that hour.
 
    The source files stay where they are and stay the thing to edit. Every
    script is an IIFE that sets its own 'use strict', so joining them changes
@@ -31,6 +30,7 @@
 'use strict';
 
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
@@ -50,6 +50,8 @@ const BOOT_CSS = ['assets/styles.css', 'assets/components.css', 'assets/seo.css'
 
 const OUT_JS = 'assets/app.js';
 const OUT_CSS = 'assets/app.css';
+const SW = 'sw.js';
+const SW_VERSION = /var APP_VERSION = '[0-9a-f]*';/;
 
 const SCRIPT_TAGS = BOOT_JS.map(s => `<script src="/${s}" defer></script>`);
 const STYLE_TAGS = BOOT_CSS.map(s => `<link rel="stylesheet" href="/${s}" />`);
@@ -76,10 +78,17 @@ function activeModels() {
 }
 
 function bundles() {
-  return {
+  const out = {
     [OUT_JS]: activeModels() + '\n' + joined(BOOT_JS, f => `/* === ${f} === */;`),
     [OUT_CSS]: joined(BOOT_CSS, f => `/* === ${f} === */`)
   };
+  /* sw.js keeps the pair on the phone under this version and fetches them
+     again only when it changes, so it must change whenever they do. */
+  const version = crypto.createHash('sha1').update(lf(out[OUT_JS]) + lf(out[OUT_CSS])).digest('hex').slice(0, 10);
+  const sw = read(SW);
+  if (!SW_VERSION.test(sw)) throw new Error(`${SW} has no APP_VERSION line`);
+  out[SW] = sw.replace(SW_VERSION, `var APP_VERSION = '${version}';`);
+  return out;
 }
 
 /* The tags as they sit in a page: one per line, any indentation, either line
@@ -128,7 +137,7 @@ function run(check) {
   return { stale, rewritten };
 }
 
-module.exports = { BOOT_JS, BOOT_CSS, OUT_JS, OUT_CSS, SCRIPT_TAG, STYLE_TAG, bundles, rewrite };
+module.exports = { BOOT_JS, BOOT_CSS, OUT_JS, OUT_CSS, SW, SCRIPT_TAG, STYLE_TAG, bundles, rewrite };
 
 if (require.main === module) {
   const check = process.argv.includes('--check');
@@ -140,6 +149,6 @@ if (require.main === module) {
     }
     console.log('web bundle up to date');
   } else {
-    console.log(`${stale.length ? "rebuilt" : "unchanged"}: ${OUT_JS}, ${OUT_CSS}; ${rewritten} page(s) moved to them`);
+    console.log(`${stale.length ? "rebuilt" : "unchanged"}: ${OUT_JS}, ${OUT_CSS}, ${SW} version; ${rewritten} page(s) moved to them`);
   }
 }

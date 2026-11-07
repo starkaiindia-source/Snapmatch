@@ -6461,13 +6461,20 @@ window.SM_ACTIVE_MODELS = ["apple-iphone-14"];
       if (global.location.protocol !== 'https:' && global.location.hostname !== 'localhost') return;
 
       global.addEventListener('load', function () {
-        /* updateViaCache:'none' — the browser caches sw.js like any other
-           script, and a cached worker keeps serving its own old shell after a
-           deploy has replaced it. Revalidating the worker script itself is the
-           difference between shipping a fix and shipping it to people who
-           already have the site. */
-        global.navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(function (reg) {
+        /* updateViaCache:'all' — the browser checks sw.js for a new version on
+           every page, and with 'none' each check was a request to the site.
+           With 'all' the check reads the browser's HTTP copy, which vercel.json
+           keeps for an hour, so a deploy reaches everyone within that hour and
+           a visitor costs at most one sw.js request an hour. */
+        global.navigator.serviceWorker.register('/sw.js', { updateViaCache: 'all' }).then(function (reg) {
           SM.debug.log('pwa', 'service worker registered', { scope: reg.scope });
+          /* Ask that the pages and files sw.js keeps are not dropped when the
+             phone runs low on space. Chromium decides this silently; Firefox
+             would show the visitor a prompt, so it is not asked there. */
+          var st = global.navigator.storage;
+          if (global.navigator.userAgentData && st && st.persist && st.persisted) {
+            st.persisted().then(function (yes) { return yes || st.persist(); }).catch(function () {});
+          }
         }, function (err) {
           /* Not fatal: the site works, it simply cannot be installed. */
           SM.debug.warn('pwa', 'service worker registration failed', { message: err && err.message });

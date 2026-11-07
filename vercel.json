@@ -140,7 +140,7 @@
     {
       "src": "/assets/(brand|brands|categories)/(.*)",
       "headers": {
-        "Cache-Control": "public, max-age=604800"
+        "Cache-Control": "public, max-age=31536000"
       },
       "continue": true
     },
@@ -154,21 +154,28 @@
     {
       "src": "/assets/app\\.(js|css)",
       "headers": {
-        "Cache-Control": "public, max-age=900"
+        "Cache-Control": "public, max-age=3600"
       },
       "continue": true
     },
     {
       "src": "/src/(.*)\\.js",
       "headers": {
-        "Cache-Control": "public, max-age=900"
+        "Cache-Control": "public, max-age=3600"
       },
       "continue": true
     },
     {
       "src": "/(favicon\\.ico|favicon\\.svg|site\\.webmanifest|apple-touch-icon(-precomposed)?\\.png)",
       "headers": {
-        "Cache-Control": "public, max-age=604800"
+        "Cache-Control": "public, max-age=31536000"
+      },
+      "continue": true
+    },
+    {
+      "src": "/sw\\.js",
+      "headers": {
+        "Cache-Control": "public, max-age=3600"
       },
       "continue": true
     },
