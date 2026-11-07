@@ -102,6 +102,7 @@ test('planning fills three days once, never the same group twice, a carousel get
   const slots = Object.values(db.cols.contentSchedule);
   const groups = slots.filter(s => s.kind !== 'promo').map(s => s.groupId);
   assert.equal(new Set(groups).size, groups.length, 'no group twice');
+  assert.ok(groups.indexOf('sg-0001') < 0, 'the marketing group is not also a single or a carousel');
   assert.ok(slots.filter(s => s.kind === 'carousel').every(s => s.count >= 12), 'carousels are long lists');
   assert.ok(slots.filter(s => s.kind === 'promo').every(s => s.groupId === 'sg-0001' && s.template), 'promo numbers from the biggest glass group');
   assert.equal(slots.find(s => s.kind === 'single').source, 'asked', 'what people ask about goes first');

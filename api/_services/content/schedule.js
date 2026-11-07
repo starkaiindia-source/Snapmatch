@@ -179,6 +179,8 @@ async function plan(deps, account, now) {
   const settings = await loadSettings(db);
   const [cands, used] = await Promise.all([candidates(content, now), usedGroups(db, account, settings, now)]);
   have.forEach(v => { if (v.groupId && v.kind !== 'promo') used.add(v.groupId); });
+  /* the marketing poster's group stays the marketing poster's, so no day shows it twice */
+  if (cands.stat) used.add(cands.stat.groupId);
   const usedNow = {};
   let planned = 0;
   for (const s of missing) {
@@ -220,7 +222,7 @@ async function board(deps, account, now) {
   try {
     const [cands, used] = await Promise.all([candidates(content, now), usedGroups(db, account, settings, now)]);
     slots.forEach(s => { if (s.groupId && s.kind !== 'promo') used.add(s.groupId); });
-    ready = cands.groups.filter(g => !used.has(g.groupId)).slice(0, 18);
+    ready = cands.groups.filter(g => !used.has(g.groupId) && !(cands.stat && g.groupId === cands.stat.groupId)).slice(0, 18);
     stat = cands.stat;
   } catch (err) {
     console.warn('[schedule] ready list', err && err.message);
