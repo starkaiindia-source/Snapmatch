@@ -121,8 +121,34 @@ const DEFAULTS = {
   takeOver: true, appOn: true
 };
 
-const settingsRef = () => db().collection(C.AUTO_REPLY).doc('instagram');
-const pollRef = () => db().collection(C.AUTO_REPLY).doc('instagram-poll');
+/* ------------------------------------------------------------ the accounts
+   Two Instagram accounts are answered: ProGlide (the app, and the 9H glass it
+   sells) and Mobile Parts Finder (the website). They are one owner but must
+   not look like one, so each has its own settings, its own words and its own
+   link, and Mobile Parts Finder never names ProGlide. Sales and the "is it
+   useful?" follow-up are ProGlide's: they sell its glass and rate its app. */
+const ACCOUNTS = ['proglide', 'mpf'];
+const MPF_IG_ID = '17841434220027404';
+const SITE = 'https://www.mobilepartsfinder.com';
+const accountOf = a => (a === 'mpf' ? 'mpf' : 'proglide');
+const MPF_DEFAULTS = Object.assign({}, DEFAULTS, {
+  mode: 'auto', brand: 'Mobile Parts Finder',
+  about: 'Mobile Parts Finder (www.mobilepartsfinder.com) is a free website for mobile shops, repair technicians and accessory sellers. ' +
+    'Type any phone model and see every phone that takes the same tempered glass, back cover, combo display, battery, middle frame, CC board, button flex and SIM tray. 8,300+ phone models, worldwide.',
+  products: 'The website is free to search. It does not sell parts.',
+  links: SITE,
+  appLink: SITE, appLinkComment: 'Sent you the website link in DM 📩',
+  appLinkText: '🔎 {brand}: the parts finder for mobile shops\n\n📱 Type any phone model\n🧩 See every phone that takes the same glass, cover, display, battery and more\n🌍 8,300+ models, free, on any phone or computer\n⚡ No app to install: it opens in your browser\n\n👇 Tap below to open it',
+  appCardTitle: '{brand}', appCardSubtitle: 'Compatible parts for any phone · free · opens in your browser',
+  appButton: 'Open website', appImage: SITE + '/assets/brand/og-image.png',
+  appKeywords: 'link\nlinks\nwebsite\nweb\nsite\nwebsite link\nurl\napp\naap\napp link\ntool\ntools\nfinder\nmpf\nmobile parts finder\nparts finder',
+  iosLink: '', salesOn: false, feedbackOn: false,
+  blocked: 'ProGlide\nPro Glide\nproglide\nSnapMatch'
+});
+const defaultsOf = account => (accountOf(account) === 'mpf' ? MPF_DEFAULTS : DEFAULTS);
+
+const settingsRef = account => db().collection(C.AUTO_REPLY).doc(accountOf(account) === 'mpf' ? 'instagram-mpf' : 'instagram');
+const pollRef = account => db().collection(C.AUTO_REPLY).doc(accountOf(account) === 'mpf' ? 'instagram-mpf-poll' : 'instagram-poll');
 const eventCol = () => db().collection(C.AUTO_REPLY_EVENTS);
 const num = (v, min, max, fallback) => {
   const n = Number(v);
@@ -135,12 +161,19 @@ function env(name) {
 }
 
 /** Everything this needs from the environment. A separate token is optional. */
-function credentials() {
+function credentials(account) {
   const cfg = configMod.load();
+  const mpf = accountOf(account) === 'mpf';
+  const proglideToken = env('INSTAGRAM_REPLY_ACCESS_TOKEN') || cfg.graph.token;
   return {
-    token: env('INSTAGRAM_REPLY_ACCESS_TOKEN') || cfg.graph.token,
-    igUserId: env('INSTAGRAM_REPLY_ACCOUNT_ID') || cfg.graph.igUserId,
+    account: mpf ? 'mpf' : 'proglide',
+    /* the system user's posting token reaches both accounts; a separate one may be set.
+       ProGlide's own token never stands in: it cannot reach this account */
+    token: mpf ? env('INSTAGRAM_MPF_REPLY_ACCESS_TOKEN') || env('INSTAGRAM_PUBLISH_ACCESS_TOKEN') || '' : proglideToken,
+    igUserId: mpf ? env('INSTAGRAM_MPF_ACCOUNT_ID') || MPF_IG_ID : env('INSTAGRAM_REPLY_ACCOUNT_ID') || cfg.graph.igUserId,
     secrets: [env('INSTAGRAM_REPLY_APP_SECRET'), cfg.graph.appSecret].filter(Boolean),
+    /* the posting token's app may not ask for a proof, so one is added only when asked */
+    proofOnDemand: mpf && !env('INSTAGRAM_MPF_REPLY_ACCESS_TOKEN'),
     version: cfg.graph.version,
     geminiKey: cfg.geminiKey,
     model: env('AUTO_REPLY_MODEL') || cfg.geminiScreenModel,
@@ -149,56 +182,59 @@ function credentials() {
 }
 
 function metaClient(c) {
+  if (c.proofOnDemand) return createMetaClient({ token: c.token, igUserId: c.igUserId, appSecrets: [env('INSTAGRAM_REPLY_APP_SECRET'), env('INSTAGRAM_APP_SECRET')].concat(c.secrets), version: c.version });
   return createMetaClient({ token: c.token, igUserId: c.igUserId, appSecret: c.secrets[c.secrets.length - 1], version: c.version });
 }
 
 /* --------------------------------------------------------------- settings */
-function normalise(s) {
-  const d = Object.assign({}, DEFAULTS, s || {});
+function normalise(s, account) {
+  const D = defaultsOf(account);
+  const d = Object.assign({}, D, s || {});
   return {
-    mode: MODES.indexOf(d.mode) > -1 ? d.mode : DEFAULTS.mode,
+    mode: MODES.indexOf(d.mode) > -1 ? d.mode : D.mode,
     comments: d.comments !== false, dms: d.dms !== false,
     brand: text(d.brand, 60), about: text(d.about, 2000), products: text(d.products, 4000), links: text(d.links, 600),
     appLink: /^https:\/\/\S+$/.test(text(d.appLink, 300)) ? text(d.appLink, 300) : '',
-    appLinkText: text(d.appLinkText, 600) || DEFAULTS.appLinkText,
-    appLinkComment: text(d.appLinkComment, 200) || DEFAULTS.appLinkComment,
-    appCardTitle: text(d.appCardTitle, 80) || DEFAULTS.appCardTitle,
-    appCardSubtitle: text(d.appCardSubtitle, 80) || DEFAULTS.appCardSubtitle,
-    appButton: text(d.appButton, 20) || DEFAULTS.appButton,
+    appLinkText: text(d.appLinkText, 600) || D.appLinkText,
+    appLinkComment: text(d.appLinkComment, 200) || D.appLinkComment,
+    appCardTitle: text(d.appCardTitle, 80) || D.appCardTitle,
+    appCardSubtitle: text(d.appCardSubtitle, 80) || D.appCardSubtitle,
+    appButton: text(d.appButton, 20) || D.appButton,
     appImage: /^https:\/\/\S+$/.test(text(d.appImage, 400)) ? text(d.appImage, 400) : '',
     appKeywords: text(d.appKeywords, 600),
     iosLink: /^https:\/\/\S+$/.test(text(d.iosLink, 300)) ? text(d.iosLink, 300) : '',
-    iosText: text(d.iosText, 600) || DEFAULTS.iosText, iosCardTitle: text(d.iosCardTitle, 80) || DEFAULTS.iosCardTitle,
-    iosCardSubtitle: text(d.iosCardSubtitle, 80) || DEFAULTS.iosCardSubtitle, iosButton: text(d.iosButton, 20) || DEFAULTS.iosButton,
+    iosText: text(d.iosText, 600) || D.iosText, iosCardTitle: text(d.iosCardTitle, 80) || D.iosCardTitle,
+    iosCardSubtitle: text(d.iosCardSubtitle, 80) || D.iosCardSubtitle, iosButton: text(d.iosButton, 20) || D.iosButton,
     salesOn: d.salesOn !== false, salesKeywords: text(d.salesKeywords, 600),
-    salesPriceText: text(d.salesPriceText, 900) || DEFAULTS.salesPriceText,
-    salesComment: text(d.salesComment, 200) || DEFAULTS.salesComment, salesThanks: text(d.salesThanks, 300) || DEFAULTS.salesThanks,
-    feedbackOn: d.feedbackOn !== false, feedbackAsk: text(d.feedbackAsk, 300) || DEFAULTS.feedbackAsk,
-    feedbackYes: text(d.feedbackYes, 400) || DEFAULTS.feedbackYes, feedbackNo: text(d.feedbackNo, 300) || DEFAULTS.feedbackNo,
-    feedbackButton: text(d.feedbackButton, 20) || DEFAULTS.feedbackButton,
-    salesVariants: typeof d.salesVariants === 'string' ? text(d.salesVariants, 300) : DEFAULTS.salesVariants,
-    salesWhatsApp: /^\d{10,13}$/.test(String(d.salesWhatsApp || '')) ? String(d.salesWhatsApp) : DEFAULTS.salesWhatsApp,
-    boxPrice: num(d.boxPrice, 1, 100000, DEFAULTS.boxPrice), boxPieces: num(d.boxPieces, 1, 1000, DEFAULTS.boxPieces),
-    minBoxes: num(d.minBoxes, 1, 1000, DEFAULTS.minBoxes), homeState: text(d.homeState, 40) || DEFAULTS.homeState,
-    courierHome: num(d.courierHome, 0, 10000, DEFAULTS.courierHome), courierNear: num(d.courierNear, 0, 10000, DEFAULTS.courierNear),
-    courierFar: num(d.courierFar, 0, 10000, DEFAULTS.courierFar), nearStates: text(d.nearStates, 300),
-    tone: text(d.tone, 300), handoff: text(d.handoff, 200) || DEFAULTS.handoff, blocked: text(d.blocked, 600),
-    maxNames: num(d.maxNames, 0, 20, DEFAULTS.maxNames),
-    perSenderHour: num(d.perSenderHour, 1, 60, DEFAULTS.perSenderHour),
-    dailyReplies: num(d.dailyReplies, 1, 2000, DEFAULTS.dailyReplies),
-    minConfidence: num(d.minConfidence, 0, 1, DEFAULTS.minConfidence),
+    salesPriceText: text(d.salesPriceText, 900) || D.salesPriceText,
+    salesComment: text(d.salesComment, 200) || D.salesComment, salesThanks: text(d.salesThanks, 300) || D.salesThanks,
+    feedbackOn: d.feedbackOn !== false, feedbackAsk: text(d.feedbackAsk, 300) || D.feedbackAsk,
+    feedbackYes: text(d.feedbackYes, 400) || D.feedbackYes, feedbackNo: text(d.feedbackNo, 300) || D.feedbackNo,
+    feedbackButton: text(d.feedbackButton, 20) || D.feedbackButton,
+    salesVariants: typeof d.salesVariants === 'string' ? text(d.salesVariants, 300) : D.salesVariants,
+    salesWhatsApp: /^\d{10,13}$/.test(String(d.salesWhatsApp || '')) ? String(d.salesWhatsApp) : D.salesWhatsApp,
+    boxPrice: num(d.boxPrice, 1, 100000, D.boxPrice), boxPieces: num(d.boxPieces, 1, 1000, D.boxPieces),
+    minBoxes: num(d.minBoxes, 1, 1000, D.minBoxes), homeState: text(d.homeState, 40) || D.homeState,
+    courierHome: num(d.courierHome, 0, 10000, D.courierHome), courierNear: num(d.courierNear, 0, 10000, D.courierNear),
+    courierFar: num(d.courierFar, 0, 10000, D.courierFar), nearStates: text(d.nearStates, 300),
+    tone: text(d.tone, 300), handoff: text(d.handoff, 200) || D.handoff, blocked: text(d.blocked, 600),
+    maxNames: num(d.maxNames, 0, 20, D.maxNames),
+    perSenderHour: num(d.perSenderHour, 1, 60, D.perSenderHour),
+    dailyReplies: num(d.dailyReplies, 1, 2000, D.dailyReplies),
+    minConfidence: num(d.minConfidence, 0, 1, D.minConfidence),
     takeOver: d.takeOver !== false, appOn: d.appOn !== false
   };
 }
 
-async function loadSettings() {
-  const snap = await settingsRef().get();
-  return normalise(snap.exists ? snap.data() : null);
+async function loadSettings(account) {
+  const snap = await settingsRef(account).get();
+  return normalise(snap.exists ? snap.data() : null, account);
 }
 
-async function saveSettings(input, by) {
-  const next = normalise(Object.assign(await loadSettings(), input));
-  await settingsRef().set(Object.assign({}, next, { updatedAt: Date.now(), updatedBy: by || null }));
+async function saveSettings(input, by, account) {
+  const next = normalise(Object.assign(await loadSettings(account), input), account);
+  statsCache.delete(accountOf(account));
+  await settingsRef(account).set(Object.assign({}, next, { updatedAt: Date.now(), updatedBy: by || null }));
   return next;
 }
 
@@ -231,7 +267,7 @@ async function claim(ev, now) {
     if ((await tx.get(ref)).exists) return false;
     tx.set(ref, {
       kind: ev.kind, targetId: ev.targetId, senderId: ev.senderId, username: ev.username, mediaId: ev.mediaId, parentId: ev.parentId,
-      text: redact(ev.text).slice(0, 1000), status: 'queued', at: now
+      text: redact(ev.text).slice(0, 1000), status: 'queued', at: now, account: accountOf(ev.account)
     });
     return true;
   });
@@ -297,6 +333,11 @@ function linkCard(s) {
 function tagged(link) {
   try {
     const u = new URL(link);
+    if (/(^|\.)mobilepartsfinder\.com$/.test(u.hostname) && !u.searchParams.has('utm_source')) {
+      u.searchParams.set('utm_source', 'instagram');
+      u.searchParams.set('utm_medium', 'auto_reply');
+      return u.toString();
+    }
     if (u.hostname !== 'play.google.com' || u.searchParams.has('referrer')) return link;
     u.searchParams.set('referrer', 'utm_source=instagram&utm_medium=auto_reply&utm_campaign=app_link');
     return u.toString();
@@ -476,7 +517,7 @@ async function work(id, ev, settings, c, now) {
     const sold = await sellStep(id, ev, settings, c, now);
     if (sold !== null) return sold;
   }
-  const day = await consume({ key: 'auto-reply:day', limit: settings.dailyReplies, now, windowMs: DAY_MS });
+  const day = await consume({ key: c.account === 'mpf' ? 'auto-reply:mpf:day' : 'auto-reply:day', limit: settings.dailyReplies, now, windowMs: DAY_MS });
   if (!day.allowed) return finish(id, { status: 'skipped', reason: 'daily-limit' });
 
   const caption = ev.mediaId ? await metaClient(c).caption(ev.mediaId).catch(() => '') : '';
@@ -598,6 +639,7 @@ async function catchUp(settings, c, started) {
   let done = 0;
   for (const doc of snap.docs) {
     if (Date.now() - started > BUDGET_MS) break;
+    if (accountOf(doc.data().account) !== c.account) continue;
     const ev = await takeQueued(doc.id);
     if (!ev) continue;
     done++;
@@ -633,18 +675,30 @@ async function poll() {
   /* the scheduled Instagram posts ride on the same clock, after the answer */
   if (process.env.VERCEL) waitUntil(contentRun(now).catch(err => console.warn('[content] scheduled post run failed', err.message)));
 
-  const settings = await loadSettings();
-  if (settings.mode === 'off') return { status: 200, body: { polled: false, reason: 'off' } };
-  const body = await capped(readOnce(settings, c, now, false));
+  /* each account that is on is read, side by side */
+  const on = [];
+  for (const account of ACCOUNTS) {
+    const cc = account === 'proglide' ? c : credentials(account);
+    const settings = await loadSettings(account);
+    if (cc.token && cc.igUserId && settings.mode !== 'off') on.push({ account, cc, settings });
+  }
+  if (!on.length) return { status: 200, body: { polled: false, reason: 'off' } };
+  const reads = await Promise.all(on.map(x => capped(readOnce(x.settings, x.cc, now, false))
+    .catch(err => ({ polled: false, error: String(err.message).slice(0, 200) }))));
   /* the quick reads go on after the answer, so the caller is not kept waiting */
   if (process.env.VERCEL) {
     waitUntil((async () => {
       for (let i = 0; i < QUICK_READS; i++) {
         await new Promise(r => setTimeout(r, QUICK_READ_MS));
-        await capped(readOnce(settings, c, Date.now(), true)).catch(err => console.warn('[auto-reply] quick read failed', err.message));
+        await Promise.all(on.map(x => capped(readOnce(x.settings, x.cc, Date.now(), true))
+          .catch(err => console.warn('[auto-reply] quick read failed', x.account, err.message))));
       }
     })());
   }
+  const body = reads[0] && on[0].account === 'proglide' ? Object.assign({}, reads[0]) : { polled: reads.some(r => r.polled) };
+  body.found = reads.reduce((t, r) => t + (r.found || 0), 0);
+  body.accounts = {};
+  on.forEach((x, i) => { body.accounts[x.account] = reads[i]; });
   return { status: 200, body };
 }
 
@@ -657,23 +711,24 @@ function capped(work) {
 /* One read of the account and everything it brings. `quick` reads messages only,
    and leaves follow-ups and comments to the minute's full read. */
 async function readOnce(settings, c, now, quick) {
-  const last = await pollRef().get();
+  const last = await pollRef(c.account).get();
   const since = last.exists && last.data().readAt ? last.data().readAt - READ_OVERLAP_MS : now - FIRST_LOOKBACK_MS;
   const meta = metaClient(c);
   const read = await meta.recent(since, { dmsOnly: quick });
   const me = await meta.username().catch(() => '');
   const list = events.fromRead(read, c.igUserId, String(me).toLowerCase());
+  list.forEach(ev => { ev.account = c.account; });
   const answered = await handle(list, settings, c, now) + (quick ? 0 : await catchUp(settings, c, now));
   const lastTick = (last.exists && last.data().tickAt) || 0;
   const ticking = !quick && now - lastTick >= TICK_EVERY_MS;
   const followed = ticking ? await salesTick(settings, c, now) + await feedbackTick(settings, c, now) : 0;
-  if (!quick) await pollRef().set({ readAt: now, tickAt: ticking ? now : lastTick, found: list.length, answered, followed });
+  if (!quick) await pollRef(c.account).set({ readAt: now, tickAt: ticking ? now : lastTick, found: list.length, answered, followed });
   return { polled: true, found: list.length, answered, followed };
 }
 
 /* ------------------------------------------------------------ admin page */
-function connection() {
-  const c = credentials();
+function connection(account) {
+  const c = credentials(account);
   return {
     webhookUrl: WEBHOOK_URL, verifyToken: verifyToken(c), fields: FIELDS.split(','),
     token: !!c.token, separateToken: !!env('INSTAGRAM_REPLY_ACCESS_TOKEN'), account: !!c.igUserId,
@@ -686,9 +741,10 @@ async function listEvents() {
   return snap.docs.map(d => Object.assign({ id: d.id }, d.data()));
 }
 
-async function overview() {
-  const [settings, list, numbers] = await Promise.all([loadSettings(), listEvents(), stats(Date.now()).catch(err => ({ error: err.message }))]);
-  return { settings, connection: connection(), events: list, scopes: SCOPES, stats: numbers };
+async function overview(account) {
+  const a = accountOf(account);
+  const [settings, list, numbers] = await Promise.all([loadSettings(a), listEvents(), stats(Date.now(), false, a).catch(err => ({ error: err.message }))]);
+  return { account: a, settings, connection: connection(a), events: list.filter(e => accountOf(e.account) === a), scopes: SCOPES, stats: numbers };
 }
 
 /* ------------------------------------------------------------- the numbers
@@ -701,7 +757,7 @@ async function overview() {
 const STATS_DAYS = 30;
 const STATS_READ = 600;
 const STATS_KEEP_MS = 2 * 60 * 1000;
-let statsCache = null;
+const statsCache = new Map();
 const RULES = [
   ['app_link', e => e.intent === 'app_link' && e.status === 'sent'],
   ['sale', e => e.intent === 'sale' && e.status === 'sent'],
@@ -712,14 +768,16 @@ const RULES = [
   ['owner', e => e.status === 'sent' && e.sentBy && ['auto', 'auto-hold', 'app-link', 'feedback', 'sales'].indexOf(e.sentBy) < 0 && e.intent !== 'sale']
 ];
 
-async function stats(now, fresh) {
-  if (!fresh && statsCache && now - statsCache.at < STATS_KEEP_MS) return statsCache.value;
+async function stats(now, fresh, account) {
+  const a = accountOf(account);
+  const hit = statsCache.get(a);
+  if (!fresh && hit && now - hit.at < STATS_KEEP_MS) return hit.value;
   const since = now - STATS_DAYS * DAY_MS;
   const [snap, leads] = await Promise.all([
     eventCol().where('at', '>=', since).orderBy('at', 'desc').limit(STATS_READ).get(),
-    sales.listLeads().catch(() => [])
+    a === 'proglide' ? sales.listLeads().catch(() => []) : Promise.resolve([])
   ]);
-  const list = snap.docs.map(d => Object.assign({ id: d.id }, d.data())).filter(e => e.status !== 'merged');
+  const list = snap.docs.map(d => Object.assign({ id: d.id }, d.data())).filter(e => e.status !== 'merged' && accountOf(e.account) === a);
   const dayOf = t => new Date(t + 5.5 * HOUR_MS).toISOString().slice(0, 10);
   const days = [];
   for (let i = STATS_DAYS - 1; i >= 0; i--) days.push(dayOf(now - i * DAY_MS));
@@ -764,7 +822,7 @@ async function stats(now, fresh) {
     leads: { total: leads.length, stages, paid: leads.filter(l => l.stage === 'paid' || l.stage === 'won').length },
     flagged, comments
   };
-  statsCache = { at: now, value };
+  statsCache.set(a, { at: now, value });
   return value;
 }
 
@@ -774,13 +832,13 @@ async function resolveFlag(id) {
   const snap = await ref.get();
   if (!snap.exists) return false;
   await ref.set({ flagOpen: false, flagDoneAt: Date.now() }, { merge: true });
-  statsCache = null;
+  statsCache.clear();
   return true;
 }
 
 /** The posts the flagged comments are on: picture, caption and link, one call a post. */
-async function postsOf(ids) {
-  const c = credentials();
+async function postsOf(ids, account) {
+  const c = credentials(account);
   const list = Array.from(new Set((ids || []).filter(id => /^\d{5,30}$/.test(String(id))))).slice(0, 12);
   if (!c.token || !list.length) return {};
   const meta = metaClient(c);
@@ -803,8 +861,8 @@ async function performance() {
   return { posts: await metaClient(c).performance(80) };
 }
 
-async function liveCheck() {
-  const c = credentials();
+async function liveCheck(account) {
+  const c = credentials(account);
   if (!c.token) return { errors: [{ step: 'token', kind: 'unconfigured', message: 'No Instagram access token is set.' }] };
   return metaClient(c).check();
 }
@@ -820,9 +878,9 @@ async function subscribe() {
 }
 
 /** What would be said to this message. Nothing is stored or sent. */
-async function tryReply({ text: said, kind, caption }) {
-  const c = credentials();
-  const settings = await loadSettings();
+async function tryReply({ text: said, kind, caption, account }) {
+  const c = credentials(account);
+  const settings = await loadSettings(account);
   const k = kind === 'dm' ? 'dm' : 'comment';
   if (settings.appOn && settings.iosLink && responder.asksForIos(said, settings.appKeywords)) {
     return { ok: true, reply: brandIn(settings.iosText, settings), card: iosCard(settings), intent: 'app_link', confidence: 1, shouldReply: true, hold: null, instant: true };
@@ -943,10 +1001,10 @@ async function inboxPaid(input) {
 }
 
 async function sendDraft(id, reply, by) {
-  const c = credentials();
   const snap = await eventCol().doc(id).get();
   if (!snap.exists) return { ok: false, code: 'missing' };
-  const settings = await loadSettings();
+  const c = credentials(snap.data().account);
+  const settings = await loadSettings(snap.data().account);
   const body = text(reply, 2000) || snap.data().reply || '';
   const blocked = responder.guard(body, snap.data().kind, settings);
   if (blocked) return { ok: false, code: blocked };
@@ -970,12 +1028,12 @@ async function retry(id) {
   const ev = snap.data();
   /* held for a person too: after a fix, the owner can let it run again */
   if (ev.status !== 'failed' && ev.status !== 'needs_human' && !waiting(ev, Date.now())) return { ok: false, code: 'not-open' };
-  await work(id, ev, await loadSettings(), credentials(), Date.now());
+  await work(id, ev, await loadSettings(ev.account), credentials(ev.account), Date.now());
   return { ok: true };
 }
 
 module.exports = {
-  DEFAULTS, MODES, sales, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, history, subscribe,
+  DEFAULTS, MPF_DEFAULTS, ACCOUNTS, MODES, sales, handshake, verifyToken, receive, poll, loadSettings, saveSettings, overview, liveCheck, history, subscribe,
   tryReply, sendDraft, discard, retry, performance, GraphError, stats, resolveFlag, postsOf,
   inboxList, inboxThread, inboxReply, inboxContact, inboxLeads, inboxSuggest, inboxBill, inboxPaid
 };

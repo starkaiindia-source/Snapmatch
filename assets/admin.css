@@ -1592,3 +1592,5 @@ a.adm__btn { text-decoration: none; display: inline-flex; align-items: center; g
   .ar2-mode { flex: 1; padding: 0 8px; }
   .ar2-line__meta small { display: none; }
 }
+
+.ar2-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

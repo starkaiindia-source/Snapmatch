@@ -99,6 +99,17 @@
     ['takeOver', 'Answer everything', 'In Auto, a message the AI may not answer alone still gets your holding line, and shows below for you.', 'holding']
   ];
 
+  /* the two accounts, each answered with its own words and link; the choice is
+     shared with the Posters page */
+  var ACCOUNTS = [
+    { id: 'proglide', label: 'ProGlide', color: '#5B2EE8' },
+    { id: 'mpf', label: 'Mobile Parts Finder', color: '#0E9F84' }
+  ];
+  var KEY = 'adm.posters.account';
+  function remembered() { try { return global.localStorage.getItem(KEY) === 'mpf' ? 'mpf' : 'proglide'; } catch (e) { return 'proglide'; } }
+  function remember(v) { try { global.localStorage.setItem(KEY, v); } catch (e) { /* fine */ } }
+  function pics() { try { return JSON.parse(global.localStorage.getItem('adm.posters.pics') || '{}') || {}; } catch (e) { return {}; } }
+
   var n = function (v) { return v == null ? '—' : Number(v).toLocaleString('en-IN'); };
   function pill(tone, label) {
     return '<span class="adm__pill' + (tone ? ' adm__pill--' + tone : '') + '">' + ui.esc(label) + '</span>';
@@ -112,13 +123,15 @@
     host.innerHTML = '';
     var root = document.createElement('div');
     host.appendChild(root);
-    var state = { data: null, check: null, checking: false, busy: false, posts: {}, postsAsked: false };
+    var state = { account: remembered(), data: null, check: null, checking: false, busy: false, posts: {}, postsAsked: false };
 
     function el(id) { return root.querySelector('#' + id); }
     function fail(err) { ctx.toast((err && err.message) || 'Request failed', 'bad'); }
 
     function load() {
-      ADM.api.autoReply({ view: 'overview' }).then(function (d) {
+      var a = state.account;
+      ADM.api.autoReply({ view: 'overview', account: a }).then(function (d) {
+        if (a !== state.account) return;
         state.data = d;
         paint();
         runCheck();
@@ -128,14 +141,15 @@
       });
     }
     function refresh() {
-      ADM.api.autoReply({ view: 'overview' }).then(function (d) { state.data = d; paint(); loadPosts(); }, fail);
+      var a = state.account;
+      ADM.api.autoReply({ view: 'overview', account: a }).then(function (d) { if (a === state.account) { state.data = d; paint(); loadPosts(); } }, fail);
     }
     /* the posts the flagged comments are on, for their pictures and links */
     function loadPosts() {
       var st = state.data.stats || {};
       var ids = (st.flagged || []).concat(st.comments || []).map(function (e) { return e.mediaId; }).filter(function (id) { return id && !state.posts[id]; });
       if (!ids.length) return;
-      ADM.api.autoReply({ view: 'posts', ids: Array.from(new Set(ids)).slice(0, 12).join(',') }).then(function (r) {
+      ADM.api.autoReply({ view: 'posts', account: state.account, ids: Array.from(new Set(ids)).slice(0, 12).join(',') }).then(function (r) {
         Object.keys(r.posts || {}).forEach(function (k) { state.posts[k] = r.posts[k]; });
         paint();
       }, function () { /* the list works without pictures */ });
@@ -143,7 +157,9 @@
     function runCheck() {
       state.checking = true;
       if (el('arConn')) el('arConn').innerHTML = connectionHTML();
-      ADM.api.autoReply({ view: 'check' }).then(function (c) {
+      var a = state.account;
+      ADM.api.autoReply({ view: 'check', account: a }).then(function (c) {
+        if (a !== state.account) return;
         state.check = c;
       }, function (err) {
         state.check = { errors: [{ step: 'check', message: err.message || 'request failed' }] };
@@ -164,10 +180,15 @@
 
     function headHTML() {
       var s = state.data.settings;
-      return '<div class="ar2-head"><div><h1>Auto Reply</h1><p>AI answers comments and messages on your Instagram account. <span id="arStatus">' + statusHTML() + '</span></p></div>' +
+      return '<div class="ar2-head"><div><h1>Auto Reply</h1><p>AI answers comments and messages on ' + (state.account === 'mpf' ? 'Mobile Parts Finder' : 'ProGlide') + '. <span id="arStatus">' + statusHTML() + '</span></p></div>' +
+        '<div class="ar2-right"><div class="pz-icons" role="group" aria-label="Instagram account">' + ACCOUNTS.map(function (x) {
+          var on = state.account === x.id, p = pics()[x.id];
+          return '<button class="pz-icon' + (on ? ' is-on' : '') + '" data-account="' + x.id + '" title="' + ui.esc(x.label) + '" aria-pressed="' + on + '"><span class="pz-icon__ring">' +
+            (p ? '<img src="' + ui.esc(p) + '" alt="">' : '<b style="background:' + x.color + '">' + x.label.charAt(0) + '</b>') + '</span><span class="pz-icon__name">' + ui.esc(x.label) + '</span></button>';
+        }).join('') + '</div>' +
         '<div class="ar2-modes" role="group" aria-label="How it replies">' + MODES.map(function (m) {
           return '<button class="ar2-mode' + (s.mode === m[0] ? ' is-on is-' + m[0] : '') + '" data-mode="' + m[0] + '" aria-pressed="' + (s.mode === m[0]) + '" title="' + ui.esc(m[2]) + '">' + m[1] + '</button>';
-        }).join('') + '</div></div>' +
+        }).join('') + '</div></div></div>' +
         (s.mode === 'auto' ? '' : ui.banner(s.mode === 'off' ? 'bad' : 'warn', s.mode === 'off' ? '<b>Auto Reply is off.</b> Nobody gets an answer until you switch it to Auto.'
           : '<b>Review first.</b> The app link and sales go at once; every other reply waits for you to press Send.'));
     }
@@ -189,7 +210,7 @@
         tile('This week', n(t.week), 'replies sent') +
         tile('Last 30 days', n(t.sent), 'of ' + n(t.read) + ' read · ' + n(t.comments) + ' comments, ' + n(t.dms) + ' messages') +
         tile('Waiting for you', n(t.waiting + (st.flagged || []).length), n((st.flagged || []).length) + ' flagged · ' + n(t.waiting) + ' held', t.waiting + (st.flagged || []).length ? 'warn' : '') +
-        tile('Sales', n(st.leads.total), n(stages.billed || 0) + ' billed · ' + n(st.leads.paid) + ' paid') +
+        (state.account === 'proglide' ? tile('Sales', n(st.leads.total), n(stages.billed || 0) + ' billed · ' + n(st.leads.paid) + ' paid') : tile('Links sent', n(((st.rules || {}).app_link || {}).all), 'website cards, 30 days')) +
         '</div><div class="ar2-chart"><div class="ar2-chart__head"><h2>Replies a day</h2><small>' + (st.capped ? 'Counted from the latest ' + n(t.read) + ' records' : 'Last ' + st.days + ' days') + ' · ' + ui.esc(ui.ago(st.readAt)) + '</small></div>' +
         ui.barChart((st.daily || []).map(function (d) { return { date: d.day, value: d.sent }; }), { label: 'Replies sent', totalLabel: 'replies in ' + st.days + ' days', color: '#D62976' }) + '</div>';
     }
@@ -198,14 +219,17 @@
       var s = state.data.settings, st = state.data.stats || {};
       var r = st.rules || {};
       return '<section class="ar2-sec"><div class="ar2-sec__head"><h2>What is set</h2><p>Each rule with its own switch. Numbers are replies sent: today, this week, 30 days.</p></div><div class="ar2-rules">' +
-        RULES.map(function (x) {
+        RULES.filter(function (x) { return state.account === 'proglide' || (x[0] !== 'salesOn' && x[0] !== 'feedbackOn'); }).map(function (x) {
           var on = !!s[x[0]];
+          var title = x[0] === 'appOn' && state.account === 'mpf' ? 'Website link' : x[1];
+          var about = x[0] === 'appOn' && state.account === 'mpf' ? 'Anyone asking for the link, the website, the app or the tool gets the www.mobilepartsfinder.com card in DM, with the logo and an Open website button.' : x[2];
           var c = x[3] && r[x[3]];
-          var extra = x[0] === 'appOn' ? '<p class="ar2-rule__note">Taps on the button are not reported by Instagram. Installs from these links show in Google Play Console under the campaign <code>utm_source=instagram</code>.</p>'
+          var extra = x[0] === 'appOn' && state.account === 'mpf' ? '<p class="ar2-rule__note">Taps are not reported by Instagram. Visits from these links carry <code>utm_source=instagram</code> on the website.</p>'
+            : x[0] === 'appOn' ? '<p class="ar2-rule__note">Taps on the button are not reported by Instagram. Installs from these links show in Google Play Console under the campaign <code>utm_source=instagram</code>.</p>'
             : x[0] === 'salesOn' ? '<p class="ar2-rule__note">' + n(((st.leads || {}).stages || {}).price_sent || 0) + ' asked the price · ' + n(((st.leads || {}).stages || {}).billed || 0) + ' billed · ' + n((st.leads || {}).paid || 0) + ' paid. <a href="/admin/leads">Open Leads</a></p>'
               : x[0] === 'takeOver' && s.mode !== 'auto' ? '<p class="ar2-rule__note">Works when the switch at the top is on Auto.</p>' : '';
-          return '<article class="ar2-rule' + (on ? ' is-on' : '') + '"><div class="ar2-rule__top"><b>' + x[1] + '</b><label class="pz-switch ar2-switch"><input type="checkbox" data-setting="' + x[0] + '"' + (on ? ' checked' : '') + '><i></i></label></div>' +
-            '<p>' + ui.esc(x[2]) + '</p>' +
+          return '<article class="ar2-rule' + (on ? ' is-on' : '') + '"><div class="ar2-rule__top"><b>' + title + '</b><label class="pz-switch ar2-switch"><input type="checkbox" data-setting="' + x[0] + '"' + (on ? ' checked' : '') + '><i></i></label></div>' +
+            '<p>' + ui.esc(about) + '</p>' +
             (c ? '<div class="ar2-rule__nums"><span><b>' + n(c.today) + '</b>today</span><span><b>' + n(c.week) + '</b>week</span><span><b>' + n(c.all) + '</b>30 days</span></div>' : '') + extra + '</article>';
         }).join('') + '</div></section>';
     }
@@ -345,7 +369,7 @@
         (r.facts ? '<pre class="ar-facts">' + ui.esc(r.facts) + '</pre>' : '') + '</div>';
     }
     function saveSettings(patch, then) {
-      ADM.api.autoReplyAction({ action: 'save', settings: patch }).then(function (r) {
+      ADM.api.autoReplyAction({ action: 'save', account: state.account, settings: patch }).then(function (r) {
         state.data.settings = r.settings;
         if (then) then();
       }, fail);
@@ -369,6 +393,12 @@
     }
 
     root.addEventListener('click', function (e) {
+      var acct = e.target.closest('[data-account]');
+      if (acct) {
+        var id = acct.getAttribute('data-account');
+        if (id !== state.account) { state.account = id; remember(id); state.data = null; state.check = null; state.posts = {}; root.innerHTML = skeleton(); load(); }
+        return;
+      }
       var copy = e.target.closest('[data-copy]');
       if (copy) {
         global.navigator.clipboard.writeText(copy.getAttribute('data-copy')).then(function () { ctx.toast('Copied'); }, fail);
@@ -407,7 +437,7 @@
       } else if (f.id === 'arTest') {
         if (!f.elements.text.value.trim()) return;
         el('arResult').innerHTML = '<p class="adm__none">Writing…</p>';
-        ADM.api.autoReplyAction({ action: 'test', text: f.elements.text.value, kind: f.elements.kind.value, caption: f.elements.caption.value }).then(function (r) {
+        ADM.api.autoReplyAction({ action: 'test', account: state.account, text: f.elements.text.value, kind: f.elements.kind.value, caption: f.elements.caption.value }).then(function (r) {
           el('arResult').innerHTML = resultHTML(r);
         }, function (err) {
           el('arResult').innerHTML = resultHTML({ ok: false, reason: err.message });
@@ -426,7 +456,8 @@
       }, function () { /* the next tick tries again */ });
     }, 60000);
 
-    root.innerHTML = '<div class="adm__head"><div><h1>Auto Reply</h1></div></div><div class="ar2-kpis">' + [1, 2, 3, 4, 5].map(function () { return '<div class="ar2-kpi adm__skel" style="height:86px"></div>'; }).join('') + '</div>';
+    function skeleton() { return '<div class="adm__head"><div><h1>Auto Reply</h1></div></div><div class="ar2-kpis">' + [1, 2, 3, 4, 5].map(function () { return '<div class="ar2-kpi adm__skel" style="height:86px"></div>'; }).join('') + '</div>'; }
+    root.innerHTML = skeleton();
     load();
   }
 

@@ -558,7 +558,7 @@ test('reading the account finds what Meta did not deliver, skips its own words, 
   ]);
   try {
     const first = await poll();
-    assert.deepEqual(first.body, { polled: true, found: 2, answered: 2, followed: 0 });
+    assert.deepEqual(first.body, { polled: true, found: 2, answered: 2, followed: 0, accounts: { proglide: { polled: true, found: 2, answered: 2, followed: 0 } } }, 'Mobile Parts Finder is not read without its own token');
     const list = await stored();
     assert.deepEqual(list.map(e => e.status), ['sent', 'sent']);
     assert.equal((await poll()).body.reason, 'too soon', 'a second read inside the minute does nothing');
@@ -996,4 +996,32 @@ test('a billed order can still grow: the old bill is voided, and Make bill makes
     assert.equal(lead.qrId, 'qr_Grow0002');
     assert.equal(lead.totalPaise, 9 * 29900 + 6000);
   } finally { n.restore(); Object.assign(shopSettings, { orderQr: realQr, qrStatus: realStatus, closeQr: realClose }); }
+});
+
+/* Mobile Parts Finder is answered with its own words and its own link */
+test('on Mobile Parts Finder, asking for the link or the tool gets the website card', async () => {
+  fake = createFakeFirestore();
+  for (const t of ['link', 'website link pls', 'tools enga?', 'app irukka']) {
+    const r = await replies.tryReply({ text: t, kind: 'dm', account: 'mpf' });
+    assert.equal(r.intent, 'app_link', t);
+    assert.ok(r.reply.includes('Mobile Parts Finder') && !r.reply.includes('ProGlide') && !r.reply.includes('{'), t);
+    assert.equal(r.card.image_url, 'https://www.mobilepartsfinder.com/assets/brand/og-image.png');
+    assert.equal(r.card.buttons[0].title, 'Open website');
+    assert.ok(r.card.buttons[0].url.startsWith('https://www.mobilepartsfinder.com/?utm_source=instagram'), r.card.buttons[0].url);
+  }
+});
+
+test('Mobile Parts Finder keeps its own settings and never sells', async () => {
+  fake = createFakeFirestore();
+  await replies.saveSettings({ mode: 'off' }, 'admin', 'proglide');
+  const mpf = await replies.loadSettings('mpf');
+  assert.equal(mpf.mode, 'auto');
+  assert.equal(mpf.salesOn, false);
+  assert.equal(mpf.appLink, 'https://www.mobilepartsfinder.com');
+  assert.ok(mpf.blocked.includes('ProGlide'));
+  await replies.saveSettings({ mode: 'review' }, 'admin', 'mpf');
+  assert.equal((await replies.loadSettings('proglide')).mode, 'off');
+  assert.equal((await replies.loadSettings('mpf')).mode, 'review');
+  const r = await replies.tryReply({ text: '9H', kind: 'dm', account: 'mpf' }).catch(() => ({}));
+  assert.notEqual(r.intent, 'sale');
 });

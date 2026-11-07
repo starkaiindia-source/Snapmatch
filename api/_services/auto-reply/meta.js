@@ -37,6 +37,7 @@ const PAGE_FIELDS = 'feed,messages';
  * @param {string} opts.token
  * @param {string} opts.igUserId
  * @param {string} [opts.appSecret]
+ * @param {string[]} [opts.appSecrets] tried one by one, only when Meta asks for a proof
  * @param {string} [opts.version]
  * @param {number} [opts.timeoutMs]
  * @param {Function} [opts.fetchImpl]
@@ -51,14 +52,30 @@ function createMetaClient(opts = {}) {
   const host = login === 'instagram' ? 'graph.instagram.com' : 'graph.facebook.com';
   let page = null;
 
-  async function call(method, path, { params, body, as, wait } = {}) {
+  /* A token from an app that may or may not ask for appsecret_proof is sent bare
+     first, then with each secret this project holds, as the posting code does. */
+  async function call(method, path, o = {}) {
+    const secrets = (opts.appSecrets || []).filter(Boolean);
+    if (login !== 'facebook' || !secrets.length) return once(method, path, o, opts.appSecret);
+    try { return await once(method, path, o, null); }
+    catch (err) {
+      if (!/appsecret_proof/i.test(err.message || '')) throw err;
+      let last = err;
+      for (const secret of secrets) {
+        try { return await once(method, path, o, secret); } catch (e) { last = e; }
+      }
+      throw last;
+    }
+  }
+
+  async function once(method, path, { params, body, as, wait } = {}, secret) {
     const useToken = as || token;
     if (!useToken) throw new GraphError('unconfigured', 'No Instagram access token is set.');
     const url = new URL(`https://${host}/${version}/${path}`);
     Object.keys(params || {}).forEach(k => url.searchParams.set(k, String(params[k])));
     url.searchParams.set('access_token', useToken);
-    if (login === 'facebook' && opts.appSecret) {
-      url.searchParams.set('appsecret_proof', crypto.createHmac('sha256', opts.appSecret).update(useToken).digest('hex'));
+    if (login === 'facebook' && secret) {
+      url.searchParams.set('appsecret_proof', crypto.createHmac('sha256', secret).update(useToken).digest('hex'));
     }
     let res;
     try {

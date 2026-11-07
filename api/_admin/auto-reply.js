@@ -31,6 +31,7 @@ const WORDS = {
   'unknown-link': 'This reply has a link that is not in your allowed links.'
 };
 
+const accountOf = v => (v === 'mpf' ? 'mpf' : 'proglide');
 const validId = v => (typeof v === 'string' && /^[0-9a-f]{32}$/.test(v) ? v : null);
 
 module.exports = async function handler(req, res) {
@@ -50,9 +51,10 @@ module.exports = async function handler(req, res) {
       }
       if (view === 'performance') return ok(res, await replies.performance());
       /* the numbers again, read fresh; the posts flagged comments are on */
-      if (view === 'stats') return ok(res, await replies.stats(Date.now(), true));
-      if (view === 'posts') return ok(res, { posts: await replies.postsOf(String(req.query.ids || '').split(',')) });
-      return ok(res, view === 'check' ? await replies.liveCheck() : view === 'history' ? await replies.history() : await replies.overview());
+      if (view === 'stats') return ok(res, await replies.stats(Date.now(), true, accountOf(req.query.account)));
+      if (view === 'posts') return ok(res, { posts: await replies.postsOf(String(req.query.ids || '').split(','), accountOf(req.query.account)) });
+      const account = accountOf(req.query.account);
+      return ok(res, view === 'check' ? await replies.liveCheck(account) : view === 'history' ? await replies.history() : await replies.overview(account));
     }
     return await act(req, res, admin);
   } catch (err) {
@@ -70,13 +72,14 @@ async function act(req, res, admin) {
 
   switch (input.action) {
     case 'save': {
-      const settings = await replies.saveSettings(input.settings || {}, admin.uid);
-      await done(audit.ACTIONS.AUTO_REPLY_SETTINGS_SAVED, 'instagram', { mode: settings.mode, comments: settings.comments, dms: settings.dms });
+      const account = accountOf(input.account);
+      const settings = await replies.saveSettings(input.settings || {}, admin.uid, account);
+      await done(audit.ACTIONS.AUTO_REPLY_SETTINGS_SAVED, account === 'mpf' ? 'instagram-mpf' : 'instagram', { mode: settings.mode, comments: settings.comments, dms: settings.dms });
       return ok(res, { settings });
     }
     case 'test': {
       if (typeof input.text !== 'string' || !input.text.trim()) return bad(res, 'text is required');
-      return ok(res, await replies.tryReply({ text: input.text, kind: input.kind, caption: input.caption }));
+      return ok(res, await replies.tryReply({ text: input.text, kind: input.kind, caption: input.caption, account: accountOf(input.account) }));
     }
     case 'poll': return ok(res, (await replies.poll()).body);
     case 'flagDone': {
