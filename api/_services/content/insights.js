@@ -42,6 +42,7 @@ const median = list => {
   const m = Math.floor(a.length / 2);
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 };
+const num = v => Math.round(v).toLocaleString('en-IN');
 const round = (n, d) => Math.round(n * Math.pow(10, d || 0)) / Math.pow(10, d || 0);
 const istHour = t => new Date(t + IST_MS).getUTCHours();
 const istDay = t => new Date(t + IST_MS).getUTCDay();
@@ -109,16 +110,16 @@ function analyse(posts, now) {
     const age = now - p.at;
     const score = usual.reach ? p.reach / usual.reach : 0;
     if (age < YOUNG_MS) reasons.push({ tone: 'info', text: `Posted ${Math.max(1, Math.round(age / HOUR_MS))} h ago: still collecting reach.` });
-    else if (score >= 1.5) reasons.push({ tone: 'good', text: `Reached ${round(score, 1)}× the account's usual (${p.reach} vs ${round(usual.reach)}).` });
-    else if (usual.reach && score <= 0.6) reasons.push({ tone: 'bad', text: `Reached only ${round(score, 1)}× the usual (${p.reach} vs ${round(usual.reach)}).` });
-    else reasons.push({ tone: 'info', text: `About the usual reach (${p.reach} vs ${round(usual.reach)}).` });
+    else if (score >= 1.5) reasons.push({ tone: 'good', text: `Reached ${round(score, 1)}× the account's usual (${num(p.reach)} vs ${num(usual.reach)}).` });
+    else if (usual.reach && score <= 0.6) reasons.push({ tone: 'bad', text: `Reached only ${round(score, 1)}× the usual (${num(p.reach)} vs ${num(usual.reach)}).` });
+    else reasons.push({ tone: 'info', text: `About the usual reach (${num(p.reach)} vs ${num(usual.reach)}).` });
 
     if (p.reach >= 20) {
       const sr = p.saves / p.reach;
       const shr = p.shares / p.reach;
       if (p.saves >= 3 && sr >= Math.max(0.01, usual.saveRate * 2)) reasons.push({ tone: 'good', text: `Saved by ${round(sr * 100, 1)}% of those reached: kept as a reference, which Instagram rewards.` });
       if (p.shares >= 2 && shr >= Math.max(0.005, usual.shareRate * 2)) reasons.push({ tone: 'good', text: `Shared ${p.shares}×: passed on to other shops.` });
-      if (p.kind === 'carousel' && p.views > p.reach * 1.6) reasons.push({ tone: 'good', text: `People swiped through the slides (${p.views} views from ${p.reach} reached).` });
+      if (p.kind === 'carousel' && p.views > p.reach * 1.6) reasons.push({ tone: 'good', text: `People swiped through the slides (${num(p.views)} views from ${num(p.reach)} reached).` });
     }
     if (p.comments >= 3 && p.comments >= usual.comments * 2) {
       reasons.push({ tone: 'good', text: `${p.comments} comments${p.keyword ? `: "Comment ${p.keyword}" worked` : ''}. Comments push a post to more people.` });
@@ -126,8 +127,8 @@ function analyse(posts, now) {
       reasons.push({ tone: 'bad', text: `Nobody commented ${p.keyword}: the call to comment did not land.` });
     }
     const k = rank(by.kind, p.kind);
-    if (k && k.best && k.row.posts >= 2) reasons.push({ tone: 'good', text: `${cap(KIND_NAMES[p.kind])} do best on this account (usual reach ${k.row.reach}).` });
-    if (k && k.worst && k.row.posts >= 2) reasons.push({ tone: 'bad', text: `${cap(KIND_NAMES[p.kind])} reach least here (usual ${k.row.reach}).` });
+    if (k && k.best && k.row.posts >= 2) reasons.push({ tone: 'good', text: `${cap(KIND_NAMES[p.kind])} do best on this account (usual reach ${num(k.row.reach)}).` });
+    if (k && k.worst && k.row.posts >= 2) reasons.push({ tone: 'bad', text: `${cap(KIND_NAMES[p.kind])} reach least here (usual ${num(k.row.reach)}).` });
     const t = rank(by.time, bucketOf(istHour(p.at)));
     if (t && t.best && t.row.posts >= 2) reasons.push({ tone: 'good', text: `Went out in the ${t.row.key} (IST), the account's best time.` });
     if (t && t.worst && t.row.posts >= 2 && score < 1) reasons.push({ tone: 'bad', text: `Went out in the ${t.row.key} (IST), the account's weakest time.` });
@@ -140,9 +141,9 @@ function analyse(posts, now) {
   const wk = by.kind.filter(x => x.posts >= 2).slice(-1)[0];
   if (bk && wk && bk !== wk && bk.reach > wk.reach * 1.2) tips.push(`${cap(KIND_NAMES[bk.key])} reach ${round(bk.reach / Math.max(1, wk.reach), 1)}× more than ${KIND_NAMES[wk.key]}: make more of them.`);
   const bt = best(by.time);
-  if (bt && by.time.length > 1) tips.push(`Posts in the ${bt.key} (IST) reach most (usual ${bt.reach}).`);
+  if (bt && by.time.length > 1) tips.push(`Posts in the ${bt.key} (IST) reach most (usual ${num(bt.reach)}).`);
   const bw = best(by.weekday);
-  if (bw && by.weekday.length > 2) tips.push(`${bw.key} is the best day so far (usual reach ${bw.reach}).`);
+  if (bw && by.weekday.length > 2) tips.push(`${bw.key} is the best day so far (usual reach ${num(bw.reach)}).`);
   const bd = best(by.design);
   if (bd && by.design.length > 1) tips.push(`The "${bd.key}" design reaches most of the posters made here.`);
   const bp = best(by.palette);

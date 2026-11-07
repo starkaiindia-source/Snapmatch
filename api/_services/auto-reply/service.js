@@ -721,9 +721,33 @@ function inboxDeps(now) {
   };
 }
 
-const inboxList = () => inbox.list(inboxDeps());
+/* Meta takes many seconds to list conversations, so a warm instance keeps the list a
+   little while, and a channel Meta refuses (Messenger without pages_messaging) is not
+   asked again for a quarter of an hour. A reply from here clears the list. */
+const INBOX_KEEP_MS = 45 * 1000;
+const CHANNEL_OFF_MS = 15 * 60 * 1000;
+let inboxCache = null;
+let messengerOff = null;
+
+async function inboxList(q = {}) {
+  const now = Date.now();
+  const limit = q.more ? 50 : 25;
+  if (!q.fresh && inboxCache && inboxCache.limit >= limit && now - inboxCache.at < INBOX_KEEP_MS) return inboxCache.value;
+  const deps = inboxDeps(now);
+  deps.limit = limit;
+  if (messengerOff && now < messengerOff.until) {
+    const reason = messengerOff.reason;
+    deps.meta = Object.assign({}, deps.meta, { pageConversations: async () => { throw new Error(reason); } });
+  }
+  const value = await inbox.list(deps);
+  const m = value.channels.messenger;
+  if (m && !m.connected && !(messengerOff && now < messengerOff.until)) messengerOff = { reason: m.reason, until: now + CHANNEL_OFF_MS };
+  if (m && m.connected) messengerOff = null;
+  inboxCache = { at: now, limit, value };
+  return value;
+}
 const inboxThread = q => inbox.thread(inboxDeps(), q);
-const inboxReply = input => inbox.reply(inboxDeps(), input);
+const inboxReply = input => { inboxCache = null; return inbox.reply(inboxDeps(), input); };
 const inboxContact = input => inbox.saveContact(db, input, Date.now());
 
 async function inboxLeads() {

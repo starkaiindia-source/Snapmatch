@@ -80,8 +80,8 @@ async function list(deps) {
   const threads = [];
 
   const [ig, fb] = await Promise.all([
-    meta.conversations(50).then(d => ({ d }), err => ({ err })),
-    meta.pageConversations(50).then(d => ({ d }), err => ({ err }))
+    meta.conversations(deps.limit || 25).then(d => ({ d }), err => ({ err })),
+    meta.pageConversations(deps.limit || 25).then(d => ({ d }), err => ({ err }))
   ]);
 
   if (ig.err) channels.instagram = { connected: false, reason: ig.err.message || 'Instagram could not be read.' };

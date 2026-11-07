@@ -42,7 +42,7 @@ module.exports = async function handler(req, res) {
     if (req.method === 'GET') {
       if (view === 'leads') return ok(res, { leads: await replies.sales.listLeads() });
       /* the inbox: every chat on every channel, the leads and notes behind them, one chat */
-      if (view === 'inbox') return ok(res, await replies.inboxList());
+      if (view === 'inbox') return ok(res, await replies.inboxList({ more: req.query.more === '1', fresh: req.query.fresh === '1' }));
       if (view === 'people') return ok(res, await replies.inboxLeads());
       if (view === 'thread') {
         const t = await replies.inboxThread(req.query || {});

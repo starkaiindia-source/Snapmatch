@@ -1418,3 +1418,6 @@ a.adm__btn { text-decoration: none; display: inline-flex; align-items: center; g
   .pz-tile__top { top: 4px; left: 4px; gap: 3px; }
   .pz-tile__foot { padding: 12px 5px 4px; font-size: 9.5px; }
 }
+
+.ib__wait { margin: 10px 16px 0; color: var(--ink-3); font-size: 12.5px; }
+.ib__more { display: block; width: calc(100% - 24px); margin: 10px 12px 14px; padding: 9px; border: 1px dashed var(--line); border-radius: 10px; background: var(--surface); color: var(--teal-700); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }

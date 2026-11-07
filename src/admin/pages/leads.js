@@ -201,8 +201,9 @@
         '<div class="ib__threads">' +
           (state.listErr && !state.threads.length ? '<div class="ib__off"><b>Chats could not be read</b><p>' + ui.esc(state.listErr) + '</p></div>'
             : off ? '<div class="ib__off">' + logo(state.channel, 36) + '<b>' + ui.esc(CHANNELS.filter(function (c) { return c[0] === state.channel; })[0][1]) + ' is not connected</b><p>' + ui.esc(ch[state.channel].reason) + '</p></div>'
-            : !state.channels ? new Array(6).fill('<div class="ib__row is-skel"><span class="ib-av" style="--s:44px"></span><div><div class="adm__skel"></div><div class="adm__skel" style="width:60%;margin-top:7px"></div></div></div>').join('')
-            : list.length ? list.map(rowHTML).join('')
+            : !state.channels ? '<p class="ib__wait">Reading your chats from Instagram…</p>' + new Array(6).fill('<div class="ib__row is-skel"><span class="ib-av" style="--s:44px"></span><div><div class="adm__skel"></div><div class="adm__skel" style="width:60%;margin-top:7px"></div></div></div>').join('')
+            : list.length ? list.map(rowHTML).join('') + (!state.more && state.threads.length >= 25 && !state.q
+              ? '<button class="ib__more" data-more>' + (state.loadingMore ? 'Reading older chats…' : 'Show older chats') + '</button>' : '')
             : '<div class="ib__off"><b>Nothing here</b><p>' + (state.q ? 'No chat matches that search.' : 'No chats in this stage yet.') + '</p></div>') +
         '</div></aside>';
     }
@@ -370,7 +371,8 @@
 
     /* ----------------------------------------------------------- data */
     function loadList() {
-      return ADM.api.autoReply({ view: 'inbox' }).then(function (r) {
+      return ADM.api.autoReply({ view: 'inbox', more: state.more ? '1' : undefined }).then(function (r) {
+        state.loadingMore = false;
         /* a server without the inbox answers with something else: say so, never load forever */
         if (!r || !r.channels) throw new Error('The server does not have the inbox yet. It arrives with the next deploy.');
         state.listErr = null;
@@ -378,6 +380,7 @@
         state.threads = r.threads || [];
         keepTyping(paint);
       }).catch(function (err) {
+        state.loadingMore = false;
         state.listErr = err.message || 'Could not read the chats';
         state.channels = state.channels || {};
         keepTyping(paint);
@@ -529,6 +532,7 @@
     root.addEventListener('click', function (e) {
       var b = e.target.closest('button, [data-open]');
       if (!b || !root.contains(b)) return;
+      if (b.hasAttribute('data-more')) { if (!state.loadingMore) { state.more = true; state.loadingMore = true; paint(); loadList(); } return; }
       if (b.hasAttribute('data-channel')) { state.channel = b.getAttribute('data-channel'); paint(); return; }
       if (b.hasAttribute('data-funnel')) { state.funnel = b.getAttribute('data-funnel'); paint(); return; }
       if (b.hasAttribute('data-open')) { open(b.getAttribute('data-open')); return; }
