@@ -60,6 +60,7 @@ const STYLE_TAG = `<link rel="stylesheet" href="/${OUT_CSS}" />`;
 const SKIP = new Set(['node_modules', '.git', '.claude', '.cloudflare', '.vercel', '.review-video', 'data', 'dist', 'scripts', 'api', 'src']);
 
 const read = p => fs.readFileSync(path.join(ROOT, p), 'utf8');
+const lf = s => s.replace(/\r\n/g, '\n');
 
 function joined(files, comment) {
   return files.map(f => `${comment(f)}\n${read(f).replace(/^﻿/, '').replace(/\s*$/, '')}\n`).join('\n');
@@ -110,7 +111,8 @@ function run(check) {
   for (const [file, body] of Object.entries(bundles())) {
     const at = path.join(ROOT, file);
     const now = fs.existsSync(at) ? fs.readFileSync(at, 'utf8') : null;
-    if (now === body) continue;
+    /* git may check the file out with other line endings than it was built with */
+    if (now !== null && lf(now) === lf(body)) continue;
     stale.push(file);
     if (!check) fs.writeFileSync(at, body);
   }
@@ -138,6 +140,6 @@ if (require.main === module) {
     }
     console.log('web bundle up to date');
   } else {
-    console.log(`${OUT_JS} and ${OUT_CSS} written; ${rewritten} page(s) now load them`);
+    console.log(`${stale.length ? "rebuilt" : "unchanged"}: ${OUT_JS}, ${OUT_CSS}; ${rewritten} page(s) moved to them`);
   }
 }
