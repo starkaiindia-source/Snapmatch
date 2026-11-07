@@ -428,9 +428,7 @@ ${p.noindex ? '' : `<link rel="canonical" href="${esc(canonical)}" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/assets/styles.css" />
-<link rel="stylesheet" href="/assets/components.css" />
-<link rel="stylesheet" href="/assets/seo.css" />
+${STYLE_TAG}
 <script type="application/ld+json">
 ${jsonld}
 </script>
@@ -448,22 +446,13 @@ ${appOwns(p.url) ? '' : THEME_BOOT}
 
    `defer` because these must not block parsing of the pre-rendered content
    that is the whole point of the file; it preserves execution order, which is
-   what the SM.* globals depend on. */
-const APP_BOOT = [
-  'src/data/debug.js', 'src/data/dataset.js', 'src/data/brand-marks.js',
-  'src/data/countries.js', 'src/data/firebase.js', 'src/data/firestore.js',
-  'src/data/billing.js', 'src/data/auth.js', 'src/data/api.js',
-  /* Kept in step with index.html and with build.js. Three lists that name the
-     same scripts is two lists that can be forgotten — and a script missing
-     from HERE is missing from every pre-rendered page while working perfectly
-     on the SPA shell, which is the hardest version of that bug to notice. */
-  'src/data/access.js',
-  'src/data/analytics.js',
-  'src/ui/icons.js', 'src/ui/product-art.js', 'src/data/category-assets.js',
-  'src/data/brand-assets.js',
-  'src/data/pwa.js',
-  'src/ui/components.js', 'src/app.js'
-].map(s => `<script src="/${s}" defer></script>`).join('\n');
+   what the SM.* globals depend on.
+
+   One file, joined by build-web-bundle.js from its list of the boot scripts:
+   eighteen separate requests per page view are what paused the site on
+   Vercel's free plan. */
+const { SCRIPT_TAG, STYLE_TAG } = require('./build-web-bundle');
+const APP_BOOT = SCRIPT_TAG;
 
 
 /* Which URLs the app actually renders. The same table app.js keeps in ROUTES,
@@ -1065,9 +1054,7 @@ function modelHead(p) {
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="/assets/brand/icon-180.png" />
 <link rel="manifest" href="/site.webmanifest" />
-<link rel="stylesheet" href="/assets/styles.css" />
-<link rel="stylesheet" href="/assets/components.css" />
-<link rel="stylesheet" href="/assets/seo.css" />
+${STYLE_TAG}
 <script type="application/ld+json">${JSON.stringify(p.jsonld)}</script>
 </head>
 <body>

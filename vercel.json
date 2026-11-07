@@ -152,6 +152,27 @@
       "continue": true
     },
     {
+      "src": "/assets/app\\.(js|css)",
+      "headers": {
+        "Cache-Control": "public, max-age=900"
+      },
+      "continue": true
+    },
+    {
+      "src": "/src/(.*)\\.js",
+      "headers": {
+        "Cache-Control": "public, max-age=900"
+      },
+      "continue": true
+    },
+    {
+      "src": "/(favicon\\.ico|favicon\\.svg|site\\.webmanifest|apple-touch-icon(-precomposed)?\\.png)",
+      "headers": {
+        "Cache-Control": "public, max-age=604800"
+      },
+      "continue": true
+    },
+    {
       "handle": "filesystem"
     },
     {
