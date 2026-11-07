@@ -143,3 +143,12 @@ test('an unknown account is refused before anything is drawn', async () => {
   assert.equal(r.ok, false);
   assert.equal(r.code, 'bad_account');
 });
+
+test('a check makes the containers and waits, but publishes and records nothing', () =>
+  withFakes(group('sg-0167', 12), 1, async (db, writes) => {
+    const g = fakeGraph(['FINISHED']);
+    const r = await publish.publish({ account: 'mpf', group: 'sg-0167', kind: 'single', check: true }, { fetch: g.fetch, db, sleep: async () => {} });
+    assert.equal(r.checked, true);
+    assert.equal(g.calls.filter(c => c.path.endsWith('media_publish')).length, 0);
+    assert.equal(writes.length, 0);
+  }));

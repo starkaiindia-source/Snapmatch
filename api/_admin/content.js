@@ -39,7 +39,8 @@ module.exports = async function handler(req, res) {
       if (input.action === 'publish') {
         const r = await publisher.publish({
           account: String(input.account || ''), group: String(input.group || ''), kind: input.kind,
-          design: input.design || undefined, palette: input.palette || undefined, caption: input.caption, uid: admin.uid
+          design: input.design || undefined, palette: input.palette || undefined, caption: input.caption, uid: admin.uid,
+          check: input.check === true
         });
         return r.ok ? ok(res, r) : json(res, r.code === 'missing' ? 404 : 409, { error: r.message, code: r.code });
       }

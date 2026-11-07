@@ -159,7 +159,7 @@
       "continue": true
     },
     {
-      "src": "/src/(.*)\\.js",
+      "src": "/src/(data/.*|ui/.*|app)\\.js",
       "headers": {
         "Cache-Control": "public, max-age=3600"
       },

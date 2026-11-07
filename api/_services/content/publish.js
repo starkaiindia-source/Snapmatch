@@ -186,7 +186,10 @@ async function waitReady(id, fetchImpl, sleep) {
 
 /**
  * Posts one poster.
- * @param {object} o  account, group, kind ('single'|'carousel'), design, palette, caption, uid
+ * @param {object} o  account, group, kind ('single'|'carousel'), design, palette, caption, uid,
+ *                   check (true: make the containers and wait for Instagram to take
+ *                   the pictures, but publish nothing; a container left unpublished
+ *                   is never shown and expires in a day)
  */
 async function publish(o, deps = {}) {
   const acct = ACCOUNTS[o.account];
@@ -212,6 +215,7 @@ async function publish(o, deps = {}) {
     creation = (await graph('POST', `${ig}/media`, { media_type: 'CAROUSEL', children: children.join(','), caption }, f)).id;
   }
   await waitReady(creation, f, deps.sleep);
+  if (o.check) return { ok: true, checked: true, slides };
   const posted = await graph('POST', `${ig}/media_publish`, { creation_id: creation }, f);
   const info = await graph('GET', posted.id, { fields: 'permalink' }, f).catch(() => ({}));
 
