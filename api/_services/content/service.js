@@ -86,6 +86,30 @@ function newest(limit = LIST) {
 /** More of the newest phones, for a week of rows once the idea lists are used up. */
 const latest = limit => newest(Math.min(Number(limit) || LIST, 400));
 
+/* The masters of the biggest groups: phones with real compatibility data,
+   for a week of rows on two accounts. One read a group, kept for hours. */
+let bigKept = null;
+const BIG_KEEP_MS = 6 * 60 * 60 * 1000;
+async function bigMasters(limit = 150) {
+  if (bigKept && Date.now() - bigKept.at < BIG_KEEP_MS) return bigKept.list;
+  const snap = await db().collection(C.GROUP_DETAILS).orderBy('memberCount', 'desc').limit(Math.min(Number(limit) || 150, 300)).get();
+  const seen = new Set();
+  const list = [];
+  snap.docs.forEach(d => {
+    const v = d.data() || {};
+    if (v.mergedInto || !poster.categoryOf(d.id)) return;
+    const ids = Array.isArray(v.memberIds) ? v.memberIds : [];
+    const names = Array.isArray(v.memberNames) ? v.memberNames : [];
+    const at = Math.max(0, names.indexOf(v.drawingName));
+    const id = ids[at];
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    list.push({ id, name: names[at] || v.drawingName || id, count: Number(v.memberCount) || ids.length });
+  });
+  if (list.length) bigKept = { at: Date.now(), list };
+  return list;
+}
+
 /** The groups with the most models. */
 async function biggest() {
   const snap = await db().collection(C.GROUP_DETAILS).orderBy('memberCount', 'desc').limit(60).get();
@@ -236,4 +260,4 @@ async function makePhoto(groupId, uid) {
 /** How many phones the catalogue holds, for the marketing posters' numbers. */
 const modelCount = () => search.loadIndex().models.length;
 
-module.exports = { ideas, groupsOf, find, picture, makePhoto, groupOf, brandOf, modelCount, masterIdOf, modelOf, latest };
+module.exports = { ideas, groupsOf, find, picture, makePhoto, groupOf, brandOf, modelCount, masterIdOf, modelOf, latest, bigMasters };

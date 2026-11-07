@@ -259,7 +259,7 @@ async function candidates(content, now) {
     const id = group && content.masterIdOf ? content.masterIdOf(group) : null;
     if (id) add(id, group.masterModelName || g.master, 'biggest', `One part of it fits ${g.count} phones`);
   });
-  ((content.latest && content.latest(150)) || []).forEach(m => add(m.id, m.name, 'newest', `${m.name}: a new model${m.year ? ' of ' + m.year : ''}`));
+  ((content.latest && content.latest(150)) || []).forEach(m => add(m.id, m.name, 'latest', `${m.name}: a new model${m.year ? ' of ' + m.year : ''}`));
   const groups = (ideas.biggest || []).map(g => ({ groupId: g.groupId, categoryId: g.categoryId, master: g.master, count: g.count, source: 'biggest', why: `One part fits ${g.count} phones` }));
   const stat = (ideas.biggest || []).filter(g => g.categoryId === 'screen-guards').sort((a, b) => b.count - a.count)[0] || (ideas.biggest || [])[0] || null;
   const list = { masters, groups, stat: stat ? { groupId: stat.groupId, master: stat.master, count: stat.count, categoryId: stat.categoryId } : null };
@@ -364,9 +364,17 @@ async function plan(deps, account, now, opts = {}) {
   const rows = [];
   /* groups read but not in a row: a single in place of marketing that would clash */
   const spares = cands.groups.slice();
-  const pool = cands.masters.filter(m => !theirMasters.has(m.id) && !mineMasters.has(m.id)).slice(0, rowsWanted * 3 + 20);
-  for (let i = 0; i < pool.length && rows.length < rowsWanted; i += 6) {
-    const batch = pool.slice(i, i + 6);
+  /* the idea lists first, then the masters of the biggest groups (phones with
+     real data), then the newest phones, which often have little yet */
+  const big = rowsWanted && content.bigMasters ? await content.bigMasters(150).catch(() => []) : [];
+  const ordered = cands.masters.filter(m => m.source !== 'latest')
+    .concat(big.map(m => ({ id: m.id, name: m.name, source: 'biggest', why: `${m.name}: one of its parts fits ${m.count} phones` })))
+    .concat(cands.masters.filter(m => m.source === 'latest'));
+  const seenPool = new Set();
+  const pool = ordered.filter(m => !theirMasters.has(m.id) && !mineMasters.has(m.id) && !seenPool.has(m.id) && seenPool.add(m.id))
+    .slice(0, rowsWanted * 3 + 20);
+  for (let i = 0; i < pool.length && rows.length < rowsWanted; i += 10) {
+    const batch = pool.slice(i, i + 10);
     const got = await Promise.all(batch.map(m => content.groupsOf(m.id).catch(() => null)));
     batch.forEach((m, j) => {
       ((got[j] && got[j].groups) || []).forEach(g => { if (g.count >= 4) spares.push(Object.assign({ why: m.why, source: m.source }, g)); });
