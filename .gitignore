@@ -43,3 +43,6 @@ data/build/poc-apple/
 
 # Cloudflare Pages bundle — regenerate with: node scripts/build-cloudflare.js
 .cloudflare/
+
+# Vercel CLI link for this folder
+.vercel/

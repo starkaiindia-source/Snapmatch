@@ -46,3 +46,14 @@
 # pages, robots.txt, sitemap.xml, site.webmanifest and the brand icons) — it is
 # the pre-rendered HTML search engines and social cards read. Rebuild it with
 #   node scripts/build-seo.js && python scripts/build-icons.py
+
+# A CLI deploy uploads the working tree, not the commit, so local-only files
+# must be named here. api/_data/ stays out so production keeps reading the
+# paid groups from Firestore, exactly as a deploy from GitHub did.
+/api/_data/
+/.review-video/
+/.github/
+/.cloudflare/
+/.vercel/
+/.env.local
+/.env*.local
